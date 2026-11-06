@@ -9,7 +9,7 @@ set -euo pipefail
 # every project-image rebuild.
 #
 # pi-container's own development needs nothing beyond that — `uv venv` / `uv sync`
-# run as the pi user at startup, from .pi-container/dependencies/pi/commands.sh.
+# run as the agent user at startup, from .pi-container/dependencies/agent/commands.sh.
 # Add system packages here if that changes, e.g.:
 #   apt-get update && apt-get install -y --no-install-recommends <package>
 

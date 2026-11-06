@@ -54,7 +54,7 @@ flags:
   - 8192
   - "--jinja"
   - "--chat-template-file"
-  - ".pi-container/chat-templates/gemma-4-26B-A4B-it/chat_template.jinja"
+  - "~/.config/pi-container/chat-templates/gemma-4-26B-A4B-it/chat_template.jinja"
   - "--reasoning"
   - "on"
   - "--n-gpu-layers"

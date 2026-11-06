@@ -164,9 +164,7 @@ def main() -> None:
     pi_container_dir = PROJECT_DIR / ".pi-container"
     models_path: Path | None = resolve_models_file(pi_container_dir)
     if models_path is None or not models_path.exists():
-        logger.error(
-            f"Config file not found: expected {pi_container_dir / 'models.yaml'} or {agent_config_dir / 'models.json'}"
-        )
+        logger.error(f"Config file not found: expected {pi_container_dir / 'models.yaml'}")
         sys.exit(1)
 
     # Validate per-project config schema and version compatibility.
@@ -191,7 +189,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Validate models schema (models.yaml or models.json).
+    # Validate models schema (models.yaml).
     models_valid, models_errors = validate_models(models_path)
     if not models_valid:
         logger.error(f"Configuration error in {models_path.name}:")
@@ -369,10 +367,6 @@ def main() -> None:
             _arg_i += 2
             continue
         if _arg.startswith("--t3-public-url="):
-            cli_t3_public_url = _arg.split("=", 1)[1]
-            cli_t3 = True
-            _arg_i += 1
-            continue
             cli_t3_public_url = _arg.split("=", 1)[1]
             cli_t3 = True
             _arg_i += 1
@@ -608,9 +602,10 @@ def main() -> None:
                 netmgr.warn_if_proxy_lacks_ipv6_egress()
 
             # ─── Resolve agent image (shared vs. project-specific) ──────
-            agent_image_tag, is_project_specific = images.resolve_agent_image(PROJECT_DIR)
+            driver_tools = driver.required_tools
+            agent_image_tag, is_project_specific = images.resolve_agent_image(PROJECT_DIR, extra_tools=driver_tools)
             if is_project_specific:
-                label_hash = images.compute_image_hash(PROJECT_DIR)
+                label_hash = images.compute_image_hash(PROJECT_DIR, extra_tools=driver_tools)
                 project_hash, _ = project.project_scope(PROJECT_DIR)
                 project_path = str(PROJECT_DIR.resolve())
 
@@ -632,7 +627,12 @@ def main() -> None:
                 shared_tag, shared_ts = newest_shared
 
                 reason = images.project_image_build_reason(
-                    PROJECT_DIR, agent_image_tag, label_hash, shared_ts, shared_tag, runtime=CONTAINER_RUNTIME
+                    PROJECT_DIR,
+                    agent_image_tag,
+                    label_hash,
+                    shared_ts,
+                    shared_tag,
+                    runtime=CONTAINER_RUNTIME,
                 )
                 if reason is not None:
                     logger.info(f"Building project-specific agent image: {agent_image_tag} ({reason})")
@@ -641,7 +641,7 @@ def main() -> None:
                         root_commands_path = str(root_commands_file)
                     else:
                         root_commands_path = str(DEFAULT_ROOT_COMMANDS)
-                    project_tools = images.read_project_tools(PROJECT_DIR)
+                    project_tools = images.read_project_tools(PROJECT_DIR, extra_tools=driver_tools)
                     images.ensure_tool_images(project_tools, CONTAINER_RUNTIME, repo_root=REPO_ROOT)
                     build_project_image(
                         CONTAINER_RUNTIME,
@@ -782,7 +782,7 @@ def main() -> None:
                     if is_t3_mode
                     else []
                 ),
-                *RUNTIME.tmpfs_args("/home/pi/"),
+                *RUNTIME.tmpfs_args("/home/agent/"),
                 *driver_mounts,
                 "--volume",
                 f"{PROJECT_DIR}:/workspace",

@@ -487,8 +487,9 @@ REQUIRED_GITIGNORE_ENTRIES: tuple[str, ...] = (
     ".pi-container/agent/sessions",
     ".pi-container/agent/trust.json",
     ".pi-container/agent/models-store.json",
+    ".pi-container/agent/models.json",
+    ".pi-container/agents",
     ".pi-container/exports/",
-    ".pi-container/agent/sessions/",
 )
 
 

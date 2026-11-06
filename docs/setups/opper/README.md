@@ -23,8 +23,12 @@ mkdir -p ~/.config/pi-container/gateways
 cp docs/setups/opper/opper.yaml ~/.config/pi-container/gateways/
 ```
 
-### 2. Configure the Agent Models
-Copy `models.json` from this directory into your workspace's `.pi-container/agent/models.json` (or merge the `opper` provider into your existing providers list).
+### 2. Configure the Workspace Models Allowlist
+Add `opper` to `.pi-container/models.yaml` under `allow`:
+```yaml
+allow:
+  - "opper"
+```
 
 ### 3. Allow Proxy Egress
 Add `api.opper.ai` to your workspace `.pi-container/allowlist.yaml`:

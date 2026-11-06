@@ -115,7 +115,7 @@ The order is not optional: the proxy image `COPY --from`s the builder, and the a
 
 ### 3. Run the Agent
 
-The `run.sh` script manages the entire lifecycle. The script validates the environment, starts llama-server instances for each model defined in `models.json`, sets up the proxy container with its transparent proxy rules, and launches the pi container.
+The `run.sh` script manages the entire lifecycle. The script validates the environment, starts llama-server instances for each local model allowed in `models.yaml`, sets up the proxy container with its transparent proxy rules, and launches the agent container.
 
 ```sh
 # Recommended: alias for convenience
@@ -125,7 +125,7 @@ alias pi="~/workspace/pi-container/run.sh"
 pi --session 1234abcd-ef56-78ab-cd90-1234abcd56ef
 ```
 
-The script reads `<project>/.pi-container/agent/models.json` (seeded from the `coding-agent/default/` template on first run) to determine which LLM providers to start. Each entry defines a model, download source, server flags, and OpenAI-compatible API configuration. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent `pi` invocations **from the same workspace** share that workspace's proxy via a refcount.
+The script reads `<project>/.pi-container/models.yaml` (seeded from the `coding-agent/default/` template on first run) to determine which LLM providers and gateways are allowed. Global definitions under `~/.config/pi-container/models/` and `~/.config/pi-container/gateways/` supply model weights, server flags, and gateway endpoints. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent invocations **from the same workspace** share that workspace's proxy via a refcount.
 
 ### 4. Using the Agent
 

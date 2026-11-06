@@ -39,12 +39,14 @@ def now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read_project_tools(project_dir: Path) -> list[str]:
-    """Read the list of tools enabled in .pi-container/config.yaml."""
+def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) -> list[str]:
+    """Read the list of tools enabled in .pi-container/config.yaml plus any driver-requested tools."""
     cfg_path = project_dir / ".pi-container" / "config.yaml"
     tools: set[str] = set()
+    if extra_tools:
+        tools.update(t for t in extra_tools if isinstance(t, str))
     if not cfg_path.exists():
-        return []
+        return sorted(tools)
     try:
         data = load_yaml_strict(cfg_path.read_text()) or {}
         tools_sec = data.get("tools")
@@ -66,7 +68,11 @@ def read_project_tools(project_dir: Path) -> list[str]:
     return sorted(tools)
 
 
-def compute_image_hash(project_dir: Path, repo_root: Path | None = None) -> str | None:
+def compute_image_hash(
+    project_dir: Path,
+    repo_root: Path | None = None,
+    extra_tools: list[str] | None = None,
+) -> str | None:
     """Compute content hash for files affecting the project-specific container image."""
     r_root = repo_root or REPO_ROOT
     deps_root = project_dir / ".pi-container" / "dependencies"
@@ -78,12 +84,12 @@ def compute_image_hash(project_dir: Path, repo_root: Path | None = None) -> str 
         if img_path.exists():
             files_to_hash.append(img_file)
 
-    for cmd_file in ("root/commands.sh", "pi/commands.sh"):
+    for cmd_file in ("root/commands.sh", "agent/commands.sh"):
         cmd_path = deps_root / cmd_file
         if cmd_path.exists() and cmd_path.stat().st_size > 0:
             files_to_hash.append(cmd_file)
 
-    tools = read_project_tools(project_dir)
+    tools = read_project_tools(project_dir, extra_tools=extra_tools)
     if not files_to_hash and not tools:
         return None
 
@@ -184,23 +190,27 @@ def ensure_tool_images(
 def has_dependency_files(project_dir: Path) -> bool:
     """Check if the project has non-empty dependency definition command files."""
     deps_root = project_dir / ".pi-container" / "dependencies"
-    for cmd_file in ("root/commands.sh", "pi/commands.sh"):
+    for cmd_file in ("root/commands.sh", "agent/commands.sh"):
         cmd_path = deps_root / cmd_file
         if cmd_path.exists() and cmd_path.stat().st_size > 0:
             return True
     return False
 
 
-def resolve_agent_image(project_dir: Path, repo_root: Path | None = None) -> tuple[str, bool]:
+def resolve_agent_image(
+    project_dir: Path,
+    repo_root: Path | None = None,
+    extra_tools: list[str] | None = None,
+) -> tuple[str, bool]:
     """Resolve the agent container image tag for this workspace."""
     has_deps = has_dependency_files(project_dir)
-    tools = read_project_tools(project_dir)
+    tools = read_project_tools(project_dir, extra_tools=extra_tools)
     if not has_deps and not tools:
         return IMAGE_TAG, False
 
     project_hash, _ = project.project_scope(project_dir)
     key = project_hash.split("pi-proxy-")[1]
-    image_hash = compute_image_hash(project_dir, repo_root=repo_root)
+    image_hash = compute_image_hash(project_dir, repo_root=repo_root, extra_tools=extra_tools)
     project_image_tag = f"pi-container-project-{key}-{image_hash}.local"
     return project_image_tag, True
 

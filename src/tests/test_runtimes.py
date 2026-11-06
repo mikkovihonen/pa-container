@@ -122,9 +122,9 @@ class TestTmpfsArgs:
         assert ContainerRuntime.tmpfs_args(PodmanRuntime(), "/x") == ["--tmpfs", "/x"]
 
     def test_podman_uses_mount_syntax(self):
-        assert PodmanRuntime().tmpfs_args("/home/pi/") == [
+        assert PodmanRuntime().tmpfs_args("/home/agent/") == [
             "--mount",
-            "type=tmpfs,tmpfs-mode=1777,notmpcopyup,nodev,nosuid,destination=/home/pi/",
+            "type=tmpfs,tmpfs-mode=1777,notmpcopyup,nodev,nosuid,destination=/home/agent/",
         ]
 
 
@@ -225,7 +225,7 @@ class TestUpstreamNetworkHasIpv6:
 # Nested containers (config.yaml nested_containers)
 # ---------------------------------------------------------------------------
 
-_STORE = "/home/pi/.local/share/containers"
+_STORE = "/home/agent/.local/share/containers"
 
 
 def _nested(**overrides) -> dict:

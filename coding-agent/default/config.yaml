@@ -60,7 +60,7 @@ agent:
   env: {}
   # Extra bind mounts (use absolute host paths). "host:container[:ro]".
   #   mounts:
-  #     - /Users/me/.cache/pip:/home/pi/.cache/pip
+  #     - /Users/me/.cache/pip:/home/agent/.cache/pip
   mounts: []
   # Linux capabilities to add to the agent container. Use the full name
   # (e.g., "SYS_PTRACE") or short form (e.g., "CAP_SYS_PTRACE"). Common options:

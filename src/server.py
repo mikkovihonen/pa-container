@@ -15,11 +15,14 @@ import threading
 import time
 import urllib.request
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from config import LOGS_DIR
 from models import Model, ServerConfig
+from template_paths import resolve_chat_template_path
 from util import (
     get_free_port,
     get_ref_count,
@@ -124,9 +127,7 @@ class Server:
         while i < len(raw_flags):
             flag = raw_flags[i]
             if flag == "--chat-template-file" and i + 1 < len(raw_flags):
-                template_path = Path(raw_flags[i + 1])
-                if not template_path.is_absolute():
-                    template_path = (self.repo_root / template_path).resolve()
+                template_path = resolve_chat_template_path(raw_flags[i + 1], repo_root=self.repo_root)
                 flags.extend([flag, str(template_path)])
                 i += 2
                 continue

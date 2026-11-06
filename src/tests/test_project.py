@@ -50,12 +50,15 @@ class TestEnsureProjectConfig:
         """Build a minimal coding-agent/default template under root."""
         template = root / "coding-agent" / "default"
         (template / "agent").mkdir(parents=True)
-        (template / "agent" / "models.json").write_text("{}")
-        (template / "chat-templates" / "Some-Model").mkdir(parents=True)
-        (template / "chat-templates" / "Some-Model" / "chat_template.jinja").write_text("{{ x }}")
+        (template / "agent" / "config.json").write_text("{}")
         (template / "config.yaml").write_text("tmpfs:\n  paths: []\n")
         (template / "allowlist.yaml").write_text("global: {}\n")
         (template / "token_replacer.yaml").write_text("global: {}\n")
+        (template / "models.yaml").write_text("allow:\n  - test\n")
+        (template / "dependencies" / "root").mkdir(parents=True)
+        (template / "dependencies" / "root" / "commands.sh").write_text("#!/bin/bash\n")
+        (template / "dependencies" / "agent").mkdir(parents=True)
+        (template / "dependencies" / "agent" / "commands.sh").write_text("#!/bin/bash\n")
         return template
 
     def test_seeds_agent_and_yaml_when_absent(self, tmp_path, monkeypatch):
@@ -69,10 +72,12 @@ class TestEnsureProjectConfig:
         agent_dir = project.ensure_project_config()
 
         assert agent_dir == proj / ".pi-container" / "agent"
-        assert (agent_dir / "models.json").exists()
-        assert (proj / ".pi-container" / "chat-templates" / "Some-Model" / "chat_template.jinja").exists()
-        for name in ("config.yaml", "allowlist.yaml", "token_replacer.yaml"):
+        assert (agent_dir / "config.json").exists()
+        assert not (proj / ".pi-container" / "chat-templates").exists()
+        for name in ("config.yaml", "allowlist.yaml", "token_replacer.yaml", "models.yaml"):
             assert (proj / ".pi-container" / name).exists()
+        assert (proj / ".pi-container" / "dependencies" / "root" / "commands.sh").exists()
+        assert (proj / ".pi-container" / "dependencies" / "agent" / "commands.sh").exists()
 
     def test_does_not_overwrite_existing(self, tmp_path, monkeypatch):
         repo = tmp_path / "repo"
@@ -90,7 +95,7 @@ class TestEnsureProjectConfig:
         assert existing.read_text() == "global: {custom: true}\n"
         # Missing ones are still seeded.
         assert (proj / ".pi-container" / "token_replacer.yaml").exists()
-        assert (proj / ".pi-container" / "agent" / "models.json").exists()
+        assert (proj / ".pi-container" / "agent" / "config.json").exists()
 
 
 class TestEnsureProjectConfigMissingTemplate:

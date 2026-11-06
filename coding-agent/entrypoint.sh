@@ -34,36 +34,36 @@ else
     printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99force-ipv4
 fi
 
-# ─── Home directory ownership (/home/pi is mounted as tmpfs at runtime) ───
-chown pi:pi /home/pi
-chmod 755 /home/pi
+# ─── Home directory ownership (/home/agent is mounted as tmpfs at runtime) ───
+chown agent:agent /home/agent
+chmod 755 /home/agent
 
 # ─── Shadow directories ownership (tmpfs / named volume mounts) ───────────
 # Mount roots (tmpfs, named volumes) are created owned by root:root (0755).
-# Chown them to pi:pi so non-root agent processes can write files and directories.
+# Chown them to agent:agent so non-root agent processes can write files and directories.
 if [ -n "$CONTAINER_CHOWN_PATHS" ]; then
     IFS=':' read -ra _paths <<< "$CONTAINER_CHOWN_PATHS"
     for _path in "${_paths[@]}"; do
         if [ -d "$_path" ]; then
-            chown pi:pi "$_path" 2>/dev/null || true
+            chown agent:agent "$_path" 2>/dev/null || true
             chmod 755 "$_path" 2>/dev/null || true
         fi
     done
 fi
 
 # ─── Nested container support (PI_CONTAINER_NESTED, injected by run.py) ───
-# Only the setup that genuinely needs root happens here, before `gosu pi`.
+# Only the setup that genuinely needs root happens here, before `gosu agent`.
 # Rootless podman needs a private XDG_RUNTIME_DIR for its locks and pid files,
 # and it must own its own image store: the volume (or tmpfs) mounted at
 # ~/.local/share/containers is freshly created and root-owned on the first run.
 # The chown is deliberately non-recursive — a populated store already belongs to
-# pi, and walking every layer would be slow for nothing.
+# agent, and walking every layer would be slow for nothing.
 if [ "${PI_CONTAINER_NESTED}" = "true" ]; then
     mkdir -p /run/user/1000
-    chown pi:pi /run/user/1000
+    chown agent:agent /run/user/1000
     chmod 700 /run/user/1000
-    for _dir in /home/pi/.local /home/pi/.local/share /home/pi/.local/share/containers; do
-        mkdir -p "$_dir" 2>/dev/null && chown pi:pi "$_dir" 2>/dev/null \
+    for _dir in /home/agent/.local /home/agent/.local/share /home/agent/.local/share/containers; do
+        mkdir -p "$_dir" 2>/dev/null && chown agent:agent "$_dir" 2>/dev/null \
             || echo "WARNING: could not prepare nested image store at $_dir"
     done
 fi
@@ -89,12 +89,12 @@ fi
 if [ -n "$HOST_GIT_CONFIG" ]; then
     while IFS=$'\t' read -r key value; do
         if [[ -n "$key" ]]; then
-            gosu pi git config --global "$key" "$value"
+            gosu agent git config --global "$key" "$value"
         fi
     done < <(echo "$HOST_GIT_CONFIG" | jq -r 'to_entries[] | [.key, .value] | @tsv')
 fi
 
-exec gosu pi bash -c '
+exec gosu agent bash -c '
     set -a; source /etc/environment; set +a;
 
     # ─── Source control credential helpers (SETUP_GIT_CREDENTIALS) ────────────
@@ -111,8 +111,8 @@ exec gosu pi bash -c '
         fi
     fi
 
-    if [ -x .pi-container/dependencies/pi/commands.sh ]; then
-        .pi-container/dependencies/pi/commands.sh
+    if [ -x .pi-container/dependencies/agent/commands.sh ]; then
+        .pi-container/dependencies/agent/commands.sh
     fi
 
     if [ "$PI_CONTAINER_MODE" = "t3" ]; then
@@ -144,7 +144,7 @@ exec gosu pi bash -c '
             node "$_seed_script" 2>/dev/null || true
         fi
 
-        exec t3 serve --base-dir /home/pi/.pi/agent/t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
+        exec t3 serve --base-dir /home/agent/.pi/agent/t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
     else
         case "${PI_CONTAINER_AGENT:-pi}" in
             opencode|open-code)

@@ -4,10 +4,8 @@ from typing import TYPE_CHECKING
 import yaml
 
 from schema_common import (
-    MODELS_SCHEMA,
     MODELS_YAML_SCHEMA,
     SCHEMA,
-    _validate_models_providers,
     _validate_models_yaml,
     _validate_schema,
 )
@@ -19,7 +17,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-"""Configuration schema validation for `config.yaml` and `models.json`."""
+"""Configuration schema validation for `config.yaml` and `models.yaml`."""
 
 
 # ─── Version from git tags ──────────────────────────────────────────────────
@@ -148,67 +146,39 @@ def validate_models(
     gateways_dir: Path | None = None,
     models_dir: Path | None = None,
 ) -> tuple[bool, list[str]]:
-    """Validate `.pi-container/models.yaml` or `.pi-container/agent/models.json` structure."""
+    """Validate `.pi-container/models.yaml` structure."""
     errors: list[str] = []
 
     if not models_path.exists():
         errors.append(f"Models file not found: {models_path}")
         return False, errors
 
-    if models_path.suffix.lower() in (".yaml", ".yml"):
-        try:
-            dup_errors = check_duplicate_keys(models_path)
-            if dup_errors:
-                errors.extend(dup_errors)
-                return False, errors
-            data = load_yaml_strict(models_path.read_text())
-        except Exception as e:
-            errors.append(f"Models file is not valid YAML: {e}")
-            return False, errors
-
-        if not isinstance(data, dict):
-            errors.append("Models file must be a YAML mapping")
-            return False, errors
-
-        schema_errors = _validate_schema(data, MODELS_YAML_SCHEMA)
-        if schema_errors:
-            errors.extend(schema_errors)
-            return False, errors
-
-        yaml_errors = _validate_models_yaml(data, models_dir=models_dir, gateways_dir=gateways_dir)
-        if yaml_errors:
-            errors.extend(yaml_errors)
-
-        is_valid = len(errors) == 0
-        return is_valid, errors
+    if models_path.suffix.lower() not in (".yaml", ".yml"):
+        errors.append(f"Models file must be a YAML file (.yaml or .yml), got: {models_path.name}")
+        return False, errors
 
     try:
-        import json as _json
-
-        with models_path.open("r") as f:
-            data = _json.load(f)
+        dup_errors = check_duplicate_keys(models_path)
+        if dup_errors:
+            errors.extend(dup_errors)
+            return False, errors
+        data = load_yaml_strict(models_path.read_text())
     except Exception as e:
-        errors.append(f"Models file is not valid JSON: {e}")
+        errors.append(f"Models file is not valid YAML: {e}")
         return False, errors
 
     if not isinstance(data, dict):
-        errors.append("Models file must be a JSON object")
+        errors.append("Models file must be a YAML mapping")
         return False, errors
 
-    # Validate top-level structure
-    schema_errors = _validate_schema(data, MODELS_SCHEMA)
+    schema_errors = _validate_schema(data, MODELS_YAML_SCHEMA)
     if schema_errors:
         errors.extend(schema_errors)
         return False, errors
 
-    providers = data.get("providers")
-    if not isinstance(providers, dict):
-        errors.append("  providers: required dictionary missing")
-        return False, errors
-
-    provider_errors = _validate_models_providers(providers, gateways_dir=gateways_dir)
-    if provider_errors:
-        errors.extend(provider_errors)
+    yaml_errors = _validate_models_yaml(data, models_dir=models_dir, gateways_dir=gateways_dir)
+    if yaml_errors:
+        errors.extend(yaml_errors)
 
     is_valid = len(errors) == 0
     return is_valid, errors

@@ -1,5 +1,4 @@
 from typing import Any
-from urllib.parse import urlparse
 
 """Shared schema definitions and validation logic for configuration files."""
 
@@ -190,17 +189,6 @@ SCHEMA: dict = {
 }
 
 
-# ─── models.json schema ─────────────────────────────────────────────────────
-#
-# Schema for models.json provider definitions and client-facing model manifests.
-
-
-MODELS_SCHEMA: dict = {
-    "providers": {
-        "type": dict,
-    },
-}
-
 MODELS_YAML_SCHEMA: dict = {
     "default": {"type": (str, type(None)), "required": False},
     "allow": {"type": list, "required": True},
@@ -238,124 +226,6 @@ def _validate_models_yaml(
                 errors.append(f"  allow[{i}]: expected non-empty 'id', 'model', or 'name' string")
         else:
             errors.append(f"  allow[{i}]: expected string or dict, got {type(item).__name__}")
-
-    return errors
-
-
-def _validate_models_providers(providers: dict, gateways_dir: Any = None) -> list[str]:
-    """Validate providers mapping in models.json.
-
-    Checks:
-    1. Each provider is a dictionary with a non-empty 'models' list.
-    2. Each model entry has a non-empty string 'id'.
-    3. Rejects obsolete 'serverCustomParameters'.
-    4. Validates 'baseUrl':
-       - Must start with http:// or https://.
-       - Hostname cannot be localhost / 127.0.0.1 / ::1.
-       - Local providers (not in gateways) require an explicit port (1-65535).
-       - Local container ports must be unique across providers.
-    """
-    errors: list[str] = []
-    ports_seen: dict[int, list[str]] = {}
-
-    from registry import load_gateway_def
-
-    for provider_name, provider_cfg in providers.items():
-        if not isinstance(provider_cfg, dict):
-            errors.append(f"  providers.{provider_name}: expected dict, got {type(provider_cfg).__name__}")
-            continue
-
-        if "serverCustomParameters" in provider_cfg:
-            errors.append(
-                f"  providers.{provider_name}.serverCustomParameters: obsolete and unsupported; "
-                f"define local models under ~/.config/pi-container/models/<id>.yaml instead"
-            )
-
-        models = provider_cfg.get("models")
-        if models is None:
-            errors.append(f"  providers.{provider_name}.models: required field missing")
-        elif not isinstance(models, list):
-            errors.append(f"  providers.{provider_name}.models: expected list, got {type(models).__name__}")
-        elif len(models) == 0:
-            errors.append(f"  providers.{provider_name}.models: must not be empty")
-        else:
-            for i, m in enumerate(models):
-                if not isinstance(m, dict):
-                    errors.append(f"  providers.{provider_name}.models[{i}]: expected dict, got {type(m).__name__}")
-                    continue
-                m_id = m.get("id")
-                if not m_id or not isinstance(m_id, str):
-                    errors.append(f"  providers.{provider_name}.models[{i}].id: required non-empty string missing")
-
-        # Base URL validation
-        base_url = provider_cfg.get("baseUrl")
-        gw_def = load_gateway_def(provider_name, registry_dir=gateways_dir)
-        is_gateway = gw_def is not None
-
-        if base_url is None:
-            if not is_gateway:
-                errors.append(
-                    f"  providers.{provider_name}.baseUrl: required field missing for local provider (e.g. 'http://llama:9999/v1')"
-                )
-            continue
-
-        if not isinstance(base_url, str) or not base_url.strip():
-            errors.append(
-                f"  providers.{provider_name}.baseUrl: must be a non-empty string URL (e.g. 'http://llama:9999/v1')"
-            )
-            continue
-
-        try:
-            parsed = urlparse(base_url)
-        except Exception as e:
-            errors.append(f"  providers.{provider_name}.baseUrl: invalid URL '{base_url}': {e}")
-            continue
-
-        if parsed.scheme not in ("http", "https"):
-            errors.append(
-                f"  providers.{provider_name}.baseUrl: must start with http:// or https:// (got '{base_url}')"
-            )
-            continue
-
-        hostname = parsed.hostname
-        if not hostname:
-            errors.append(f"  providers.{provider_name}.baseUrl: missing hostname in '{base_url}'")
-            continue
-
-        if hostname.lower() in ("localhost", "127.0.0.1", "::1"):
-            errors.append(
-                f"  providers.{provider_name}.baseUrl: '{hostname}' cannot be reached from inside the container; "
-                f"use 'llama', the provider name ('{provider_name}'), or a custom hostname instead"
-            )
-            continue
-
-        try:
-            port = parsed.port
-        except ValueError as e:
-            errors.append(f"  providers.{provider_name}.baseUrl: invalid port in '{base_url}': {e}")
-            continue
-
-        if not is_gateway:
-            if port is None:
-                errors.append(
-                    f"  providers.{provider_name}.baseUrl: port is required (e.g. 'http://llama:9999/v1'); "
-                    f"gateways do not need a port in url (define in ~/.config/pi-container/gateways/{provider_name}.yaml)"
-                )
-                continue
-
-            if not (1 <= port <= 65535):
-                errors.append(f"  providers.{provider_name}.baseUrl: invalid port {port} (must be between 1 and 65535)")
-                continue
-
-            ports_seen.setdefault(port, []).append(provider_name)
-
-    for port, prov_list in ports_seen.items():
-        if len(prov_list) > 1:
-            prov_str = ", ".join(prov_list)
-            errors.append(
-                f"  Duplicate container port {port} in baseUrl for providers: {prov_str}; "
-                f"each local provider must use a unique port (e.g. 9999, 9998)"
-            )
 
     return errors
 

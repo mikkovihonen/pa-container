@@ -13,6 +13,7 @@ from registry import (
     list_model_defs,
     load_gateway_def,
     load_model_def,
+    seed_default_chat_templates,
     seed_default_models,
 )
 
@@ -25,9 +26,23 @@ def test_seed_default_models(tmp_path: Path):
     assert len(seeded) == 1
     assert seeded[0] == "Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml"
     assert (reg_dir / "Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml").exists()
+    assert (tmp_path / "chat-templates" / "Qwen3.6-35B-A3B-UD-Q6_K-XL" / "chat_template.jinja").exists()
 
     # Second call does not re-seed or overwrite
     seeded_again = seed_default_models(reg_dir)
+    assert seeded_again == []
+
+
+def test_seed_default_chat_templates(tmp_path: Path):
+    tpl_dir = tmp_path / "custom_chat_templates"
+    assert not tpl_dir.exists()
+
+    seeded = seed_default_chat_templates(tpl_dir)
+    assert len(seeded) == 1
+    assert (tpl_dir / "Qwen3.6-35B-A3B-UD-Q6_K-XL" / "chat_template.jinja").exists()
+
+    # Second call is idempotent
+    seeded_again = seed_default_chat_templates(tpl_dir)
     assert seeded_again == []
 
 

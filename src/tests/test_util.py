@@ -969,6 +969,8 @@ class TestCheckRepoGitignore:
                     ".pi-container/agent/sessions",
                     ".pi-container/agent/trust.json",
                     ".pi-container/agent/models-store.json",
+                    ".pi-container/agent/models.json",
+                    ".pi-container/agents",
                     ".pi-container/exports/",
                 ]
             )
@@ -994,12 +996,16 @@ class TestCheckRepoGitignore:
                 subprocess.CompletedProcess(args=[], returncode=1),
                 subprocess.CompletedProcess(args=[], returncode=1),
                 subprocess.CompletedProcess(args=[], returncode=1),
+                subprocess.CompletedProcess(args=[], returncode=1),
+                subprocess.CompletedProcess(args=[], returncode=1),
             ]
             missing = check_repo_gitignore(tmp_path)
             assert ".pi-container/agent/bin" in missing
             assert ".pi-container/agent/sessions" in missing
             assert ".pi-container/agent/trust.json" in missing
             assert ".pi-container/agent/models-store.json" in missing
+            assert ".pi-container/agent/models.json" in missing
+            assert ".pi-container/agents" in missing
             assert ".pi-container/exports/" not in missing
 
     def test_warn_missing_gitignore_logs_warning(self, tmp_path):

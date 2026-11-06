@@ -37,7 +37,6 @@ import yaml  # noqa: E402  (must import after sys.path insertion)
 
 from registry import DEFAULT_QWEN_MODEL_DEF
 from schema_common import (
-    MODELS_SCHEMA,
     SCHEMA,
     _validate_schema,
 )
@@ -255,13 +254,14 @@ def main() -> int:
         print()
         print("Validating seed directory completeness...")
 
-        _EXPECTED_DIRS = ("agent", "chat-templates", "dependencies")
+        _EXPECTED_DIRS = ("agent", "dependencies")
         _EXPECTED_FILES = (
             "config.yaml",
             "allowlist.yaml",
             "token_replacer.yaml",
+            "models.yaml",
             "dependencies/root/commands.sh",
-            "dependencies/pi/commands.sh",
+            "dependencies/agent/commands.sh",
         )
 
         missing: list[str] = []
@@ -289,12 +289,7 @@ def main() -> int:
     print("Validating chat-template-file references...")
     qwen_def = yaml.safe_load(DEFAULT_QWEN_MODEL_DEF)
     raw_flags = qwen_def.get("flags", [])
-    # Translate .pi-container/ path to seed_dir for template existence verification
-    adjusted_flags = [
-        f.replace(".pi-container/", f"{seed_dir}/") if isinstance(f, str) and f.startswith(".pi-container/") else f
-        for f in raw_flags
-    ]
-    template_path_errors = check_chat_template_paths(adjusted_flags, REPO_ROOT)
+    template_path_errors = check_chat_template_paths(raw_flags, REPO_ROOT)
 
     if template_path_errors:
         _error(f"Found {len(template_path_errors)} invalid chat-template-file reference(s):")
@@ -304,20 +299,20 @@ def main() -> int:
     else:
         _info("All --chat-template-file paths exist")
 
-    # ── Check 7: Seed models.json schema validation ─────────────────────
+    # ── Check 7: Seed models.yaml schema validation ─────────────────────
     print()
-    print("Validating seed models.json schema...")
-    models_path = seed_dir / "agent" / "models.json"
+    print("Validating seed models.yaml schema...")
+    models_path = seed_dir / "models.yaml"
     from config_schema import validate_models
 
     is_valid, models_schema_errors = validate_models(models_path)
     if not is_valid:
-        _error(f"Seed models.json has {len(models_schema_errors)} error(s):")
+        _error(f"Seed models.yaml has {len(models_schema_errors)} error(s):")
         for err in models_schema_errors:
             print(f"    {err}")
         all_pass = False
     else:
-        _info("Seed models.json: schema valid")
+        _info("Seed models.yaml: schema valid")
 
     # ── Summary ──────────────────────────────────────────────────────────
     print()

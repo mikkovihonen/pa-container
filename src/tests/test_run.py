@@ -569,3 +569,12 @@ class TestT3AdvertiseHostResolution:
         assert "--env" in env_args
         assert "T3_PUBLIC_URL=https://t3.example.com" in env_args
         assert "T3_ADVERTISE_HOST=t3.example.com" in env_args
+
+    def test_agent_driver_required_tools_access(self):
+        """Verify that driver.required_tools property is accessed without being called as a function."""
+        from agents import get_agent_driver
+
+        for agent_name in ("pi", "opencode", "antigravity", "claude"):
+            driver = get_agent_driver(agent_name)
+            tools = driver.required_tools
+            assert isinstance(tools, list)

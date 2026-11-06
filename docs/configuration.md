@@ -12,7 +12,7 @@ The application uses a `.env` file to store environment-specific settings. See `
     uv run keyring set pi-container ADMIN_PASSWORD
     ```
     The proxy's mitmweb UI will refuse to start with an unset or empty password. Host environment variables are strictly rejected.
-- **Model integrity**: Set `sha256` in `models.json` to verify downloaded model files.
+- **Model integrity**: Set `sha256` in model definitions (`~/.config/pi-container/models/<id>.yaml`) to verify downloaded model files.
     The download skips integrity checks without a checksum.
 
 ### Run Configuration
@@ -55,52 +55,28 @@ When you launch pi-container, it looks for workspace-specific overrides in `./.p
 
 Orchestration settings live in a single **`config.yaml`**. The proxy addon configs (`allowlist.yaml`, `token_replacer.yaml`) stay in their own files. The proxy container mounts and parses them.
 
-### The `models.json` file and Global Model Registry
+### Project Models Allowlist (`models.yaml`) and Global Model Registry
 
-You configure the LLM models available to the agent in `.pi-container/agent/models.json`. This file uses `pi-coding-agent`'s native format without vendor-specific extensions.
+You configure the models available to the agent in `.pi-container/models.yaml`. This file defines an allowlist of model IDs permitted in this workspace and an optional default model. Native agent configs (such as Pi's internal `/home/agent/.pi/agent/models.json` or OpenCode/Claude configurations) are synthesized on-demand from this allowlist and the global model registry.
 
 Backend server parameters (Hugging Face model downloads and `llama-server` CLI flags) are stored in the **models registry** at `~/.config/pi-container/models/<model-id>.yaml`. External model gateways (endpoints, authentication, and secret resolution) are stored at the provider level in the **gateways registry** at `~/.config/pi-container/gateways/<provider-name>.yaml`.
 
 Model weights are downloaded to and read directly from the standard Hugging Face cache (`~/.cache/huggingface/hub/` or `$HF_HOME`/`$HF_HUB_CACHE`), sharing downloads with `huggingface-cli` and other tools without duplicating storage. Process locks, logs, and authentication tokens are stored under `~/.cache/pi-container/`.
 
-The file structure in `.pi-container/agent/models.json` looks like this:
+The file structure in `.pi-container/models.yaml` looks like this:
 
-```json
-// .pi-container/agent/models.json
-{
-  "providers": {
-    "local-qwen": {
-      "baseUrl": "http://llama:9999/v1",
-      "api": "openai-completions",
-      "apiKey": "not-required",
-      "compat": { ... },
-      "models": [
-        {
-          "id": "Qwen3.6-35B-A3B-UD-Q6_K_XL",
-          "name": "Qwen3.6-35B-A3B-UD-Q6_K_XL",
-          "contextWindow": 131072,
-          "maxTokens": 8192
-        }
-      ]
-    },
-    "nitor": {
-      "baseUrl": "https://gw.nitor.app/v1",
-      "api": "openai-completions",
-      "apiKey": "NITOR_GW_TOKEN",
-      "models": [
-        {
-          "id": "nitor-gateway",
-          "name": "Nitor Gateway"
-        }
-      ]
-    }
-  }
-}
+```yaml
+# .pi-container/models.yaml
+default: "Qwen3.6-35B-A3B-UD-Q6_K_XL"
+
+allow:
+  - "Qwen3.6-35B-A3B-UD-Q6_K_XL"
+  - "opper"
 ```
 
 #### Models Registry (`~/.config/pi-container/models/`)
 
-When pi-container starts, it matches local model `id`s from `models.json` against definitions in `~/.config/pi-container/models/<id>.yaml` (or `.json`).
+When pi-container starts, it matches model IDs from `.pi-container/models.yaml` against definitions in `~/.config/pi-container/models/<id>.yaml` (or `.json`).
 
 Each definition specifies the Hugging Face weights to download and the CLI flags passed to `llama-server`. pi-container automatically handles the process lifecycle (downloading weights, port allocation, health polling, multi-workspace refcounting, and teardown).
 
@@ -183,11 +159,11 @@ Common categories:
 - **GPU**: `--n-gpu-layers` (999 = offload all layers to GPU)
 - **Chat template**: `--jinja`, `--chat-template-file`, `--reasoning`
 
-The `--chat-template-file` path resolves relative to the workspace directory. llama-server runs on the host from the workspace. So `.pi-container/chat-templates/<model>/chat_template.jinja` is the typical pattern.
+The `--chat-template-file` path resolves globally against `~/.config/pi-container/chat-templates/` or as an absolute path (with `~` expansion). So `~/.config/pi-container/chat-templates/<model>/chat_template.jinja` or `chat-templates/<model>/chat_template.jinja` is the typical pattern.
 
 #### Gateways Registry (`~/.config/pi-container/gateways/`)
 
-External model gateways (e.g. corporate gateways or cloud gateways like [Opper AI](https://platform.opper.ai/)) are defined at the **provider level** in `~/.config/pi-container/gateways/<provider-name>.yaml`. When a provider in `.pi-container/agent/models.json` matches a file in this directory, all models under that provider automatically route through the gateway.
+External model gateways (e.g. corporate gateways or cloud gateways like [Opper AI](https://platform.opper.ai/)) are defined at the **provider level** in `~/.config/pi-container/gateways/<provider-name>.yaml`. When an entry in `.pi-container/models.yaml` matches a file in this directory, all models under that provider automatically route through the gateway.
 
 pi-container does not manage a local process for gateways, but instead handles authentication, token caching, OS keyring resolution, and proxy secret injection via `token_replacer`.
 
@@ -247,13 +223,6 @@ uv run keyring set pi-container OPPER_API_KEY
 
 The real API key is injected exclusively into the proxy container via `token_replacer.yaml`. The agent container holds only a dummy placeholder string (`OPPER_API_KEY_PLACEHOLDER`) and never has access to the actual secret.
 
-- **Context**: `--ctx-size`, `--ctx-checkpoints`, `--checkpoint-min-step`
-- **Sampling**: `--top-p`, `--top-k`, `--repeat-penalty`
-- **GPU**: `--n-gpu-layers` (999 = offload all layers to GPU)
-- **Chat template**: `--jinja`, `--chat-template-file`, `--reasoning`
-
-The `--chat-template-file` path resolves relative to the workspace directory. llama-server runs on the host from the workspace. So `.pi-container/chat-templates/<model>/chat_template.jinja` is the typical pattern.
-
 #### Server sharing and fingerprints
 
 A llama-server process is a **host-wide shared resource**. It uses the provider name plus a stable fingerprint of its model definition (model files, flags in `~/.config/pi-container/models/<id>.yaml`) as its key. Two projects with the same provider name and identical model definition parameters share one llama-server process. This saves RAM by avoiding double-loading a model. A same-named provider with different parameters gets its own server. This ensures a project never silently attaches to a llama-server running the wrong model.
@@ -265,16 +234,16 @@ This means:
 
 #### Validation
 
-`run.py` validates `models.json` and loaded model definitions at startup. Missing models lists or non-string required fields produce clear errors:
+`run.py` validates `models.yaml` and loaded model definitions at startup. Missing fields or invalid YAML produce clear errors:
 
 ```
-Configuration error in models.json:
-  providers.local-ornith.models: required field missing
+Configuration error in models.yaml:
+  allow: required field missing
 
-Fix: update .pi-container/agent/models.json to match the expected schema.
+Fix: update .pi-container/models.yaml to match the expected schema.
 ```
 
-It also checks that any `--chat-template-file` paths referenced in `flags` exist on disk, resolving `.pi-container/...` paths relative to the workspace.
+It also checks that any `--chat-template-file` paths referenced in `flags` exist on disk, resolving relative paths against the global `~/.config/pi-container/chat-templates/` directory.
 
 #### Ready-made setups
 
@@ -286,7 +255,7 @@ Example configurations for popular models are shipped under `docs/setups/`:
 | [gemma-4-26b-a4b-it-qat-GGUF](setups/gemma-4-26b-a4b-it-qat-GGUF/) | Gemma 4 26B-A4B (MTP + vision) | `unsloth/gemma-4-26B-A4B-it-qat-GGUF` |
 | [opper](setups/opper/) | Opper AI Cloud Gateway (Claude, GPT, DeepSeek, failover pools) | `https://api.opper.ai/v3/compat` |
 
-Each setup directory contains a `models.json` you can drop into `.pi-container/agent/`, plus any required chat templates under `chat-templates/`. See each setup's `README.md` for notes and caveats.
+Each setup directory contains setup instructions and model definitions you can drop into `~/.config/pi-container/models/` or `~/.config/pi-container/gateways/`, plus any required chat templates. See each setup's `README.md` for notes and caveats.
 
 ### The `config.yaml` file
 
@@ -380,7 +349,7 @@ agent:
   env:
     MY_API_BASE: https://internal.example.com
   mounts:
-    - /Users/me/.cache/pip:/home/pi/.cache/pip:ro
+    - /Users/me/.cache/pip:/home/agent/.cache/pip:ro
 ```
 
 ### Capabilities
@@ -433,15 +402,15 @@ This provides protection against prompt injection and untrusted scripts by preve
 - `config.yaml` (resource limits, network settings, security policies)
 - `allowlist.yaml` (punching unauthorized egress holes)
 - `token_replacer.yaml` (disabling secret redaction rules)
-- `dependencies/root/commands.sh` and `dependencies/pi/commands.sh` (poisoning future container builds)
-- `chat-templates/` and `agent/models.json`
+- `dependencies/root/commands.sh` and `dependencies/agent/commands.sh` (poisoning future container builds)
+- `models.yaml`
 
 ```yaml
 agent:
   read_only_pi_container: true   # default: true (secure)
 ```
 
-Subdirectories mounted under separate container paths (such as `/home/pi/.pi/agent` for storing session logs and transcripts) remain fully functional and writable. Set to `false` only if you explicitly want the agent to edit project configuration files directly.
+Subdirectories mounted under separate container paths (such as `/home/agent/.pi/agent` for storing session logs and transcripts) remain fully functional and writable. Set to `false` only if you explicitly want the agent to edit project configuration files directly.
 
 ### Agent execution mode, host advertising, and ports
 
@@ -616,7 +585,7 @@ Two failures produce that banner, and they have different fixes:
 
 Bumping the version string is not a general remedy. When a field is missing, no edit to `schema_version` conjures it — you clear the version check and fail the field check one line further down. The launch error names whichever applies rather than offering both.
 
-Re-seeding is **one file, not the directory**. Because the seeder only fills in what is missing, deleting `config.yaml` alone regenerates it from the current template and leaves `allowlist.yaml`, `token_replacer.yaml`, `agent/models.json`, `chat-templates/` and `dependencies/` untouched. `rm -rf .pi-container` also works but takes every hand-edited file in the workspace with it — reach for it only when several are out of date at once.
+Re-seeding is **one file, not the directory**. Because the seeder only fills in what is missing, deleting `config.yaml` alone regenerates it from the current template and leaves `allowlist.yaml`, `token_replacer.yaml`, `models.yaml`, and `dependencies/` untouched. `rm -rf .pi-container` also works but takes every hand-edited file in the workspace with it — reach for it only when several are out of date at once.
 
 Your own edits to `config.yaml` are not merged into the fresh copy, so note your settings before deleting it. A `diff` against `coding-agent/default/config.yaml` beforehand shows exactly what you changed.
 
@@ -752,8 +721,8 @@ agent:
 You can also override the agent for a single execution using the `--agent` CLI option:
 
 ```bash
-uv run pi-container run --agent opencode
-uv run pi-container run --agent claude
+./run.sh --agent opencode
+./run.sh --agent claude
 ```
 
 When an alternative agent is selected, pi-container automatically:
@@ -944,7 +913,7 @@ Project-specific setup is defined in two files under `.pi-container/dependencies
 | File | Privilege | Runs | Purpose |
 |------|-----------|------|---------|
 | `.pi-container/dependencies/root/commands.sh` | root | **Build time** | Install system packages (`apt-get`), npm globals, and system config (baked into image) |
-| `.pi-container/dependencies/pi/commands.sh` | pi | **Runtime** (via entrypoint) | Init venvs, clone repos, and workspace setup (runs against bind-mounted workspace) |
+| `.pi-container/dependencies/agent/commands.sh` | agent | **Runtime** (via entrypoint) | Init venvs, clone repos, and workspace setup (runs against bind-mounted workspace) |
 
 **Example `root/commands.sh`:**
 ```bash
@@ -959,7 +928,7 @@ apt-get update && apt-get install -y --no-install-recommends \
 npm install -g typescript
 ```
 
-**Example `pi/commands.sh`:**
+**Example `agent/commands.sh`:**
 ```bash
 #!/bin/bash
 set -e
@@ -975,19 +944,19 @@ git clone https://github.com/example/repo.git
 
 1. On first run, pi-container seeds both files from templates in `coding-agent/default/dependencies/`.
 2. When definition files exist and are non-empty, pi-container computes a content hash and builds a **project-specific image** with the scripts baked in. The image is tagged `pi-container-project-<project-hash>-<image-hash>.local` and carries labels (`pi-container.hash`, `pi-container.project.hash`, `pi-container.build.time`, `pi-container.type`) for cache invalidation and discovery.
-3. At **build time**, `root/commands.sh` executes (system-wide setup: apt, npm globals). At **runtime**, `pi/commands.sh` executes via the entrypoint (workspace-local setup: venvs, cloned repos).
+3. At **build time**, `root/commands.sh` executes (system-wide setup: apt, npm globals). At **runtime**, `agent/commands.sh` executes via the entrypoint (workspace-local setup: venvs, cloned repos).
 4. If definition files are empty or absent, the workspace uses the shared base image (no project-specific build).
 
 **Why two execution times?**
 
 - `root/commands.sh` runs at **build time** because it installs system-wide packages (apt, npm globals) that belong in the image. These persist across container runs.
-- `pi/commands.sh` runs at **runtime** because it creates workspace-local artifacts (venvs, cloned repos) in the bind-mounted workspace. If these were created at build time, they would be hidden by the bind mount at runtime.
+- `agent/commands.sh` runs at **runtime** because it creates workspace-local artifacts (venvs, cloned repos) in the bind-mounted workspace. If these were created at build time, they would be hidden by the bind mount at runtime.
 
 **Image caching and cleanup:**
 
 Project-specific images are cached and reused across runs. pi-container computes a content hash of:
 - `.pi-container/dependencies/root/commands.sh` (if it exists and is non-empty)
-- `.pi-container/dependencies/pi/commands.sh` (if it exists and is non-empty)
+- `.pi-container/dependencies/agent/commands.sh` (if it exists and is non-empty)
 - `coding-agent/Containerfile` (always)
 - `coding-agent/entrypoint.sh` (always)
 
@@ -995,7 +964,7 @@ The toolchain (`coding-agent-builder/`) is deliberately **not** hashed. The proj
 
 The hash is stored as the `pi-container.hash` label on the image. The image tag is `pi-container-project-<project-hash>-<image-hash>.local`, where:
 - `<project-hash>` is the first 10 characters of `SHA-256(str(project_dir.resolve()))` — the same hash used for proxy and network naming (`pi-proxy-<hash>`, `pi-isolated-net-<hash>`).
-- `<image-hash>` is the first 16 characters of the content digest computed from `root/commands.sh`, `pi/commands.sh`, `Containerfile`, and `entrypoint.sh`.
+- `<image-hash>` is the first 16 characters of the content digest computed from `root/commands.sh`, `agent/commands.sh`, `Containerfile`, and `entrypoint.sh`.
 
 On each run, pi-container:
 1. Enumerates all existing project-specific images (those with the `pi-container.type=project` label).
@@ -1048,7 +1017,7 @@ The `build_project_image()` function in `src/build.py` accepts the following par
 
 | Label | Purpose | How it's calculated |
 |-------|---------|---------------------|
-| `pi-container.hash` | Content hash for cache invalidation (compares against current definition files). | SHA-256 of concatenated hashes of: `.pi-container/dependencies/root/commands.sh` and `pi/commands.sh` (each if non-empty), `coding-agent/Containerfile`, `coding-agent/entrypoint.sh` (16-char hex digest) |
+| `pi-container.hash` | Content hash for cache invalidation (compares against current definition files). | SHA-256 of concatenated hashes of: `.pi-container/dependencies/root/commands.sh` and `agent/commands.sh` (each if non-empty), `coding-agent/Containerfile`, `coding-agent/entrypoint.sh` (16-char hex digest) |
 | `pi-container.project.hash` | Project identity hash (links the image to its source workspace). | First 10 chars of SHA-256 of the absolute project directory path (10-char hex digest) |
 | `pi-container.project.path` | **Absolute path of the project directory at build time** (used for orphan detection). If the path no longer exists, the image is automatically removed on the next run. | Stored as-is from `PROJECT_DIR.resolve()` at build time |
 | `pi-container.build.time` | ISO 8601 timestamp of the build (used for age-based discovery). | UTC timestamp at build time in ISO 8601 format (e.g., `2024-01-15T12:30:45Z`) |
@@ -1134,19 +1103,23 @@ egress:
 
 ### Chat templates
 
-Some models need an explicit Jinja chat template. Place them under `.pi-container/chat-templates/<model>/`. Reference them from a model's `flags` in `~/.config/pi-container/models/<id>.yaml` with a path **relative to the workspace**:
+Chat templates are configured **globally** in `~/.config/pi-container/chat-templates/` so they are shared across all workspaces rather than duplicated per project.
 
-```json
-"--chat-template-file", ".pi-container/chat-templates/Ornith-1.0-35B-FP8/chat_template.jinja"
+Place custom Jinja templates under `~/.config/pi-container/chat-templates/<model>/chat_template.jinja`. Reference them from a model's `flags` in `~/.config/pi-container/models/<id>.yaml`:
+
+```yaml
+- "--jinja"
+- "--chat-template-file"
+- "~/.config/pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
 ```
 
-`llama-server` runs on the host from the workspace directory, so the relative path resolves against `.pi-container/chat-templates/` in whichever project you launched `pi` from. The templates are seeded there on first run alongside the rest of the config. (Model *weights* are shared across projects under `llama-server/models/`. Only the small chat-template files are per-project.)
+Paths can be absolute, use `~` home directory expansion, or specify a template name relative to `~/.config/pi-container/chat-templates/`. Default chat templates (e.g. for Qwen 3.6) are automatically seeded to `~/.config/pi-container/chat-templates/` on first launch.
 
 ### Version control (.gitignore)
 
 A ready-to-copy [`.gitignore.example`](https://github.com/mikkovihonen/pi-container/blob/main/docs/assets/.gitignore.example) lists every entry a workspace needs. Copy the relevant lines into your project's `.gitignore`.
 
-Most of `.pi-container/` is project configuration you **should commit** so the environment is reproducible: `config.yaml`, `allowlist.yaml`, `token_replacer.yaml`, `chat-templates/`, and `dependencies/` (root/commands.sh and pi/commands.sh — see [Dependency definition files](#dependency-definition-files)). (`token_replacer.yaml` holds only `${ENV:VAR}` references, never resolved secrets — see [Token Replacer Secrets](#token-replacer-secrets).)
+Most of `.pi-container/` is project configuration you **should commit** so the environment is reproducible: `config.yaml`, `allowlist.yaml`, `token_replacer.yaml`, and `dependencies/` (root/commands.sh and pi/commands.sh — see [Dependency definition files](#dependency-definition-files)). (`token_replacer.yaml` holds only `${ENV:VAR}` references, never resolved secrets — see [Token Replacer Secrets](#token-replacer-secrets).)
 
 The one directory you **must ignore** is the flow-export output:
 

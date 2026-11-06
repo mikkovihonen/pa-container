@@ -103,7 +103,7 @@ rm .pi-container/config.yaml && <re-run>
 
 `_ensure_project_config()` only writes files that are absent. Deleting the one
 file whose shape changed leaves `allowlist.yaml`, `token_replacer.yaml`,
-`models.json`, `chat-templates/`, and `dependencies/` exactly as they were. Reach
+`models.yaml`, and `dependencies/` exactly as they were. Reach
 for `rm -rf .pi-container` only when several of those are out of date at once.
 it takes every hand-edited file in the workspace with it.
 

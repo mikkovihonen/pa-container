@@ -37,7 +37,7 @@ class OpenCodeDriver(AgentDriver):
         opencode_dir = project_dir / ".pi-container" / "agents" / "opencode"
         opencode_dir.mkdir(parents=True, exist_ok=True)
         return [
-            AgentMount(source=opencode_dir, destination="/home/pi/.config/opencode"),
+            AgentMount(source=opencode_dir, destination="/home/agent/.config/opencode"),
         ]
 
     def synthesize_config(

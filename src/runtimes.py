@@ -200,7 +200,7 @@ class ContainerRuntime(ABC):
         """
         if not cfg.get("enabled"):
             return []
-        store = "/home/pi/.local/share/containers"
+        store = "/home/agent/.local/share/containers"
         storage_args = (
             self.tmpfs_args(store)
             if cfg.get("storage") == "tmpfs"

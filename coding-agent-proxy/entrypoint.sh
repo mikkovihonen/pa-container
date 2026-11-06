@@ -48,7 +48,7 @@ ipt() { for _fam in "${IP_FAMILIES[@]}"; do "$_fam" "$@"; done; }
 # ─── Resolve "llama" and provider hostnames to this container's eth1 IP ───
 # mitmproxy's DNS addon reads /etc/hosts by default (dns_use_hosts_file=True),
 # so the coding-agent can use http://llama:<cp>/v1 or http://<provider>:<cp>/v1
-# in models.json and mitmproxy (running as its DNS server) will resolve them
+# in models configuration and mitmproxy (running as its DNS server) will resolve them
 # to eth1's IP.
 ETH1_IP=$(ip -j -4 addr show eth1 2>/dev/null | jq -r '.[0].addr_info[0].local // empty')
 if [ -n "$ETH1_IP" ]; then

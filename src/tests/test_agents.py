@@ -49,9 +49,9 @@ def test_pi_driver_contracts(tmp_path):
     mounts = driver.get_mounts(project_dir, agent_dir)
     assert len(mounts) == 1
     assert mounts[0].source == agent_dir
-    assert mounts[0].destination == "/home/pi/.pi/agent"
-    assert mounts[0].to_run_args() == ["--volume", f"{agent_dir}:/home/pi/.pi/agent"]
-    assert driver.get_tmpfs_paths() == ["/home/pi/.pi/agent/bin"]
+    assert mounts[0].destination == "/home/agent/.pi/agent"
+    assert mounts[0].to_run_args() == ["--volume", f"{agent_dir}:/home/agent/.pi/agent"]
+    assert driver.get_tmpfs_paths() == ["/home/agent/.pi/agent/bin"]
 
     # Synthesize config when models.json does not exist
     server_configs = [{"name": "local-qwen", "baseUrl": "http://llama:9999/v1"}]
@@ -64,6 +64,14 @@ def test_pi_driver_contracts(tmp_path):
     assert "local-qwen" in data["providers"]
     assert data["providers"]["local-qwen"]["baseUrl"] == "http://llama:9999/v1"
     assert "opper" in data["providers"]
+
+    # When models.yaml exists, synthesize_config updates models.json
+    (project_dir / ".pi-container" / "models.yaml").write_text("allow:\n  - new-model\n")
+    new_servers = [{"name": "new-model", "baseUrl": "http://llama:8888/v1"}]
+    driver.synthesize_config(new_servers, [], "new-model", project_dir, agent_dir)
+    updated_data = json.loads(models_file.read_text())
+    assert "new-model" in updated_data["providers"]
+    assert "local-qwen" not in updated_data["providers"]
 
 
 def test_opencode_driver_contracts(tmp_path):
@@ -78,7 +86,7 @@ def test_opencode_driver_contracts(tmp_path):
     agent_dir = project_dir / ".pi-container" / "agent"
     mounts = driver.get_mounts(project_dir, agent_dir)
     assert len(mounts) == 1
-    assert mounts[0].destination == "/home/pi/.config/opencode"
+    assert mounts[0].destination == "/home/agent/.config/opencode"
 
     server_configs = [{"name": "qwen", "baseUrl": "http://llama:9999/v1"}]
     gateway_configs = [{"name": "opper", "baseUrl": "https://api.opper.ai"}]
@@ -105,7 +113,7 @@ def test_antigravity_driver_contracts(tmp_path):
     agent_dir = project_dir / ".pi-container" / "agent"
     mounts = driver.get_mounts(project_dir, agent_dir)
     assert len(mounts) == 1
-    assert mounts[0].destination == "/home/pi/.gemini/antigravity"
+    assert mounts[0].destination == "/home/agent/.gemini/antigravity"
 
     server_configs = [{"name": "local-model", "baseUrl": "http://llama:9999/v1"}]
     driver.synthesize_config(server_configs, [], "local-model", project_dir, agent_dir)
@@ -130,7 +138,7 @@ def test_claude_driver_contracts(tmp_path):
     agent_dir = project_dir / ".pi-container" / "agent"
     mounts = driver.get_mounts(project_dir, agent_dir)
     assert len(mounts) == 1
-    assert mounts[0].destination == "/home/pi/.claude"
+    assert mounts[0].destination == "/home/agent/.claude"
 
     server_configs = [{"name": "local-claude", "baseUrl": "http://llama:9999/v1"}]
     driver.synthesize_config(server_configs, [], "claude-3-7-sonnet", project_dir, agent_dir)

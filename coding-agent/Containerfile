@@ -302,11 +302,11 @@ RUN ldconfig \
 # run.py then passes the device/security/storage flags (see
 # docs/design/nested-containers.md).
 
-# Nested subordinate ID ranges for `pi` (uid 1000). These must fall INSIDE the
+# Nested subordinate ID ranges for `agent` (uid 1000). These must fall INSIDE the
 # UID range the outer user namespace maps (verified: container UIDs 1..1000000).
 # The split around 1000 mirrors quay.io/podman/stable and stays valid even on
 # hosts with only the conventional 65536-wide subuid range.
-RUN printf 'pi:1:999\npi:1001:64535\n' > /etc/subuid \
+RUN printf 'agent:1:999\nagent:1001:64535\n' > /etc/subuid \
  && cp /etc/subuid /etc/subgid \
  # newuidmap/newgidmap need CAP_SETUID/CAP_SETGID to write the nested namespace's
  # id maps. File capabilities, NOT setuid-root: measured in this exact setup
@@ -357,7 +357,7 @@ RUN mkdir -p /etc/containers \
     > /etc/containers/registries.conf
 
 # Defaults for every container the agent starts inside this one. Baked into /etc
-# (NOT under /home/pi — that path is tmpfs at runtime and would mask anything the
+# (NOT under /home/agent — that path is tmpfs at runtime and would mask anything the
 # image shipped there) and written inline so _compute_image_hash(), which hashes
 # this Containerfile, invalidates project images when it changes.
 #   * `mounts`, not `volumes` — [containers] volumes is silently ignored.
@@ -452,13 +452,13 @@ COPY coding-agent/t3-policy.json /etc/t3code/policy.json
 
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
-ARG PI_UID=1000
-ARG PI_GID=1000
+ARG AGENT_UID=1000
+ARG AGENT_GID=1000
 
 # No node user to remove any more: that was the node: base image's own uid-1000 user,
-# which had to go before `pi` could claim 1000. Plain Debian ships no such user.
-RUN groupadd --gid ${PI_GID} pi \
- && useradd --uid ${PI_UID} --gid ${PI_GID} --create-home --shell /bin/bash pi
+# which had to go before `agent` could claim 1000. Plain Debian ships no such user.
+RUN groupadd --gid ${AGENT_GID} agent \
+ && useradd --uid ${AGENT_UID} --gid ${AGENT_GID} --create-home --shell /bin/bash agent
 
 ENV NODE_USE_SYSTEM_CA=1
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt

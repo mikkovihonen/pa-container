@@ -37,7 +37,7 @@ class ClaudeDriver(AgentDriver):
         claude_dir = project_dir / ".pi-container" / "agents" / "claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
         return [
-            AgentMount(source=claude_dir, destination="/home/pi/.claude"),
+            AgentMount(source=claude_dir, destination="/home/agent/.claude"),
         ]
 
     def synthesize_config(

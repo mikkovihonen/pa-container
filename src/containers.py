@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 sys.dont_write_bytecode = True
 
 from network import ContainerNetworkManager
-from registry import LlamaServerModelDef, load_gateway_def, load_model_def, seed_default_models
 from server import Server
 from util import is_pid_alive, run_quiet
 
@@ -63,7 +62,7 @@ def cleanup_orphaned_agent_containers(runtime: str, project_key: str) -> list[st
         else:
             name = str(container.get("Id") or "")[:12]
         name = str(name).lstrip("/")
-        if not name or not name.startswith("pi-coding-agent-"):
+        if not name or not name.startswith(("pi-coding-agent-", "coding-agent-")):
             continue
 
         image = str(container.get("Image") or "")
@@ -326,49 +325,3 @@ def port_holders(runtime: str, ports: list[int], project_key: str = "") -> dict[
                     mine = " — this workspace" if project_key and project_key in image else ""
                     holders[port] = f"{name}{mine}" + (f" ({status})" if status else "")
     return holders
-
-
-def extract_server_configs(
-    data: dict,
-    models_dir: Path | None = None,
-    gateways_dir: Path | None = None,
-) -> tuple[list[dict], set[str], list[dict]]:
-    """Extract ServerConfig mappings, custom hostnames, and gateway configs from models.json provider definitions."""
-    server_configs: list[dict] = []
-    gateway_configs: list[dict] = []
-    llama_hostnames: set[str] = {"llama"}
-
-    # Seed default model definition if registry is empty
-    seed_default_models(models_dir)
-
-    for name, val in data.get("providers", {}).items():
-        if not isinstance(val, dict):
-            continue
-        base_url = val.get("baseUrl")
-
-        # 1. Check if provider is an external gateway in ~/.config/pi-container/gateways/
-        gw_def = load_gateway_def(name, registry_dir=gateways_dir)
-        if gw_def:
-            effective_base_url = base_url or gw_def.base_url
-            gateway_configs.append({"name": name, "gatewayDef": gw_def, "baseUrl": effective_base_url})
-            continue
-
-        # 2. Look up local models in ~/.config/pi-container/models/ (llama-server)
-        for m in val.get("models", []):
-            if not isinstance(m, dict):
-                continue
-            model_id = m.get("id")
-            if not model_id:
-                continue
-
-            m_def = load_model_def(model_id, registry_dir=models_dir)
-            if isinstance(m_def, LlamaServerModelDef):
-                server_configs.append({"name": name, "config": m_def.server_config, "baseUrl": base_url})
-                llama_hostnames.add(name)
-                if base_url:
-                    parsed_host = urlparse(base_url).hostname
-                    if parsed_host and parsed_host not in ("localhost", "127.0.0.1", "::1"):
-                        llama_hostnames.add(parsed_host)
-                break
-
-    return server_configs, llama_hostnames, gateway_configs

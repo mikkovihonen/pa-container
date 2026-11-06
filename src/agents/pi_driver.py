@@ -30,11 +30,11 @@ class PiAgentDriver(AgentDriver):
 
     def get_mounts(self, project_dir: Path, agent_config_dir: Path) -> list[AgentMount]:
         return [
-            AgentMount(source=agent_config_dir, destination="/home/pi/.pi/agent"),
+            AgentMount(source=agent_config_dir, destination="/home/agent/.pi/agent"),
         ]
 
     def get_tmpfs_paths(self) -> list[str]:
-        return ["/home/pi/.pi/agent/bin"]
+        return ["/home/agent/.pi/agent/bin"]
 
     def synthesize_config(
         self,
@@ -44,11 +44,8 @@ class PiAgentDriver(AgentDriver):
         project_dir: Path,
         agent_config_dir: Path,
     ) -> None:
-        """Ensure models.json exists in agent_config_dir if models.yaml was used."""
+        """Synthesize models.json in agent_config_dir for the Pi agent container."""
         models_json_path = agent_config_dir / "models.json"
-        if models_json_path.exists():
-            return
-
         agent_config_dir.mkdir(parents=True, exist_ok=True)
         providers: dict[str, dict] = {}
         for srv in server_configs:

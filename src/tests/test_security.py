@@ -45,8 +45,8 @@ class TestValidateMountPaths:
         safe_dir = tmp_path / "safe_dir"
         safe_dir.mkdir()
         mounts = [
-            f"{safe_dir}:/home/pi/safe:ro",
-            f"{tmp_path}/cache:/home/pi/cache",
+            f"{safe_dir}:/home/agent/safe:ro",
+            f"{tmp_path}/cache:/home/agent/cache",
         ]
         errors = validate_mount_paths(mounts, DEFAULT_SECURITY_CONFIG["blocked_mount_paths"])
         assert errors == []
@@ -54,10 +54,10 @@ class TestValidateMountPaths:
     def test_blocked_mount_paths_detected(self):
         ssh_dir = str(Path("~/.ssh").expanduser())
         mounts = [
-            f"{ssh_dir}:/home/pi/.ssh",
-            f"{ssh_dir}/id_rsa:/home/pi/.ssh/id_rsa:ro",
+            f"{ssh_dir}:/home/agent/.ssh",
+            f"{ssh_dir}/id_rsa:/home/agent/.ssh/id_rsa:ro",
             "/var/run/docker.sock:/var/run/docker.sock",
-            "/etc/shadow:/home/pi/shadow:ro",
+            "/etc/shadow:/home/agent/shadow:ro",
         ]
         errors = validate_mount_paths(mounts, DEFAULT_SECURITY_CONFIG["blocked_mount_paths"])
         assert len(errors) == 4

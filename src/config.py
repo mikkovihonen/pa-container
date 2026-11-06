@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 GLOBAL_CONFIG_DIR: Path = Path.home() / ".config" / "pi-container"
 GLOBAL_MODELS_REGISTRY_DIR: Path = GLOBAL_CONFIG_DIR / "models"
 GLOBAL_GATEWAYS_REGISTRY_DIR: Path = GLOBAL_CONFIG_DIR / "gateways"
+GLOBAL_CHAT_TEMPLATES_DIR: Path = GLOBAL_CONFIG_DIR / "chat-templates"
 GLOBAL_CACHE_DIR: Path = Path.home() / ".cache" / "pi-container"
 
 IMAGE_TAG: str = os.environ.get("IMAGE_TAG", "pi-coding-agent:local")

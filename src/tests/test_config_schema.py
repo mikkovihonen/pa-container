@@ -285,318 +285,139 @@ class TestNestedContainersSchema:
 class TestValidateModels:
     """Tests for validate_models() in config_schema.py."""
 
-    def _write_models(
-        self,
-        tmp_path: Path,
-        providers: dict,
-    ) -> Path:
-        """Write a models.json file and return its path."""
-        import json
-
-        models_path = tmp_path / "models.json"
-        models_path.write_text(json.dumps({"providers": providers}, indent=2))
+    def _write_models(self, tmp_path: Path, content: str, filename: str = "models.yaml") -> Path:
+        """Write a models.yaml file and return its path."""
+        models_path = tmp_path / filename
+        models_path.write_text(content)
         return models_path
 
-    def test_valid_models_passes(self, tmp_path: Path):
-        """When models.json has valid structure, validation passes."""
+    def test_valid_models_strings_passes(self, tmp_path: Path):
+        """When models.yaml contains an allow list of strings, validation passes."""
         from config_schema import validate_models
 
-        models_path = self._write_models(
-            tmp_path,
-            {
-                "local-test": {
-                    "baseUrl": "http://llama:9999/v1",
-                    "models": [
-                        {
-                            "id": "model-1",
-                            "name": "Model 1",
-                        }
-                    ],
-                },
-            },
-        )
-        is_valid, errors = validate_models(models_path)
+        content = "allow:\n  - qwen\n  - opper/claude\n"
+        p = self._write_models(tmp_path, content)
+        is_valid, errors = validate_models(p)
         assert is_valid is True
         assert errors == []
 
-    def test_valid_multiple_providers_passes(self, tmp_path: Path):
-        """When multiple providers have valid distinct ports, validation passes."""
+    def test_valid_models_dicts_and_default_passes(self, tmp_path: Path):
+        """When models.yaml has default and dict items in allow list, validation passes."""
         from config_schema import validate_models
 
-        models_path = self._write_models(
-            tmp_path,
-            {
-                "local-ornith": {
-                    "baseUrl": "http://llama:9999/v1",
-                    "models": [{"id": "ornith"}],
-                },
-                "local-gemma": {
-                    "baseUrl": "http://gemma-server:9998/v1",
-                    "models": [{"id": "gemma"}],
-                },
-            },
-        )
-        is_valid, errors = validate_models(models_path)
+        content = "default: qwen\nallow:\n  - id: qwen\n  - model: opper/claude\n  - name: gemma\n"
+        p = self._write_models(tmp_path, content)
+        is_valid, errors = validate_models(p)
+        assert is_valid is True
+        assert errors == []
+
+    def test_valid_yml_suffix_passes(self, tmp_path: Path):
+        """When models file uses .yml extension, validation passes."""
+        from config_schema import validate_models
+
+        p = self._write_models(tmp_path, "allow:\n  - qwen\n", filename="models.yml")
+        is_valid, errors = validate_models(p)
         assert is_valid is True
         assert errors == []
 
     def test_file_not_found(self, tmp_path: Path):
-        """When models.json does not exist, validation fails."""
+        """When models file does not exist, validation fails."""
         from config_schema import validate_models
 
-        is_valid, errors = validate_models(tmp_path / "missing.json")
+        is_valid, errors = validate_models(tmp_path / "missing.yaml")
         assert is_valid is False
         assert any("not found" in e for e in errors)
 
-    def test_invalid_json(self, tmp_path: Path):
-        """When models.json has syntax errors, validation fails."""
+    def test_non_yaml_suffix_rejected(self, tmp_path: Path):
+        """When models file does not have .yaml or .yml extension, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        p.write_text("{invalid")
+        p = self._write_models(tmp_path, '{"allow": ["qwen"]}', filename="models.json")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("not valid JSON" in e for e in errors)
+        assert any("must be a YAML file (.yaml or .yml)" in e for e in errors)
 
-    def test_non_dict_json(self, tmp_path: Path):
-        """When models.json is not a dict, validation fails."""
+    def test_invalid_yaml(self, tmp_path: Path):
+        """When models.yaml has syntax errors, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        p.write_text("[]")
+        p = self._write_models(tmp_path, "allow: [unclosed")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("must be a JSON object" in e for e in errors)
+        assert any("not valid YAML" in e for e in errors)
 
-    def test_missing_providers_key(self, tmp_path: Path):
-        """When models.json has no providers key, validation fails."""
-        import json
-
+    def test_duplicate_keys_rejected(self, tmp_path: Path):
+        """When models.yaml has duplicate mapping keys, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        p.write_text(json.dumps({}))
+        content = "allow:\n  - qwen\nallow:\n  - gemma\n"
+        p = self._write_models(tmp_path, content)
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("providers: required field missing" in e for e in errors)
+        assert any("duplicate key 'allow'" in e for e in errors)
 
-    def test_non_dict_provider(self, tmp_path: Path):
-        """When a provider is not a dict, validation fails."""
+    def test_non_dict_yaml(self, tmp_path: Path):
+        """When models.yaml is not a mapping, validation fails."""
         from config_schema import validate_models
 
-        models_path = self._write_models(tmp_path, {"local-test": "not-a-dict"})
-        is_valid, errors = validate_models(models_path)
-        assert is_valid is False
-        assert any("expected dict, got str" in e for e in errors)
-
-    def test_server_custom_parameters_rejected(self, tmp_path: Path):
-        """When a provider contains legacy serverCustomParameters, validation fails."""
-        from config_schema import validate_models
-
-        models_path = self._write_models(
-            tmp_path,
-            {
-                "local-test": {
-                    "baseUrl": "http://llama:9999/v1",
-                    "models": [{"id": "test"}],
-                    "serverCustomParameters": {},
-                }
-            },
-        )
-        is_valid, errors = validate_models(models_path)
-        assert is_valid is False
-        assert any("serverCustomParameters: obsolete and unsupported" in e for e in errors)
-
-    def test_missing_models_key(self, tmp_path: Path):
-        """When a provider has no models key, validation fails."""
-        from config_schema import validate_models
-
-        models_path = self._write_models(tmp_path, {"local-test": {"baseUrl": "http://llama:9999/v1"}})
-        is_valid, errors = validate_models(models_path)
-        assert is_valid is False
-        assert any("models: required field missing" in e for e in errors)
-
-    def test_models_not_a_list(self, tmp_path: Path):
-        """When a provider models field is not a list, validation fails."""
-        from config_schema import validate_models
-
-        models_path = self._write_models(
-            tmp_path, {"local-test": {"baseUrl": "http://llama:9999/v1", "models": "not-a-list"}}
-        )
-        is_valid, errors = validate_models(models_path)
-        assert is_valid is False
-        assert any("models: expected list" in e for e in errors)
-
-    def test_models_empty_list(self, tmp_path: Path):
-        """When a provider models list is empty, validation fails."""
-        from config_schema import validate_models
-
-        models_path = self._write_models(tmp_path, {"local-test": {"baseUrl": "http://llama:9999/v1", "models": []}})
-        is_valid, errors = validate_models(models_path)
-        assert is_valid is False
-        assert any("models: must not be empty" in e for e in errors)
-
-    def test_model_item_not_dict(self, tmp_path: Path):
-        """When a model item is not a dict, validation fails."""
-        from config_schema import validate_models
-
-        models_path = self._write_models(
-            tmp_path, {"local-test": {"baseUrl": "http://llama:9999/v1", "models": ["not-a-dict"]}}
-        )
-        is_valid, errors = validate_models(models_path)
-        assert is_valid is False
-        assert any("models[0]: expected dict" in e for e in errors)
-
-    def test_model_item_missing_id(self, tmp_path: Path):
-        """When a model item is missing id, validation fails."""
-        from config_schema import validate_models
-
-        models_path = self._write_models(
-            tmp_path, {"local-test": {"baseUrl": "http://llama:9999/v1", "models": [{"name": "Missing ID"}]}}
-        )
-        is_valid, errors = validate_models(models_path)
-        assert is_valid is False
-        assert any("models[0].id: required non-empty string missing" in e for e in errors)
-
-
-class TestModelsBaseUrls:
-    """Tests for baseUrl validation on providers."""
-
-    def test_missing_base_url_for_local_provider(self, tmp_path: Path):
-        """When a local provider lacks baseUrl, validation fails."""
-        from config_schema import validate_models
-
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(json.dumps({"providers": {"local-test": {"models": [{"id": "m1"}]}}}))
+        p = self._write_models(tmp_path, "- item1\n- item2\n")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("baseUrl: required field missing for local provider" in e for e in errors)
+        assert any("must be a YAML mapping" in e for e in errors)
 
-    def test_non_string_base_url(self, tmp_path: Path):
-        """When baseUrl is not a string, validation fails."""
+    def test_missing_allow_key(self, tmp_path: Path):
+        """When models.yaml has no allow key, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(json.dumps({"providers": {"local-test": {"baseUrl": 12345, "models": [{"id": "m1"}]}}}))
+        p = self._write_models(tmp_path, "default: qwen\n")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("baseUrl: must be a non-empty string URL" in e for e in errors)
+        assert any("allow: required field missing" in e for e in errors)
 
-    def test_invalid_scheme(self, tmp_path: Path):
-        """When baseUrl has invalid scheme, validation fails."""
+    def test_allow_not_a_list(self, tmp_path: Path):
+        """When allow is not a list, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(
-            json.dumps({"providers": {"local-test": {"baseUrl": "ftp://llama:9999/v1", "models": [{"id": "m1"}]}}})
-        )
+        p = self._write_models(tmp_path, "allow: not-a-list\n")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("must start with http:// or https://" in e for e in errors)
+        assert any("allow: expected" in e and "list" in e for e in errors)
 
-    def test_missing_port(self, tmp_path: Path):
-        """When local provider baseUrl has no port, validation fails."""
+    def test_allow_empty_list(self, tmp_path: Path):
+        """When allow list is empty, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(
-            json.dumps({"providers": {"local-test": {"baseUrl": "http://llama/v1", "models": [{"id": "m1"}]}}})
-        )
+        p = self._write_models(tmp_path, "allow: []\n")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("baseUrl: port is required" in e for e in errors)
-        assert any("gateways do not need a port in url" in e for e in errors)
+        assert any("list must not be empty" in e for e in errors)
 
-    def test_invalid_port_range(self, tmp_path: Path):
-        """When baseUrl port is out of range, validation fails."""
+    def test_allow_empty_string_item(self, tmp_path: Path):
+        """When allow contains an empty or whitespace string, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(
-            json.dumps({"providers": {"local-test": {"baseUrl": "http://llama:99999/v1", "models": [{"id": "m1"}]}}})
-        )
+        p = self._write_models(tmp_path, 'allow:\n  - "   "\n')
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("invalid port" in e for e in errors)
+        assert any("must not be empty string" in e for e in errors)
 
-    def test_localhost_rejected(self, tmp_path: Path):
-        """When baseUrl uses localhost, 127.0.0.1, or ::1, validation fails."""
+    def test_allow_dict_item_missing_id(self, tmp_path: Path):
+        """When an allow dict item is missing id/model/name, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(
-            json.dumps(
-                {
-                    "providers": {
-                        "local-test": {"baseUrl": "http://localhost:9999/v1", "models": [{"id": "m1"}]},
-                        "local-test2": {"baseUrl": "http://127.0.0.1:9998/v1", "models": [{"id": "m2"}]},
-                    }
-                }
-            )
-        )
+        p = self._write_models(tmp_path, "allow:\n  - other: val\n")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("cannot be reached from inside the container" in e and "localhost" in e for e in errors)
-        assert any("cannot be reached from inside the container" in e and "127.0.0.1" in e for e in errors)
+        assert any("expected non-empty 'id', 'model', or 'name' string" in e for e in errors)
 
-    def test_duplicate_port_rejected(self, tmp_path: Path):
-        """When two local providers use the same container port, validation fails."""
+    def test_allow_invalid_item_type(self, tmp_path: Path):
+        """When allow item is not string or dict, validation fails."""
         from config_schema import validate_models
 
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(
-            json.dumps(
-                {
-                    "providers": {
-                        "local-p1": {"baseUrl": "http://llama:9999/v1", "models": [{"id": "m1"}]},
-                        "local-p2": {"baseUrl": "http://llama:9999/v1", "models": [{"id": "m2"}]},
-                    }
-                }
-            )
-        )
+        p = self._write_models(tmp_path, "allow:\n  - 12345\n")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("Duplicate container port 9999" in e for e in errors)
-
-    def test_gateway_provider_can_omit_port(self, tmp_path: Path):
-        """An external gateway provider is not required to specify a custom container port."""
-        from config_schema import validate_models
-        from registry import GatewayDef
-
-        p = tmp_path / "models.json"
-        import json
-
-        p.write_text(
-            json.dumps(
-                {
-                    "providers": {
-                        "opper": {
-                            "baseUrl": "https://api.opper.ai/v3/compat",
-                            "models": [{"id": "claude"}],
-                        }
-                    }
-                }
-            )
-        )
-        mock_gw = GatewayDef(id="opper", base_url="https://api.opper.ai/v3/compat")
-        with patch("registry.load_gateway_def", return_value=mock_gw):
-            is_valid, errors = validate_models(p)
-        assert is_valid is True
-        assert errors == []
+        assert any("expected string or dict, got int" in e for e in errors)
 
 
 class TestModelDefinitionValidation:
@@ -698,6 +519,22 @@ class TestChatTemplatePaths:
         flags = ["--chat-template-file", rel_path]
         errors = check_chat_template_paths(flags, repo_root=tmp_path)
         assert errors == []
+
+    def test_global_chat_template_path(self, tmp_path: Path):
+        from template_paths import check_chat_template_paths, resolve_chat_template_path
+
+        global_dir = tmp_path / "global_templates"
+        tpl_dir = global_dir / "Qwen"
+        tpl_dir.mkdir(parents=True)
+        tpl_file = tpl_dir / "chat_template.jinja"
+        tpl_file.write_text("global jinja")
+
+        flags = ["--chat-template-file", "Qwen/chat_template.jinja"]
+        errors = check_chat_template_paths(flags, global_templates_dir=global_dir)
+        assert errors == []
+
+        resolved = resolve_chat_template_path("Qwen/chat_template.jinja", global_templates_dir=global_dir)
+        assert resolved == tpl_file
 
     def test_missing_path_value(self, tmp_path: Path):
         from template_paths import check_chat_template_paths

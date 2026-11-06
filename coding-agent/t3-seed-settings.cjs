@@ -1,6 +1,6 @@
 // Pre-seed T3 Code settings for active agent driver.
 const fs = require("node:fs");
-const path = "/home/pi/.pi/agent/t3/userdata/settings.json";
+const path = "/home/agent/.pi/agent/t3/userdata/settings.json";
 
 try {
     fs.mkdirSync(require("node:path").dirname(path), { recursive: true });

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agents.synthesis import (
@@ -17,14 +15,7 @@ def test_resolve_models_file(tmp_path):
     pi_dir.mkdir()
     assert resolve_models_file(pi_dir) is None
 
-    # agent/models.json
-    agent_dir = pi_dir / "agent"
-    agent_dir.mkdir()
-    json_path = agent_dir / "models.json"
-    json_path.write_text("{}")
-    assert resolve_models_file(pi_dir) == json_path
-
-    # models.yaml overrides models.json
+    # models.yaml
     yaml_path = pi_dir / "models.yaml"
     yaml_path.write_text("allow: []")
     assert resolve_models_file(pi_dir) == yaml_path
@@ -105,30 +96,6 @@ def test_load_project_models_yaml(tmp_path):
     assert default_m == "my-gw"
     assert len(gateways) == 1
     assert gateways[0]["name"] == "my-gw"
-
-
-def test_load_project_models_legacy_json(tmp_path):
-    pi_dir = tmp_path / ".pi-container"
-    agent_dir = pi_dir / "agent"
-    agent_dir.mkdir(parents=True)
-    json_file = agent_dir / "models.json"
-    json_file.write_text(
-        json.dumps(
-            {
-                "providers": {
-                    "provider1": {
-                        "baseUrl": "http://llama:9999/v1",
-                        "models": [{"id": "model1"}],
-                    }
-                }
-            }
-        )
-    )
-
-    data, servers, hostnames, gateways, default_m, resolved = load_project_models(pi_dir)
-    assert resolved == json_file
-    assert default_m is None
-    assert "provider1" in data["providers"]
 
 
 def test_load_project_models_missing(tmp_path):

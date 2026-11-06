@@ -37,7 +37,7 @@ class AntigravityDriver(AgentDriver):
         agy_dir = project_dir / ".pi-container" / "agents" / "antigravity"
         agy_dir.mkdir(parents=True, exist_ok=True)
         return [
-            AgentMount(source=agy_dir, destination="/home/pi/.gemini/antigravity"),
+            AgentMount(source=agy_dir, destination="/home/agent/.gemini/antigravity"),
         ]
 
     def synthesize_config(

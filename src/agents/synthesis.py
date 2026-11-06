@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from typing import TYPE_CHECKING, Any
@@ -23,15 +22,14 @@ logger = logging.getLogger(__name__)
 
 """Model configuration synthesis engine.
 
-Loads models either from a lightweight project-level `.pi-container/models.yaml`
-allowlist (resolving against global registries `~/.config/pi-container/models/`
-and `~/.config/pi-container/gateways/`) or falls back to legacy
-`.pi-container/agent/models.json`.
+Loads models from a lightweight project-level `.pi-container/models.yaml`
+allowlist, resolving against global registries `~/.config/pi-container/models/`
+and `~/.config/pi-container/gateways/`.
 """
 
 
 def resolve_models_file(pi_container_dir: Path) -> Path | None:
-    """Find the project models configuration file, checking models.yaml then agent/models.json."""
+    """Find the project models configuration file (.pi-container/models.yaml or models.yml)."""
     yaml_candidates = (
         pi_container_dir / "models.yaml",
         pi_container_dir / "models.yml",
@@ -39,10 +37,6 @@ def resolve_models_file(pi_container_dir: Path) -> Path | None:
     for candidate in yaml_candidates:
         if candidate.is_file():
             return candidate
-
-    legacy_json = pi_container_dir / "agent" / "models.json"
-    if legacy_json.is_file():
-        return legacy_json
 
     return None
 
@@ -148,33 +142,18 @@ def load_project_models(
     models_dir: Path | None = None,
     gateways_dir: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], set[str], list[dict[str, Any]], str | None, Path]:
-    """Load and parse models from `.pi-container/models.yaml` or `.pi-container/agent/models.json`.
+    """Load and parse models from `.pi-container/models.yaml`.
 
     Returns:
-        (raw_or_synthetic_data, server_configs, llama_hostnames, gateway_configs, default_model, models_file_path)
+        (synthetic_models_data, server_configs, llama_hostnames, gateway_configs, default_model, models_file_path)
     """
     models_path = resolve_models_file(pi_container_dir)
     if models_path is None:
         expected = pi_container_dir / "models.yaml"
-        raise FileNotFoundError(
-            f"No models configuration found in {pi_container_dir}. "
-            f"Expected either {expected.name} or agent/models.json."
-        )
+        raise FileNotFoundError(f"No models configuration found in {pi_container_dir}. Expected {expected.name}.")
 
-    if models_path.suffix.lower() in (".yaml", ".yml"):
-        data = load_yaml_strict(models_path.read_text()) or {}
-        synthetic_data, server_configs, llama_hostnames, gateway_configs, default_model = extract_models_from_yaml(
-            data, models_dir=models_dir, gateways_dir=gateways_dir
-        )
-        return synthetic_data, server_configs, llama_hostnames, gateway_configs, default_model, models_path
-
-    # Legacy models.json path
-    with models_path.open("r") as f:
-        data = json.load(f)
-
-    from containers import extract_server_configs
-
-    server_configs, llama_hostnames, gateway_configs = extract_server_configs(
+    data = load_yaml_strict(models_path.read_text()) or {}
+    synthetic_data, server_configs, llama_hostnames, gateway_configs, default_model = extract_models_from_yaml(
         data, models_dir=models_dir, gateways_dir=gateways_dir
     )
-    return data, server_configs, llama_hostnames, gateway_configs, None, models_path
+    return synthetic_data, server_configs, llama_hostnames, gateway_configs, default_model, models_path

@@ -14,8 +14,8 @@ from config_schema import SCHEMA_VERSION_MISMATCH
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_CONFIG_DIRS = ("agent", "chat-templates")
-_PROJECT_CONFIG_FILES = ("config.yaml", "allowlist.yaml", "token_replacer.yaml")
+_PROJECT_CONFIG_DIRS = ("agent",)
+_PROJECT_CONFIG_FILES = ("config.yaml", "allowlist.yaml", "token_replacer.yaml", "models.yaml")
 
 
 def project_key(project_dir: Path) -> str:
@@ -33,7 +33,7 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
     """Seed the per-project ``.pi-container`` config from the repo template if absent.
 
     Seeds ``{project_dir}/.pi-container`` from ``{repo_root}/coding-agent/default``:
-    the ``agent/`` and ``chat-templates/`` subtrees plus ``config.yaml`` and the proxy
+    the ``agent/`` subtree plus ``config.yaml`` and the proxy
     addon configs ``allowlist.yaml``/``token_replacer.yaml``. Also seeds dependency command
     templates if present.
 
@@ -63,7 +63,7 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
     deps_template_root = template_root / "dependencies"
     deps_project_root = project_root / "dependencies"
     if deps_template_root.is_dir():
-        for cmd_dir in ("root", "pi"):
+        for cmd_dir in ("root", "agent"):
             src_dir = deps_template_root / cmd_dir
             dst_dir = deps_project_root / cmd_dir
             if src_dir.is_dir() and not dst_dir.exists():
@@ -84,8 +84,8 @@ def config_fix_hint(errors: list[str], config_path: Path) -> list[str]:
     return [
         f"\nFix: re-seed the one file whose shape changed — {config_path.name} —",
         f"  by deleting it and re-running:    rm {config_path}",
-        "  Only that file is rewritten. allowlist.yaml, token_replacer.yaml, models.json,",
-        "  chat-templates/ and dependencies/ are left alone.",
+        "  Only that file is rewritten. allowlist.yaml, token_replacer.yaml, models.yaml,",
+        "  and dependencies/ are left alone.",
         "  Your own edits to it are NOT merged, so note them first. Editing schema_version alone will not help:",
         "  the fields above are missing from the file, not mislabelled.",
     ]

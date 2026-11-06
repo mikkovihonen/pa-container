@@ -50,13 +50,13 @@ class TestComputeImageHash:
         assert result is not None
         assert len(result) == 16
 
-    def test_includes_pi_commands_sh(self, tmp_path):
+    def test_includes_agent_commands_sh(self, tmp_path):
         repo = tmp_path / "repo"
         deps = repo / ".pi-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").write_text("#!/bin/bash\necho setup\n")
+        (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
+        (deps / "agent" / "commands.sh").write_text("#!/bin/bash\necho setup\n")
         result = images.compute_image_hash(repo)
         assert result is not None
         assert result != "None"
@@ -77,18 +77,18 @@ class TestComputeImageHash:
 
         assert hash1 != hash2
 
-    def test_different_pi_content_different_hash(self, tmp_path):
+    def test_different_agent_content_different_hash(self, tmp_path):
         repo = tmp_path / "repo"
         deps = repo / ".pi-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
 
-        (deps / "pi" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").write_text("#!/bin/bash\necho setup1\n")
+        (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
+        (deps / "agent" / "commands.sh").write_text("#!/bin/bash\necho setup1\n")
         hash1 = images.compute_image_hash(repo)
 
-        (deps / "pi" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").write_text("#!/bin/bash\necho setup2\n")
+        (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
+        (deps / "agent" / "commands.sh").write_text("#!/bin/bash\necho setup2\n")
         hash2 = images.compute_image_hash(repo)
 
         assert hash1 != hash2
@@ -113,8 +113,8 @@ class TestComputeImageHash:
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("")
-        (deps / "pi" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").write_text("")
+        (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
+        (deps / "agent" / "commands.sh").write_text("")
         result = images.compute_image_hash(repo)
         assert result is not None
 
@@ -162,11 +162,17 @@ class TestComputeImageHash:
         (cfg_dir / "config.yaml").write_text("agent:\n  type: claude\n")
         assert images.read_project_tools(repo) == ["claude-code"]
 
+        assert images.read_project_tools(repo, extra_tools=["opencode"]) == ["claude-code", "opencode"]
+
     def test_resolve_agent_image_with_tools_only(self, tmp_path):
         repo = tmp_path / "repo"
         repo.mkdir()
         tag, is_project = images.resolve_agent_image(repo)
         assert is_project is False
+
+        tag_cli, is_project_cli = images.resolve_agent_image(repo, extra_tools=["opencode"])
+        assert is_project_cli is True
+        assert "pi-container-project-" in tag_cli
 
         cfg_dir = repo / ".pi-container"
         cfg_dir.mkdir()
@@ -303,13 +309,13 @@ class TestHasDependencyFiles:
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
         assert images.has_dependency_files(repo) is True
 
-    def test_returns_true_when_pi_exists(self, tmp_path):
+    def test_returns_true_when_agent_exists(self, tmp_path):
         repo = tmp_path / "repo"
         deps = repo / ".pi-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").write_text("#!/bin/bash\necho setup\n")
+        (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
+        (deps / "agent" / "commands.sh").write_text("#!/bin/bash\necho setup\n")
         assert images.has_dependency_files(repo) is True
 
     def test_returns_false_when_files_empty(self, tmp_path):
@@ -319,8 +325,8 @@ class TestHasDependencyFiles:
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("")
-        (deps / "pi" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
-        (deps / "pi" / "commands.sh").write_text("")
+        (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
+        (deps / "agent" / "commands.sh").write_text("")
         assert images.has_dependency_files(repo) is False
 
 

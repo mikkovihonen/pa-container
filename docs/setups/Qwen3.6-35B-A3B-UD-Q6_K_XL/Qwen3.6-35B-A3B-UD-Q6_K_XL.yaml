@@ -48,7 +48,7 @@ flags:
   - 4096
   - "--jinja"
   - "--chat-template-file"
-  - ".pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
+  - "~/.config/pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
   - "--reasoning"
   - "on"
   - "--n-gpu-layers"

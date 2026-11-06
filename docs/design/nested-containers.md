@@ -15,7 +15,7 @@ Docker as a supported host runtime.** Every claim below was measured on this hos
 The agent container is a deliberate dead end. It attaches to a single `--internal`
 network with no gateway, its default route and DNS are pointed at the proxy, and the
 proxy's `FORWARD` chain is default-`DROP` so only HTTP/HTTPS/DNS (transparently
-REDIRECTed into mitmproxy) can leave. It runs as unprivileged `pi`, with `/home/pi`
+REDIRECTed into mitmproxy) can leave. It runs as unprivileged `agent`, with `/home/agent`
 on tmpfs so nothing persists.
 
 None of the tooling to start a container is present:
@@ -150,7 +150,7 @@ Added to the agent `podman run` when nesting is enabled:
 | `--security-opt label=disable` | Required on an SELinux-enforcing host — see [SELinux](#5-selinux-the-one-real-concession) |
 | `--security-opt unmask=ALL` | **Correction, measured during implementation.** Podman bind-mounts parts of `/proc` read-only and masks others in the agent container; those mounts are *locked* in the nested user namespace. Without this, the inner runtime dies with `crun: open /proc/sys/net/ipv4/ping_group_range: Read-only file system`. |
 | `--cap-add SYS_ADMIN` | **Correction, measured during implementation.** Podman's default seccomp profile permits `mount`/`sethostname`/`umount2`/`pivot_root` only when `CAP_SYS_ADMIN` is in the container's capability set, and a seccomp filter cannot be relaxed from inside a nested userns. Without this, the inner runtime dies with `crun: sethostname: Operation not permitted`. |
-| `--volume pi-nested-<project-hash>:/home/pi/.local/share/containers` | Persistent nested image store |
+| `--volume pi-nested-<project-hash>:/home/agent/.local/share/containers` | Persistent nested image store |
 | `--env XDG_RUNTIME_DIR=/run/user/1000` | Rootless podman's lock/pid directory |
 | `--env PI_CONTAINER_NESTED=true` | Entrypoint gate (see below) |
 
@@ -267,14 +267,14 @@ automatically.
 
 Nested image storage **cannot** live on the agent's default paths:
 
-- `/home/pi` is tmpfs — a multi-GB image pull would land in RAM, and this VM has
+- `/home/agent` is tmpfs — a multi-GB image pull would land in RAM, and this VM has
   **2 GiB** total (while `config.yaml` nominally grants the agent `16g`).
 - The container's own rootfs is overlayfs, and overlay-on-overlay is unsupported —
   podman would degrade to the `vfs` driver, which copies every layer in full.
 
 So a named volume `pi-nested-<project-hash>` is mounted at
-`/home/pi/.local/share/containers`. Verified: the volume mounts correctly *nested under*
-the existing `--mount type=tmpfs,…,destination=/home/pi/`, and the nested podman
+`/home/agent/.local/share/containers`. Verified: the volume mounts correctly *nested under*
+the existing `--mount type=tmpfs,…,destination=/home/agent/`, and the nested podman
 resolves to the native **`overlay`** driver on it — not `vfs`.
 
 Persisting it across runs is a deliberate exception to the ephemeral-home rule: without
@@ -371,7 +371,7 @@ mechanisms verified working:
 
 ```toml
 # /etc/containers/containers.conf.d/50-pi-container.conf
-# Baked into the image at /etc (NOT under /home/pi — that path is tmpfs at runtime and
+# Baked into the image at /etc (NOT under /home/agent — that path is tmpfs at runtime and
 # would mask anything the image shipped there).
 [containers]
 mounts = [
@@ -463,11 +463,11 @@ the one setup step that needs it:
 # Created here (as root, pre-gosu) because the agent runs as pi.
 if [ "${PI_CONTAINER_NESTED}" = "true" ]; then
     mkdir -p /run/user/1000
-    chown pi:pi /run/user/1000
+    chown agent:agent /run/user/1000
     chmod 700 /run/user/1000
     # The volume mounted at ~/.local/share/containers may be freshly created and
-    # root-owned; pi must own its own image store.
-    chown pi:pi /home/pi/.local/share/containers 2>/dev/null || true
+    # root-owned; agent must own its own image store.
+    chown agent:agent /home/agent/.local/share/containers 2>/dev/null || true
 fi
 ```
 
@@ -872,8 +872,8 @@ podman run --rm --device /dev/fuse --security-opt label=disable --user podman \
 # [containers] unmask=[...]  → silently ignored (not a config key)    ❌
 
 # ── Storage layout ─────────────────────────────────────────────────────────
-# named volume at /home/pi/.local/share/containers, mounted UNDER
-# --mount type=tmpfs,notmpcopyup,destination=/home/pi/ → content visible, WRITE-OK
+# named volume at /home/agent/.local/share/containers, mounted UNDER
+# --mount type=tmpfs,notmpcopyup,destination=/home/agent/ → content visible, WRITE-OK
 ```
 
 ## Appendix B: implementation-time verification (agent image, not the reference image)
@@ -884,7 +884,7 @@ below was measured, and three of the four findings contradict the design above.
 ```bash
 # ── Image toolchain ────────────────────────────────────────────────────────
 # apt: containers-common does NOT exist on Debian → golang-github-containers-common
-# newuidmap/newgidmap present, /etc/subuid = pi:1:999 + pi:1001:64535
+# newuidmap/newgidmap present, /etc/subuid = agent:1:999 + agent:1001:64535
 # image size 965 MB → 1.08 GB (+117 MB)
 
 # ── newuidmap privilege mechanism ──────────────────────────────────────────
@@ -896,7 +896,7 @@ below was measured, and three of the four findings contradict the design above.
 
 # ── Nested store driver ────────────────────────────────────────────────────
 podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}}'
-#   overlay /home/pi/.local/share/containers/storage   (native, not vfs) ✅
+#   overlay /home/agent/.local/share/containers/storage   (native, not vfs) ✅
 
 # ── Outer flag set required to START an inner container ────────────────────
 # label=disable                          → crun: sethostname: Operation not permitted

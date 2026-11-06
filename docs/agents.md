@@ -43,13 +43,13 @@ You can override the project agent configuration for a single invocation using t
 
 ```bash
 # Launch OpenCode in interactive mode
-uv run pi-container run --agent opencode
+./run.sh --agent opencode
 
 # Launch Google Antigravity
-uv run pi-container run --agent antigravity
+./run.sh --agent antigravity
 
 # Launch Claude Code
-uv run pi-container run --agent claude
+./run.sh --agent claude
 ```
 
 ---
@@ -58,25 +58,25 @@ uv run pi-container run --agent claude
 
 ### 1. Pi Coding Agent (`pi`)
 
-- **State Directory**: `.pi-container/agent/` mounted to `/home/pi/.pi/agent`.
-- **Configuration**: Uses `.pi-container/agent/models.json` or synthesizes configuration from host models.
-- **Tmpfs Isolation**: Transient binaries in `/home/pi/.pi/agent/bin` are mounted on tmpfs to prevent disk persistence.
+- **State Directory**: `.pi-container/agent/` mounted to `/home/agent/.pi/agent`.
+- **Configuration**: Synthesizes native `/home/agent/.pi/agent/models.json` on-demand from host models and project allowlist.
+- **Tmpfs Isolation**: Transient binaries in `/home/agent/.pi/agent/bin` are mounted on tmpfs to prevent disk persistence.
 
 ### 2. OpenCode (`opencode`)
 
-- **State Directory**: `.pi-container/agents/opencode/` mounted to `/home/pi/.config/opencode`.
+- **State Directory**: `.pi-container/agents/opencode/` mounted to `/home/agent/.config/opencode`.
 - **Model Translation**: Synthesizes `.pi-container/agents/opencode/config.json` with OpenAI-compatible endpoint configurations.
 - **Egress Authentication**: Outgoing requests carry placeholder `Bearer pi-container-token-placeholder` headers that the proxy transforms into the real API key.
 
 ### 3. Google Antigravity (`antigravity`)
 
-- **State Directory**: `.pi-container/agents/antigravity/` mounted to `/home/pi/.gemini/antigravity`.
+- **State Directory**: `.pi-container/agents/antigravity/` mounted to `/home/agent/.gemini/antigravity`.
 - **Model Translation**: Synthesizes `.pi-container/agents/antigravity/config.json` targeting Gemini models.
 - **Egress Authentication**: Proxy injects the host's `GEMINI_API_KEY` into `x-goog-api-key` headers for `generativelanguage.googleapis.com`.
 
 ### 4. Claude Code (`claude`)
 
-- **State Directory**: `.pi-container/agents/claude/` mounted to `/home/pi/.claude`.
+- **State Directory**: `.pi-container/agents/claude/` mounted to `/home/agent/.claude`.
 - **Model Translation**: Synthesizes `.pi-container/agents/claude/claude.json`.
 - **Egress Authentication**: Outgoing requests carry `x-api-key: pi-container-token-placeholder` replaced with the host's `ANTHROPIC_API_KEY`.
 - **T3 Code Integration**: Enables the `claudeAgent` provider in T3 Code for web-based multi-agent workflows.
@@ -98,17 +98,15 @@ Global model definitions reside on your host:
 You can restrict which models are available to the agent in your project workspace by creating `.pi-container/models.yaml`:
 
 ```yaml
-# Optional list of model names permitted in this project
-models:
+# Optional default model to set as active
+default: "claude-3-7-sonnet"
+
+# Allowlist of model or gateway names permitted in this project
+allow:
   - "claude-3-7-sonnet"
   - "qwen-2.5-coder-32b"
   - "opper"
-
-# Optional default model to set as active
-default_model: "claude-3-7-sonnet"
 ```
-
-If `.pi-container/models.yaml` is absent, all valid global models and gateways are made available to the agent.
 
 ---
 

@@ -51,7 +51,7 @@ flowchart TB
 
 The key components of the system are
 
-1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model uses a client configuration file at `<project>/.pi-container/agent/models.json` and a host model definition at `~/.config/pi-container/models/<model-id>.yaml`. The system seeds `models.json` from the `coding-agent/default/` template and default model definitions on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
+1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pi-container/models.yaml` and resolved against host model definitions at `~/.config/pi-container/models/<model-id>.yaml` or gateways at `~/.config/pi-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/` template and default model definitions on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
 
 2. **`pi-coding-agent-proxy`** (container): A transparent proxy container based on Debian with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that redacts API keys, bearer tokens, cookies, and JWTs. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
 
@@ -104,7 +104,7 @@ flowchart TB
     - `containers.cleanup_orphaned_agent_containers()` removes exited or abandoned agent containers from prior crashed runs.
 
 2. **Parallel dependency startup (`start_dependencies_parallel`)**:
-    - **Multi-server concurrency**: If multiple local models are configured in `models.json`, all `llama-server` instances launch in parallel worker threads, downloading models and loading weights into memory/VRAM concurrently.
+    - **Multi-server concurrency**: If multiple local models are allowed in `models.yaml`, all `llama-server` instances launch in parallel worker threads, downloading models and loading weights into memory/VRAM concurrently.
     - **Port readiness signaling**: Each `Server` assigns its host port immediately upon process spawn and signals `port_ready_event` (~15ms).
     - **Concurrent proxy initialization**: `ContainerNetworkManager` builds `LLAMA_PORTS` port forwarding rules as soon as server ports are allocated, launching the proxy container and polling mitmweb health in parallel with server weight loading.
     - **Health synchronization barrier**: The coordinator thread waits for all servers and the proxy container to complete health verification.
@@ -175,12 +175,11 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │   ├── entrypoint.sh                 # Container entrypoint (default route via proxy, git config, uv venv)
 │   └── default/                      # Template for <project>/.pi-container (seeded on first run)
 │       ├── agent/                     # → .pi-container/agent
-│       │   ├── models.json           # LLM provider/server configuration
 │       │   ├── AGENTS.md             # Agent instructions
 │       │   ├── config.json
 │       │   ├── settings.json
 │       │   └── .pi_ignore
-│       ├── chat-templates/           # Jinja chat templates loaded by llama-server
+│       ├── models.yaml               # Allowed models allowlist for the workspace
 │       ├── config.yaml               # Orchestration: resources, tmpfs, flow_export, egress, nested_containers
 │       ├── allowlist.yaml            # Generic hostname allowlist (pypi/npm/github/apt)
 │       └── token_replacer.yaml       # Generic token-redaction config
@@ -192,21 +191,23 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │       ├── allowlist/                # Hostname/IP allowlist addon (active)
 │       └── token_replacer/           # Token redaction addon (API keys, Bearer tokens, cookies, JWTs) (active)
 │
+├── chat-templates/                   # Bundled Jinja chat templates for models
+│   └── Qwen3.6-35B-A3B-UD-Q6_K-XL/   # Jinja chat templates seeded to ~/.config/pi-container/chat-templates/
+│
 ├── llama-server/                     # LLM server components
 │   ├── models/                       # Downloaded GGUF model files (gitignored)
-│   ├── chat-templates/               # Jinja chat templates for models
 │   ├── logs/                         # llama-server log files (gitignored)
 │   └── .locks/                       # Process lock files (gitignored)
 │       └── local-gemma/              # Per-model lock directory
 │           ├── .llama_server.pid
 │           └── .llama_server_clients.json
 │
-├── coding-agent/setups/           # Model-specific setup directories
+├── docs/setups/                      # Model-specific setup directories
 │   └── gemma-4-26b-a4b-it-qat-GGUF/  # Notes and config for specific model setups
 │
 └── .pi-container/                    # Per-project config (this repo's own; each workspace gets its own)
-    ├── agent/                        # Agent launch config (models.json, sessions, …)
-    ├── chat-templates/               # Jinja chat templates loaded by llama-server (per model)
+    ├── agent/                        # Agent launch config (sessions, config.json, …)
+    ├── models.yaml                   # Allowed models allowlist
     ├── config.yaml                   # Orchestration: resource limits, tmpfs, flow-export, egress
     ├── token_replacer.yaml           # Token redaction rules (mounted into this project's proxy)
     ├── allowlist.yaml                # Hostname allowlist (mounted into this project's proxy)

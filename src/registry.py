@@ -15,7 +15,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from config import GLOBAL_GATEWAYS_REGISTRY_DIR, GLOBAL_MODELS_REGISTRY_DIR
+from config import (
+    GLOBAL_CHAT_TEMPLATES_DIR,
+    GLOBAL_GATEWAYS_REGISTRY_DIR,
+    GLOBAL_MODELS_REGISTRY_DIR,
+    REPO_ROOT,
+)
 from models import ServerConfig
 
 logger = logging.getLogger(__name__)
@@ -159,7 +164,7 @@ flags:
   - 8192
   - "--jinja"
   - "--chat-template-file"
-  - ".pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
+  - "~/.config/pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
   - "--reasoning"
   - "on"
   - "--n-gpu-layers"
@@ -180,10 +185,37 @@ def get_gateways_dir(override_dir: Path | None = None) -> Path:
     return override_dir if override_dir is not None else GLOBAL_GATEWAYS_REGISTRY_DIR
 
 
+def get_chat_templates_dir(override_dir: Path | None = None) -> Path:
+    """Return the active global chat templates directory."""
+    return override_dir if override_dir is not None else GLOBAL_CHAT_TEMPLATES_DIR
+
+
+def seed_default_chat_templates(templates_dir: Path | None = None) -> list[str]:
+    """Seed default chat template (Qwen3.6) if the chat templates directory is missing the file."""
+    target_dir = get_chat_templates_dir(templates_dir)
+    qwen_dir = target_dir / "Qwen3.6-35B-A3B-UD-Q6_K-XL"
+    qwen_file = qwen_dir / "chat_template.jinja"
+
+    seeded: list[str] = []
+    if not qwen_file.exists():
+        qwen_dir.mkdir(parents=True, exist_ok=True)
+        bundled_template = REPO_ROOT / "chat-templates" / "Qwen3.6-35B-A3B-UD-Q6_K-XL" / "chat_template.jinja"
+        if bundled_template.is_file():
+            content = bundled_template.read_text(encoding="utf-8")
+            qwen_file.write_text(content, encoding="utf-8")
+            seeded.append(str(qwen_file.relative_to(target_dir)))
+            logger.info(f"Seeded default chat template: {qwen_file}")
+
+    return seeded
+
+
 def seed_default_models(registry_dir: Path | None = None) -> list[str]:
     """Seed default model definitions (Qwen3.6) if the models registry directory is empty or missing."""
     target_dir = get_models_dir(registry_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
+
+    templates_dir = target_dir.parent / "chat-templates" if registry_dir is not None else None
+    seed_default_chat_templates(templates_dir)
 
     seeded: list[str] = []
     existing = list(target_dir.glob("*.yaml"))

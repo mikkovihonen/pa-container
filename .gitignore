@@ -29,11 +29,13 @@ venv/
 # Pi / T3
 coding-agent/logs
 coding-agent/logs/**
+.pi-container/agents
 .pi-container/agent/bin
 .pi-container/agent/sessions
 .pi-container/agent/t3
 .pi-container/agent/trust.json
 .pi-container/agent/models-store.json
+.pi-container/agent/models.json
 
 # Proxy
 coding-agent-proxy/.locks
