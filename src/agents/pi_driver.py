@@ -23,14 +23,16 @@ class PiAgentDriver(AgentDriver):
 
     @property
     def required_tools(self) -> list[str]:
-        return []
+        return ["pi"]
 
     def get_command(self, cli_args: list[str]) -> list[str]:
         return cli_args
 
-    def get_mounts(self, project_dir: Path, agent_config_dir: Path) -> list[AgentMount]:
+    def get_mounts(self, project_dir: Path) -> list[AgentMount]:
+        state_dir = self.get_state_dir(project_dir)
+        state_dir.mkdir(parents=True, exist_ok=True)
         return [
-            AgentMount(source=agent_config_dir, destination="/home/agent/.pi/agent"),
+            AgentMount(source=state_dir, destination="/home/agent/.pi/agent"),
         ]
 
     def get_tmpfs_paths(self) -> list[str]:
@@ -42,11 +44,11 @@ class PiAgentDriver(AgentDriver):
         gateway_configs: list[dict],
         default_model: str | None,
         project_dir: Path,
-        agent_config_dir: Path,
     ) -> None:
-        """Synthesize models.json in agent_config_dir for the Pi agent container."""
-        models_json_path = agent_config_dir / "models.json"
-        agent_config_dir.mkdir(parents=True, exist_ok=True)
+        """Synthesize models.json in state_dir for the Pi agent container."""
+        state_dir = self.get_state_dir(project_dir)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        models_json_path = state_dir / "models.json"
         providers: dict[str, dict] = {}
         for srv in server_configs:
             name = srv["name"]

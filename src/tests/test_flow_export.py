@@ -223,9 +223,9 @@ class TestExportMitmwebFlows:
         assert a.exists() and b.exists()  # nothing attributed → nothing removed
 
     def test_default_sessions_dir_when_none(self, tmp_path, monkeypatch):
-        """When sessions_dir=None, uses PROJECT_DIR/.pi-container/agent/sessions."""
+        """When sessions_dir=None, uses PROJECT_DIR/.pi-container/agents/pi/sessions."""
         monkeypatch.setattr(flow_export, "PROJECT_DIR", tmp_path)
-        sessions = tmp_path / ".pi-container" / "agent" / "sessions"
+        sessions = tmp_path / ".pi-container" / "agents" / "pi" / "sessions"
         exports = tmp_path / ".pi-container" / "exports"
         sessions.mkdir(parents=True, exist_ok=True)
         exports.mkdir(parents=True, exist_ok=True)

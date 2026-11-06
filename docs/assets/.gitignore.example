@@ -10,12 +10,12 @@
 
 # REQUIRED — sensitive and ephemeral runtime state. Never commit.
 .pi-container/exports/
-.pi-container/agents
-.pi-container/agent/bin
-.pi-container/agent/sessions
-.pi-container/agent/trust.json
-.pi-container/agent/models-store.json
-.pi-container/agent/models.json
+.pi-container/t3/
+.pi-container/agents/*/bin
+.pi-container/agents/*/sessions
+.pi-container/agents/**/trust.json
+.pi-container/agents/**/models-store.json
+.pi-container/agents/**/models.json
 
 # OPTIONAL — scratch directories you mount as tmpfs via config.yaml (tmpfs.paths).
 # Their contents live in RAM and never persist across runs, but the (empty)

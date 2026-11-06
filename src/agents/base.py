@@ -49,7 +49,11 @@ class AgentDriver(ABC):
         """Return dummy/placeholder environment variables needed by this agent."""
         return {}
 
-    def get_mounts(self, project_dir: Path, agent_config_dir: Path) -> list[AgentMount]:
+    def get_state_dir(self, project_dir: Path) -> Path:
+        """Return host path for agent-specific state and configs."""
+        return project_dir / ".pi-container" / "agents" / self.name
+
+    def get_mounts(self, project_dir: Path) -> list[AgentMount]:
         """Return host-to-container mounts for agent-specific state and configs."""
         return []
 
@@ -57,13 +61,16 @@ class AgentDriver(ABC):
         """Return container paths to be mounted as volatile RAM disks."""
         return []
 
+    def get_sessions_dir(self, project_dir: Path) -> Path | None:
+        """Return host path where agent session files are stored, if applicable."""
+        return self.get_state_dir(project_dir) / "sessions"
+
     def synthesize_config(
         self,
         server_configs: list[dict],
         gateway_configs: list[dict],
         default_model: str | None,
         project_dir: Path,
-        agent_config_dir: Path,
     ) -> None:
         """Synthesize agent-specific configuration from active models and gateways."""
         return None

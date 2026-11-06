@@ -410,7 +410,7 @@ agent:
   read_only_pi_container: true   # default: true (secure)
 ```
 
-Subdirectories mounted under separate container paths (such as `/home/agent/.pi/agent` for storing session logs and transcripts) remain fully functional and writable. Set to `false` only if you explicitly want the agent to edit project configuration files directly.
+Subdirectories mounted under separate container paths (such as `/home/agent/.pi/agent` or `/home/agent/.claude` for storing session logs, agent state, and configs) remain fully functional and writable. Set to `false` only if you explicitly want the agent to edit project configuration files directly.
 
 ### Agent execution mode, host advertising, and ports
 
@@ -694,39 +694,50 @@ tools:
 - **Agent Control Panels:**
     - `t3`: T3 Code web agent server for local UI control (provides `/usr/local/bin/t3`).
 - **Coding Agent Runtimes:**
+    - `pi`: Pi Coding Agent CLI runtime (provides `/usr/local/bin/pi`).
     - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (provides `/usr/local/bin/opencode`).
     - `antigravity`: Google Antigravity agent runtime with Gemini API integration (provides `/usr/local/bin/antigravity`, `/usr/local/bin/agy`).
     - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (provides `/usr/local/bin/claude`, `/usr/local/bin/claude-code`).
 
 When `tools.include` is non-empty, pi-container builds or reuses the required tool images and layers them into a project-specific container image in seconds.
 
-### Coding agent selection (`agent:`)
+### Coding agent configuration (`agents:`)
 
 pi-container supports multiple coding agent runtimes within the same sandboxed container environment:
 
-- **Pi Coding Agent (`pi`)**: Default agent runtime built into the base container image.
+- **Pi Coding Agent (`pi`)**: Agent runtime packaged as an on-demand toolchain.
 - **OpenCode (`opencode`)**: High-performance agent with OpenAI-compatible gateway routing.
 - **Antigravity (`antigravity`)**: Gemini-powered agent with native Google toolchain integrations.
 - **Claude Code (`claude`)**: Anthropic's agent runtime with CLI and T3 Code integration.
 
-You can configure the active agent in `.pi-container/config.yaml`:
+You can configure enabled agents and the default agent in `.pi-container/config.yaml`:
 
 ```yaml
+agents:
+  # List of agents enabled for this workspace (at least one required).
+  # Supported: pi, opencode, antigravity, claude
+  enabled:
+    - pi
+    - opencode
+  # Default active agent when --agent is omitted on the CLI.
+  default: pi
+
 agent:
-  type: opencode         # pi (default) | opencode | antigravity | claude
   command: ["run"]       # Optional command override
   options: ["--verbose"] # Optional CLI flags passed to the agent
 ```
 
-You can also override the agent for a single execution using the `--agent` CLI option:
+Every agent, including Pi, can be enabled or disabled. The configuration requires at least one agent to be enabled.
+
+You can select any enabled agent for a single execution using the `--agent` CLI option:
 
 ```bash
 ./run.sh --agent opencode
 ./run.sh --agent claude
 ```
 
-When an alternative agent is selected, pi-container automatically:
-1. Includes the agent toolchain (e.g. `opencode`, `antigravity`, or `claude-code`) during image build.
+When agents are enabled, pi-container automatically:
+1. Includes the agent toolchains (e.g. `pi`, `opencode`, `antigravity`, or `claude-code`) during image build.
 2. Synthesizes native configuration files dynamically from your global and project model configurations.
 3. Sets up agent-specific state directory mounts under `.pi-container/agents/<agent>/`.
 4. Injects required credentials via proxy token replacement on egress.

@@ -6,6 +6,7 @@ import yaml
 from schema_common import (
     MODELS_YAML_SCHEMA,
     SCHEMA,
+    _validate_agents,
     _validate_models_yaml,
     _validate_schema,
 )
@@ -113,6 +114,11 @@ def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
     tool_errors = _validate_tools(data)
     if tool_errors:
         errors.extend(tool_errors)
+
+    # Validate agents
+    agent_errors = _validate_agents(data)
+    if agent_errors:
+        errors.extend(agent_errors)
 
     is_valid = len(errors) == 0
     return is_valid, errors, schema_version_str

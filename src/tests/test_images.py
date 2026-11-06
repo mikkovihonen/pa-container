@@ -162,7 +162,16 @@ class TestComputeImageHash:
         (cfg_dir / "config.yaml").write_text("agent:\n  type: claude\n")
         assert images.read_project_tools(repo) == ["claude-code"]
 
-        assert images.read_project_tools(repo, extra_tools=["opencode"]) == ["claude-code", "opencode"]
+        (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - pi\n")
+        assert images.read_project_tools(repo) == ["pi"]
+
+        (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - opencode\n")
+        assert images.read_project_tools(repo) == ["opencode"]
+
+        (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - pi\n    - claude\n")
+        assert images.read_project_tools(repo) == ["claude-code", "pi"]
+
+        assert images.read_project_tools(repo, extra_tools=["opencode"]) == ["claude-code", "opencode", "pi"]
 
     def test_resolve_agent_image_with_tools_only(self, tmp_path):
         repo = tmp_path / "repo"

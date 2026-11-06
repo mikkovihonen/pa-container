@@ -174,11 +174,12 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │   ├── Containerfile                 # Image definition (apt, toolchain COPY, pi, /etc/containers, CA)
 │   ├── entrypoint.sh                 # Container entrypoint (default route via proxy, git config, uv venv)
 │   └── default/                      # Template for <project>/.pi-container (seeded on first run)
-│       ├── agent/                     # → .pi-container/agent
-│       │   ├── AGENTS.md             # Agent instructions
-│       │   ├── config.json
-│       │   ├── settings.json
-│       │   └── .pi_ignore
+│       ├── agents/                   # → .pi-container/agents
+│       │   └── pi/                   # Pi coding agent template
+│       │       ├── AGENTS.md         # Agent instructions
+│       │       ├── config.json
+│       │       ├── settings.json
+│       │       └── .pi_ignore
 │       ├── models.yaml               # Allowed models allowlist for the workspace
 │       ├── config.yaml               # Orchestration: resources, tmpfs, flow_export, egress, nested_containers
 │       ├── allowlist.yaml            # Generic hostname allowlist (pypi/npm/github/apt)

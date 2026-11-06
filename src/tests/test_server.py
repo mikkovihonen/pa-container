@@ -330,12 +330,13 @@ class TestServerStop:
 
         s = self._make_server(tmp_path)
         write_clients(s.paths["clients_file"], [{"pid": os.getpid(), "run_id": "me"}])
-        s._cleanup = MagicMock()
-        s._cleanup.return_value = None
+        s._stop_process = MagicMock()
+        s._cleanup_lock_dir = MagicMock()
 
         with patch("fcntl.flock"):
             s.stop()
-        s._cleanup.assert_called_once_with(full_cleanup=True)
+        s._stop_process.assert_called_once()
+        s._cleanup_lock_dir.assert_called_once()
 
     def test_no_cleanup_on_refcount_above_one(self, tmp_path):
         import os
@@ -348,18 +349,164 @@ class TestServerStop:
             s.paths["clients_file"],
             [{"pid": os.getpid(), "run_id": "me"}, {"pid": 987654, "run_id": "other"}],
         )
-        s._cleanup = MagicMock()
+        s._stop_process = MagicMock()
+        s._cleanup_lock_dir = MagicMock()
 
         with patch("fcntl.flock"), patch("util.is_pid_alive", return_value=True):
             s.stop()
-        s._cleanup.assert_not_called()
+        s._stop_process.assert_not_called()
+        s._cleanup_lock_dir.assert_not_called()
 
     def test_no_cleanup_when_no_clients_file(self, tmp_path):
         s = self._make_server(tmp_path)
-        s._cleanup = MagicMock()
+        s._stop_process = MagicMock()
+        s._cleanup_lock_dir = MagicMock()
 
         s.stop()  # should not raise
-        s._cleanup.assert_not_called()
+        s._stop_process.assert_not_called()
+        s._cleanup_lock_dir.assert_not_called()
+
+    def test_stop_process_with_server_pid(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.server_pid = 4321
+        s.paths["pid_file"].write_text("4321\n18080\n")
+        s.paths["clients_file"].write_text("[]\n")
+
+        with patch("server.stop_process_group") as mock_stop:
+            s._stop_process()
+
+        assert mock_stop.call_count == 1
+        assert mock_stop.call_args[0] == (4321, "llama-server test")
+        assert s.server_pid is None
+        assert not s.paths["pid_file"].exists()
+        assert not s.paths["clients_file"].exists()
+
+    def test_stop_process_fallback_reads_pid_file_when_server_pid_is_none(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.server_pid = None
+        s.paths["pid_file"].write_text("5678\n18080\n")
+
+        with patch("server.stop_process_group") as mock_stop:
+            s._stop_process()
+
+        assert mock_stop.call_count == 1
+        assert mock_stop.call_args[0] == (5678, "llama-server test")
+        assert s.server_pid is None
+        assert not s.paths["pid_file"].exists()
+
+
+class TestServerAdoptAndAttach:
+    def _make_server(self, tmp_path):
+        mc = ModelConfig.from_dict(
+            {
+                "fileFlag": "--model",
+                "repo": "org/repo",
+                "file": "model.gguf",
+                "additionalServerFlags": [],
+                "sha256": None,
+            }
+        )
+        sc = ServerConfig(
+            hf_models={"main": mc},
+            flags=["--ctx-size", "4096"],
+        )
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            logs_dir=tmp_path / "logs",
+        )
+        s.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
+        return s
+
+    def test_start_adopts_healthy_server_sets_pid_and_port(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s._ensure_models_downloaded = MagicMock()
+        s.paths["pid_file"].write_text("7777\n19090\n")
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_resp)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("os.kill"),
+            patch("urllib.request.urlopen", return_value=mock_ctx),
+            patch("fcntl.flock"),
+        ):
+            port = s.start()
+
+        assert port == 19090
+        assert s.server_pid == 7777
+        assert s.port == 19090
+        assert s.port_ready_event.is_set()
+
+    def test_adopted_server_is_stopped_when_last_client_exits(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s._ensure_models_downloaded = MagicMock()
+        s.paths["pid_file"].write_text("7777\n19090\n")
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_resp)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("os.kill"),
+            patch("urllib.request.urlopen", return_value=mock_ctx),
+            patch("fcntl.flock"),
+        ):
+            s.start()
+
+        assert s.server_pid == 7777
+
+        # Now stop as sole client
+        with (
+            patch("fcntl.flock"),
+            patch("server.stop_process_group") as mock_stop,
+        ):
+            s.stop()
+
+        assert mock_stop.call_count == 1
+        assert mock_stop.call_args[0] == (7777, "llama-server test")
+        assert not s.paths["pid_file"].exists()
+
+    def test_start_attaches_to_existing_server_sets_pid_and_port(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        s = self._make_server(tmp_path)
+        s._ensure_models_downloaded = MagicMock()
+        s.paths["pid_file"].write_text("8888\n19091\n")
+        # Put an existing live client in clients file
+        write_clients(s.paths["clients_file"], [{"pid": os.getpid(), "run_id": "other-run"}])
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_resp)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("os.kill"),
+            patch("urllib.request.urlopen", return_value=mock_ctx),
+            patch("fcntl.flock"),
+        ):
+            port = s.start()
+
+        assert port == 19091
+        assert s.server_pid == 8888
+        assert s.port == 19091
+        assert s.port_ready_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +569,29 @@ class TestCleanupOrphanedServers:
 
         assert cleaned == []
         mock_stop.assert_not_called()
+
+    def test_cleans_empty_instance_dir_without_files(self, tmp_path):
+        lock_dir = tmp_path / "locks"
+        empty_dir = lock_dir / "empty-instance"
+        empty_dir.mkdir(parents=True)
+
+        cleaned = Server.cleanup_orphaned_servers(lock_dir)
+        assert cleaned == []
+        assert not empty_dir.exists()
+        assert not lock_dir.exists()
+
+    def test_skips_instance_when_flock_raises_oserror(self, tmp_path):
+        lock_dir = tmp_path / "locks"
+        instance_dir = lock_dir / "instance-1"
+        instance_dir.mkdir(parents=True)
+        (instance_dir / ".llama_server_refcount.lock").touch()
+        (instance_dir / ".llama_server.pid").write_text("99999\n18080\n")
+
+        with patch("fcntl.flock", side_effect=OSError(35, "Resource temporarily unavailable")):
+            cleaned = Server.cleanup_orphaned_servers(lock_dir)
+
+        assert cleaned == []
+        assert instance_dir.exists()
 
 
 # ---------------------------------------------------------------------------

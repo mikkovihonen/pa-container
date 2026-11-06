@@ -15,42 +15,52 @@ Whether you run the default **Pi Coding Agent**, **OpenCode**, **Antigravity**, 
 
 | Agent Identifier | Display Name | Toolchain Package | Default Command | T3 Code Driver |
 | :--- | :--- | :--- | :--- | :--- |
-| `pi` *(default)* | Pi Coding Agent | Built into base image | `pi` | `pi` |
+| `pi` | Pi Coding Agent | `pi` (`@earendil-works/pi-coding-agent`) | `pi` | `pi` |
 | `opencode` | OpenCode | `opencode` (`@opencode/cli`) | `opencode` | — |
 | `antigravity` | Google Antigravity | `antigravity` | `antigravity` | — |
 | `claude` | Anthropic Claude Code | `claude-code` | `claude` | `claudeAgent` |
 
 ---
 
-## Selecting an Agent
+## Enabling and Selecting Agents
 
-### 1. Project Configuration (`config.yaml`)
+### 1. Workspace Configuration (`config.yaml`)
 
-Specify the desired agent runtime in `.pi-container/config.yaml`:
+Specify enabled agents and the default active agent in `.pi-container/config.yaml`. Every agent—including Pi—can be enabled or disabled. At least one agent must be enabled in the configuration:
 
 ```yaml
+agents:
+  # List of agents enabled for this workspace (at least one required).
+  # Supported: pi, opencode, antigravity, claude
+  enabled:
+    - pi
+    - opencode
+  # Default active agent when --agent is omitted on the CLI.
+  default: pi
+
 agent:
-  type: opencode         # pi (default) | opencode | antigravity | claude
   command: ["run"]       # Optional command arguments override
   options: ["--verbose"] # Optional CLI options appended to invocation
 ```
 
-When configured in `config.yaml`, `pi-container` automatically includes any required staging tools in the project container image and sets up the appropriate mounts.
+When configured in `config.yaml`, `pi-container` automatically builds and includes the toolchains for all enabled agents in the project container image and sets up the appropriate state directories and mounts.
 
 ### 2. Command-Line Override (`--agent`)
 
-You can override the project agent configuration for a single invocation using the `--agent` command-line flag:
+You can select any enabled agent for a single invocation using the `--agent` command-line flag:
 
 ```bash
-# Launch OpenCode in interactive mode
+# Launch OpenCode in interactive mode (must be in agents.enabled)
 ./run.sh --agent opencode
 
-# Launch Google Antigravity
+# Launch Google Antigravity (must be in agents.enabled)
 ./run.sh --agent antigravity
 
-# Launch Claude Code
+# Launch Claude Code (must be in agents.enabled)
 ./run.sh --agent claude
 ```
+
+If an agent is not listed in `agents.enabled`, `pi-container` rejects the invocation with an error.
 
 ---
 
@@ -58,7 +68,7 @@ You can override the project agent configuration for a single invocation using t
 
 ### 1. Pi Coding Agent (`pi`)
 
-- **State Directory**: `.pi-container/agent/` mounted to `/home/agent/.pi/agent`.
+- **State Directory**: `.pi-container/agents/pi/` mounted to `/home/agent/.pi/agent`.
 - **Configuration**: Synthesizes native `/home/agent/.pi/agent/models.json` on-demand from host models and project allowlist.
 - **Tmpfs Isolation**: Transient binaries in `/home/agent/.pi/agent/bin` are mounted on tmpfs to prevent disk persistence.
 

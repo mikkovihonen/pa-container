@@ -54,10 +54,25 @@ def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) 
             include = tools_sec.get("include")
             if isinstance(include, list):
                 tools.update(t for t in include if isinstance(t, str))
+        agents_sec = data.get("agents")
+        if isinstance(agents_sec, dict):
+            enabled = agents_sec.get("enabled")
+            if isinstance(enabled, list):
+                from agents import get_agent_driver
+
+                for ag in enabled:
+                    if isinstance(ag, str):
+                        try:
+                            drv = get_agent_driver(ag)
+                            tools.update(drv.required_tools)
+                        except Exception:
+                            pass
         agent_sec = data.get("agent")
         if isinstance(agent_sec, dict):
             agent_type = str(agent_sec.get("type") or "").strip().lower()
-            if agent_type in ("opencode", "open-code"):
+            if agent_type in ("pi", "default"):
+                tools.add("pi")
+            elif agent_type in ("opencode", "open-code"):
                 tools.add("opencode")
             elif agent_type in ("antigravity", "agy"):
                 tools.add("antigravity")

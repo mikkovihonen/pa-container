@@ -196,7 +196,7 @@ def export_mitmweb_flows(
     copied as-is, keeping the ``.jsonl`` extension.
 
     Args:
-        sessions_dir: Where the pi session ``.jsonl`` files live — read only to
+        sessions_dir: Where the agent session ``.jsonl`` files live — read only to
             determine the current session id (used in the output filename).
         exports_dir: The per-project exports directory — both where the proxy
             stages raw ``flows-<ip>.jsonl`` files (its bind mount) and where the
@@ -210,7 +210,7 @@ def export_mitmweb_flows(
     goes wrong.
     """
     if sessions_dir is None:
-        sessions_dir = PROJECT_DIR / ".pi-container" / "agent" / "sessions"
+        sessions_dir = PROJECT_DIR / ".pi-container" / "agents" / "pi" / "sessions"
     if exports_dir is None:
         exports_dir = PROJECT_DIR / ".pi-container" / "exports"
 
@@ -299,7 +299,7 @@ def recover_dangling_flows(
     if exports_dir is None:
         exports_dir = PROJECT_DIR / ".pi-container" / "exports"
     if sessions_dir is None:
-        sessions_dir = PROJECT_DIR / ".pi-container" / "agent" / "sessions"
+        sessions_dir = PROJECT_DIR / ".pi-container" / "agents" / "pi" / "sessions"
 
     if not exports_dir.exists():
         return None

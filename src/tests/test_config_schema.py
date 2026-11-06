@@ -32,6 +32,7 @@ def valid_config(tmp_path: Path) -> Path:
                 "llama": {"startup_timeout": 180, "startup_attempts": 2},
                 "network": {"ipv6": False, "dns": "1.1.1.1"},
                 "proxy": {"expose_ui": "localhost"},
+                "agents": {"enabled": ["pi"], "default": "pi"},
                 "agent": {"env": {}, "mounts": []},
                 "nested_containers": {
                     "enabled": False,
@@ -204,6 +205,7 @@ class TestValidateConfig:
                     "llama": {"startup_timeout": 180, "startup_attempts": 2},
                     "network": {"ipv6": False, "dns": "1.1.1.1"},
                     "proxy": {"expose_ui": "localhost"},
+                    "agents": {"enabled": ["pi"], "default": "pi"},
                     "agent": {"env": {}, "mounts": []},
                     "nested_containers": {
                         "enabled": False,
@@ -818,3 +820,85 @@ class TestToolsSchema:
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
         assert any("source_control.enabled" in e for e in errors)
+
+
+class TestAgentsSchema:
+    """Tests for the agents configuration section."""
+
+    def test_valid_agents_single(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["agents"] = {"enabled": ["pi"], "default": "pi"}
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is True
+        assert errors == []
+
+    def test_valid_agents_multiple(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["agents"] = {"enabled": ["opencode", "claude", "antigravity"], "default": "claude"}
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is True
+        assert errors == []
+
+    def test_agents_empty_enabled_fails(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["agents"] = {"enabled": []}
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("configuration must have at least one agent enabled" in e for e in errors)
+
+    def test_agents_unknown_agent_fails(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["agents"] = {"enabled": ["nonexistent_agent"]}
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("unknown agent 'nonexistent_agent'" in e for e in errors)
+
+    def test_agents_default_not_in_enabled_fails(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["agents"] = {"enabled": ["pi"], "default": "opencode"}
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("agent 'opencode' is set as default but is not enabled in agents.enabled" in e for e in errors)
+
+    def test_agents_missing_section_fails(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data.pop("agents", None)
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("agents: required field missing" in e for e in errors)

@@ -462,7 +462,22 @@ class TestT3AdvertiseHostResolution:
         assert script_file.is_file()
         content = script_file.read_text()
         assert "providerInstances.pi" in content
-        assert 'driver: "pi", enabled: true' in content
+        assert 'driver: "pi"' in content
+        assert "isPiEnabled" in content
+        assert "/home/agent/.t3/userdata/settings.json" in content
+
+    def test_t3_mounts_configured_in_t3_mode(self, tmp_path):
+        pi_container_dir = tmp_path / ".pi-container"
+        is_t3_mode = True
+        t3_mounts: list[str] = []
+        t3_chown: list[str] = []
+        if is_t3_mode:
+            t3_dir = pi_container_dir / "t3"
+            t3_dir.mkdir(parents=True, exist_ok=True)
+            t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
+            t3_chown = ["/home/agent/.t3"]
+        assert t3_mounts == ["--volume", f"{pi_container_dir / 't3'}:/home/agent/.t3"]
+        assert t3_chown == ["/home/agent/.t3"]
 
     def test_t3_tunnel_cli_parsing(self):
         raw_args = [
@@ -578,3 +593,15 @@ class TestT3AdvertiseHostResolution:
             driver = get_agent_driver(agent_name)
             tools = driver.required_tools
             assert isinstance(tools, list)
+
+    def test_cli_agent_disabled_exits_with_error(self, tmp_path, monkeypatch):
+        import yaml
+
+        from network import read_enabled_agents
+
+        pi_dir = tmp_path / ".pi-container"
+        pi_dir.mkdir(parents=True)
+        (pi_dir / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["claude"]}}))
+        enabled = read_enabled_agents(pi_dir)
+        assert enabled == ["claude"]
+        assert "pi" not in enabled

@@ -378,9 +378,38 @@ def read_agent_mode(config_dir: Path | None = None) -> str:
     return mode or "cli"
 
 
+def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
+    """Read list of enabled agent names from config.yaml ``agents.enabled``."""
+    cfg = load_project_config(config_dir)
+    agents_sec = cfg.get("agents")
+    if isinstance(agents_sec, dict):
+        enabled = agents_sec.get("enabled")
+        if isinstance(enabled, list):
+            res = [str(x).strip().lower() for x in enabled if isinstance(x, str) and str(x).strip()]
+            if res:
+                return res
+    agent_sec = cfg.get("agent")
+    if isinstance(agent_sec, dict):
+        t = str(agent_sec.get("type") or "").strip().lower()
+        if t:
+            return [t]
+    return ["pi"]
+
+
 def read_agent_type(config_dir: Path | None = None) -> str:
-    """Agent engine type from config.yaml ``agent.type`` (e.g. 'pi', 'opencode', 'antigravity', 'claude')."""
-    section = load_project_config(config_dir).get("agent") or {}
+    """Agent engine type from config.yaml ``agents.default`` or first enabled agent."""
+    cfg = load_project_config(config_dir)
+    agents_sec = cfg.get("agents")
+    if isinstance(agents_sec, dict):
+        default = agents_sec.get("default")
+        if default and isinstance(default, str) and default.strip():
+            return default.strip().lower()
+        enabled = agents_sec.get("enabled")
+        if isinstance(enabled, list):
+            for x in enabled:
+                if isinstance(x, str) and x.strip():
+                    return x.strip().lower()
+    section = cfg.get("agent") or {}
     agent_type = str(section.get("type") or "pi").strip().lower()
     return agent_type or "pi"
 

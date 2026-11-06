@@ -1359,3 +1359,51 @@ class TestReadGitConfig:
         (tmp_path / "config.yaml").write_text(yaml.dump({"git": {"safe_directory": "0", "rewrite_ssh_to_https": "1"}}))
         cfg = read_git_config(tmp_path)
         assert cfg == {"safe_directory": False, "rewrite_ssh_to_https": True}
+
+
+class TestReadAgentsConfig:
+    def test_read_enabled_agents_defaults(self, tmp_path):
+        from network import read_enabled_agents
+
+        (tmp_path / "config.yaml").write_text("{}\n")
+        assert read_enabled_agents(tmp_path) == ["pi"]
+
+    def test_read_enabled_agents_explicit(self, tmp_path):
+        import yaml
+
+        from network import read_enabled_agents
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["opencode", "claude"]}}))
+        assert read_enabled_agents(tmp_path) == ["opencode", "claude"]
+
+    def test_read_enabled_agents_fallback_agent_type(self, tmp_path):
+        import yaml
+
+        from network import read_enabled_agents
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"agent": {"type": "antigravity"}}))
+        assert read_enabled_agents(tmp_path) == ["antigravity"]
+
+    def test_read_agent_type_with_default(self, tmp_path):
+        import yaml
+
+        from network import read_agent_type
+
+        (tmp_path / "config.yaml").write_text(
+            yaml.dump({"agents": {"enabled": ["pi", "opencode"], "default": "opencode"}})
+        )
+        assert read_agent_type(tmp_path) == "opencode"
+
+    def test_read_agent_type_inferred_first(self, tmp_path):
+        import yaml
+
+        from network import read_agent_type
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["claude", "pi"]}}))
+        assert read_agent_type(tmp_path) == "claude"
+
+    def test_read_agent_type_defaults_to_pi(self, tmp_path):
+        from network import read_agent_type
+
+        (tmp_path / "config.yaml").write_text("{}\n")
+        assert read_agent_type(tmp_path) == "pi"

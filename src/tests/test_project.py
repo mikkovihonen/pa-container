@@ -49,8 +49,8 @@ class TestEnsureProjectConfig:
     def _make_template(self, root):
         """Build a minimal coding-agent/default template under root."""
         template = root / "coding-agent" / "default"
-        (template / "agent").mkdir(parents=True)
-        (template / "agent" / "config.json").write_text("{}")
+        (template / "agents" / "pi").mkdir(parents=True)
+        (template / "agents" / "pi" / "config.json").write_text("{}")
         (template / "config.yaml").write_text("tmpfs:\n  paths: []\n")
         (template / "allowlist.yaml").write_text("global: {}\n")
         (template / "token_replacer.yaml").write_text("global: {}\n")
@@ -69,10 +69,10 @@ class TestEnsureProjectConfig:
         monkeypatch.setattr(project, "REPO_ROOT", repo)
         monkeypatch.setattr(project, "PROJECT_DIR", proj)
 
-        agent_dir = project.ensure_project_config()
+        pi_container_dir = project.ensure_project_config()
 
-        assert agent_dir == proj / ".pi-container" / "agent"
-        assert (agent_dir / "config.json").exists()
+        assert pi_container_dir == proj / ".pi-container"
+        assert (proj / ".pi-container" / "agents" / "pi" / "config.json").exists()
         assert not (proj / ".pi-container" / "chat-templates").exists()
         for name in ("config.yaml", "allowlist.yaml", "token_replacer.yaml", "models.yaml"):
             assert (proj / ".pi-container" / name).exists()
@@ -95,7 +95,7 @@ class TestEnsureProjectConfig:
         assert existing.read_text() == "global: {custom: true}\n"
         # Missing ones are still seeded.
         assert (proj / ".pi-container" / "token_replacer.yaml").exists()
-        assert (proj / ".pi-container" / "agent" / "config.json").exists()
+        assert (proj / ".pi-container" / "agents" / "pi" / "config.json").exists()
 
 
 class TestEnsureProjectConfigMissingTemplate:

@@ -1,6 +1,6 @@
 // Pre-seed T3 Code settings for active agent driver.
 const fs = require("node:fs");
-const path = "/home/agent/.pi/agent/t3/userdata/settings.json";
+const path = "/home/agent/.t3/userdata/settings.json";
 
 try {
     fs.mkdirSync(require("node:path").dirname(path), { recursive: true });
@@ -8,26 +8,35 @@ try {
     try {
         settings = JSON.parse(fs.readFileSync(path, "utf8"));
     } catch {}
-    const activeAgent = (process.env.PI_CONTAINER_AGENT || "pi").toLowerCase();
-    const isClaude = activeAgent === "claude" || activeAgent === "claude-code";
-    const isCodex = activeAgent === "codex";
-    const isPi = !isClaude && !isCodex;
+    const enabledList = (process.env.PI_CONTAINER_ENABLED_AGENTS || process.env.PI_CONTAINER_AGENT || "pi")
+        .toLowerCase()
+        .split(",")
+        .map((s) => s.trim());
+    const activeAgent = (process.env.PI_CONTAINER_AGENT || enabledList[0] || "pi").toLowerCase();
+
+    const isClaudeEnabled = enabledList.some((a) => a === "claude" || a === "claude-code");
+    const isCodexEnabled = enabledList.some((a) => a === "codex" || a === "opencode" || a === "open-code");
+    const isPiEnabled = enabledList.some((a) => a === "pi" || a === "default");
+
+    const isClaudeActive = activeAgent === "claude" || activeAgent === "claude-code";
+    const isCodexActive = activeAgent === "codex" || activeAgent === "opencode" || activeAgent === "open-code";
+    const isPiActive = !isClaudeActive && !isCodexActive;
 
     settings.providerInstances = settings.providerInstances || {};
-    settings.providerInstances.pi = Object.assign(settings.providerInstances.pi || {}, { driver: "pi", enabled: true });
-    if (!isPi) {
-        settings.providerInstances.pi.enabled = false;
-    }
-    settings.providerInstances.codex = Object.assign(settings.providerInstances.codex || {}, { driver: "codex", enabled: false });
-    if (isCodex) {
-        settings.providerInstances.codex.enabled = true;
-    }
-    settings.providerInstances.claudeAgent = Object.assign(settings.providerInstances.claudeAgent || {}, { driver: "claudeAgent", enabled: false });
-    if (isClaude) {
-        settings.providerInstances.claudeAgent.enabled = true;
-    }
+    settings.providerInstances.pi = Object.assign(settings.providerInstances.pi || {}, {
+        driver: "pi",
+        enabled: isPiEnabled,
+    });
+    settings.providerInstances.codex = Object.assign(settings.providerInstances.codex || {}, {
+        driver: "codex",
+        enabled: isCodexEnabled,
+    });
+    settings.providerInstances.claudeAgent = Object.assign(settings.providerInstances.claudeAgent || {}, {
+        driver: "claudeAgent",
+        enabled: isClaudeEnabled,
+    });
 
-    const activeInstanceId = isClaude ? "claudeAgent" : (isCodex ? "codex" : "pi");
+    const activeInstanceId = isClaudeActive ? "claudeAgent" : isCodexActive ? "codex" : "pi";
     if (
         !settings.textGenerationModelSelection ||
         !settings.textGenerationModelSelection.instanceId ||

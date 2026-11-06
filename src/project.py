@@ -14,7 +14,6 @@ from config_schema import SCHEMA_VERSION_MISMATCH
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_CONFIG_DIRS = ("agent",)
 _PROJECT_CONFIG_FILES = ("config.yaml", "allowlist.yaml", "token_replacer.yaml", "models.yaml")
 
 
@@ -33,11 +32,11 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
     """Seed the per-project ``.pi-container`` config from the repo template if absent.
 
     Seeds ``{project_dir}/.pi-container`` from ``{repo_root}/coding-agent/default``:
-    the ``agent/`` subtree plus ``config.yaml`` and the proxy
+    the ``agents/`` subtree plus ``config.yaml``, ``models.yaml``, and the proxy
     addon configs ``allowlist.yaml``/``token_replacer.yaml``. Also seeds dependency command
     templates if present.
 
-    Returns the agent launch-config dir (``{project_dir}/.pi-container/agent``).
+    Returns the project configuration directory (``{project_dir}/.pi-container``).
     """
     p_dir = project_dir if project_dir is not None else PROJECT_DIR
     r_root = repo_root if repo_root is not None else REPO_ROOT
@@ -47,11 +46,15 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
 
     project_root = p_dir / ".pi-container"
 
-    for name in _PROJECT_CONFIG_DIRS:
-        src, dst = template_root / name, project_root / name
-        if src.is_dir() and not dst.exists():
-            logger.info(f"Seeding {dst} from {src}.")
-            shutil.copytree(src, dst)
+    agents_template_root = template_root / "agents"
+    agents_project_root = project_root / "agents"
+    if agents_template_root.is_dir():
+        for agent_dir in agents_template_root.iterdir():
+            if agent_dir.is_dir():
+                dst = agents_project_root / agent_dir.name
+                if not dst.exists():
+                    logger.info(f"Seeding {dst} from {agent_dir}.")
+                    shutil.copytree(agent_dir, dst)
 
     for name in _PROJECT_CONFIG_FILES:
         src, dst = template_root / name, project_root / name
@@ -70,7 +73,7 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
                 logger.info(f"Seeding {dst_dir} from {src_dir}.")
                 shutil.copytree(src_dir, dst_dir)
 
-    return project_root / "agent"
+    return project_root
 
 
 def config_fix_hint(errors: list[str], config_path: Path) -> list[str]:

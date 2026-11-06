@@ -254,7 +254,7 @@ def main() -> int:
         print()
         print("Validating seed directory completeness...")
 
-        _EXPECTED_DIRS = ("agent", "dependencies")
+        _EXPECTED_DIRS = ("agents", "dependencies")
         _EXPECTED_FILES = (
             "config.yaml",
             "allowlist.yaml",

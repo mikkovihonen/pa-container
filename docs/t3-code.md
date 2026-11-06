@@ -133,16 +133,16 @@ When T3 Code runs inside a container, `t3 serve` must bind to `--host 0.0.0.0` s
 
 ### Agent Specialization (Pi Exclusivity)
 
-By default, upstream T3 Code ships with generic drivers enabled (such as `codex` and `claudeAgent`), while disabling Pi. Inside `pi-container`, T3 Code is strictly specialized for the Pi agent:
+T3 Code integrates with the agent architecture through provider isolation and policy enforcement:
 
 1. **Enterprise Policy Enforcement (`/etc/t3code/policy.json`)**:
-    - The agent container bakes an administrative policy with `limits.providers.allowedDrivers: ["pi"]`.
-    - Other drivers (`codex`, `claudeAgent`, `cursor`, `grok`) are permanently disallowed by policy and cannot be scheduled or started.
+    - The server synchronizes `limits.providers.allowedDrivers` with the workspace's `agents.enabled` configuration.
+    - Disabled agent drivers are permanently disallowed by policy and cannot be scheduled or started.
 2. **Pre-Seeded User Settings (`userdata/settings.json`)**:
-    - On server startup, `entrypoint.sh` seeds `/home/agent/.pi/agent/t3/userdata/settings.json`.
-    - Pi is marked as enabled, alternative drivers are disabled, and the default model instance is set to `pi`.
-3. **Persistent Base Directory (`--base-dir /home/agent/.pi/agent/t3`)**:
-    - Because `/home/agent/.pi/agent` is mounted from the host project's `.pi-container/` directory, all projects, threads, and diff reviews persist across container restarts.
+    - On server startup, `entrypoint.sh` seeds `/home/agent/.t3/userdata/settings.json`.
+    - Provider instances (`pi`, `claudeAgent`, `codex`) are marked enabled or disabled based on `agents.enabled`, and the default model instance is set to the active agent.
+3. **Persistent Base Directory (`--base-dir /home/agent/.t3`)**:
+    - When running in T3 mode, `.pi-container/t3` is mounted to `/home/agent/.t3`, so all projects, threads, and diff reviews persist across container restarts.
 
 
 ### Source Control Provider Toolchains
@@ -419,5 +419,5 @@ This provisions an ephemeral tunnel on `https://<random>.trycloudflare.com` and 
 
 1. **Loopback Binding by Default**: Host port `3773` binds strictly to `127.0.0.1`. Remote machines on your local network cannot connect unless you explicitly set `agent.ports.expose: lan`.
 2. **Unchanged Sandbox Isolation**: Running T3 Code does not require relaxing SELinux confinement or enabling `nested_containers`. The server runs as the unprivileged `agent` user.
-3. **Session Persistence**: Pi session trees are saved in `/home/agent/.pi/agent/sessions/`, which is mounted from your host project's `.pi-container/` directory. All thread history persists across container restarts.
+3. **Session Persistence**: Pi session trees are saved in `/home/agent/.pi/agent/sessions/`, which is mounted from your host project's `.pi-container/agents/pi/sessions/` directory. All thread history persists across container restarts.
 

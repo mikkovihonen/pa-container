@@ -43,6 +43,7 @@ from network import (
     read_agent_mode,
     read_agent_ports,
     read_agent_type,
+    read_enabled_agents,
     read_flow_export_enabled,
     read_git_config,
     read_llama_config,
@@ -159,9 +160,8 @@ def ensure_proxy_image(runtime: str, repo_root: Path = REPO_ROOT) -> bool:
 
 
 def main() -> None:
-    agent_config_dir = project.ensure_project_config()
+    pi_container_dir = project.ensure_project_config()
     warn_missing_gitignore(PROJECT_DIR, logger)
-    pi_container_dir = PROJECT_DIR / ".pi-container"
     models_path: Path | None = resolve_models_file(pi_container_dir)
     if models_path is None or not models_path.exists():
         logger.error(f"Config file not found: expected {pi_container_dir / 'models.yaml'}")
@@ -214,53 +214,6 @@ def main() -> None:
             logger.error(f"  ✗ {err}")
         logger.error("\nFix: remove the forbidden host mount paths from config.yaml under agent.mounts.")
         sys.exit(1)
-
-    # Crash recovery: reap orphaned servers, proxies, and agent containers from prior crashed runs
-    containers.sweep_orphaned_servers(LLAMA_SERVER_LOCK_DIR)
-    containers.sweep_orphaned_proxies(CONTAINER_RUNTIME, PROXY_LOCK_DIR)
-    containers.cleanup_orphaned_agent_containers(CONTAINER_RUNTIME, project.project_key(PROJECT_DIR))
-    if flow_export_enabled:
-        recover_dangling_flows(
-            exports_dir=pi_container_dir / "exports",
-            sessions_dir=agent_config_dir / "sessions",
-        )
-
-    nested_cfg = read_nested_containers_config(pi_container_dir)
-    nested_ports = nested_cfg["ports"]
-    if nested_cfg["enabled"]:
-        logger.info(
-            f"Nested containers enabled (storage={nested_cfg['storage']}, security={nested_cfg['security']}): "
-            f"the agent can run its own rootless podman. Its traffic still egresses through the proxy, "
-            f"but the agent container's SELinux confinement is relaxed."
-        )
-        containers.warn_about_registry_allowlist(pi_container_dir)
-        if nested_ports["publish"]:
-            taken = containers.unavailable_host_ports(nested_ports["publish"], nested_ports["expose"])
-            if taken:
-                logger.error(f"Host port(s) already in use: {', '.join(str(p) for p in taken)}")
-                holders = containers.port_holders(CONTAINER_RUNTIME, taken, project.project_key(PROJECT_DIR))
-                for port in taken:
-                    holder = holders.get(port)
-                    logger.error(f"  {port} → {holder}" if holder else f"  {port} → not held by a container")
-                logger.error(
-                    f"Free them, or change nested_containers.ports.publish in "
-                    f"{config_yaml_path} (an entry may be written 'HOSTPORT:AGENTPORT' to remap)."
-                )
-                sys.exit(1)
-            bind = "127.0.0.1" if nested_ports["expose"] != "lan" else "all interfaces"
-            logger.info(
-                "Publishing nested-container ports on "
-                + f"{bind}: "
-                + ", ".join(f"{host}→agent {agent}" for host, agent in nested_ports["publish"])
-                + ". A nested container must publish the agent-side port itself "
-                + "(e.g. `podman run -p 3000:3000`) for the host port to serve anything."
-            )
-    elif nested_ports["publish"]:
-        logger.warning(
-            f"nested_containers.ports.publish lists port(s) "
-            f"{', '.join(str(host) for host, _ in nested_ports['publish'])} but "
-            f"nested_containers.enabled is false; nothing is published."
-        )
 
     cli_t3 = False
     cli_t3_advertise_host: str | None = None
@@ -391,12 +344,69 @@ def main() -> None:
             logger.error(str(err))
             sys.exit(1)
 
+    enabled_agents = read_enabled_agents(pi_container_dir)
     agent_type = cli_agent or read_agent_type(pi_container_dir)
+    if cli_agent and cli_agent.lower() not in enabled_agents:
+        logger.error(
+            f"Agent '{cli_agent}' is not enabled in this workspace's config.yaml. "
+            f"Enabled agents: {', '.join(enabled_agents)}"
+        )
+        sys.exit(1)
+
     try:
         driver = get_agent_driver(agent_type)
     except ValueError as e:
         logger.error(str(e))
         sys.exit(1)
+
+    sessions_dir = driver.get_sessions_dir(PROJECT_DIR)
+
+    # Crash recovery: reap orphaned servers, proxies, and agent containers from prior crashed runs
+    containers.sweep_orphaned_servers(LLAMA_SERVER_LOCK_DIR)
+    containers.sweep_orphaned_proxies(CONTAINER_RUNTIME, PROXY_LOCK_DIR)
+    containers.cleanup_orphaned_agent_containers(CONTAINER_RUNTIME, project.project_key(PROJECT_DIR))
+    if flow_export_enabled:
+        recover_dangling_flows(
+            exports_dir=pi_container_dir / "exports",
+            sessions_dir=sessions_dir,
+        )
+
+    nested_cfg = read_nested_containers_config(pi_container_dir)
+    nested_ports = nested_cfg["ports"]
+    if nested_cfg["enabled"]:
+        logger.info(
+            f"Nested containers enabled (storage={nested_cfg['storage']}, security={nested_cfg['security']}): "
+            f"the agent can run its own rootless podman. Its traffic still egresses through the proxy, "
+            f"but the agent container's SELinux confinement is relaxed."
+        )
+        containers.warn_about_registry_allowlist(pi_container_dir)
+        if nested_ports["publish"]:
+            taken = containers.unavailable_host_ports(nested_ports["publish"], nested_ports["expose"])
+            if taken:
+                logger.error(f"Host port(s) already in use: {', '.join(str(p) for p in taken)}")
+                holders = containers.port_holders(CONTAINER_RUNTIME, taken, project.project_key(PROJECT_DIR))
+                for port in taken:
+                    holder = holders.get(port)
+                    logger.error(f"  {port} → {holder}" if holder else f"  {port} → not held by a container")
+                logger.error(
+                    f"Free them, or change nested_containers.ports.publish in "
+                    f"{config_yaml_path} (an entry may be written 'HOSTPORT:AGENTPORT' to remap)."
+                )
+                sys.exit(1)
+            bind = "127.0.0.1" if nested_ports["expose"] != "lan" else "all interfaces"
+            logger.info(
+                "Publishing nested-container ports on "
+                + f"{bind}: "
+                + ", ".join(f"{host}→agent {agent}" for host, agent in nested_ports["publish"])
+                + ". A nested container must publish the agent-side port itself "
+                + "(e.g. `podman run -p 3000:3000`) for the host port to serve anything."
+            )
+    elif nested_ports["publish"]:
+        logger.warning(
+            f"nested_containers.ports.publish lists port(s) "
+            f"{', '.join(str(host) for host, _ in nested_ports['publish'])} but "
+            f"nested_containers.enabled is false; nothing is published."
+        )
 
     is_t3_mode = cli_t3 or (read_agent_mode(pi_container_dir) == "t3")
     raw_adv_host = cli_t3_advertise_host or os.environ.get("T3_ADVERTISE_HOST") or "localhost"
@@ -450,7 +460,7 @@ def main() -> None:
             f"T3 Code mode enabled (https://t3.codes):"
             f"\n  Inbound server port: {t3_bind}:3773"
             f"\n  Advertised host: {t3_advertise_host}"
-            f"\n  Starting T3 Code server for Pi inside container..."
+            f"\n  Starting T3 Code server for {driver.name} inside container..."
             f"\n  Once initialized, open https://t3.codes and use the pairing link displayed below."
         )
 
@@ -468,7 +478,6 @@ def main() -> None:
         gateway_configs=gateway_configs,
         default_model=default_model,
         project_dir=PROJECT_DIR,
-        agent_config_dir=agent_config_dir,
     )
 
     process_gateway_configs(gateway_configs, pi_container_dir)
@@ -733,17 +742,26 @@ def main() -> None:
                 git_hooks_dir.mkdir(parents=True, exist_ok=True)
                 git_hooks_mount = ["--volume", f"{git_hooks_dir}:/workspace/.git/hooks:ro"]
 
-            driver_mounts = [arg for m in driver.get_mounts(PROJECT_DIR, agent_config_dir) for arg in m.to_run_args()]
+            driver_mounts = [arg for m in driver.get_mounts(PROJECT_DIR) for arg in m.to_run_args()]
             driver_env = [
                 flag for k, v in driver.get_environment(agent_extras).items() for flag in ("--env", f"{k}={v}")
             ]
             driver_tmpfs = [flag for path in driver.get_tmpfs_paths() for flag in RUNTIME.tmpfs_args(path)]
+            t3_mounts: list[str] = []
+            t3_chown: list[str] = []
+            if is_t3_mode:
+                t3_dir = pi_container_dir / "t3"
+                t3_dir.mkdir(parents=True, exist_ok=True)
+                t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
+                t3_chown = ["/home/agent/.t3"]
+
             chown_paths = sorted(
                 set(
                     tmpfs_paths
                     + list(active_volume_map.keys())
                     + driver.get_tmpfs_paths()
                     + ["/workspace/.pi-container/exports"]
+                    + t3_chown
                 )
             )
             final_container_argv = driver.get_command(container_argv)
@@ -784,6 +802,7 @@ def main() -> None:
                 ),
                 *RUNTIME.tmpfs_args("/home/agent/"),
                 *driver_mounts,
+                *t3_mounts,
                 "--volume",
                 f"{PROJECT_DIR}:/workspace",
                 *(["--volume", f"{pi_container_dir}:/workspace/.pi-container:ro"] if read_only_pi_container else []),
@@ -801,6 +820,8 @@ def main() -> None:
                 f"CONTAINER_CHOWN_PATHS={':'.join(chown_paths)}",
                 "--env",
                 f"PI_CONTAINER_AGENT={driver.name}",
+                "--env",
+                f"PI_CONTAINER_ENABLED_AGENTS={','.join(enabled_agents)}",
                 *driver_env,
                 "--env",
                 f"LLAMA_PORTS={portconfig}",
@@ -850,7 +871,7 @@ def main() -> None:
                 if ip_thread is not None:
                     ip_thread.join(timeout=2)
                 export_mitmweb_flows(
-                    sessions_dir=agent_config_dir / "sessions",
+                    sessions_dir=sessions_dir,
                     client_ips=ip_holder.get("ips"),
                     exports_dir=pi_container_dir / "exports",
                 )

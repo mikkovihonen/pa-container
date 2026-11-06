@@ -94,6 +94,36 @@ if [ -n "$HOST_GIT_CONFIG" ]; then
     done < <(echo "$HOST_GIT_CONFIG" | jq -r 'to_entries[] | [.key, .value] | @tsv')
 fi
 
+# ─── T3 Code allowedDrivers synchronization ─────────────────────────────────
+if [ -d /etc/t3code ]; then
+    _enabled_agents="${PI_CONTAINER_ENABLED_AGENTS:-${PI_CONTAINER_AGENT:-pi}}"
+    IFS=',' read -ra _arr <<< "$_enabled_agents"
+    _drivers=()
+    for _ag in "${_arr[@]}"; do
+        case "$_ag" in
+            pi|default) _drivers+=('"pi"') ;;
+            claude|claude-code) _drivers+=('"claudeAgent"') ;;
+            opencode|open-code) _drivers+=('"codex"') ;;
+        esac
+    done
+    if [ ${#_drivers[@]} -gt 0 ]; then
+        _driver_list=$(IFS=,; echo "${_drivers[*]}")
+        cat <<EOF > /etc/t3code/policy.json
+{
+  "schemaVersion": 1,
+  "organization": "pi-container",
+  "limits": {
+    "providers": {
+      "allowedDrivers": [
+        ${_driver_list}
+      ]
+    }
+  }
+}
+EOF
+    fi
+fi
+
 exec gosu agent bash -c '
     set -a; source /etc/environment; set +a;
 
@@ -122,7 +152,7 @@ exec gosu agent bash -c '
             exit 1
         fi
         echo "=================================================================="
-        echo "  Starting T3 Code server for Pi inside pi-container..."
+        echo "  Starting T3 Code server for ${PI_CONTAINER_AGENT:-pi} inside pi-container..."
         echo "  Web UI: https://t3.codes"
         if [ -n "${T3_PUBLIC_URL:-}" ]; then
             echo "  Tunnel URL: ${T3_PUBLIC_URL}"
@@ -144,7 +174,7 @@ exec gosu agent bash -c '
             node "$_seed_script" 2>/dev/null || true
         fi
 
-        exec t3 serve --base-dir /home/agent/.pi/agent/t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
+        exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
     else
         case "${PI_CONTAINER_AGENT:-pi}" in
             opencode|open-code)

@@ -33,8 +33,8 @@ class AntigravityDriver(AgentDriver):
             "GEMINI_API_KEY": "pi-container-token-placeholder",
         }
 
-    def get_mounts(self, project_dir: Path, agent_config_dir: Path) -> list[AgentMount]:
-        agy_dir = project_dir / ".pi-container" / "agents" / "antigravity"
+    def get_mounts(self, project_dir: Path) -> list[AgentMount]:
+        agy_dir = self.get_state_dir(project_dir)
         agy_dir.mkdir(parents=True, exist_ok=True)
         return [
             AgentMount(source=agy_dir, destination="/home/agent/.gemini/antigravity"),
@@ -46,10 +46,9 @@ class AntigravityDriver(AgentDriver):
         gateway_configs: list[dict],
         default_model: str | None,
         project_dir: Path,
-        agent_config_dir: Path,
     ) -> None:
         """Synthesize Antigravity model configurations."""
-        agy_dir = project_dir / ".pi-container" / "agents" / "antigravity"
+        agy_dir = self.get_state_dir(project_dir)
         agy_dir.mkdir(parents=True, exist_ok=True)
         config_file = agy_dir / "config.json"
 

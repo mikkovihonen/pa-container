@@ -140,29 +140,41 @@ class Server:
             flags.extend([str(flag) for flag in model.config.additional_server_flags])
         return flags
 
-    def _cleanup(self, pid_to_kill: int | None = None, full_cleanup: bool = False) -> None:
-        """Stops processes and cleans up local files for this server instance."""
+    def _stop_process(self, pid_to_kill: int | None = None) -> None:
+        """Stops the llama-server process group and unlinks pid and clients files."""
         try:
             target_pid = pid_to_kill or self.server_pid
+            if not target_pid and self.paths["pid_file"].exists():
+                with contextlib.suppress(Exception):
+                    lines = self.paths["pid_file"].read_text().splitlines()
+                    if lines:
+                        target_pid = int(lines[0])
+
             if target_pid:
                 logger.info(f"[Server: {self.server_id}] Stopping server process group (pid {target_pid})...")
                 stop_process_group(
                     target_pid,
-                    f"llama-server {'attempt' if not full_cleanup else 'group'} {self.server_id}",
+                    f"llama-server {self.server_id}",
                     logger=logger,
                 )
                 if target_pid == self.server_pid:
                     self.server_pid = None
-
         finally:
             self.paths["pid_file"].unlink(missing_ok=True)
             self.paths["clients_file"].unlink(missing_ok=True)
 
-            if full_cleanup:
-                with contextlib.suppress(OSError):
-                    self.paths["lock_dir"].rmdir()
-                    if self.lock_dir.exists() and not any(self.lock_dir.iterdir()):
-                        self.lock_dir.rmdir()
+    def _cleanup_lock_dir(self) -> None:
+        """Remove empty per-instance lock directory and parent lock directory."""
+        with contextlib.suppress(OSError):
+            self.paths["lock_dir"].rmdir()
+            if self.lock_dir.exists() and not any(self.lock_dir.iterdir()):
+                self.lock_dir.rmdir()
+
+    def _cleanup(self, pid_to_kill: int | None = None, full_cleanup: bool = False) -> None:
+        """Stops processes and cleans up local files for this server instance."""
+        self._stop_process(pid_to_kill=pid_to_kill)
+        if full_cleanup:
+            self._cleanup_lock_dir()
 
     def _read_recent_log_tail(self, max_lines: int = 15) -> str:
         """Read the last few lines from the llama-server log file if present."""
@@ -230,10 +242,11 @@ class Server:
             healthy, pid, port = self._is_existing_server_healthy()
             if healthy and pid and port:
                 self.port = port
+                self.server_pid = pid
                 self.port_ready_event.set()
                 return True
             if pid:
-                self._cleanup(pid_to_kill=pid, full_cleanup=False)
+                self._stop_process(pid_to_kill=pid)
             return False
 
         def _on_attach(count: int) -> None:
@@ -349,8 +362,8 @@ class Server:
             lock_file=self.paths["ref_count_lock"],
             clients_file=self.paths["clients_file"],
             pid=os.getpid(),
-            stop_fn=lambda: None,
-            full_cleanup_fn=lambda: self._cleanup(full_cleanup=True),
+            stop_fn=self._stop_process,
+            full_cleanup_fn=self._cleanup_lock_dir,
             logger=logger,
             label=f"Server: {self.server_id}",
         )
@@ -367,7 +380,9 @@ class Server:
             lock_file_path = instance_dir / ".llama_server_refcount.lock"
             clients_file = instance_dir / ".llama_server_clients.json"
             pid_file = instance_dir / ".llama_server.pid"
-            if not lock_file_path.exists() and not pid_file.exists():
+            if not lock_file_path.exists() and not pid_file.exists() and not clients_file.exists():
+                with contextlib.suppress(OSError):
+                    instance_dir.rmdir()
                 continue
             try:
                 with lock_file_path.open("a") as lf:

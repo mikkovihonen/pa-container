@@ -24,6 +24,7 @@ FROM scratch AS tool_cafe
 FROM scratch AS tool_opencode
 FROM scratch AS tool_antigravity
 FROM scratch AS tool_claude_code
+FROM scratch AS tool_pi
 
 # Plain Debian, not node:<ver>-trixie-slim. Node is built in
 # coding-agent-builder/ like everything else and arrives through the COPY below, so
@@ -249,6 +250,10 @@ ARG WITH_CLAUDE_CODE=false
 RUN --mount=type=bind,from=tool_claude_code,target=/mnt/claude_code \
     if [ "${WITH_CLAUDE_CODE}" = "true" ] && [ -d /mnt/claude_code ]; then cp -a /mnt/claude_code/. /; fi
 
+ARG WITH_PI=false
+RUN --mount=type=bind,from=tool_pi,target=/mnt/pi \
+    if [ "${WITH_PI}" = "true" ] && [ -d /mnt/pi ]; then cp -a /mnt/pi/. /; fi
+
 # uv reads the system trust store, which carries the mitmproxy CA (installed below).
 ENV UV_SYSTEM_CERTS=1
 
@@ -291,6 +296,10 @@ RUN ldconfig \
  && if [ -x /usr/local/bin/tea ]; then /usr/local/bin/tea --version; fi \
  && if [ -x /usr/local/bin/az ]; then /usr/local/bin/az --version; fi \
  && if [ -x /usr/local/bin/cafe ]; then /usr/local/bin/cafe --version || true; fi \
+ && if [ -x /usr/local/bin/pi ]; then /usr/local/bin/pi --version || true; fi \
+ && if [ -x /usr/local/bin/opencode ]; then /usr/local/bin/opencode --version || true; fi \
+ && if [ -x /usr/local/bin/antigravity ]; then /usr/local/bin/antigravity --version || true; fi \
+ && if [ -x /usr/local/bin/claude ]; then /usr/local/bin/claude --version || true; fi \
  && cat /usr/local/share/pi-container/toolchain-versions.d/*.txt \
       | sort > /usr/local/share/pi-container/toolchain-versions.txt \
  && cat /usr/local/share/pi-container/toolchain-versions.txt
@@ -449,8 +458,6 @@ COPY coding-agent/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pi-container/t3-advertise-host.cjs
 COPY coding-agent/t3-seed-settings.cjs /usr/local/share/pi-container/t3-seed-settings.cjs
 COPY coding-agent/t3-policy.json /etc/t3code/policy.json
-
-RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
 ARG AGENT_UID=1000
 ARG AGENT_GID=1000

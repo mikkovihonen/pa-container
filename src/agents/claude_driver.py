@@ -33,8 +33,8 @@ class ClaudeDriver(AgentDriver):
             "ANTHROPIC_API_KEY": "pi-container-token-placeholder",
         }
 
-    def get_mounts(self, project_dir: Path, agent_config_dir: Path) -> list[AgentMount]:
-        claude_dir = project_dir / ".pi-container" / "agents" / "claude"
+    def get_mounts(self, project_dir: Path) -> list[AgentMount]:
+        claude_dir = self.get_state_dir(project_dir)
         claude_dir.mkdir(parents=True, exist_ok=True)
         return [
             AgentMount(source=claude_dir, destination="/home/agent/.claude"),
@@ -46,10 +46,9 @@ class ClaudeDriver(AgentDriver):
         gateway_configs: list[dict],
         default_model: str | None,
         project_dir: Path,
-        agent_config_dir: Path,
     ) -> None:
         """Synthesize ~/.claude.json configuration."""
-        claude_dir = project_dir / ".pi-container" / "agents" / "claude"
+        claude_dir = self.get_state_dir(project_dir)
         claude_dir.mkdir(parents=True, exist_ok=True)
         config_file = claude_dir / "claude.json"
 

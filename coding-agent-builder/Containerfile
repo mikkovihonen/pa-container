@@ -545,6 +545,17 @@ RUN bash /build/tools/claude-code/build.sh
 FROM scratch AS stage-claude-code
 COPY --from=claude-code /out/ /
 
+# ─── Optional Tool: pi ──────────────────────────────────────────────────────
+FROM deps AS pi
+ARG PI_VERSION=1.5.0
+ARG PI_SHA256=5bfb66848a4c4b81c637ce8d2136be01945b70aac8e8556b091cb02241b385df
+COPY --from=node /out/ /
+COPY coding-agent-builder/tools/pi/ /build/tools/pi/
+RUN bash /build/tools/pi/build.sh
+
+FROM scratch AS stage-pi
+COPY --from=pi /out/ /
+
 # ─── The shipped artefact ────────────────────────────────────────────────────
 # Nothing but the staged trees: no toolchains, no package manager, no shell. This
 # image exists to be COPYed --from, and keeping it at exactly its payload (rather than

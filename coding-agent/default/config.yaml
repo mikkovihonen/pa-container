@@ -52,6 +52,16 @@ proxy:
 tools:
   include: []
 
+# Supported AI coding agent engines for this workspace.
+# At least one agent must be enabled.
+# Supported agents: pi, opencode, antigravity, claude
+agents:
+  # List of coding agents enabled for this workspace (at least one required).
+  enabled:
+    - pi
+  # Default active agent when --agent is omitted on the CLI.
+  default: pi
+
 # Extra agent-container options (rarely needed).
 agent:
   # Extra environment variables passed to the agent container.

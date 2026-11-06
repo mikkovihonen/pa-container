@@ -33,8 +33,8 @@ class OpenCodeDriver(AgentDriver):
             "OPENAI_API_KEY": "pi-container-token-placeholder",
         }
 
-    def get_mounts(self, project_dir: Path, agent_config_dir: Path) -> list[AgentMount]:
-        opencode_dir = project_dir / ".pi-container" / "agents" / "opencode"
+    def get_mounts(self, project_dir: Path) -> list[AgentMount]:
+        opencode_dir = self.get_state_dir(project_dir)
         opencode_dir.mkdir(parents=True, exist_ok=True)
         return [
             AgentMount(source=opencode_dir, destination="/home/agent/.config/opencode"),
@@ -46,10 +46,9 @@ class OpenCodeDriver(AgentDriver):
         gateway_configs: list[dict],
         default_model: str | None,
         project_dir: Path,
-        agent_config_dir: Path,
     ) -> None:
         """Synthesize ~/.config/opencode/config.json from active servers and gateways."""
-        opencode_dir = project_dir / ".pi-container" / "agents" / "opencode"
+        opencode_dir = self.get_state_dir(project_dir)
         opencode_dir.mkdir(parents=True, exist_ok=True)
         config_file = opencode_dir / "config.json"
 

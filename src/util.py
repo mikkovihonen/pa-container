@@ -483,12 +483,11 @@ def get_sanitized_git_config_json(logger, allowlist: list[str] | None = None):
 
 
 REQUIRED_GITIGNORE_ENTRIES: tuple[str, ...] = (
-    ".pi-container/agent/bin",
-    ".pi-container/agent/sessions",
-    ".pi-container/agent/trust.json",
-    ".pi-container/agent/models-store.json",
-    ".pi-container/agent/models.json",
-    ".pi-container/agents",
+    ".pi-container/agents/*/bin",
+    ".pi-container/agents/*/sessions",
+    ".pi-container/agents/**/trust.json",
+    ".pi-container/agents/**/models-store.json",
+    ".pi-container/agents/**/models.json",
     ".pi-container/exports/",
 )
 
