@@ -200,8 +200,8 @@ The addon applies the same hostname + content-pattern matching to HTTP responses
 ### Integration with the Proxy Container
 
 > **In this project the token_replacer is already wired in and active.** The
-> [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-proxy/Containerfile) bakes the script and a default config. The
-> [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-proxy/entrypoint.sh) loads it with `-s` and points
+> [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/Containerfile) bakes the script and a default config. The
+> [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/entrypoint.sh) loads it with `-s` and points
 > `TOKEN_REPLACER_CONFIG_PATH` at `/home/mitmproxy/config/token_replacer.yaml`.
 > `run.py` mounts the host's [`.pi-container/token_replacer.yaml`](https://github.com/mikkovihonen/pi-container/blob/main/.pi-container/token_replacer.yaml)
 > over it (also injecting any `${ENV:VAR}` secrets it references). The steps below
@@ -212,7 +212,7 @@ The token_replacer addon is loaded as a mitmproxy script via the `scripts` optio
 #### Step 1: Copy files into the mitmproxy container
 
 ```dockerfile
-COPY pi-coding-agent-proxy/addons/token_replacer/token_replacer.py \
+COPY coding-agent-proxy/addons/token_replacer/token_replacer.py \
      /home/mitmproxy/scripts/token_replacer.py
 ```
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Toolchain upgrade and audit automation for pi-coding-agent-builder."""
+"""Toolchain upgrade and audit automation for coding-agent-builder."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ sys.dont_write_bytecode = True
 # Add scripts directory to path to import upstreams
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[3]
-BUILDER_DIR = REPO_ROOT / "pi-coding-agent-builder"
+BUILDER_DIR = REPO_ROOT / "coding-agent-builder"
 CONTAINERFILE = BUILDER_DIR / "Containerfile"
 
 sys.path.insert(0, str(SCRIPT_DIR))

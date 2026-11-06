@@ -513,6 +513,7 @@ class TestModelsBaseUrls:
         is_valid, errors = validate_models(p)
         assert is_valid is False
         assert any("baseUrl: port is required" in e for e in errors)
+        assert any("gateways do not need a port in url" in e for e in errors)
 
     def test_invalid_port_range(self, tmp_path: Path):
         """When baseUrl port is out of range, validation fails."""

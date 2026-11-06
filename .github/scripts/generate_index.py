@@ -48,10 +48,10 @@ def fix_links(content: str) -> str:
         content,
     )
 
-    # Convert ../../pi-coding-agent-proxy/... to GitHub URLs
+    # Convert ../../coding-agent-proxy/... to GitHub URLs
     content = re.sub(
-        r"\.\./\.\./pi-coding-agent-proxy/",
-        f"{REPO_URL}/pi-coding-agent-proxy/",
+        r"\.\./\.\./coding-agent-proxy/",
+        f"{REPO_URL}/coding-agent-proxy/",
         content,
     )
 

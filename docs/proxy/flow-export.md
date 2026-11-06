@@ -127,9 +127,9 @@ Notes on serialization:
 ### Integration with the Proxy Container
 
 > **In this project the flow_export addon is already wired in and active.** The
-> [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-proxy/Containerfile) bakes the script and creates a
+> [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/Containerfile) bakes the script and creates a
 > `mitmproxy`-owned `/home/mitmproxy/exports` directory. The
-> [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-proxy/entrypoint.sh) loads it with `-s`. `run.py` mounts the host
+> [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/entrypoint.sh) loads it with `-s`. `run.py` mounts the host
 > export directory over `/home/mitmproxy/exports`. It names each run's agent
 > container `pi-coding-agent-<run-id>`. It looks up that container's isolated-net
 > IPs (IPv4 **and** IPv6). After the agent exits it reads and merges the
@@ -151,7 +151,7 @@ The addon loads as a mitmproxy script via `-s`. The script exposes a module-leve
 #### Step 1: Copy the script into the mitmproxy container
 
 ```dockerfile
-COPY pi-coding-agent-proxy/addons/flow_export/flow_export.py \
+COPY coding-agent-proxy/addons/flow_export/flow_export.py \
      /home/mitmproxy/scripts/flow_export.py
 ```
 

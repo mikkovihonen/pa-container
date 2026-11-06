@@ -22,7 +22,7 @@ def _make_project_with_deps(tmp_path: Path) -> Path:
     root_cmd = project_dir / ".pi-container" / "dependencies" / "root" / "commands.sh"
     root_cmd.parent.mkdir(parents=True, exist_ok=True)
     root_cmd.write_text("#!/bin/bash\necho install\n")
-    pi_agent = project_dir / "pi-coding-agent"
+    pi_agent = project_dir / "coding-agent"
     pi_agent.mkdir(parents=True, exist_ok=True)
     (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
     (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
@@ -96,7 +96,7 @@ class TestComputeImageHash:
     def test_t3_shim_content_different_hash(self, tmp_path):
         repo = tmp_path / "repo"
         repo.mkdir()
-        fake_agent_dir = tmp_path / "fake_repo" / "pi-coding-agent"
+        fake_agent_dir = tmp_path / "fake_repo" / "coding-agent"
         fake_agent_dir.mkdir(parents=True, exist_ok=True)
         (fake_agent_dir / "Containerfile").write_text("FROM scratch\n")
         (fake_agent_dir / "t3-advertise-host.cjs").write_text("// v1")
@@ -153,6 +153,15 @@ class TestComputeImageHash:
         (cfg_dir / "config.yaml").write_text("tools:\n  include: ['rust', 'go']\n")
         assert images.read_project_tools(repo) == ["go", "rust"]
 
+        (cfg_dir / "config.yaml").write_text("agent:\n  type: opencode\n")
+        assert images.read_project_tools(repo) == ["opencode"]
+
+        (cfg_dir / "config.yaml").write_text("agent:\n  type: antigravity\n")
+        assert images.read_project_tools(repo) == ["antigravity"]
+
+        (cfg_dir / "config.yaml").write_text("agent:\n  type: claude\n")
+        assert images.read_project_tools(repo) == ["claude-code"]
+
     def test_resolve_agent_image_with_tools_only(self, tmp_path):
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -169,7 +178,7 @@ class TestComputeImageHash:
 
 class TestComputeProxyImageHash:
     def test_entrypoint_change_changes_hash(self, tmp_path):
-        proxy_dir = tmp_path / "pi-coding-agent-proxy"
+        proxy_dir = tmp_path / "coding-agent-proxy"
         proxy_dir.mkdir(parents=True)
         entrypoint = proxy_dir / "entrypoint.sh"
         entrypoint.write_text("#!/bin/sh\necho v1\n")
@@ -184,7 +193,7 @@ class TestComputeProxyImageHash:
         assert hash1 != hash2
 
     def test_containerfile_change_changes_hash(self, tmp_path):
-        proxy_dir = tmp_path / "pi-coding-agent-proxy"
+        proxy_dir = tmp_path / "coding-agent-proxy"
         proxy_dir.mkdir(parents=True)
         (proxy_dir / "entrypoint.sh").write_text("#!/bin/sh\necho v1\n")
         cfile = proxy_dir / "Containerfile"
@@ -198,7 +207,7 @@ class TestComputeProxyImageHash:
         assert hash1 != hash2
 
     def test_addon_change_changes_hash(self, tmp_path):
-        proxy_dir = tmp_path / "pi-coding-agent-proxy"
+        proxy_dir = tmp_path / "coding-agent-proxy"
         addon_dir = proxy_dir / "addons" / "allowlist"
         addon_dir.mkdir(parents=True)
         (proxy_dir / "entrypoint.sh").write_text("#!/bin/sh\necho v1\n")
@@ -213,7 +222,7 @@ class TestComputeProxyImageHash:
         assert hash1 != hash2
 
     def test_identical_content_identical_hash(self, tmp_path):
-        proxy_dir = tmp_path / "pi-coding-agent-proxy"
+        proxy_dir = tmp_path / "coding-agent-proxy"
         proxy_dir.mkdir(parents=True)
         (proxy_dir / "entrypoint.sh").write_text("#!/bin/sh\necho test\n")
         (proxy_dir / "Containerfile").write_text("FROM base\n")
@@ -342,7 +351,7 @@ class TestResolveAgentImage:
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = repo / "pi-coding-agent"
+        pi_agent = repo / "coding-agent"
         pi_agent.mkdir(parents=True, exist_ok=True)
         (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
         (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
@@ -358,7 +367,7 @@ class TestResolveAgentImage:
             deps.mkdir(parents=True, exist_ok=True)
             (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
             (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-            pi_agent = d / "pi-coding-agent"
+            pi_agent = d / "coding-agent"
             pi_agent.mkdir(parents=True, exist_ok=True)
             (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
             (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
@@ -372,7 +381,7 @@ class TestResolveAgentImage:
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "pi-coding-agent"
+        pi_agent = tmp_path / "coding-agent"
         pi_agent.mkdir(parents=True, exist_ok=True)
         (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
         (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
@@ -421,7 +430,7 @@ class TestImageIsCurrent:
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "pi-coding-agent"
+        pi_agent = tmp_path / "coding-agent"
         pi_agent.mkdir(parents=True, exist_ok=True)
         (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
         (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
@@ -435,7 +444,7 @@ class TestImageIsCurrent:
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "pi-coding-agent"
+        pi_agent = tmp_path / "coding-agent"
         pi_agent.mkdir(parents=True, exist_ok=True)
         (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
         (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
@@ -449,7 +458,7 @@ class TestImageIsCurrent:
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "pi-coding-agent"
+        pi_agent = tmp_path / "coding-agent"
         pi_agent.mkdir(parents=True, exist_ok=True)
         (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
         (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
@@ -884,7 +893,7 @@ class TestImageExists:
 class TestNewestSharedImageTime:
     def test_returns_the_newer_of_the_two(self, monkeypatch):
         times = {
-            "pi-coding-agent-proxy:local": "2025-01-01T00:00:00Z",
+            images.PROXY_IMAGE_TAG: "2025-01-01T00:00:00Z",
             "pi-coding-agent-builder:local": "2025-06-01T00:00:00Z",
         }
         monkeypatch.setattr(
@@ -898,7 +907,7 @@ class TestNewestSharedImageTime:
 
     def test_proxy_wins_when_newer(self, monkeypatch):
         times = {
-            "pi-coding-agent-proxy:local": "2025-06-01T00:00:00Z",
+            images.PROXY_IMAGE_TAG: "2025-06-01T00:00:00Z",
             "pi-coding-agent-builder:local": "2025-01-01T00:00:00Z",
         }
         monkeypatch.setattr(
@@ -908,10 +917,10 @@ class TestNewestSharedImageTime:
         )
 
         result = images.newest_shared_image_time()
-        assert result == ("pi-coding-agent-proxy:local", _ts("2025-06-01T00:00:00Z"))
+        assert result == (images.PROXY_IMAGE_TAG, _ts("2025-06-01T00:00:00Z"))
 
     def test_none_when_an_image_cannot_be_dated(self, monkeypatch):
-        times = {"pi-coding-agent-proxy:local": "2025-06-01T00:00:00Z"}
+        times = {images.PROXY_IMAGE_TAG: "2025-06-01T00:00:00Z"}
         monkeypatch.setattr(
             images,
             "get_image_label",
@@ -922,7 +931,7 @@ class TestNewestSharedImageTime:
 
     def test_covers_both_source_images(self):
         assert set(images._SHARED_SOURCE_IMAGES) == {
-            "pi-coding-agent-proxy:local",
+            images.PROXY_IMAGE_TAG,
             "pi-coding-agent-builder:local",
         }
 

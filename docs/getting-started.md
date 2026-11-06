@@ -107,7 +107,7 @@ This builds three images, in this order:
 
     Compile parallelism is capped by available memory rather than core count, so a bigger machine directly shortens this step (`MAKE_JOBS=<n>` overrides the cap). Later builds skip the image entirely unless one of its pinned versions changes, and each component is a separate stage, so bumping podman does not rebuild Node.
 
-    Every version, git commit and SHA-256 it builds from is an `ARG` in [`pi-coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-builder/Containerfile). That one file is where you bump a component.
+    Every version, git commit and SHA-256 it builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-builder/Containerfile). That one file is where you bump a component.
 2. `pi-coding-agent-proxy:local` — the transparent proxy, which copies its CPython and `uv` out of the builder image so that it runs [the same Python as the agent](design-details.md#uniform-python-across-both-images).
 3. `pi-coding-agent:local` — the main agent, which copies the mitmproxy CA certificate out of the proxy image and its whole toolchain out of the builder image.
 
@@ -125,7 +125,7 @@ alias pi="~/workspace/pi-container/run.sh"
 pi --session 1234abcd-ef56-78ab-cd90-1234abcd56ef
 ```
 
-The script reads `<project>/.pi-container/agent/models.json` (seeded from the `pi-coding-agent/default/` template on first run) to determine which LLM providers to start. Each entry defines a model, download source, server flags, and OpenAI-compatible API configuration. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent `pi` invocations **from the same workspace** share that workspace's proxy via a refcount.
+The script reads `<project>/.pi-container/agent/models.json` (seeded from the `coding-agent/default/` template on first run) to determine which LLM providers to start. Each entry defines a model, download source, server flags, and OpenAI-compatible API configuration. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent `pi` invocations **from the same workspace** share that workspace's proxy via a refcount.
 
 ### 4. Using the Agent
 

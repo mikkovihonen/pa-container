@@ -395,7 +395,7 @@ This migration is **out of scope for v1**.
 |------|--------|
 | `src/run.py` | New `_cleanup_stale_project_images()`, `_cleanup_orphaned_project_images()`, `_list_project_images()`, `_remove_image()`, `now_iso()`. Updated `_resolve_agent_image()` to return new tag format. Updated `main()` flow to call both cleanup functions. |
 | `src/build.py` | `build_project_image()` gains `project_hash`, `project_path`, and `build_timestamp` params; passes them as build args + labels. |
-| `pi-coding-agent/Containerfile` | Add `ARG PROJECT_HASH`, `ARG PROJECT_PATH`, `ARG BUILD_TIMESTAMP`; add four new `LABEL` directives (including `pi-container.project.path`). |
+| `coding-agent/Containerfile` | Add `ARG PROJECT_HASH`, `ARG PROJECT_PATH`, `ARG BUILD_TIMESTAMP`; add four new `LABEL` directives (including `pi-container.project.path`). |
 | `docs/configuration.md` | Document new labels (including `pi-container.project.path`), new tag format, cleanup behavior, and orphan detection. |
 | `src/tests/test_build.py` | Add tests for new `build_project_image()` args and labels. |
 | `src/tests/test_run.py` | Add tests for `_cleanup_stale_project_images()`, `_list_project_images()`, `_remove_image()`, new tag format. |
@@ -411,7 +411,7 @@ read as current.
 ### 1. `pi-container.type` must not live in the Containerfile
 
 The design puts `LABEL pi-container.type="project"` in
-`pi-coding-agent/Containerfile`. But that one Containerfile builds **two** different
+`coding-agent/Containerfile`. But that one Containerfile builds **two** different
 things: the shared base image (`build_agent()`, which passes none of the label ARGs)
 and the per-project images (`build_project_image()`, which passes all of them). The
 hardcoded label stamped the shared base — and every untagged predecessor of it — as

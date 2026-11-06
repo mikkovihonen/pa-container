@@ -47,8 +47,8 @@ class TestProjectKey:
 
 class TestEnsureProjectConfig:
     def _make_template(self, root):
-        """Build a minimal pi-coding-agent/default template under root."""
-        template = root / "pi-coding-agent" / "default"
+        """Build a minimal coding-agent/default template under root."""
+        template = root / "coding-agent" / "default"
         (template / "agent").mkdir(parents=True)
         (template / "agent" / "models.json").write_text("{}")
         (template / "chat-templates" / "Some-Model").mkdir(parents=True)

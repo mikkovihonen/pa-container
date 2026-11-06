@@ -40,9 +40,9 @@ updates:
   # until an image is pinned to a specific tag or digest.
   - package-ecosystem: "docker"
     directories:
-      - "/pi-coding-agent"
-      - "/pi-coding-agent-builder"
-      - "/pi-coding-agent-proxy"
+      - "/coding-agent"
+      - "/coding-agent-builder"
+      - "/coding-agent-proxy"
     schedule:
       interval: "weekly"
     commit-message:

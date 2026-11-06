@@ -68,7 +68,7 @@ class TestWarnAboutRegistryAllowlist:
     def test_commented_template_still_warns(self, tmp_path, caplog):
         """The seeded template ships the registry rule commented out."""
         repo_root = Path(__file__).resolve().parent.parent.parent
-        template = repo_root / "pi-coding-agent" / "default" / "allowlist.yaml"
+        template = repo_root / "coding-agent" / "default" / "allowlist.yaml"
         (tmp_path / "allowlist.yaml").write_text(template.read_text())
         with caplog.at_level("WARNING"):
             containers.warn_about_registry_allowlist(tmp_path)
@@ -77,7 +77,7 @@ class TestWarnAboutRegistryAllowlist:
     def test_shipped_registry_block_is_self_consistent(self, tmp_path, caplog):
         """Uncommenting the template's registry rule must produce a clean preflight."""
         repo_root = Path(__file__).resolve().parent.parent.parent
-        template = (repo_root / "pi-coding-agent" / "default" / "allowlist.yaml").read_text()
+        template = (repo_root / "coding-agent" / "default" / "allowlist.yaml").read_text()
         uncommented = "\n".join(
             line.replace("    # ", "    ", 1) if line.lstrip().startswith("#") else line
             for line in template.splitlines()

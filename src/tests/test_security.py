@@ -88,7 +88,7 @@ class TestIsIpInBlockedRanges:
 class TestProxyIsolation:
     def test_proxy_entrypoint_protects_mitmweb_from_agent_interface(self):
         root_dir = Path(__file__).resolve().parent.parent.parent
-        entrypoint = root_dir / "pi-coding-agent-proxy" / "entrypoint.sh"
+        entrypoint = root_dir / "coding-agent-proxy" / "entrypoint.sh"
         assert entrypoint.exists()
         content = entrypoint.read_text()
         assert "ipt -A INPUT -i eth1 -p tcp --dport 8081 -j REJECT --reject-with tcp-reset" in content

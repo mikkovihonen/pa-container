@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import re
@@ -20,6 +19,7 @@ import containers
 import images
 import project
 import volumes
+from agents import get_agent_driver, load_project_models, resolve_models_file
 from build import DEFAULT_ROOT_COMMANDS, build_agent, build_project_image, build_proxy
 from config import (
     ADMIN_PASSWORD,
@@ -42,6 +42,7 @@ from network import (
     read_agent_extras,
     read_agent_mode,
     read_agent_ports,
+    read_agent_type,
     read_flow_export_enabled,
     read_git_config,
     read_llama_config,
@@ -122,18 +123,17 @@ def process_gateway_configs(gateway_configs: list[dict], pi_container_dir: Path)
             var_name = gw_def.auth.env_var or f"{gw['name'].upper().replace('-', '_')}_TOKEN"
             os.environ[var_name] = token
         elif gw_def.auth.type == "api-key":
-            from secret_store import DEFAULT_KEYRING_SERVICE, resolve_secret
+            from secret_store import DEFAULT_KEYRING_SERVICE, get_keyring_secret
 
             var_name = gw_def.auth.env_var or f"{gw['name'].upper().replace('-', '_')}_API_KEY"
             service = gw_def.auth.keyring_service or DEFAULT_KEYRING_SERVICE
             account = gw_def.auth.keyring_account or var_name
 
-            token = resolve_secret(var_name, service=service, account=account)
+            token = get_keyring_secret(account, service=service)
             if not token:
                 logger.error(
                     f"Gateway '{gw['name']}' requires secret '{var_name}'.\n"
-                    f'Set via environment:  export {var_name}="<your-api-key>"\n'
-                    f"Or save in OS keyring: uv run keyring set {service} {account}"
+                    f"Save in OS keyring: uv run keyring set {service} {account}"
                 )
                 sys.exit(1)
                 return
@@ -162,9 +162,11 @@ def main() -> None:
     agent_config_dir = project.ensure_project_config()
     warn_missing_gitignore(PROJECT_DIR, logger)
     pi_container_dir = PROJECT_DIR / ".pi-container"
-    models_path: Path = agent_config_dir / "models.json"
-    if not models_path.exists():
-        logger.error(f"Config file not found: {models_path}")
+    models_path: Path | None = resolve_models_file(pi_container_dir)
+    if models_path is None or not models_path.exists():
+        logger.error(
+            f"Config file not found: expected {pi_container_dir / 'models.yaml'} or {agent_config_dir / 'models.json'}"
+        )
         sys.exit(1)
 
     # Validate per-project config schema and version compatibility.
@@ -189,13 +191,13 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Validate models.json schema.
+    # Validate models schema (models.yaml or models.json).
     models_valid, models_errors = validate_models(models_path)
     if not models_valid:
-        logger.error("Configuration error in models.json:")
+        logger.error(f"Configuration error in {models_path.name}:")
         for err in models_errors:
             logger.error(err)
-        logger.error("\nFix: update .pi-container/agent/models.json to match the expected schema.")
+        logger.error(f"\nFix: update {models_path} to match the expected schema.")
         sys.exit(1)
     flow_export_enabled = read_flow_export_enabled(pi_container_dir)
     ipv6_enabled = read_network_config(pi_container_dir)["ipv6"]
@@ -265,6 +267,7 @@ def main() -> None:
     cli_t3 = False
     cli_t3_advertise_host: str | None = None
     cli_lan = False
+    cli_agent: str | None = None
     cli_t3_tunnel: str | None = None
     cli_t3_tunnel_domain: str | None = None
     cli_t3_tunnel_quick: bool = False
@@ -277,6 +280,14 @@ def main() -> None:
     _raw_args = sys.argv[1:]
     while _arg_i < len(_raw_args):
         _arg = _raw_args[_arg_i]
+        if _arg == "--agent" and _arg_i + 1 < len(_raw_args):
+            cli_agent = _raw_args[_arg_i + 1]
+            _arg_i += 2
+            continue
+        if _arg.startswith("--agent="):
+            cli_agent = _arg.split("=", 1)[1]
+            _arg_i += 1
+            continue
         if _arg == "--t3":
             cli_t3 = True
             _arg_i += 1
@@ -386,6 +397,13 @@ def main() -> None:
             logger.error(str(err))
             sys.exit(1)
 
+    agent_type = cli_agent or read_agent_type(pi_container_dir)
+    try:
+        driver = get_agent_driver(agent_type)
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
     is_t3_mode = cli_t3 or (read_agent_mode(pi_container_dir) == "t3")
     raw_adv_host = cli_t3_advertise_host or os.environ.get("T3_ADVERTISE_HOST") or "localhost"
     if raw_adv_host.strip().lower() in ("external", "external_ip", "auto"):
@@ -442,9 +460,22 @@ def main() -> None:
             f"\n  Once initialized, open https://t3.codes and use the pairing link displayed below."
         )
 
-    with models_path.open("r") as file:
-        data = json.load(file)
-        server_configs, llama_hostnames, gateway_configs = containers.extract_server_configs(data)
+    (
+        models_data,
+        server_configs,
+        llama_hostnames,
+        gateway_configs,
+        default_model,
+        _,
+    ) = load_project_models(pi_container_dir, models_dir=MODELS_DIR)
+
+    driver.synthesize_config(
+        server_configs=server_configs,
+        gateway_configs=gateway_configs,
+        default_model=default_model,
+        project_dir=PROJECT_DIR,
+        agent_config_dir=agent_config_dir,
+    )
 
     process_gateway_configs(gateway_configs, pi_container_dir)
 
@@ -702,6 +733,21 @@ def main() -> None:
                 git_hooks_dir.mkdir(parents=True, exist_ok=True)
                 git_hooks_mount = ["--volume", f"{git_hooks_dir}:/workspace/.git/hooks:ro"]
 
+            driver_mounts = [arg for m in driver.get_mounts(PROJECT_DIR, agent_config_dir) for arg in m.to_run_args()]
+            driver_env = [
+                flag for k, v in driver.get_environment(agent_extras).items() for flag in ("--env", f"{k}={v}")
+            ]
+            driver_tmpfs = [flag for path in driver.get_tmpfs_paths() for flag in RUNTIME.tmpfs_args(path)]
+            chown_paths = sorted(
+                set(
+                    tmpfs_paths
+                    + list(active_volume_map.keys())
+                    + driver.get_tmpfs_paths()
+                    + ["/workspace/.pi-container/exports"]
+                )
+            )
+            final_container_argv = driver.get_command(container_argv)
+
             pi_container_cmd = [
                 CONTAINER_RUNTIME,
                 "run",
@@ -737,13 +783,12 @@ def main() -> None:
                     else []
                 ),
                 *RUNTIME.tmpfs_args("/home/pi/"),
-                "--volume",
-                f"{agent_config_dir}:/home/pi/.pi/agent",
+                *driver_mounts,
                 "--volume",
                 f"{PROJECT_DIR}:/workspace",
                 *(["--volume", f"{pi_container_dir}:/workspace/.pi-container:ro"] if read_only_pi_container else []),
                 *git_hooks_mount,
-                *RUNTIME.tmpfs_args("/home/pi/.pi/agent/bin"),
+                *driver_tmpfs,
                 *RUNTIME.tmpfs_args("/workspace/.pi-container/exports"),
                 *volume_args,
                 *nested_args,
@@ -753,7 +798,10 @@ def main() -> None:
                 "/workspace",
                 *[flag for path in tmpfs_paths for flag in RUNTIME.tmpfs_args(path)],
                 "--env",
-                f"CONTAINER_CHOWN_PATHS={':'.join(sorted(set(tmpfs_paths + list(active_volume_map.keys()) + ['/home/pi/.pi/agent/bin', '/workspace/.pi-container/exports'])))}",
+                f"CONTAINER_CHOWN_PATHS={':'.join(chown_paths)}",
+                "--env",
+                f"PI_CONTAINER_AGENT={driver.name}",
+                *driver_env,
                 "--env",
                 f"LLAMA_PORTS={portconfig}",
                 "--env",
@@ -771,7 +819,7 @@ def main() -> None:
                 *[flag for d in agent_extras["devices"] for flag in ("--device", d)],
                 *resource_limit_args(read_resource_limits(pi_container_dir, "agent")),
                 agent_image_tag,
-                *container_argv,
+                *final_container_argv,
             ]
 
             ip_holder: dict[str, list[str]] = {}

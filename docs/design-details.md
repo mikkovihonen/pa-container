@@ -227,16 +227,16 @@ expected **commit** (tags are mutable; the peeled commit sha is the real pin). T
 tarball (CPython, Node, Go, Rust, the Rust vendor trees) against a SHA-256.
 `build.sh` builds this image. Nothing else does.
 
-**Every pin lives in `pi-coding-agent-builder/Containerfile`**, as an `ARG` on the stage
+**Every pin lives in `coding-agent-builder/Containerfile`**, as an `ARG` on the stage
 that consumes it (versions, git commits, tarball SHA-256s, and the pip hash lists alike).
 The build scripts read them from the environment (podman exports build args to `RUN`). No script defaults any of them. `require_env` in `common.sh` fails the build and names
 the missing `ARG`. The build does not fall back to a stale value baked into a script. So
-you bump a component with one edit. `git log -p pi-coding-agent-builder/Containerfile`
+you bump a component with one edit. `git log -p coding-agent-builder/Containerfile`
 is the toolchain's version history. Any pin can be overridden for a one-off build:
 
 ```bash
 podman build --build-arg PODMAN_VERSION=v6.1.0 --build-arg PODMAN_COMMIT=<sha> \
-    -f pi-coding-agent-builder/Containerfile .
+    -f coding-agent-builder/Containerfile .
 ```
 
 The Rust pin is declared *before* the first `FROM` because multiple stages and build

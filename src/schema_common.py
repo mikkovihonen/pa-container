@@ -100,6 +100,9 @@ SCHEMA: dict = {
     "agent": {
         "type": dict,
         "keys": {
+            "type": {"type": str, "required": False},
+            "command": {"type": (list, str, type(None)), "required": False},
+            "options": {"type": dict, "required": False},
             "env": {"type": dict},
             "mounts": {"type": list},
             "capabilities": {"type": list, "required": False},
@@ -198,8 +201,45 @@ MODELS_SCHEMA: dict = {
     },
 }
 
+MODELS_YAML_SCHEMA: dict = {
+    "default": {"type": (str, type(None)), "required": False},
+    "allow": {"type": list, "required": True},
+}
+
 
 # ─── Models schema validation ──────────────────────────────────────────────
+
+
+def _validate_models_yaml(
+    data: dict,
+    models_dir: Any = None,
+    gateways_dir: Any = None,
+) -> list[str]:
+    """Validate project-level models.yaml allowlist structure."""
+    errors: list[str] = []
+    allow = data.get("allow")
+    if allow is None:
+        errors.append("  allow: required field missing")
+        return errors
+    if not isinstance(allow, list):
+        errors.append(f"  allow: expected list, got {type(allow).__name__}")
+        return errors
+    if len(allow) == 0:
+        errors.append("  allow: list must not be empty")
+        return errors
+
+    for i, item in enumerate(allow):
+        if isinstance(item, str):
+            if not item.strip():
+                errors.append(f"  allow[{i}]: item must not be empty string")
+        elif isinstance(item, dict):
+            m_id = item.get("id") or item.get("model") or item.get("name")
+            if not m_id or not isinstance(m_id, str):
+                errors.append(f"  allow[{i}]: expected non-empty 'id', 'model', or 'name' string")
+        else:
+            errors.append(f"  allow[{i}]: expected string or dict, got {type(item).__name__}")
+
+    return errors
 
 
 def _validate_models_providers(providers: dict, gateways_dir: Any = None) -> list[str]:
@@ -297,7 +337,10 @@ def _validate_models_providers(providers: dict, gateways_dir: Any = None) -> lis
 
         if not is_gateway:
             if port is None:
-                errors.append(f"  providers.{provider_name}.baseUrl: port is required (e.g. 'http://llama:9999/v1')")
+                errors.append(
+                    f"  providers.{provider_name}.baseUrl: port is required (e.g. 'http://llama:9999/v1'); "
+                    f"gateways do not need a port in url (define in ~/.config/pi-container/gateways/{provider_name}.yaml)"
+                )
                 continue
 
             if not (1 <= port <= 65535):

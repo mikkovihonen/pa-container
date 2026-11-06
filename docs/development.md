@@ -14,7 +14,7 @@ uv run ruff check src
 uv run ruff format src
 
 # Run the mitmproxy proxy-addon tests (heavy `mitmproxy` dep — opt-in group)
-uv run --group proxy pytest pi-coding-agent-proxy/addons
+uv run --group proxy pytest coding-agent-proxy/addons
 ```
 
 The Python sources run directly from `src/`. uv treats the project as a
@@ -42,7 +42,7 @@ against the pi-container version and the expected schema. The validation checks:
 
 1. **Schema version** — The `schema_version` field in the config matches the
    app version (from the latest git tag). Bump this field in the template
-   (`pi-coding-agent/default/config.yaml`) whenever you change the schema.
+   (`coding-agent/default/config.yaml`) whenever you change the schema.
 2. **Required fields** — All fields defined in the schema must be present with
    the correct types.
 

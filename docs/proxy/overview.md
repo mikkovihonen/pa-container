@@ -10,7 +10,7 @@
 
 The system builds the proxy container by running `build.sh` in the project root. The build runs before other containers because other containers refer to it in their own build files.
 
-The transparent proxy container's Containerfile definition at `pi-coding-agent-proxy/Containerfile` runs mitmproxy. mitmproxy generates the keys for its certificate authority (CA) in the config directory (~/.mitmproxy by default).
+The transparent proxy container's Containerfile definition at `coding-agent-proxy/Containerfile` runs mitmproxy. mitmproxy generates the keys for its certificate authority (CA) in the config directory (~/.mitmproxy by default).
 
 ``` Containerfile
 USER mitmproxy
@@ -23,7 +23,7 @@ RUN timeout 3s mitmweb || [ $? -eq 124 ]
 The container uses additional capabilities to manage network interfaces and routing tables:
 - `CAP_NET_ADMIN`
 
-The [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-proxy/entrypoint.sh) uses `iptables` on the isolated-net interface
+The [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/entrypoint.sh) uses `iptables` on the isolated-net interface
 (`eth1`) to transparently intercept the agent's traffic. HTTP, HTTPS, and DNS are
 redirected into mitmproxy (running transparent + DNS modes). The local
 `llama-server` API is DNAT'd out to the host. A `POSTROUTING -j MASQUERADE`
@@ -81,7 +81,7 @@ The mitmproxy CA cert is located in `/home/mitmproxy/.mitmproxy/mitmproxy-ca-cer
 
 Copy `mitmproxy-ca-cert.crt` from the transparent proxy container to install it into the pi-coding-agent container during build:
 
-In `pi-coding-agent/Containerfile`, `mitmproxy-ca-cert.pem` is copied from the transparent proxy container image, converted to .cer format, and installed:
+In `coding-agent/Containerfile`, `mitmproxy-ca-cert.pem` is copied from the transparent proxy container image, converted to .cer format, and installed:
 
 ``` Containerfile
 COPY --from=pi-coding-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem

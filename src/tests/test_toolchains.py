@@ -30,8 +30,11 @@ def test_tool_collections():
     assert "tea" in ON_DEMAND_TOOLS
     assert "az" in ON_DEMAND_TOOLS
     assert "cafe" in ON_DEMAND_TOOLS
+    assert "opencode" in ON_DEMAND_TOOLS
+    assert "antigravity" in ON_DEMAND_TOOLS
+    assert "claude-code" in ON_DEMAND_TOOLS
     assert AVAILABLE_TOOLS == (CORE_TOOLS | ON_DEMAND_TOOLS)
-    assert len(AVAILABLE_TOOLS) == 22
+    assert len(AVAILABLE_TOOLS) == 25
 
 
 def test_tool_mapping_helpers():
@@ -48,15 +51,15 @@ def test_tool_mapping_helpers():
 
 def test_tool_recipe_path(tmp_path: Path):
     go_path = tool_recipe_path("go", tmp_path)
-    assert go_path == tmp_path / "pi-coding-agent-builder" / "build-go.sh"
+    assert go_path == tmp_path / "coding-agent-builder" / "build-go.sh"
 
     mold_path = tool_recipe_path("mold", tmp_path)
-    assert mold_path == tmp_path / "pi-coding-agent-builder" / "tools" / "mold" / "build.sh"
+    assert mold_path == tmp_path / "coding-agent-builder" / "tools" / "mold" / "build.sh"
 
 
 def test_compute_tool_hash(tmp_path: Path):
     repo = tmp_path
-    builder_dir = repo / "pi-coding-agent-builder"
+    builder_dir = repo / "coding-agent-builder"
     tools_dir = builder_dir / "tools" / "mold"
     tools_dir.mkdir(parents=True)
     recipe = tools_dir / "build.sh"

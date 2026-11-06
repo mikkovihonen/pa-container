@@ -4,7 +4,7 @@ set -euo pipefail
 # Root-level commands for this workspace, run at project-image BUILD time.
 #
 # The CPython 3.14 build, uv, and podman-compose used to live here. They are now
-# part of the shared base image, compiled in pi-coding-agent-builder/ and copied in,
+# part of the shared base image, compiled in coding-agent-builder/ and copied in,
 # so every workspace gets them and they are built once by build.sh instead of on
 # every project-image rebuild.
 #

@@ -5,8 +5,10 @@ import yaml
 
 from schema_common import (
     MODELS_SCHEMA,
+    MODELS_YAML_SCHEMA,
     SCHEMA,
     _validate_models_providers,
+    _validate_models_yaml,
     _validate_schema,
 )
 from version import get_git_tag_version
@@ -127,26 +129,58 @@ PROJECT_YAML_FILES = ("config.yaml", "allowlist.yaml", "token_replacer.yaml")
 
 
 def validate_project_yaml(config_dir: Path) -> list[str]:
-    """Scan all project YAML files (`config.yaml`, `allowlist.yaml`, `token_replacer.yaml`) for duplicate mapping keys."""
+    """Scan all project YAML files (`config.yaml`, `allowlist.yaml`, `token_replacer.yaml`, `models.yaml`) for duplicate mapping keys."""
     errors: list[str] = []
     for name in PROJECT_YAML_FILES:
         errors.extend(check_duplicate_keys(config_dir / name))
+    if (config_dir / "models.yaml").exists():
+        errors.extend(check_duplicate_keys(config_dir / "models.yaml"))
+    elif (config_dir / "models.yml").exists():
+        errors.extend(check_duplicate_keys(config_dir / "models.yml"))
     return errors
 
 
-# ─── Models.json validation ──────────────────────────────────────────────────
+# ─── Models validation ────────────────────────────────────────────────────────
 
 
 def validate_models(
     models_path: Path,
     gateways_dir: Path | None = None,
+    models_dir: Path | None = None,
 ) -> tuple[bool, list[str]]:
-    """Validate `.pi-container/agent/models.json` structure, provider definitions, and base URLs."""
+    """Validate `.pi-container/models.yaml` or `.pi-container/agent/models.json` structure."""
     errors: list[str] = []
 
     if not models_path.exists():
         errors.append(f"Models file not found: {models_path}")
         return False, errors
+
+    if models_path.suffix.lower() in (".yaml", ".yml"):
+        try:
+            dup_errors = check_duplicate_keys(models_path)
+            if dup_errors:
+                errors.extend(dup_errors)
+                return False, errors
+            data = load_yaml_strict(models_path.read_text())
+        except Exception as e:
+            errors.append(f"Models file is not valid YAML: {e}")
+            return False, errors
+
+        if not isinstance(data, dict):
+            errors.append("Models file must be a YAML mapping")
+            return False, errors
+
+        schema_errors = _validate_schema(data, MODELS_YAML_SCHEMA)
+        if schema_errors:
+            errors.extend(schema_errors)
+            return False, errors
+
+        yaml_errors = _validate_models_yaml(data, models_dir=models_dir, gateways_dir=gateways_dir)
+        if yaml_errors:
+            errors.extend(yaml_errors)
+
+        is_valid = len(errors) == 0
+        return is_valid, errors
 
     try:
         import json as _json

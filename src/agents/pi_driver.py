@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import json
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+sys.dont_write_bytecode = True
+
+from agents.base import AgentDriver, AgentMount
+
+"""Runtime driver for the Pi coding agent (@earendil-works/pi-coding-agent)."""
+
+
+class PiAgentDriver(AgentDriver):
+    """Driver for the native Pi coding agent."""
+
+    @property
+    def name(self) -> str:
+        return "pi"
+
+    @property
+    def required_tools(self) -> list[str]:
+        return []
+
+    def get_command(self, cli_args: list[str]) -> list[str]:
+        return cli_args
+
+    def get_mounts(self, project_dir: Path, agent_config_dir: Path) -> list[AgentMount]:
+        return [
+            AgentMount(source=agent_config_dir, destination="/home/pi/.pi/agent"),
+        ]
+
+    def get_tmpfs_paths(self) -> list[str]:
+        return ["/home/pi/.pi/agent/bin"]
+
+    def synthesize_config(
+        self,
+        server_configs: list[dict],
+        gateway_configs: list[dict],
+        default_model: str | None,
+        project_dir: Path,
+        agent_config_dir: Path,
+    ) -> None:
+        """Ensure models.json exists in agent_config_dir if models.yaml was used."""
+        models_json_path = agent_config_dir / "models.json"
+        if models_json_path.exists():
+            return
+
+        agent_config_dir.mkdir(parents=True, exist_ok=True)
+        providers: dict[str, dict] = {}
+        for srv in server_configs:
+            name = srv["name"]
+            base_url = srv.get("baseUrl") or "http://llama:9999/v1"
+            providers[name] = {
+                "baseUrl": base_url,
+                "api": "openai-completions",
+                "apiKey": "not-required",
+                "models": [{"id": name, "name": name}],
+            }
+
+        for gw in gateway_configs:
+            name = gw["name"]
+            base_url = gw.get("baseUrl") or (gw.get("gatewayDef") and gw["gatewayDef"].base_url) or ""
+            providers[name] = {
+                "baseUrl": base_url,
+                "api": "openai-completions",
+                "apiKey": f"{name.upper().replace('-', '_')}_API_KEY_PLACEHOLDER",
+            }
+
+        with models_json_path.open("w") as f:
+            json.dump({"providers": providers}, f, indent=2)
+
+    def get_t3_driver(self) -> str | None:
+        return "pi"

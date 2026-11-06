@@ -118,7 +118,7 @@ class TestBuildProxy:
         """
         from build import REPO_ROOT
 
-        containerfile = (REPO_ROOT / "pi-coding-agent" / "Containerfile").read_text()
+        containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
         assert "LABEL pi-container.type" not in containerfile
 
     def test_build_agent_does_not_forward_python_args(self, monkeypatch):
@@ -156,7 +156,7 @@ class TestBuildBuilder:
             assert build_mod.BUILDER_IMAGE_TAG in cmd
             assert "--target" in cmd
             assert cmd[cmd.index("--target") + 1] == "stage"
-            assert any("pi-coding-agent-builder" in str(c) and "Containerfile" in str(c) for c in cmd)
+            assert any("coding-agent-builder" in str(c) and "Containerfile" in str(c) for c in cmd)
 
     def test_carries_a_build_time_label(self):
         """run.py dates project images against this label; without it, it exits."""
@@ -703,14 +703,14 @@ class TestPythonBuildArgs:
 # Toolchain pins: Containerfile ARGs vs. what the build scripts require
 # ---------------------------------------------------------------------------
 #
-# Every version, commit and sha256 lives in pi-coding-agent-builder/Containerfile as
+# Every version, commit and sha256 lives in coding-agent-builder/Containerfile as
 # an ARG, and the build scripts define no fallbacks — they assert presence with
 # require_env and fail. That is deliberate (a stale pin baked into a script would
 # defeat the point of hoisting them), but it means a renamed or forgotten ARG is a
 # *build-time* failure, minutes into a compile, in a stage that may not even be the
 # one being changed. These tests turn that into a millisecond.
 
-BUILDER_DIR = REPO_ROOT / "pi-coding-agent-builder"
+BUILDER_DIR = REPO_ROOT / "coding-agent-builder"
 
 
 def _join_continuations(text: str) -> list[str]:
@@ -774,7 +774,7 @@ class TestToolchainPinsAreDeclared:
                 assert not missing, (
                     f"stage '{stage_name}' runs {script_name}, which requires "
                     f"{sorted(missing)} — declare them as ARG on that stage in "
-                    f"pi-coding-agent-builder/Containerfile "
+                    f"coding-agent-builder/Containerfile "
                     f"(a pre-FROM ARG must be re-declared to be inherited)"
                 )
                 checked += 1
@@ -791,7 +791,7 @@ class TestToolchainPinsAreDeclared:
             hits = literal.findall(script.read_text())
             assert not hits, (
                 f"{script.name} hardcodes {hits} — hashes and commits belong in "
-                f"pi-coding-agent-builder/Containerfile as ARGs"
+                f"coding-agent-builder/Containerfile as ARGs"
             )
 
     def test_every_declared_pin_is_actually_used(self):

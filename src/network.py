@@ -378,6 +378,13 @@ def read_agent_mode(config_dir: Path | None = None) -> str:
     return mode or "cli"
 
 
+def read_agent_type(config_dir: Path | None = None) -> str:
+    """Agent engine type from config.yaml ``agent.type`` (e.g. 'pi', 'opencode', 'antigravity', 'claude')."""
+    section = load_project_config(config_dir).get("agent") or {}
+    agent_type = str(section.get("type") or "pi").strip().lower()
+    return agent_type or "pi"
+
+
 _DEFAULT_GIT_CONFIG = {
     "safe_directory": True,
     "rewrite_ssh_to_https": True,
@@ -403,9 +410,9 @@ def read_git_config(config_dir: Path | None = None) -> dict[str, bool]:
     }
 
 
-# ─── Token Replacer Config Scanner (duplicated from pi-coding-agent-proxy/addons/token_replacer)
+# ─── Token Replacer Config Scanner (duplicated from coding-agent-proxy/addons/token_replacer)
 #
-# run.py lives outside pi-coding-agent-proxy and must not import from it.
+# run.py lives outside coding-agent-proxy and must not import from it.
 # This function is duplicated here so run.py can scan the host-side token
 # replacer config for ${ENV:VAR} references and pull required secrets from
 # the host environment / secret store before launching the container.

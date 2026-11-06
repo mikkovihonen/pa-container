@@ -169,7 +169,9 @@ class TestVolumeMountOptions:
 
 
 class TestProcessGatewayConfigs:
-    def test_api_key_missing_exits(self, tmp_path, monkeypatch):
+    def test_api_key_missing_exits(self, tmp_path, monkeypatch, caplog):
+        import logging
+
         from registry import GatewayAuth, GatewayDef
 
         gw_def = GatewayDef(
@@ -181,12 +183,36 @@ class TestProcessGatewayConfigs:
 
         exited = []
         monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
-        with monkeypatch.context() as m:
+        with caplog.at_level(logging.ERROR), monkeypatch.context() as m:
             m.delenv("MISSING_OPPER_KEY", raising=False)
             with patch("keyring.get_password", return_value=None):
                 run.process_gateway_configs(gateways, tmp_path)
 
         assert exited == [1]
+        assert "Save in OS keyring: uv run keyring set" in caplog.text
+        assert "Set via environment" not in caplog.text
+
+    def test_api_key_in_env_is_ignored(self, tmp_path, monkeypatch, caplog):
+        import logging
+
+        from registry import GatewayAuth, GatewayDef
+
+        gw_def = GatewayDef(
+            id="opper",
+            base_url="https://api.opper.ai/v3/compat",
+            auth=GatewayAuth(type="api-key", env_var="ENV_OPPER_KEY"),
+        )
+        gateways = [{"name": "opper", "gatewayDef": gw_def, "baseUrl": gw_def.base_url}]
+
+        exited = []
+        monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
+        monkeypatch.setenv("ENV_OPPER_KEY", "leaked_in_env")
+
+        with caplog.at_level(logging.ERROR), patch("keyring.get_password", return_value=None):
+            run.process_gateway_configs(gateways, tmp_path)
+
+        assert exited == [1]
+        assert "Save in OS keyring: uv run keyring set" in caplog.text
 
     def test_api_key_found_sets_env(self, tmp_path, monkeypatch):
         from registry import GatewayAuth, GatewayDef
@@ -354,7 +380,7 @@ class TestT3LaunchConfiguration:
     def test_t3_policy_content(self):
         import json
 
-        policy_file = run.REPO_ROOT / "pi-coding-agent" / "t3-policy.json"
+        policy_file = run.REPO_ROOT / "coding-agent" / "t3-policy.json"
         assert policy_file.is_file()
         data = json.loads(policy_file.read_text())
         assert data.get("schemaVersion") == 1
@@ -432,7 +458,7 @@ class TestT3AdvertiseHostResolution:
         assert agent_ports["expose"] == "lan"
 
     def test_t3_seed_settings_file(self):
-        script_file = run.REPO_ROOT / "pi-coding-agent" / "t3-seed-settings.cjs"
+        script_file = run.REPO_ROOT / "coding-agent" / "t3-seed-settings.cjs"
         assert script_file.is_file()
         content = script_file.read_text()
         assert "providerInstances.pi" in content

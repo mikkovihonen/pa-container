@@ -24,7 +24,7 @@ The addon also works in reverse. In `block` mode, it denies only blocked hosts/I
 
 ### In this project
 
-The addon loads as part of the mitmproxy startup in the [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-proxy/entrypoint.sh). It loads alongside the `token_replacer` and `flow_export` addons:
+The addon loads as part of the mitmproxy startup in the [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/entrypoint.sh). It loads alongside the `token_replacer` and `flow_export` addons:
 
 ```bash
 exec gosu mitmproxy /home/mitmproxy/.venv/bin/mitmweb \
@@ -53,7 +53,7 @@ and can be repeated for multiple addons):
 mitmweb -s allowlist.py
 ```
 
-Or in Docker — see the [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-proxy/Containerfile):
+Or in Docker — see the [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/Containerfile):
 
 ```dockerfile
 COPY addons/allowlist/allowlist.py /home/mitmproxy/scripts/allowlist.py

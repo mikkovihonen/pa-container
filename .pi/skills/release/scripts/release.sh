@@ -104,8 +104,8 @@ echo ""
 echo "✓ Bumping pyproject.toml version to $VERSION"
 substitute "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
 
-echo "✓ Bumping schema_version in pi-coding-agent/default/config.yaml"
-substitute "s/^schema_version: .*/schema_version: \"$VERSION\"/" pi-coding-agent/default/config.yaml
+echo "✓ Bumping schema_version in coding-agent/default/config.yaml"
+substitute "s/^schema_version: .*/schema_version: \"$VERSION\"/" coding-agent/default/config.yaml
 
 echo "✓ Bumping schema_version in .pi-container/config.yaml"
 substitute "s/^schema_version: .*/schema_version: \"$VERSION\"/" .pi-container/config.yaml
@@ -120,7 +120,7 @@ uv lock
 # nothing) — amending then would rewrite an unrelated commit on main.
 
 echo "✓ Committing version bumps"
-git add pyproject.toml pi-coding-agent/default/config.yaml .pi-container/config.yaml uv.lock
+git add pyproject.toml coding-agent/default/config.yaml .pi-container/config.yaml uv.lock
 if git diff --cached --quiet; then
     echo "✗ Nothing to commit — the version bumps produced no changes."
     echo "  Is the repo already at $VERSION? Release aborted, since the next"

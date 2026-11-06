@@ -37,14 +37,14 @@ PI_IMAGE_TAG = os.environ.get("PI_IMAGE_TAG", "pi-coding-agent:local")
 PROXY_IMAGE_TAG = os.environ.get("PROXY_IMAGE_TAG", "pi-coding-agent-proxy:local")
 # The toolchain image (CPython, uv, podman-compose, podman, netavark, aardvark-dns).
 # Both the shared agent image and every project-specific image COPY --from this tag,
-# so it is referenced by name inside pi-coding-agent/Containerfile too; changing it
+# so it is referenced by name inside coding-agent/Containerfile too; changing it
 # here alone is not enough.
 BUILDER_IMAGE_TAG = os.environ.get("BUILDER_IMAGE_TAG", "pi-coding-agent-builder:local")
 
 # The Containerfile unconditionally does `COPY --from=root_commands_path`, so
 # every build must supply that context. Project-specific builds point it at the
 # workspace's own root/commands.sh; the shared image uses this no-op default.
-DEFAULT_ROOT_COMMANDS = REPO_ROOT / "pi-coding-agent" / "default" / "dependencies" / "root" / "commands.sh"
+DEFAULT_ROOT_COMMANDS = REPO_ROOT / "coding-agent" / "default" / "dependencies" / "root" / "commands.sh"
 
 
 def _run_command_with_logging(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -78,7 +78,7 @@ def _run_command_with_logging(cmd: list[str], **kwargs) -> subprocess.CompletedP
 
 # ─── Build-memory preflight ──────────────────────────────────────────────────
 #
-# The builder image compiles CPython (pi-coding-agent-builder/build-python.sh). A
+# The builder image compiles CPython (coding-agent-builder/build-python.sh). A
 # PGO compile job peaks near 900 MiB, and the podman machine defaults to 2 GiB total
 # regardless of core count — so on a busy VM the build dies minutes in with
 #   gcc: fatal error: Killed signal terminated program cc1
@@ -86,7 +86,7 @@ def _run_command_with_logging(cmd: list[str], **kwargs) -> subprocess.CompletedP
 # running. This check happens BEFORE the build is launched, so the answer arrives
 # immediately.
 #
-# Thresholds mirror MIB_PER_JOB in pi-coding-agent-builder/build-python.sh — keep
+# Thresholds mirror MIB_PER_JOB in coding-agent-builder/build-python.sh — keep
 # them in step.
 _MIB_PER_JOB_PGO = 900
 _MIB_PER_JOB_PLAIN = 400
@@ -226,7 +226,7 @@ def build_builder(runtime: str) -> None:
             "--tag",
             BUILDER_IMAGE_TAG,
             "--file",
-            str(REPO_ROOT / "pi-coding-agent-builder" / "Containerfile"),
+            str(REPO_ROOT / "coding-agent-builder" / "Containerfile"),
             str(REPO_ROOT),
         ],
     )
@@ -270,7 +270,7 @@ def build_tool(runtime: str, tool: str) -> None:
             "--tag",
             tag,
             "--file",
-            str(REPO_ROOT / "pi-coding-agent-builder" / "Containerfile"),
+            str(REPO_ROOT / "coding-agent-builder" / "Containerfile"),
             str(REPO_ROOT),
         ],
     )
@@ -299,7 +299,7 @@ def build_proxy(runtime: str) -> None:
             "--tag",
             PROXY_IMAGE_TAG,
             "--file",
-            str(REPO_ROOT / "pi-coding-agent-proxy" / "Containerfile"),
+            str(REPO_ROOT / "coding-agent-proxy" / "Containerfile"),
             str(REPO_ROOT),
         ],
     )
@@ -327,7 +327,7 @@ def build_agent(runtime: str) -> None:
             "--tag",
             PI_IMAGE_TAG,
             "--file",
-            str(REPO_ROOT / "pi-coding-agent" / "Containerfile"),
+            str(REPO_ROOT / "coding-agent" / "Containerfile"),
             str(REPO_ROOT),
         ],
     )
@@ -394,7 +394,7 @@ def build_project_image(
         "--tag",
         image_tag,
         "--file",
-        str(REPO_ROOT / "pi-coding-agent" / "Containerfile"),
+        str(REPO_ROOT / "coding-agent" / "Containerfile"),
         str(REPO_ROOT),
     ]
     _run_command_with_logging(cmd)

@@ -1,0 +1,500 @@
+# ─── Optional on-demand tool fallbacks ───────────────────────────────────────
+# Default to empty scratch stages. When enabled in project builds, build-contexts
+# override these with the corresponding tool images.
+FROM scratch AS tool_ripgrep
+FROM scratch AS tool_fd
+FROM scratch AS tool_ast_grep
+FROM scratch AS tool_tree_sitter_cli
+FROM scratch AS tool_colgrep
+FROM scratch AS tool_qdrant
+FROM scratch AS tool_sqlite_vec
+FROM scratch AS tool_rust_analyzer
+FROM scratch AS tool_gopls
+FROM scratch AS tool_clangd
+FROM scratch AS tool_zls
+FROM scratch AS tool_mold
+FROM scratch AS tool_git
+FROM scratch AS tool_ruby
+FROM scratch AS tool_t3
+FROM scratch AS tool_gh
+FROM scratch AS tool_glab
+FROM scratch AS tool_tea
+FROM scratch AS tool_az
+FROM scratch AS tool_cafe
+FROM scratch AS tool_opencode
+FROM scratch AS tool_antigravity
+FROM scratch AS tool_claude_code
+
+# Plain Debian, not node:<ver>-trixie-slim. Node is built in
+# coding-agent-builder/ like everything else and arrives through the COPY below, so
+# the base image no longer decides which Node this is — nor carries anything else on
+# that tag's behalf. (The node: images are themselves debian:trixie-slim plus a Node
+# tarball, so this is the same Debian, minus the tarball.)
+FROM debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS runner
+
+# Runtime packages, plus the -dev headers Python needs to build native wheels.
+#
+# Nothing here is a *toolchain*: Node, CPython, podman, netavark and aardvark-dns are
+# compiled by coding-agent-builder/Containerfile and arrive via the COPY below.
+# What apt still provides for the nested-container stack is the pieces Debian ships
+# at a version podman 6 accepts:
+#   crun, conmon    the OCI runtime and its monitor (podman 6 needs conmon >= 2.1.7)
+#   catatonit       the init used by `podman run --init`
+#   passt           pasta, the only rootless network stack podman 6 supports
+#   fuse-overlayfs  the storage driver when overlay-on-overlay is unavailable
+#   uidmap          newuidmap/newgidmap, for the nested user namespace's id maps
+#   nftables        the `nft` binary netavark shells out to for a bridge network
+#   libcap2-bin     setcap, used below on newuidmap/newgidmap
+#   libseccomp2     linked by podman (built with the seccomp tag) and by crun
+#
+# The lib*-dev block mirrors coding-agent-builder/Containerfile's — the Python
+# built there links against these, and keeping the headers means `uv sync` and
+# `pip install` can still compile a wheel from source in a workspace, which is the
+# common case for a coding agent. Keep the two lists in step.
+#
+# The staged Python carries no static libpython (build-python.sh trims it): an
+# extension module links nothing, resolving its Python symbols from the interpreter
+# that loads it. That script proves it by building one at image-build time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    build-essential \
+    ca-certificates \
+    coreutils \
+    curl \
+    debhelper \
+    debianutils \
+    diffutils \
+    dnsutils \
+    findutils \
+    fd-find \
+    gettext \
+    git \
+    gosu \
+    grep \
+    gzip \
+    hostname \
+    iproute2 \
+    jq \
+    libsqlite3-0 \
+    libssl3 \
+    locales \
+    make \
+    ncurses-bin \
+    openssl \
+    patch \
+    passwd \
+    procps \
+    ripgrep \
+    rsync \
+    sed \
+    tar \
+    tree \
+    unzip \
+    uuid-runtime \
+    util-linux \
+    wget \
+    xz-utils \
+    xxd \
+    yq \
+    bzip2 \
+    gawk \
+    # Python: headers for building native wheels in a workspace
+    libbz2-dev \
+    libdb5.3-dev \
+    libexpat1-dev \
+    libffi-dev \
+    libgdbm-dev \
+    liblzma-dev \
+    libncurses5-dev \
+    libncursesw5-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    libzstd-dev \
+    uuid-dev \
+    zlib1g-dev \
+    # Nested containers
+    catatonit \
+    conmon \
+    crun \
+    fuse-overlayfs \
+    libcap2-bin \
+    libseccomp2 \
+    nftables \
+    passt \
+    uidmap \
+ && rm -rf /var/lib/apt/lists/* \
+ && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen \
+ && locale-gen en_US.UTF-8
+
+# ─── Toolchain from the builder image ────────────────────────────────────────
+# Node, CPython + uv + podman-compose, podman built with our own build tags, and the
+# netavark/aardvark-dns release podman 6 requires. Each is staged at its own root by
+# coding-agent-builder/Containerfile, which build.sh builds first; every tree
+# already mirrors the layout it lands in, so each COPY is a plain overlay onto /.
+#
+# Four COPYs rather than one because the builder keeps the components separate — that
+# is what lets the proxy image take /python/ alone (same CPython, same uv, no Node or
+# podman). This image is the one consumer that wants all of them.
+#
+# Copying prebuilt trees instead of compiling in place is what keeps a
+# project-specific image rebuild cheap: these layers are invalidated only when the
+# builder image itself changes, and even then they are copies, not compiles.
+COPY --from=pi-coding-agent-builder:local /python/ /
+COPY --from=pi-coding-agent-builder:local /node/ /
+COPY --from=pi-coding-agent-builder:local /podman/ /
+COPY --from=pi-coding-agent-builder:local /network/ /
+
+# ─── Optional toolchains from the builder image ──────────────────────────────
+# Enabled per-project in .pi-container/config.yaml under tools.include: [go, rust].
+# When false (default for shared image), layers are no-ops to keep image size minimal.
+ARG WITH_GO=false
+RUN --mount=type=bind,from=pi-coding-agent-builder:local,src=/go,target=/mnt/go \
+    if [ "${WITH_GO}" = "true" ]; then cp -a /mnt/go/* /; fi
+
+ARG WITH_RUST=false
+RUN --mount=type=bind,from=pi-coding-agent-builder:local,src=/rust,target=/mnt/rust \
+    if [ "${WITH_RUST}" = "true" ]; then cp -a /mnt/rust/* /; fi
+
+# ─── Optional on-demand tools from separate tool images ──────────────────────
+ARG WITH_RIPGREP=false
+RUN --mount=type=bind,from=tool_ripgrep,target=/mnt/ripgrep \
+    if [ "${WITH_RIPGREP}" = "true" ] && [ -d /mnt/ripgrep ]; then cp -a /mnt/ripgrep/. /; fi
+
+ARG WITH_FD=false
+RUN --mount=type=bind,from=tool_fd,target=/mnt/fd \
+    if [ "${WITH_FD}" = "true" ] && [ -d /mnt/fd ]; then cp -a /mnt/fd/. /; fi
+
+ARG WITH_AST_GREP=false
+RUN --mount=type=bind,from=tool_ast_grep,target=/mnt/ast_grep \
+    if [ "${WITH_AST_GREP}" = "true" ] && [ -d /mnt/ast_grep ]; then cp -a /mnt/ast_grep/. /; fi
+
+ARG WITH_TREE_SITTER_CLI=false
+RUN --mount=type=bind,from=tool_tree_sitter_cli,target=/mnt/tree_sitter_cli \
+    if [ "${WITH_TREE_SITTER_CLI}" = "true" ] && [ -d /mnt/tree_sitter_cli ]; then cp -a /mnt/tree_sitter_cli/. /; fi
+
+ARG WITH_COLGREP=false
+RUN --mount=type=bind,from=tool_colgrep,target=/mnt/colgrep \
+    if [ "${WITH_COLGREP}" = "true" ] && [ -d /mnt/colgrep ]; then cp -a /mnt/colgrep/. /; fi
+
+ARG WITH_QDRANT=false
+RUN --mount=type=bind,from=tool_qdrant,target=/mnt/qdrant \
+    if [ "${WITH_QDRANT}" = "true" ] && [ -d /mnt/qdrant ]; then cp -a /mnt/qdrant/. /; fi
+
+ARG WITH_SQLITE_VEC=false
+RUN --mount=type=bind,from=tool_sqlite_vec,target=/mnt/sqlite_vec \
+    if [ "${WITH_SQLITE_VEC}" = "true" ] && [ -d /mnt/sqlite_vec ]; then cp -a /mnt/sqlite_vec/. /; fi
+
+ARG WITH_RUST_ANALYZER=false
+RUN --mount=type=bind,from=tool_rust_analyzer,target=/mnt/rust_analyzer \
+    if [ "${WITH_RUST_ANALYZER}" = "true" ] && [ -d /mnt/rust_analyzer ]; then cp -a /mnt/rust_analyzer/. /; fi
+
+ARG WITH_GOPLS=false
+RUN --mount=type=bind,from=tool_gopls,target=/mnt/gopls \
+    if [ "${WITH_GOPLS}" = "true" ] && [ -d /mnt/gopls ]; then cp -a /mnt/gopls/. /; fi
+
+ARG WITH_CLANGD=false
+RUN --mount=type=bind,from=tool_clangd,target=/mnt/clangd \
+    if [ "${WITH_CLANGD}" = "true" ] && [ -d /mnt/clangd ]; then cp -a /mnt/clangd/. /; fi
+
+ARG WITH_ZLS=false
+RUN --mount=type=bind,from=tool_zls,target=/mnt/zls \
+    if [ "${WITH_ZLS}" = "true" ] && [ -d /mnt/zls ]; then cp -a /mnt/zls/. /; fi
+
+ARG WITH_MOLD=false
+RUN --mount=type=bind,from=tool_mold,target=/mnt/mold \
+    if [ "${WITH_MOLD}" = "true" ] && [ -d /mnt/mold ]; then cp -a /mnt/mold/. /; fi
+
+ARG WITH_GIT=false
+RUN --mount=type=bind,from=tool_git,target=/mnt/git \
+    if [ "${WITH_GIT}" = "true" ] && [ -d /mnt/git ]; then cp -a /mnt/git/. /; fi
+
+ARG WITH_RUBY=false
+RUN --mount=type=bind,from=tool_ruby,target=/mnt/ruby \
+    if [ "${WITH_RUBY}" = "true" ] && [ -d /mnt/ruby ]; then cp -a /mnt/ruby/. /; fi
+
+ARG WITH_T3=false
+RUN --mount=type=bind,from=tool_t3,target=/mnt/t3 \
+    if [ "${WITH_T3}" = "true" ] && [ -d /mnt/t3 ]; then cp -a /mnt/t3/. /; fi
+
+ARG WITH_GH=false
+RUN --mount=type=bind,from=tool_gh,target=/mnt/gh \
+    if [ "${WITH_GH}" = "true" ] && [ -d /mnt/gh ]; then cp -a /mnt/gh/. /; fi
+
+ARG WITH_GLAB=false
+RUN --mount=type=bind,from=tool_glab,target=/mnt/glab \
+    if [ "${WITH_GLAB}" = "true" ] && [ -d /mnt/glab ]; then cp -a /mnt/glab/. /; fi
+
+ARG WITH_TEA=false
+RUN --mount=type=bind,from=tool_tea,target=/mnt/tea \
+    if [ "${WITH_TEA}" = "true" ] && [ -d /mnt/tea ]; then cp -a /mnt/tea/. /; fi
+
+ARG WITH_AZ=false
+RUN --mount=type=bind,from=tool_az,target=/mnt/az \
+    if [ "${WITH_AZ}" = "true" ] && [ -d /mnt/az ]; then cp -a /mnt/az/. /; fi
+
+ARG WITH_CAFE=false
+RUN --mount=type=bind,from=tool_cafe,target=/mnt/cafe \
+    if [ "${WITH_CAFE}" = "true" ] && [ -d /mnt/cafe ]; then cp -a /mnt/cafe/. /; fi
+
+ARG WITH_OPENCODE=false
+RUN --mount=type=bind,from=tool_opencode,target=/mnt/opencode \
+    if [ "${WITH_OPENCODE}" = "true" ] && [ -d /mnt/opencode ]; then cp -a /mnt/opencode/. /; fi
+
+ARG WITH_ANTIGRAVITY=false
+RUN --mount=type=bind,from=tool_antigravity,target=/mnt/antigravity \
+    if [ "${WITH_ANTIGRAVITY}" = "true" ] && [ -d /mnt/antigravity ]; then cp -a /mnt/antigravity/. /; fi
+
+ARG WITH_CLAUDE_CODE=false
+RUN --mount=type=bind,from=tool_claude_code,target=/mnt/claude_code \
+    if [ "${WITH_CLAUDE_CODE}" = "true" ] && [ -d /mnt/claude_code ]; then cp -a /mnt/claude_code/. /; fi
+
+# uv reads the system trust store, which carries the mitmproxy CA (installed below).
+ENV UV_SYSTEM_CERTS=1
+
+# Fail the build here, not at the agent's first `node`/`python` or first nested
+# container. A staged binary that cannot resolve a shared library (an ABI skew between
+# the builder's base image and this one, or a missing runtime package above) is
+# otherwise invisible until runtime.
+#
+# The manifest is assembled from one fragment per build script — see stage_record() in
+# coding-agent-builder/common.sh for why they arrive separately — into a single file
+# the agent can read: /usr/local/share/pi-container/toolchain-versions.txt.
+RUN ldconfig \
+ && node --version \
+ && npm --version \
+ && python --version \
+ && pip --version \
+ && uv --version \
+ && podman --version \
+ && /usr/local/libexec/podman/netavark --version \
+ && /usr/local/libexec/podman/aardvark-dns --version \
+ && if [ -x /usr/local/bin/go ]; then /usr/local/bin/go version; fi \
+ && if [ -x /usr/local/bin/rustc ]; then /usr/local/bin/rustc --version && /usr/local/bin/cargo --version; fi \
+ && if [ -x /usr/local/bin/rg ]; then /usr/local/bin/rg --version; fi \
+ && if [ -x /usr/local/bin/fd ]; then /usr/local/bin/fd --version; fi \
+ && if [ -x /usr/local/bin/ast-grep ]; then /usr/local/bin/ast-grep --version; fi \
+ && if [ -x /usr/local/bin/tree-sitter ]; then /usr/local/bin/tree-sitter --version; fi \
+ && if [ -x /usr/local/bin/colgrep ]; then /usr/local/bin/colgrep --version; fi \
+ && if [ -x /usr/local/bin/qdrant ]; then /usr/local/bin/qdrant --version; fi \
+ && if [ -f /usr/local/lib/sqlite/vec0.so ]; then echo "sqlite-vec ready"; fi \
+ && if [ -x /usr/local/bin/rust-analyzer ]; then /usr/local/bin/rust-analyzer --version; fi \
+ && if [ -x /usr/local/bin/gopls ]; then /usr/local/bin/gopls version; fi \
+ && if [ -x /usr/local/bin/clangd ]; then /usr/local/bin/clangd --version; fi \
+ && if [ -x /usr/local/bin/zls ]; then /usr/local/bin/zls --version; fi \
+ && if [ -x /usr/local/bin/mold ]; then /usr/local/bin/mold --version; fi \
+ && if [ -x /usr/local/bin/git ]; then /usr/local/bin/git --version; fi \
+ && if [ -x /usr/local/bin/ruby ]; then /usr/local/bin/ruby --version; fi \
+ && if [ -x /usr/local/bin/t3 ]; then /usr/local/bin/t3 --version; fi \
+ && if [ -x /usr/local/bin/gh ]; then /usr/local/bin/gh --version; fi \
+ && if [ -x /usr/local/bin/glab ]; then /usr/local/bin/glab --version; fi \
+ && if [ -x /usr/local/bin/tea ]; then /usr/local/bin/tea --version; fi \
+ && if [ -x /usr/local/bin/az ]; then /usr/local/bin/az --version; fi \
+ && if [ -x /usr/local/bin/cafe ]; then /usr/local/bin/cafe --version || true; fi \
+ && cat /usr/local/share/pi-container/toolchain-versions.d/*.txt \
+      | sort > /usr/local/share/pi-container/toolchain-versions.txt \
+ && cat /usr/local/share/pi-container/toolchain-versions.txt
+
+# ─── Nested container toolchain ──────────────────────────────────────────────
+# Lets the agent run its own rootless podman *inside* this container (podman
+# build/run, docker compose, testcontainers). Always present in the image but
+# inert unless nested_containers.enabled is set in .pi-container/config.yaml —
+# run.py then passes the device/security/storage flags (see
+# docs/design/nested-containers.md).
+
+# Nested subordinate ID ranges for `pi` (uid 1000). These must fall INSIDE the
+# UID range the outer user namespace maps (verified: container UIDs 1..1000000).
+# The split around 1000 mirrors quay.io/podman/stable and stays valid even on
+# hosts with only the conventional 65536-wide subuid range.
+RUN printf 'pi:1:999\npi:1001:64535\n' > /etc/subuid \
+ && cp /etc/subuid /etc/subgid \
+ # newuidmap/newgidmap need CAP_SETUID/CAP_SETGID to write the nested namespace's
+ # id maps. File capabilities, NOT setuid-root: measured in this exact setup
+ # (rootless podman on an applehv machine, agent userns 0→501 / 1→100000), a
+ # setuid-root newuidmap acquires CAP_SETUID yet still fails the kernel's id-map
+ # permission check with "write to uid_map failed: Operation not permitted",
+ # while cap_setuid=ep succeeds. This matches quay.io/podman/stable.
+ && chmod 0755 /usr/bin/newuidmap /usr/bin/newgidmap \
+ && setcap cap_setuid+ep /usr/bin/newuidmap \
+ && setcap cap_setgid+ep /usr/bin/newgidmap
+
+# A `docker` on PATH, because a great many tools shell out to it by name
+# (testcontainers, Makefiles, CI scripts). Debian's podman-docker package would
+# provide this, but it is not installed: it depends on Debian's podman, which is
+# 5.4.2 and would land next to the 6.x built here.
+RUN printf '%s\n' '#!/bin/sh' '# pi-container: docker(1) is podman.' \
+      'exec /usr/local/bin/podman "$@"' > /usr/local/bin/docker \
+ && chmod 0755 /usr/local/bin/docker
+
+# /etc/containers: what podman reads before it will run anything.
+#
+# These files normally come from Debian's containers-common, which is not
+# installed — it is 0.62.2, and podman 6 wants configuration from common 0.68.0.
+# Writing them here is both correct for this podman and more control than the
+# package gives, and being inline in this Containerfile means _compute_image_hash()
+# invalidates project images when they change.
+#
+#   policy.json     REQUIRED — podman refuses to pull or run without it. This is
+#                   upstream's default: accept unsigned images. Signature policy is
+#                   not the control that matters here; what the agent can reach at
+#                   all is, and that is the proxy's allowlist.
+#   registries.conf Short names ("alpine") resolve against docker.io only. Podman's
+#                   short-name mode would otherwise have nothing to resolve against
+#                   and fail. A single entry also means no ambiguous-name prompt,
+#                   which would hang a non-interactive agent.
+RUN mkdir -p /etc/containers \
+ && printf '%s\n' \
+      '{' \
+      '  "default": [{"type": "insecureAcceptAnything"}],' \
+      '  "transports": {' \
+      '    "docker-daemon": {"": [{"type": "insecureAcceptAnything"}]}' \
+      '  }' \
+      '}' \
+    > /etc/containers/policy.json \
+ && printf '%s\n' \
+      'unqualified-search-registries = ["docker.io"]' \
+      'short-name-mode = "enforcing"' \
+    > /etc/containers/registries.conf
+
+# Defaults for every container the agent starts inside this one. Baked into /etc
+# (NOT under /home/pi — that path is tmpfs at runtime and would mask anything the
+# image shipped there) and written inline so _compute_image_hash(), which hashes
+# this Containerfile, invalidates project images when it changes.
+#   * `mounts`, not `volumes` — [containers] volumes is silently ignored.
+#   * the mounted bundle is the agent's FULL trust store (system CAs plus the
+#     mitmproxy CA installed below), so pointing SSL_CERT_FILE at it is strictly
+#     additive. Without it, TLS from inside an arbitrary image (alpine, postgres)
+#     fails: those images know nothing about the mitmproxy CA.
+#   * cgroupfs because there is no cgroup delegation inside the agent container
+#     and systemd/dbus are absent; per-inner-container --memory/--cpus are then
+#     best-effort (resources.agent still bounds the whole tree).
+#   * log_driver is podman's own default for a build without the systemd tag
+#     (see coding-agent-builder/build-podman.sh). Stated explicitly so that
+#     `podman logs` cannot start pointing at a journald socket that does not
+#     exist here if that build tag ever changes.
+#   * compose_providers pins podman-compose. Podman's default list tries
+#     docker-compose first, which is not installed, so `docker compose` would
+#     report the missing provider instead of using the one that is there.
+#   * netns = "bridge" overrides podman 6's rootless default of "pasta", and is
+#     what makes a nested container's published port reachable from the host
+#     (config.yaml nested_containers.ports). Measured, agent on the --internal
+#     network, with the SAME outer `-p` flag in both cases:
+#       pasta  → the outer port forward reaches the agent netns and pasta even
+#                completes the handshake, then stalls: the connection arrives
+#                with the agent's own address as its source, which is also the
+#                address pasta hands the nested guest, so the flow never
+#                resolves. Host curl times out. (A sibling container on the
+#                isolated net reaches the same port fine, so the listener works
+#                — it is specifically the published-port source address.)
+#       bridge → rootlessport binds a real socket in the agent netns, the outer
+#                `-p` publishes it, and the host reaches the UI.
+#     Bridge is also what `docker compose` already got (it creates a
+#     user-defined network per project), so this makes plain `podman run -p`
+#     behave like the compose path rather than differently from it. Egress is
+#     unaffected — re-verified on the --internal network: a nested container on
+#     a bridge still cannot reach HTTPS or a raw IP.
+RUN mkdir -p /etc/containers/containers.conf.d \
+ && printf '%s\n' \
+      '[containers]' \
+      'mounts = [' \
+      '  "type=bind,source=/etc/ssl/certs/ca-certificates.crt,destination=/etc/pi-container-ca.crt,ro=true",' \
+      ']' \
+      'env = [' \
+      '  "SSL_CERT_FILE=/etc/pi-container-ca.crt",' \
+      '  "NODE_EXTRA_CA_CERTS=/etc/pi-container-ca.crt",' \
+      '  "REQUESTS_CA_BUNDLE=/etc/pi-container-ca.crt",' \
+      '  "CURL_CA_BUNDLE=/etc/pi-container-ca.crt",' \
+      '  "GIT_SSL_CAINFO=/etc/pi-container-ca.crt",' \
+      ']' \
+      'log_driver = "k8s-file"' \
+      'netns = "bridge"' \
+      '' \
+      '[engine]' \
+      'cgroup_manager = "cgroupfs"' \
+      'compose_providers = ["podman-compose"]' \
+      'compose_warning_logs = false' \
+    > /etc/containers/containers.conf.d/50-pi-container.conf
+
+# ─── The PI_CONTAINER_* environment contract ────────────────────────────────
+#
+# What a project's own scripts test to know they are running inside the agent,
+# so a Makefile, compose wrapper or test harness can pick agent-specific
+# settings without probing for them. Everything pi-container injects shares this
+# prefix; see docs/configuration.md.
+#
+#   PI_CONTAINER=1          set here, so it is present for every process in the
+#                           image — login shells, `podman exec`, and anything the
+#                           entrypoint never touches. Its truth is a property of
+#                           the image, not of how run.py invoked it.
+#   PI_CONTAINER_HOST_IP    where the agent is reachable **from inside a nested
+#                           container**, which is the one address projects
+#                           routinely need and cannot guess. It lives next to the
+#                           podman pin on purpose: the value is podman's, not
+#                           ours — its rootless netns is built with
+#                           `pasta --map-guest-addr 169.254.1.2` — so a podman
+#                           upgrade in the builder image must re-check it. The
+#                           conventional name for this, host.containers.internal,
+#                           is WRONG inside an agent: podman propagates the
+#                           agent's own entry, which points at the host machine
+#                           the agent has no route to.
+#
+# Injected by run.py rather than here, because they describe the run and not the
+# image: PI_CONTAINER_VERSION, PI_CONTAINER_NESTED. The latter replaces the
+# unprefixed NESTED_CONTAINERS outright, with no fallback — run.py rebuilds this
+# image from this repo on every launch, so runner and image cannot disagree.
+ENV PI_CONTAINER=1
+ENV PI_CONTAINER_HOST_IP=169.254.1.2
+
+COPY coding-agent/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pi-container/t3-advertise-host.cjs
+COPY coding-agent/t3-seed-settings.cjs /usr/local/share/pi-container/t3-seed-settings.cjs
+COPY coding-agent/t3-policy.json /etc/t3code/policy.json
+
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+ARG PI_UID=1000
+ARG PI_GID=1000
+
+# No node user to remove any more: that was the node: base image's own uid-1000 user,
+# which had to go before `pi` could claim 1000. Plain Debian ships no such user.
+RUN groupadd --gid ${PI_GID} pi \
+ && useradd --uid ${PI_UID} --gid ${PI_GID} --create-home --shell /bin/bash pi
+
+ENV NODE_USE_SYSTEM_CA=1
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ENV GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+RUN mkdir -p /usr/local/share/ca-certificates/extra
+COPY --from=pi-coding-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
+RUN openssl x509 -in /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem -inform PEM -out /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt && update-ca-certificates
+RUN npm set cafile /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
+
+ARG ROOT_COMMANDS_PATH
+ARG LABEL_HASH
+ARG PROJECT_HASH=""
+ARG PROJECT_PATH=""
+ARG BUILD_TIMESTAMP=""
+
+COPY --from=root_commands_path ${ROOT_COMMANDS_PATH} /root/commands.sh
+
+RUN chmod +x /root/commands.sh && /root/commands.sh
+
+WORKDIR /workspace
+
+LABEL pi-container.hash="${LABEL_HASH}"
+LABEL pi-container.project.hash="${PROJECT_HASH}"
+LABEL pi-container.project.path="${PROJECT_PATH}"
+LABEL pi-container.build.time="${BUILD_TIMESTAMP}"
+# pi-container.type is deliberately NOT set here. This Containerfile builds two
+# different things: the shared base image (build_agent, no label ARGs passed) and
+# per-project images (build_project_image, all ARGs passed). Hardcoding
+# type="project" stamped the shared base as a project image too, so run.py's
+# orphan cleanup could not tell them apart. Each builder now passes its own
+# --label on the command line — which also keeps the label off build
+# intermediates, so a half-finished build is never mistaken for an orphan.
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

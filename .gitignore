@@ -27,8 +27,8 @@ venv/
 .claude/**
 
 # Pi / T3
-pi-coding-agent/logs
-pi-coding-agent/logs/**
+coding-agent/logs
+coding-agent/logs/**
 .pi-container/agent/bin
 .pi-container/agent/sessions
 .pi-container/agent/t3
@@ -36,8 +36,8 @@ pi-coding-agent/logs/**
 .pi-container/agent/models-store.json
 
 # Proxy
-pi-coding-agent-proxy/.locks
-pi-coding-agent-proxy/.locks/**
+coding-agent-proxy/.locks
+coding-agent-proxy/.locks/**
 
 # Flow-export audit trail (contains captured request/response bodies + headers)
 .pi-container/exports/

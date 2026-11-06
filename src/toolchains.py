@@ -38,6 +38,9 @@ ON_DEMAND_TOOLS: frozenset[str] = frozenset(
         "tea",
         "az",
         "cafe",
+        "opencode",
+        "antigravity",
+        "claude-code",
     }
 )
 
@@ -71,8 +74,8 @@ def tool_to_stage_target(tool: str) -> str:
 def tool_recipe_path(tool: str, repo_root: Path) -> Path:
     """Return the path to the tool's build script."""
     if tool in CORE_TOOLS:
-        return repo_root / "pi-coding-agent-builder" / f"build-{tool}.sh"
-    return repo_root / "pi-coding-agent-builder" / "tools" / tool / "build.sh"
+        return repo_root / "coding-agent-builder" / f"build-{tool}.sh"
+    return repo_root / "coding-agent-builder" / "tools" / tool / "build.sh"
 
 
 def compute_tool_hash(tool: str, repo_root: Path) -> str:
@@ -84,7 +87,7 @@ def compute_tool_hash(tool: str, repo_root: Path) -> str:
     if recipe.exists():
         hasher.update(recipe.read_bytes())
 
-    containerfile = repo_root / "pi-coding-agent-builder" / "Containerfile"
+    containerfile = repo_root / "coding-agent-builder" / "Containerfile"
     if containerfile.exists():
         cf_content = containerfile.read_text()
         in_stage = False

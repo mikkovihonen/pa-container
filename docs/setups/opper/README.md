@@ -7,13 +7,9 @@ This setup connects `pi-container` to [Opper AI](https://platform.opper.ai/) via
 ## Prerequisites
 
 1. An Opper account and API key from [platform.opper.ai](https://platform.opper.ai/) under **Settings > API keys**.
-2. Save your API key either in the host environment or in your OS keyring:
+2. Store your API key in your OS user keyring:
 ```bash
-# Option A: Save to your OS user keyring (macOS Keychain / Secret Service)
 uv run keyring set pi-container OPPER_API_KEY
-
-# Option B: Set in your host shell environment
-export OPPER_API_KEY="opp_..."
 ```
 
 ---

@@ -4,8 +4,8 @@
 Checks:
   1. Latest git tag on HEAD (v* format) matches pyproject.toml [project] version
   2. pyproject.toml [project] version matches schema_version in
-     pi-coding-agent/default/config.yaml
-  3. pi-coding-agent/default/config.yaml is valid against the expected schema
+     coding-agent/default/config.yaml
+  3. coding-agent/default/config.yaml is valid against the expected schema
      (required fields present, correct types)
 
 This script runs in CI as a consistency gate before a release is published.
@@ -86,8 +86,8 @@ def get_pyproject_version() -> str | None:
 
 
 def get_seed_schema_version() -> str | None:
-    """Read the schema_version from pi-coding-agent/default/config.yaml."""
-    config_path = REPO_ROOT / "pi-coding-agent" / "default" / "config.yaml"
+    """Read the schema_version from coding-agent/default/config.yaml."""
+    config_path = REPO_ROOT / "coding-agent" / "default" / "config.yaml"
     if not config_path.exists():
         return None
     try:
@@ -173,7 +173,7 @@ def main() -> int:
             _info(f"pyproject.toml matches target version: {new_version}")
 
     # ── Check 3: schema_version in seed config ───────────────────────────
-    seed_config_path = REPO_ROOT / "pi-coding-agent" / "default" / "config.yaml"
+    seed_config_path = REPO_ROOT / "coding-agent" / "default" / "config.yaml"
     seed_data: dict | None = None
     if not seed_config_path.exists():
         _error(f"Seed config not found: {seed_config_path}")
@@ -190,7 +190,7 @@ def main() -> int:
         if seed_data is not None:
             schema_version = seed_data.get("schema_version")
             if schema_version is None:
-                _error("schema_version: missing from pi-coding-agent/default/config.yaml")
+                _error("schema_version: missing from coding-agent/default/config.yaml")
                 all_pass = False
             else:
                 schema_version_str = str(schema_version)
@@ -247,7 +247,7 @@ def main() -> int:
             _info("Seed config schema: all required fields present with correct types")
 
     # ── Check 5: Seed directory completeness ─────────────────────────────
-    seed_dir = REPO_ROOT / "pi-coding-agent" / "default"
+    seed_dir = REPO_ROOT / "coding-agent" / "default"
     if not seed_dir.exists():
         _error(f"Seed directory not found: {seed_dir}")
         all_pass = False

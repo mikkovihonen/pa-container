@@ -180,9 +180,9 @@ originally promised. It is the main reason nesting must stay opt-in.
 
 ### 2. Image additions
 
-Added to `pi-coding-agent/Containerfile`. Debian trixie supplies the parts it ships
+Added to `coding-agent/Containerfile`. Debian trixie supplies the parts it ships
 at a version podman 6 accepts; `podman`, `netavark` and `aardvark-dns` are compiled
-in `pi-coding-agent-builder/` and copied in (see
+in `coding-agent-builder/` and copied in (see
 [Toolchain builder image](../design-details.md#toolchain-builder-image) — trixie's
 podman is 5.4.2 and its netavark 1.14.0, which podman 6 does not accept):
 
@@ -447,14 +447,14 @@ workload most likely to expose it.
 
 Since this design landed, **4 GB is the documented minimum** `podman machine` size. This is not for
 nesting. It is for building the images at all. The CPython compile moved into the
-shared base image. It moved into the toolchain image (`pi-coding-agent-builder/`), which also
+shared base image. It moved into the toolchain image (`coding-agent-builder/`), which also
 compiles podman and netavark. `build.sh` checks available memory
 in the VM before starting a build. It refuses with the fix rather than OOM-killing the
 compiler minutes later. Enabling nesting warrants more again.
 
 ### 9. Entrypoint changes
 
-`pi-coding-agent/entrypoint.sh` runs as root before `gosu pi`, which is the right place for
+`coding-agent/entrypoint.sh` runs as root before `gosu pi`, which is the right place for
 the one setup step that needs it:
 
 ```bash
@@ -779,11 +779,11 @@ Each phase leaves the tree working. The security-relevant surface all lands in p
 | `src/run.py` | Call `read_nested_containers_config()`; splice `nested_container_args()` into `pi_container_cmd`. Add `_ensure_nested_volume()` (create + label) and `_cleanup_orphaned_nested_volumes()` mirroring `_cleanup_orphaned_project_images()`. |
 | `src/util.py` | `validate_environment()`: podman-only. |
 | `src/schema_common.py` | `SCHEMA` gains `nested_containers` (`enabled`, `storage`, `security`). |
-| `pi-coding-agent/Containerfile` | Nesting runtime packages; `COPY --from` the toolchain image; `/etc/subuid`/`/etc/subgid`; `setcap` on `newuidmap`/`newgidmap`; `docker` shim; `/etc/containers/{policy.json,registries.conf,containers.conf.d/50-pi-container.conf}`. |
-| `pi-coding-agent-builder/` | **New.** Builds podman 6 (explicit `BUILDTAGS`), netavark/aardvark-dns 2.0 and CPython/uv/podman-compose from source, and stages Node 26 (official tarball by default, `NODE_SOURCE=build` to compile) — one independent stage each, under `/out`. Every version, commit and sha256 is an `ARG` in its `Containerfile`; the scripts assert them via `require_env` and default nothing. |
-| `pi-coding-agent/entrypoint.sh` | `PI_CONTAINER_NESTED` block creating/chowning `/run/user/1000` and the store. |
-| `pi-coding-agent/default/config.yaml` | New `nested_containers` section; bump `schema_version`. |
-| `pi-coding-agent/default/allowlist.yaml` | Commented registry allow-rule block. |
+| `coding-agent/Containerfile` | Nesting runtime packages; `COPY --from` the toolchain image; `/etc/subuid`/`/etc/subgid`; `setcap` on `newuidmap`/`newgidmap`; `docker` shim; `/etc/containers/{policy.json,registries.conf,containers.conf.d/50-pi-container.conf}`. |
+| `coding-agent-builder/` | **New.** Builds podman 6 (explicit `BUILDTAGS`), netavark/aardvark-dns 2.0 and CPython/uv/podman-compose from source, and stages Node 26 (official tarball by default, `NODE_SOURCE=build` to compile) — one independent stage each, under `/out`. Every version, commit and sha256 is an `ARG` in its `Containerfile`; the scripts assert them via `require_env` and default nothing. |
+| `coding-agent/entrypoint.sh` | `PI_CONTAINER_NESTED` block creating/chowning `/run/user/1000` and the store. |
+| `coding-agent/default/config.yaml` | New `nested_containers` section; bump `schema_version`. |
+| `coding-agent/default/allowlist.yaml` | Commented registry allow-rule block. |
 | `docs/configuration.md`, `docs/architecture.md`, `docs/getting-started.md` | Document the section, the trust model change, machine sizing; drop Docker references. |
 | `src/tests/test_runtimes.py` | Remove `DockerRuntime` tests; add `nested_container_args()` tests (flags present when enabled, absent when disabled, `engine_t` vs `disable`). |
 | `src/tests/test_network.py`, `src/tests/test_run.py` | `read_nested_containers_config()` defaults/parsing; nested-volume lifecycle + orphan cleanup. |

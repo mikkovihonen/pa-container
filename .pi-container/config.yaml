@@ -38,7 +38,7 @@ proxy:
   # Stream bodies larger than this threshold directly without full RAM buffering (e.g. "10m", "50m", or null/off).
   stream_large_bodies: 10m
 
-# Toolchains staged by pi-coding-agent-builder to include in the agent container.
+# Toolchains staged by coding-agent-builder to include in the agent container.
 # By default, only the core baseline (Python 3.14, Node 26, Podman 6, Netavark)
 # is included. Add extra toolchains here (e.g. "go", "rust") to include them:
 tools:
@@ -85,13 +85,13 @@ tmpfs:
     - /workspace/.pytest_cache
     - /workspace/.ruff_cache
     - /workspace/src/__pycache__
-    - /workspace/pi-coding-agent-proxy/.locks
-    - /workspace/pi-coding-agent-proxy/.pytest_cache
-    - /workspace/pi-coding-agent-proxy/__pycache__
-    - /workspace/pi-coding-agent-proxy/addons/allowlist/.pytest_cache
-    - /workspace/pi-coding-agent-proxy/addons/allowlist/__pycache__
-    - /workspace/pi-coding-agent-proxy/addons/token_replacer/.pytest_cache
-    - /workspace/pi-coding-agent-proxy/addons/token_replacer/__pycache__
+    - /workspace/coding-agent-proxy/.locks
+    - /workspace/coding-agent-proxy/.pytest_cache
+    - /workspace/coding-agent-proxy/__pycache__
+    - /workspace/coding-agent-proxy/addons/allowlist/.pytest_cache
+    - /workspace/coding-agent-proxy/addons/allowlist/__pycache__
+    - /workspace/coding-agent-proxy/addons/token_replacer/.pytest_cache
+    - /workspace/coding-agent-proxy/addons/token_replacer/__pycache__
 
 # Named persistent volume mounts that shadow host paths under /workspace.
 # Persisted across runs in container storage, keeping build caches warm.

@@ -1,0 +1,44 @@
+global:
+  log_replacements: true
+  dry_run: false
+
+rules:
+  # Replace placeholder Bearer tokens on egress for OpenAI-compatible gateways
+  - name: "OpenAI-Compatible Bearer Token Injection"
+    hostnames:
+      - "api.openai.com"
+      - "openrouter.ai"
+      - "*.openai.azure.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "Bearer pi-container-.*"
+    replace_with:
+      strategy: "static"
+      value: "Bearer ${ENV:OPENAI_API_KEY}"
+
+  # Replace placeholder Gemini API keys on egress for Antigravity / Gemini API
+  - name: "Gemini API Key Injection"
+    hostnames:
+      - "generativelanguage.googleapis.com"
+      - "*.googleapis.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "x-goog-api-key"
+        regex: "pi-container-.*"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:GEMINI_API_KEY}"
+
+  # Replace placeholder Anthropic API keys on egress for Claude Code
+  - name: "Anthropic API Key Injection"
+    hostnames:
+      - "api.anthropic.com"
+      - "*.anthropic.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "x-api-key"
+        regex: "pi-container-.*"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:ANTHROPIC_API_KEY}"

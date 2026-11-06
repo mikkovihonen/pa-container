@@ -34,11 +34,11 @@ The following environment variables are used by `build.sh` and `run.sh` to confi
 
 `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` have per-runtime defaults. They rarely need setting. Provide them only to override the default for your host.
 
-`NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `build.sh` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`pi-coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pi-container/blob/main/pi-coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `build.sh` forwards only the two knobs above:
+`NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `build.sh` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `build.sh` forwards only the two knobs above:
 
 ```bash
 podman build --build-arg PODMAN_VERSION=v6.1.0 --build-arg PODMAN_COMMIT=<peeled-sha> \
-    --tag pi-coding-agent-builder:local -f pi-coding-agent-builder/Containerfile .
+    --tag pi-coding-agent-builder:local -f coding-agent-builder/Containerfile .
 ```
 
 A version and its hashes must move together. The build refuses to start if any pin is unset or empty (naming the `ARG`). A mismatched hash fails the download instead of building something unverified.
@@ -51,7 +51,7 @@ A version and its hashes must move together. The build refuses to start if any p
 
 ### Introduction
 
-When you launch pi-container, it looks for workspace-specific overrides in `./.pi-container` and package dependencies in the directory you launched it from. Each workspace gets its own agent config, proxy, isolated network, and chat templates. They all live under that workspace's `.pi-container/` (seeded from the `pi-coding-agent/default/` template on first run).
+When you launch pi-container, it looks for workspace-specific overrides in `./.pi-container` and package dependencies in the directory you launched it from. Each workspace gets its own agent config, proxy, isolated network, and chat templates. They all live under that workspace's `.pi-container/` (seeded from the `coding-agent/default/` template on first run).
 
 Orchestration settings live in a single **`config.yaml`**. The proxy addon configs (`allowlist.yaml`, `token_replacer.yaml`) stay in their own files. The proxy container mounts and parses them.
 
@@ -220,7 +220,7 @@ auth:
 
 For OpenID authentication, pi-container initiates an interactive browser login with PKCE, securely caches the tokens in `~/.cache/pi-container/tokens/` with `0600` permissions, and passes the Bearer token to the proxy. The agent container uses a placeholder token and never accesses the real credential.
 
-##### B. API Key with OS Keyring / Environment (`type: api-key`)
+##### B. API Key with OS Keyring (`type: api-key`)
 
 Used for cloud gateways such as [Opper AI](https://platform.opper.ai/) (`https://api.opper.ai/v3/compat`):
 
@@ -238,10 +238,9 @@ auth:
   keyringAccount: "OPPER_API_KEY"
 ```
 
-Secret resolution follows a clean precedence hierarchy:
-1. **Host environment variable** (`os.environ["OPPER_API_KEY"]`).
-2. **OS user keyring** (macOS Keychain, Linux GNOME Keyring / Secret Service, Windows Credential Manager) queried via `keyringService` and `keyringAccount` (defaulting to service `pi-container`).
-3. Store your API keys in the keyring anytime with:
+API keys MUST be stored in the OS user keyring (macOS Keychain, Linux GNOME Keyring / Secret Service, Windows Credential Manager) queried via `keyringService` and `keyringAccount` (defaulting to service `pi-container`). Host environment variables are strictly ignored to prevent credential leakage.
+
+Store your API keys in the keyring anytime with:
 ```bash
 uv run keyring set pi-container OPPER_API_KEY
 ```
@@ -619,7 +618,7 @@ Bumping the version string is not a general remedy. When a field is missing, no 
 
 Re-seeding is **one file, not the directory**. Because the seeder only fills in what is missing, deleting `config.yaml` alone regenerates it from the current template and leaves `allowlist.yaml`, `token_replacer.yaml`, `agent/models.json`, `chat-templates/` and `dependencies/` untouched. `rm -rf .pi-container` also works but takes every hand-edited file in the workspace with it — reach for it only when several are out of date at once.
 
-Your own edits to `config.yaml` are not merged into the fresh copy, so note your settings before deleting it. A `diff` against `pi-coding-agent/default/config.yaml` beforehand shows exactly what you changed.
+Your own edits to `config.yaml` are not merged into the fresh copy, so note your settings before deleting it. A `diff` against `coding-agent/default/config.yaml` beforehand shows exactly what you changed.
 
 <a name="pi-container-environment"></a>
 ### The `PI_CONTAINER_*` environment contract
@@ -689,6 +688,10 @@ tools:
     - cafe
     # Agent control panels
     - t3
+    # Coding agent runtimes
+    - opencode
+    - antigravity
+    - claude-code
 ```
 
 **Available tools:**
@@ -721,8 +724,45 @@ tools:
     - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (provides `/usr/local/bin/cafe`).
 - **Agent Control Panels:**
     - `t3`: T3 Code web agent server for local UI control (provides `/usr/local/bin/t3`).
+- **Coding Agent Runtimes:**
+    - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (provides `/usr/local/bin/opencode`).
+    - `antigravity`: Google Antigravity agent runtime with Gemini API integration (provides `/usr/local/bin/antigravity`, `/usr/local/bin/agy`).
+    - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (provides `/usr/local/bin/claude`, `/usr/local/bin/claude-code`).
 
 When `tools.include` is non-empty, pi-container builds or reuses the required tool images and layers them into a project-specific container image in seconds.
+
+### Coding agent selection (`agent:`)
+
+pi-container supports multiple coding agent runtimes within the same sandboxed container environment:
+
+- **Pi Coding Agent (`pi`)**: Default agent runtime built into the base container image.
+- **OpenCode (`opencode`)**: High-performance agent with OpenAI-compatible gateway routing.
+- **Antigravity (`antigravity`)**: Gemini-powered agent with native Google toolchain integrations.
+- **Claude Code (`claude`)**: Anthropic's agent runtime with CLI and T3 Code integration.
+
+You can configure the active agent in `.pi-container/config.yaml`:
+
+```yaml
+agent:
+  type: opencode         # pi (default) | opencode | antigravity | claude
+  command: ["run"]       # Optional command override
+  options: ["--verbose"] # Optional CLI flags passed to the agent
+```
+
+You can also override the agent for a single execution using the `--agent` CLI option:
+
+```bash
+uv run pi-container run --agent opencode
+uv run pi-container run --agent claude
+```
+
+When an alternative agent is selected, pi-container automatically:
+1. Includes the agent toolchain (e.g. `opencode`, `antigravity`, or `claude-code`) during image build.
+2. Synthesizes native configuration files dynamically from your global and project model configurations.
+3. Sets up agent-specific state directory mounts under `.pi-container/agents/<agent>/`.
+4. Injects required credentials via proxy token replacement on egress.
+
+For comprehensive details on agent drivers and configuration synthesis, see [Agents](agents.md).
 
 <a name="nested-containers"></a>
 ### Nested containers
@@ -933,7 +973,7 @@ git clone https://github.com/example/repo.git
 
 **How it works:**
 
-1. On first run, pi-container seeds both files from templates in `pi-coding-agent/default/dependencies/`.
+1. On first run, pi-container seeds both files from templates in `coding-agent/default/dependencies/`.
 2. When definition files exist and are non-empty, pi-container computes a content hash and builds a **project-specific image** with the scripts baked in. The image is tagged `pi-container-project-<project-hash>-<image-hash>.local` and carries labels (`pi-container.hash`, `pi-container.project.hash`, `pi-container.build.time`, `pi-container.type`) for cache invalidation and discovery.
 3. At **build time**, `root/commands.sh` executes (system-wide setup: apt, npm globals). At **runtime**, `pi/commands.sh` executes via the entrypoint (workspace-local setup: venvs, cloned repos).
 4. If definition files are empty or absent, the workspace uses the shared base image (no project-specific build).
@@ -948,10 +988,10 @@ git clone https://github.com/example/repo.git
 Project-specific images are cached and reused across runs. pi-container computes a content hash of:
 - `.pi-container/dependencies/root/commands.sh` (if it exists and is non-empty)
 - `.pi-container/dependencies/pi/commands.sh` (if it exists and is non-empty)
-- `pi-coding-agent/Containerfile` (always)
-- `pi-coding-agent/entrypoint.sh` (always)
+- `coding-agent/Containerfile` (always)
+- `coding-agent/entrypoint.sh` (always)
 
-The toolchain (`pi-coding-agent-builder/`) is deliberately **not** hashed. The project image consumes it as a built image, not as source. What invalidates a project image there is the builder image's **build time** (see below).
+The toolchain (`coding-agent-builder/`) is deliberately **not** hashed. The project image consumes it as a built image, not as source. What invalidates a project image there is the builder image's **build time** (see below).
 
 The hash is stored as the `pi-container.hash` label on the image. The image tag is `pi-container-project-<project-hash>-<image-hash>.local`, where:
 - `<project-hash>` is the first 10 characters of `SHA-256(str(project_dir.resolve()))` — the same hash used for proxy and network naming (`pi-proxy-<hash>`, `pi-isolated-net-<hash>`).
@@ -1008,7 +1048,7 @@ The `build_project_image()` function in `src/build.py` accepts the following par
 
 | Label | Purpose | How it's calculated |
 |-------|---------|---------------------|
-| `pi-container.hash` | Content hash for cache invalidation (compares against current definition files). | SHA-256 of concatenated hashes of: `.pi-container/dependencies/root/commands.sh` and `pi/commands.sh` (each if non-empty), `pi-coding-agent/Containerfile`, `pi-coding-agent/entrypoint.sh` (16-char hex digest) |
+| `pi-container.hash` | Content hash for cache invalidation (compares against current definition files). | SHA-256 of concatenated hashes of: `.pi-container/dependencies/root/commands.sh` and `pi/commands.sh` (each if non-empty), `coding-agent/Containerfile`, `coding-agent/entrypoint.sh` (16-char hex digest) |
 | `pi-container.project.hash` | Project identity hash (links the image to its source workspace). | First 10 chars of SHA-256 of the absolute project directory path (10-char hex digest) |
 | `pi-container.project.path` | **Absolute path of the project directory at build time** (used for orphan detection). If the path no longer exists, the image is automatically removed on the next run. | Stored as-is from `PROJECT_DIR.resolve()` at build time |
 | `pi-container.build.time` | ISO 8601 timestamp of the build (used for age-based discovery). | UTC timestamp at build time in ISO 8601 format (e.g., `2024-01-15T12:30:45Z`) |

@@ -32,7 +32,7 @@ def project_scope(project_dir: Path) -> tuple[str, str]:
 def ensure_project_config(project_dir: Path | None = None, repo_root: Path | None = None) -> Path:
     """Seed the per-project ``.pi-container`` config from the repo template if absent.
 
-    Seeds ``{project_dir}/.pi-container`` from ``{repo_root}/pi-coding-agent/default``:
+    Seeds ``{project_dir}/.pi-container`` from ``{repo_root}/coding-agent/default``:
     the ``agent/`` and ``chat-templates/`` subtrees plus ``config.yaml`` and the proxy
     addon configs ``allowlist.yaml``/``token_replacer.yaml``. Also seeds dependency command
     templates if present.
@@ -41,7 +41,7 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
     """
     p_dir = project_dir if project_dir is not None else PROJECT_DIR
     r_root = repo_root if repo_root is not None else REPO_ROOT
-    template_root = r_root / "pi-coding-agent" / "default"
+    template_root = r_root / "coding-agent" / "default"
     if not template_root.is_dir():
         raise FileNotFoundError(f"Project config template not found: {template_root}")
 

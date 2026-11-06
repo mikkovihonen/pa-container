@@ -42,6 +42,7 @@ def now_iso() -> str:
 def read_project_tools(project_dir: Path) -> list[str]:
     """Read the list of tools enabled in .pi-container/config.yaml."""
     cfg_path = project_dir / ".pi-container" / "config.yaml"
+    tools: set[str] = set()
     if not cfg_path.exists():
         return []
     try:
@@ -50,17 +51,26 @@ def read_project_tools(project_dir: Path) -> list[str]:
         if isinstance(tools_sec, dict):
             include = tools_sec.get("include")
             if isinstance(include, list):
-                return sorted([t for t in include if isinstance(t, str)])
+                tools.update(t for t in include if isinstance(t, str))
+        agent_sec = data.get("agent")
+        if isinstance(agent_sec, dict):
+            agent_type = str(agent_sec.get("type") or "").strip().lower()
+            if agent_type in ("opencode", "open-code"):
+                tools.add("opencode")
+            elif agent_type in ("antigravity", "agy"):
+                tools.add("antigravity")
+            elif agent_type in ("claude", "claude-code"):
+                tools.add("claude-code")
     except Exception:
         pass
-    return []
+    return sorted(tools)
 
 
 def compute_image_hash(project_dir: Path, repo_root: Path | None = None) -> str | None:
     """Compute content hash for files affecting the project-specific container image."""
     r_root = repo_root or REPO_ROOT
     deps_root = project_dir / ".pi-container" / "dependencies"
-    agent_dir = r_root / "pi-coding-agent"
+    agent_dir = r_root / "coding-agent"
     files_to_hash = []
 
     for img_file in _IMAGE_DEFINITION_FILES:
@@ -100,7 +110,7 @@ def compute_image_hash(project_dir: Path, repo_root: Path | None = None) -> str 
 def compute_proxy_image_hash(repo_root: Path | str | None = None) -> str:
     """Compute content hash for files affecting the proxy container image."""
     r_root = Path(repo_root) if repo_root else REPO_ROOT
-    proxy_dir = r_root / "pi-coding-agent-proxy"
+    proxy_dir = r_root / "coding-agent-proxy"
     files_to_hash: list[Path] = []
 
     for img_file in _PROXY_IMAGE_DEFINITION_FILES:
