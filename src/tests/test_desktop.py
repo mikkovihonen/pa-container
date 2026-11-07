@@ -236,3 +236,94 @@ def test_resolve_desktop_ports():
         novnc_p, vnc_p = resolve_desktop_ports(cfg_explicit)
         assert novnc_p == 60002
         assert vnc_p == 50002
+
+
+def test_agent_desktop_cli_structure():
+    import os
+
+    from config import REPO_ROOT
+
+    agent_desktop = REPO_ROOT / "coding-agent" / "agent-desktop"
+    assert agent_desktop.is_file()
+    assert os.access(agent_desktop, os.X_OK)
+
+    # Legacy pi-desktop must not exist
+    pi_desktop = REPO_ROOT / "coding-agent" / "pi-desktop"
+    assert not pi_desktop.exists()
+
+    content = agent_desktop.read_text()
+    assert "Usage: agent-desktop <command> [args...]" in content
+    expected_subcommands = [
+        "status",
+        "screenshot",
+        "windows",
+        "launch",
+        "move",
+        "mouse-click-left",
+        "mouse-click-right",
+        "mouse-left-down",
+        "mouse-left-up",
+        "mouse-right-down",
+        "mouse-right-up",
+        "drag",
+        "type",
+        "key",
+    ]
+    for subcmd in expected_subcommands:
+        assert f"{subcmd})" in content, f"Subcommand {subcmd} missing in agent-desktop script"
+
+    # Key combinations handling
+    assert 'send_key "$k"' in content
+    assert "IFS='+' read -ra parts" in content
+
+
+def test_in_container_virtual_desktop_skill():
+    from config import REPO_ROOT
+    from yaml_strict import load_yaml_strict
+
+    # Root repository must NOT have .pi/skills/virtual-desktop
+    host_skill = REPO_ROOT / ".pi" / "skills" / "virtual-desktop"
+    assert not host_skill.exists()
+
+    # In-container skill must exist in coding-agent/skills/virtual-desktop/SKILL.md
+    container_skill = REPO_ROOT / "coding-agent" / "skills" / "virtual-desktop" / "SKILL.md"
+    assert container_skill.is_file()
+
+    content = container_skill.read_text()
+    assert content.startswith("---\n")
+    end_fm = content.find("\n---\n", 4)
+    assert end_fm != -1
+    fm_str = content[4:end_fm]
+    metadata = load_yaml_strict(fm_str)
+    assert isinstance(metadata, dict)
+    assert metadata["name"] == "virtual-desktop"
+    assert "description" in metadata
+
+    # Pure in-container abstraction
+    assert "agent-desktop" in content
+    assert "pi-container desktop" not in content
+    assert "mouse-click-left" in content
+    assert "mouse-click-right" in content
+    assert "drag" in content
+    assert "key ctrl+s" in content
+
+
+def test_containerfile_and_entrypoint_desktop_skill_integration():
+    from config import REPO_ROOT
+    from images import _IMAGE_DEFINITION_FILES
+
+    # images.py tracking
+    assert "agent-desktop" in _IMAGE_DEFINITION_FILES
+    assert "pi-desktop" not in _IMAGE_DEFINITION_FILES
+
+    # Containerfile COPY
+    containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
+    assert "COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop" in containerfile
+    assert "COPY coding-agent/skills /usr/local/share/pi-container/skills" in containerfile
+    assert "pi-desktop" not in containerfile
+
+    # entrypoint.sh dynamic provisioning and cleanup
+    entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
+    assert "/home/agent/.pi/agent/skills/virtual-desktop" in entrypoint
+    assert "/usr/local/share/pi-container/skills/virtual-desktop" in entrypoint
+    assert "rm -rf /home/agent/.pi/agent/skills/virtual-desktop" in entrypoint

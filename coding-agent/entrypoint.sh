@@ -227,6 +227,24 @@ exec gosu agent bash -c '
         wayvnc --render-cursor ${_wayvnc_gpu_arg} 127.0.0.1 5900 >/dev/null 2>&1 &
 
         websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1 &
+
+        # Provision virtual-desktop skill for active coding agents
+        if [ -d /usr/local/share/pi-container/skills/virtual-desktop ]; then
+            for _skill_dir in \
+                /home/agent/.pi/agent/skills/virtual-desktop \
+                /home/agent/.gemini/antigravity/skills/virtual-desktop \
+                /home/agent/.config/opencode/skills/virtual-desktop
+            do
+                mkdir -p "$(dirname "$_skill_dir")"
+                rm -rf "$_skill_dir"
+                cp -a /usr/local/share/pi-container/skills/virtual-desktop "$_skill_dir"
+            done
+        fi
+    else
+        # Prune virtual-desktop skill when desktop is disabled
+        rm -rf /home/agent/.pi/agent/skills/virtual-desktop \
+               /home/agent/.gemini/antigravity/skills/virtual-desktop \
+               /home/agent/.config/opencode/skills/virtual-desktop 2>/dev/null || true
     fi
 
     # ─── Source control credential helpers (SETUP_GIT_CREDENTIALS) ────────────

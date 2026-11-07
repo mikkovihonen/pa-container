@@ -1,0 +1,267 @@
+#!/bin/bash
+# agent-desktop: Unified CLI utility for agent virtual desktop observation and synthetic control.
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: agent-desktop <command> [args...]
+
+Observation Commands:
+  status                                Display virtual desktop, compositor, and stream status
+  screenshot [file]                     Capture desktop screenshot to PNG (default: /tmp/screenshot.png)
+  windows                               List active toplevel application windows
+  launch <cmd...>                       Launch a GUI application on the virtual desktop
+
+Mouse Commands:
+  move <x> <y>                          Move mouse cursor to (x, y) coordinates
+  mouse-click-left [x] [y]              Perform left mouse button click (at current position or moved to x y)
+  mouse-click-right [x] [y]             Perform right mouse button click (at current position or moved to x y)
+  mouse-left-down [x] [y]               Press down left mouse button (optionally moving to x y first)
+  mouse-left-up [x] [y]                 Release left mouse button (optionally moving to x y first)
+  mouse-right-down [x] [y]              Press down right mouse button (optionally moving to x y first)
+  mouse-right-up [x] [y]                Release right mouse button (optionally moving to x y first)
+  drag <x1> <y1> <x2> <y2>              Drag from (x1, y1) to (x2, y2) with left button held down
+
+Keyboard Commands:
+  type <text>                           Type text into the focused window
+  key <key_or_combo...>                 Send key event or combo (e.g. Return, Tab, ctrl+s, ctrl+shift+p)
+EOF
+    exit 1
+}
+
+[ $# -gt 0 ] || usage
+CMD="$1"
+shift
+
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export DISPLAY="${DISPLAY:-:0}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
+
+move_pointer() {
+    local x="$1"
+    local y="$2"
+    if [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+        xdotool mousemove "$x" "$y"
+    elif command -v wlrctl >/dev/null 2>&1; then
+        wlrctl pointer move "$x" "$y"
+    else
+        echo "ERROR: Neither xdotool nor wlrctl is available" >&2
+        return 1
+    fi
+}
+
+mouse_click() {
+    local side="$1"
+    local xbtn=1
+    if [ "$side" = "right" ]; then
+        xbtn=3
+    fi
+    if [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+        xdotool click "$xbtn"
+    elif command -v wlrctl >/dev/null 2>&1; then
+        wlrctl pointer click "$side"
+    else
+        echo "ERROR: Neither xdotool nor wlrctl is available" >&2
+        return 1
+    fi
+}
+
+mouse_down() {
+    local btn="$1"
+    if [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+        xdotool mousedown "$btn"
+    else
+        echo "ERROR: xdotool is required for mouse button down state" >&2
+        return 1
+    fi
+}
+
+mouse_up() {
+    local btn="$1"
+    if [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+        xdotool mouseup "$btn"
+    else
+        echo "ERROR: xdotool is required for mouse button up state" >&2
+        return 1
+    fi
+}
+
+send_key() {
+    local combo="$1"
+    if [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+        xdotool key "$combo"
+    elif command -v wtype >/dev/null 2>&1; then
+        if [[ "$combo" == *"+"* ]]; then
+            IFS='+' read -ra parts <<< "$combo"
+            local mods=()
+            local key=""
+            for part in "${parts[@]}"; do
+                case "${part,,}" in
+                    ctrl|control) mods+=("ctrl") ;;
+                    shift) mods+=("shift") ;;
+                    alt) mods+=("alt") ;;
+                    win|super|logo|meta) mods+=("win") ;;
+                    *) key="$part" ;;
+                esac
+            done
+            local wtype_args=()
+            for m in "${mods[@]}"; do
+                wtype_args+=("-M" "$m")
+            done
+            if [ -n "$key" ]; then
+                wtype_args+=("-k" "$key")
+            fi
+            for (( i=${#mods[@]}-1; i>=0; i-- )); do
+                wtype_args+=("-m" "${mods[i]}")
+            done
+            wtype "${wtype_args[@]}"
+        else
+            wtype -k "$combo"
+        fi
+    else
+        echo "ERROR: Neither xdotool nor wtype is available" >&2
+        return 1
+    fi
+}
+
+case "$CMD" in
+    status)
+        echo "=== Virtual Desktop Status ==="
+        echo "WAYLAND_DISPLAY: ${WAYLAND_DISPLAY}"
+        echo "DISPLAY:         ${DISPLAY}"
+        echo "XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}"
+        if [ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]; then
+            echo "Compositor:      RUNNING (socket ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY})"
+        else
+            echo "Compositor:      STOPPED"
+        fi
+        if command -v wlr-randr >/dev/null 2>&1; then
+            echo "Outputs:"
+            wlr-randr 2>/dev/null || echo "  (wlr-randr query failed)"
+        fi
+        ;;
+
+    screenshot)
+        OUT_FILE="${1:-/tmp/screenshot.png}"
+        mkdir -p "$(dirname "$OUT_FILE")"
+        if command -v grim >/dev/null 2>&1; then
+            grim "$OUT_FILE"
+        elif command -v import >/dev/null 2>&1; then
+            import -window root "$OUT_FILE"
+        elif command -v scrot >/dev/null 2>&1; then
+            scrot "$OUT_FILE"
+        else
+            echo "ERROR: Neither grim, import, nor scrot is available" >&2
+            exit 1
+        fi
+        echo "Screenshot saved: ${OUT_FILE}"
+        ;;
+
+    windows)
+        if command -v wlrctl >/dev/null 2>&1; then
+            wlrctl toplevel list 2>/dev/null || true
+        elif command -v wmctrl >/dev/null 2>&1; then
+            wmctrl -l 2>/dev/null || true
+        elif command -v xdotool >/dev/null 2>&1; then
+            xdotool search --onlyvisible --name "" 2>/dev/null || true
+        else
+            echo "ERROR: Neither wlrctl, wmctrl, nor xdotool is available" >&2
+            exit 1
+        fi
+        ;;
+
+    launch)
+        [ $# -gt 0 ] || { echo "Usage: agent-desktop launch <command...>" >&2; exit 1; }
+        nohup "$@" >/dev/null 2>&1 &
+        echo "Launched '$*' (pid: $!) on virtual desktop"
+        ;;
+
+    move)
+        [ $# -ge 2 ] || { echo "Usage: agent-desktop move <x> <y>" >&2; exit 1; }
+        move_pointer "$1" "$2"
+        echo "Moved cursor to ($1, $2)"
+        ;;
+
+    mouse-click-left)
+        if [ $# -ge 2 ]; then
+            move_pointer "$1" "$2"
+        fi
+        mouse_click "left"
+        echo "Left click performed"
+        ;;
+
+    mouse-click-right)
+        if [ $# -ge 2 ]; then
+            move_pointer "$1" "$2"
+        fi
+        mouse_click "right"
+        echo "Right click performed"
+        ;;
+
+    mouse-left-down)
+        if [ $# -ge 2 ]; then
+            move_pointer "$1" "$2"
+        fi
+        mouse_down 1
+        echo "Left mouse button down"
+        ;;
+
+    mouse-left-up)
+        if [ $# -ge 2 ]; then
+            move_pointer "$1" "$2"
+        fi
+        mouse_up 1
+        echo "Left mouse button up"
+        ;;
+
+    mouse-right-down)
+        if [ $# -ge 2 ]; then
+            move_pointer "$1" "$2"
+        fi
+        mouse_down 3
+        echo "Right mouse button down"
+        ;;
+
+    mouse-right-up)
+        if [ $# -ge 2 ]; then
+            move_pointer "$1" "$2"
+        fi
+        mouse_up 3
+        echo "Right mouse button up"
+        ;;
+
+    drag)
+        [ $# -ge 4 ] || { echo "Usage: agent-desktop drag <x1> <y1> <x2> <y2>" >&2; exit 1; }
+        move_pointer "$1" "$2"
+        mouse_down 1
+        sleep 0.05
+        move_pointer "$3" "$4"
+        sleep 0.05
+        mouse_up 1
+        echo "Dragged from ($1, $2) to ($3, $4)"
+        ;;
+
+    type)
+        [ $# -gt 0 ] || { echo "Usage: agent-desktop type <text>" >&2; exit 1; }
+        TEXT="$*"
+        if command -v wtype >/dev/null 2>&1; then
+            wtype "$TEXT"
+        elif [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+            xdotool type "$TEXT"
+        else
+            echo "ERROR: Neither wtype nor xdotool is available" >&2
+            exit 1
+        fi
+        ;;
+
+    key)
+        [ $# -gt 0 ] || { echo "Usage: agent-desktop key <key_or_combo...>" >&2; exit 1; }
+        for k in "$@"; do
+            send_key "$k"
+        done
+        ;;
+
+    *)
+        usage
+        ;;
+esac

@@ -16,7 +16,7 @@ logger = get_category_logger(__name__, LogCategory.BUILD)
 _IMAGE_DEFINITION_FILES = (
     "Containerfile",
     "entrypoint.sh",
-    "pi-desktop",
+    "agent-desktop",
     "t3-advertise-host.cjs",
     "t3-seed-settings.cjs",
     "t3-policy.json",

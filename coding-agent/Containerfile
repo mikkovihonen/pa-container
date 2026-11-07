@@ -501,7 +501,8 @@ ENV PI_CONTAINER=1
 ENV PI_CONTAINER_HOST_IP=169.254.1.2
 
 COPY coding-agent/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY coding-agent/pi-desktop /usr/local/bin/pi-desktop
+COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop
+COPY coding-agent/skills /usr/local/share/pi-container/skills
 COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pi-container/t3-advertise-host.cjs
 COPY coding-agent/t3-seed-settings.cjs /usr/local/share/pi-container/t3-seed-settings.cjs
 COPY coding-agent/t3-policy.json /etc/t3code/policy.json
