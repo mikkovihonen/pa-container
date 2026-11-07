@@ -87,6 +87,7 @@ class ProxyConfig(TypedDict):
     expose_ui: str
     max_view_flows: int | None
     stream_large_bodies: str | None
+    open_browser: bool
 
 
 class PortPublishConfig(TypedDict):
@@ -132,6 +133,20 @@ class SourceControlConfig(TypedDict):
     providers: dict[str, object]
 
 
+class LogRetentionConfig(TypedDict, total=False):
+    """Log retention settings."""
+
+    max_days: int | None
+    max_launches: int | None
+
+
+class LoggingProjectConfig(TypedDict, total=False):
+    """Per-project logging configuration."""
+
+    log_level: str | None
+    retention: LogRetentionConfig
+
+
 class ProjectConfig(TypedDict, total=False):
     """Top-level parsed representation of .pi-container/config.yaml."""
 
@@ -151,9 +166,26 @@ class ProjectConfig(TypedDict, total=False):
     flow_export: dict[str, object]
     git: dict[str, object]
     agents: dict[str, object]
+    logging: LoggingProjectConfig
 
 
 # ─── Global Configuration (~/.config/pi-container/config.yaml) ────────────────
+
+
+@dataclass(frozen=True)
+class LogRetentionGlobalConfig:
+    """Retention parameters for host-wide and per-project logs."""
+
+    max_days: int | None = 14
+    max_launches: int | None = 10
+
+
+@dataclass(frozen=True)
+class LoggingGlobalConfig:
+    """Logging settings in ~/.config/pi-container/config.yaml."""
+
+    log_level: str = "INFO"
+    retention: LogRetentionGlobalConfig = field(default_factory=LogRetentionGlobalConfig)
 
 
 @dataclass(frozen=True)
@@ -163,6 +195,7 @@ class RuntimeGlobalConfig:
     log_level: str = "INFO"
     bridge_interface: str | None = None
     proxy_upstream_network: str = "podman"
+    open_browser: bool = False
 
 
 @dataclass(frozen=True)
@@ -214,3 +247,4 @@ class GlobalConfig:
     runtime: RuntimeGlobalConfig = field(default_factory=RuntimeGlobalConfig)
     llama: LlamaGlobalConfig = field(default_factory=LlamaGlobalConfig)
     build: BuildGlobalConfig = field(default_factory=BuildGlobalConfig)
+    logging: LoggingGlobalConfig = field(default_factory=LoggingGlobalConfig)

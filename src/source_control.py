@@ -13,21 +13,22 @@ Forgejo/Gitea, Azure DevOps, Bitbucket, GitCafe) exclusively from the host OS Ke
 Neither .env files nor host environment variables are accepted as credential stores.
 """
 
-import logging
 import shutil
 import subprocess
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    import logging
     from pathlib import Path
 
     from config_types import SourceControlConfig
 
+from logging_driver import LogCategory, get_category_logger
 from network import _egress_truthy, load_project_config
 from secret_store import DEFAULT_KEYRING_SERVICE, get_keyring_secret
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.SECURITY)
 
 _DEFAULT_SOURCE_CONTROL = {
     "enabled": False,
@@ -160,7 +161,7 @@ def _probe_host_cli(cmd: tuple[str, ...]) -> str | None:
 
 def resolve_source_control_tokens(
     config_dir: Path | None = None,
-    log: logging.Logger | None = None,
+    log: logging.Logger | logging.LoggerAdapter[Any] | None = None,
 ) -> dict[str, str]:
     """Resolve tokens for all source control providers according to security precedence.
 

@@ -39,6 +39,8 @@ proxy:
   #   localhost → 127.0.0.1 only (default; not reachable from other hosts)
   #   lan       → 0.0.0.0 (reachable across the network; UI still password-gated)
   expose_ui: localhost
+  # Automatically launch mitmweb UI in the default OS web browser on startup.
+  open_browser: false
   # Max allowed flows to retain in mitmweb's in-memory view (prevents memory exhaustion on long sessions).
   # Denied/blocked flows are ALWAYS retained in memory regardless of this limit.
   # Set to null or 0 to keep all flows (unlimited).
@@ -292,4 +294,13 @@ security:
     - "gpg.format"
     - "gpg.ssh.program"
     - "tag.gpgSign"
+
+# Logging preferences and retention policy for this workspace.
+# Inherits from global configuration if omitted.
+logging:
+  log_level: INFO
+  retention:
+    max_days: 14       # Delete logs older than N days (null = no age limit)
+    max_launches: 10   # Keep the latest N launch logs (null = no count limit)
+
 

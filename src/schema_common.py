@@ -92,6 +92,7 @@ SCHEMA: dict[str, Any] = {
             "expose_ui": {"type": str},
             "max_view_flows": {"type": (int, type(None)), "required": False},
             "stream_large_bodies": {"type": (str, int, type(None)), "required": False},
+            "open_browser": {"type": (bool, str, int, type(None)), "required": False},
         },
     },
     "tools": {
@@ -198,6 +199,21 @@ SCHEMA: dict[str, Any] = {
             "git_config_allowlist": {"type": list, "required": False},
         },
     },
+    "logging": {
+        "type": dict,
+        "required": False,
+        "keys": {
+            "log_level": {"type": (str, type(None)), "required": False},
+            "retention": {
+                "type": dict,
+                "required": False,
+                "keys": {
+                    "max_days": {"type": (int, type(None)), "required": False},
+                    "max_launches": {"type": (int, type(None)), "required": False},
+                },
+            },
+        },
+    },
 }
 
 
@@ -215,6 +231,7 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
             "log_level": {"type": str},
             "bridge_interface": {"type": (str, type(None)), "required": False},
             "proxy_upstream_network": {"type": str},
+            "open_browser": {"type": (bool, str, int, type(None)), "required": False},
         },
     },
     "llama": {
@@ -248,6 +265,21 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
             "python_optimize": {"type": (bool, str, int)},
             "memory_preflight": {"type": (bool, str, int)},
             "node_source": {"type": str},
+        },
+    },
+    "logging": {
+        "type": dict,
+        "required": False,
+        "keys": {
+            "log_level": {"type": (str, type(None)), "required": False},
+            "retention": {
+                "type": dict,
+                "required": False,
+                "keys": {
+                    "max_days": {"type": (int, type(None)), "required": False},
+                    "max_launches": {"type": (int, type(None)), "required": False},
+                },
+            },
         },
     },
 }

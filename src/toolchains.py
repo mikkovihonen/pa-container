@@ -1,5 +1,4 @@
 import hashlib
-import logging
 import sys
 from typing import TYPE_CHECKING
 
@@ -8,7 +7,9 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-logger = logging.getLogger(__name__)
+from logging_driver import LogCategory, get_category_logger
+
+logger = get_category_logger(__name__, LogCategory.BUILD)
 
 # ─── Tool Definitions ────────────────────────────────────────────────────────
 

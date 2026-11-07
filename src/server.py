@@ -8,7 +8,6 @@ import contextlib
 import fcntl
 import hashlib
 import json
-import logging
 import os
 import subprocess
 import threading
@@ -24,6 +23,7 @@ if TYPE_CHECKING:
     from config_types import ClientInfo
 
 from config import LOGS_DIR
+from logging_driver import LogCategory, get_category_logger
 from models import Model, ServerConfig
 from template_paths import resolve_chat_template_path
 from util import (
@@ -36,7 +36,7 @@ from util import (
     stop_refcounted_resource,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.SERVER)
 
 
 def _config_fingerprint(config: ServerConfig) -> str:

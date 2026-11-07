@@ -1,11 +1,12 @@
-import logging
 import subprocess
 import sys
 from pathlib import Path
 
+from logging_driver import LogCategory, get_category_logger
+
 sys.dont_write_bytecode = True
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.VOLUME)
 
 
 def volume_exists(runtime: str, volume_name: str) -> bool:

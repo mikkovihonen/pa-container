@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import shutil
 import sys
@@ -16,11 +15,14 @@ from config_types import (
     GlobalConfig,
     LlamaBuildGlobalConfig,
     LlamaGlobalConfig,
+    LoggingGlobalConfig,
+    LogRetentionGlobalConfig,
     RuntimeGlobalConfig,
 )
+from logging_driver import LogCategory, get_category_logger
 from yaml_strict import load_yaml_strict
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
 DEFAULT_GLOBAL_CONFIG_DIR: Path = Path.home() / ".config" / "pi-container"
 DEFAULT_GLOBAL_CONFIG_FILE: Path = DEFAULT_GLOBAL_CONFIG_DIR / "config.yaml"
@@ -97,6 +99,7 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
         bridge_interface=os.environ.get("BRIDGE_INTERFACE") or raw_rt.get("bridge_interface"),
         proxy_upstream_network=os.environ.get("PROXY_UPSTREAM_NETWORK")
         or str(raw_rt.get("proxy_upstream_network", "podman")),
+        open_browser=_parse_bool(os.environ.get("PI_CONTAINER_OPEN_BROWSER", raw_rt.get("open_browser", False))),
     )
 
     # LLaMA section
@@ -140,9 +143,31 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
         purge_build_cache=_parse_bool(os.environ.get("PI_PURGE_BUILD_CACHE", raw_bld.get("purge_build_cache", False))),
     )
 
+    # Logging section
+    raw_log = data.get("logging", {})
+    if not isinstance(raw_log, dict):
+        raw_log = {}
+    raw_ret = raw_log.get("retention", {})
+    if not isinstance(raw_ret, dict):
+        raw_ret = {}
+
+    max_days_val = raw_ret.get("max_days")
+    max_launches_val = raw_ret.get("max_launches")
+    log_level_env = os.environ.get("LOG_LEVEL")
+    log_level_str = log_level_env or raw_log.get("log_level") or raw_rt.get("log_level", "INFO")
+
+    logging_cfg = LoggingGlobalConfig(
+        log_level=str(log_level_str),
+        retention=LogRetentionGlobalConfig(
+            max_days=int(max_days_val) if max_days_val is not None else 14,
+            max_launches=int(max_launches_val) if max_launches_val is not None else 10,
+        ),
+    )
+
     return GlobalConfig(
         schema_version=str(schema_version or data.get("schema_version", "0.6.6")),
         runtime=runtime_cfg,
         llama=llama_cfg,
         build=build_cfg,
+        logging=logging_cfg,
     )

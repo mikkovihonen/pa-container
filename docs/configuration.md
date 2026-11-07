@@ -28,10 +28,42 @@ Global configuration properties can be edited in `~/.config/pi-container/config.
 | `runtime.bridge_interface` | `BRIDGE_INTERFACE` | Host bridge interface for container networking | `null` (`podman0` on Linux, none on macOS) |
 | `runtime.proxy_upstream_network` | `PROXY_UPSTREAM_NETWORK` | Upstream network the proxy connects to for internet access | `podman` |
 | `runtime.log_level` | `LOG_LEVEL` | Log level | `INFO` |
+| `logging.log_level` | `LOG_LEVEL` | Default logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
+| `logging.retention.max_days` | - | Maximum age in days to retain project logs (null/0 disables) | `14` |
+| `logging.retention.max_launches` | - | Maximum historical launch logs to retain (null/0 disables) | `10` |
 | `build.dns` | `BUILD_DNS` | Upstream DNS resolver for container builds | `1.1.1.1` |
 | `build.node_source` | `NODE_SOURCE` | `build` compiles Node from source (~1 hour); `prebuilt` stages official tarball | `prebuilt` |
 | `build.python_optimize` | `PYTHON_OPTIMIZE` | `0` skips PGO CPython build: faster build, ~10-20% slower Python | `1` (PGO on) |
 | `build.memory_preflight` | `PI_MEMORY_PREFLIGHT` | `0` skips pre-build memory validation | `1` (check on) |
+
+### Logging and Log Retention
+
+pi-container routes diagnostic output through a per-project logging driver that stores execution logs in the user's state home following the XDG State Specification:
+
+```text
+~/.local/state/pi-container/projects/<workspace-name>-<hash>/logs/
+```
+
+Inside each workspace's logs directory:
+- `run-<timestamp>.log`: Complete session log recording diagnostic events across all subsystems.
+- `build-<timestamp>.log`: Container and toolchain build outputs (`podman build`, `cmake`, `cargo`).
+- `latest.log`: Atomic symlink pointing to the most recent workspace session log.
+- `latest-build.log`: Atomic symlink pointing to the most recent container build log.
+
+Retention can be configured globally in `~/.config/pi-container/config.yaml`:
+
+```yaml
+logging:
+    log_level: INFO
+    retention:
+        max_days: 14
+        max_launches: 10
+```
+
+Properties:
+- `log_level`: Default diagnostic level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Overridden by the `LOG_LEVEL` environment variable or `--log-level` CLI flag.
+- `retention.max_days`: Maximum age in days to retain log files. Logs older than this threshold are purged during startup. Set to `null` or `0` to disable age-based pruning.
+- `retention.max_launches`: Maximum number of historical launch logs (and separate build logs) to retain. Earlier runs beyond this limit are automatically purged. Set to `null` or `0` to disable count-based pruning.
 
 ### Minimal llama.cpp Build
 
@@ -297,6 +329,7 @@ network:
   dns: "1.1.1.1"              # upstream resolver the proxy uses
 proxy:
   expose_ui: localhost        # mitmweb UI bind: localhost | lan
+  open_browser: false         # auto-launch mitmweb in default browser on run: true | false
   max_view_flows: 2000        # max allowed flows in mitmweb RAM (denied flows always kept)
   stream_large_bodies: 10m    # stream bodies > threshold directly (e.g. 10m, off)
 tools:
@@ -349,6 +382,7 @@ The `proxy` section tunes the `pi-coding-agent-proxy` container:
 - `proxy.expose_ui` controls where the proxy's mitmweb UI (on its auto-assigned port) is published:
     - `localhost` (default) — bound to `127.0.0.1` only. Not reachable from other machines.
     - `lan` — bound to `0.0.0.0`. Reachable across the network (still password-gated by `ADMIN_PASSWORD`).
+- `proxy.open_browser` (boolean, default `false`) automatically opens the `mitmweb` UI in the host's default web browser upon session startup. Can be overridden per-run via `pi-container run --open-browser` (or `--no-open-browser`).
 - `proxy.max_view_flows` (integer, default `2000`) sets the maximum number of allowed flows retained in `mitmweb`'s in-memory view to prevent container memory exhaustion and OOM crashes during long sessions. **Blocked/denied flows are always retained** so rejections remain inspectable. Set to `null` or `0` for unlimited in-memory retention.
 - `proxy.stream_large_bodies` (string, default `"10m"`) enables direct body streaming for transfers larger than this threshold, bypassing full RAM buffering in mitmproxy. Set to `null`, `"none"`, or `"off"` to disable.
 
@@ -1137,6 +1171,96 @@ Place custom Jinja templates under `~/.config/pi-container/chat-templates/<model
 ```
 
 Paths can be absolute, use `~` home directory expansion, or specify a template name relative to `~/.config/pi-container/chat-templates/`. Default chat templates (e.g. for Qwen 3.6) are automatically seeded to `~/.config/pi-container/chat-templates/` on first launch.
+
+### Workspace Logging Configuration
+
+Workspaces can override global logging and retention policies in `.pi-container/config.yaml`:
+
+```yaml
+logging:
+    log_level: DEBUG
+    retention:
+        max_days: 7
+        max_launches: 5
+```
+
+### Log Inspection and Management (`pi-container logs`)
+
+The `logs` subcommand manages per-project log viewing, live streaming, and cleanup:
+
+```bash
+# View recent tail of the latest session run
+pi-container logs
+
+# Follow active session log in real time (similar to tail -f)
+pi-container logs -f
+
+# Filter log lines by explicit category tag
+pi-container logs --category build
+pi-container logs --category proxy
+
+# Target the latest container build log instead of the session run log
+pi-container logs --build
+
+# Print the absolute path to this project's logs directory
+pi-container logs --path
+
+# List historical log files with sizes and modification times
+pi-container logs --list
+
+# Display custom number of lines
+pi-container logs -n 100
+
+# Purge historical logs for this workspace
+pi-container logs clean
+
+# Purge logs across ALL projects in ~/.local/state/pi-container/projects/
+pi-container logs clean --all-projects --older-than 7d
+```
+
+### Active Proxies Inspection (`pi-container proxy` / `proxies`)
+
+The `proxy` (or `proxies`) subcommand queries running mitmproxy instances and their published `mitmweb` endpoints:
+
+```bash
+# Query active proxy for the current project workspace
+pi-container proxy
+
+# List all active proxies across all workspaces on the host in a table
+pi-container proxies --all
+
+# Open the resolved mitmweb UI in the default web browser immediately
+pi-container proxy --open
+
+# Output only the raw mitmweb URL (for shell scripts or piping)
+pi-container proxy --url
+
+# Output active proxy metadata as structured JSON
+pi-container proxy --json
+```
+
+URLs in terminal output are formatted using ANSI OSC 8 escape sequences, rendering as native clickable hyperlinks in VS Code, macOS Terminal, iTerm2, WezTerm, GNOME Terminal, and Windows Terminal.
+
+### Command Line Handling and Progress Milestones
+
+The CLI provides unified execution across `run`, `build`, `clean`, `logs`, and `proxy` (`proxies`) subcommands:
+- Global flags:
+    - `-v, --verbose`: Stream raw diagnostic events and build output directly to the terminal.
+    - `-q, --quiet`: Suppress live progress spinners and non-fatal progress milestones; output errors only.
+    - `--log-level`: Override logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
+    - `--log-file`: Explicitly specify destination path for the session log file.
+    - `--no-color`: Disable ANSI color and cursor formatting (also respects `NO_COLOR=1`).
+- Browser auto-launch on `run`:
+    - `pi-container run --open-browser`: Automatically open `mitmweb` in the default OS browser once healthy.
+    - `pi-container run --no-open-browser`: Disable browser opening regardless of config defaults.
+- Container argument forwarding:
+    - Arguments placed after POSIX `--` separator forward directly to the inner agent binary without CLI parser interpretation:
+        ```bash
+        pi-container run --agent pi -- --help
+        ```
+- Category progress milestones:
+    - Subsystem milestones (`preflight`, `build`, `network`, `proxy`, `server`, `security`, `agent`, `volume`, `cleanup`) update in place via rich terminal spinners and status indicators.
+    - In non-interactive or non-terminal environments (e.g. CI/CD pipelines), output automatically falls back to plain log milestone lines.
 
 ### Version control (.gitignore)
 

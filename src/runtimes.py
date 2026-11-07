@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
 import sys
 from typing import TYPE_CHECKING
@@ -18,7 +17,9 @@ Encapsulates Podman CLI flags and networking operations
 volume subpath mounts, nested containers) for orchestration.
 """
 
-logger = logging.getLogger(__name__)
+from logging_driver import LogCategory, get_category_logger
+
+logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
 
 class PodmanRuntime:

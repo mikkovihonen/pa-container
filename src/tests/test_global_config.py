@@ -56,6 +56,9 @@ class TestLoadGlobalConfig:
         assert cfg.build.dns == "1.1.1.1"
         assert cfg.build.prune_dangling is True
         assert cfg.build.purge_build_cache is False
+        assert cfg.logging.log_level == "INFO"
+        assert cfg.logging.retention.max_days == 14
+        assert cfg.logging.retention.max_launches == 10
 
     def test_canonical_env_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         repo_root = Path(__file__).resolve().parent.parent.parent

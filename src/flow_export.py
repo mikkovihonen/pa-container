@@ -6,17 +6,17 @@ sys.dont_write_bytecode = True
 
 import contextlib
 import json
-import logging
 import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from config import PROJECT_DIR
+from logging_driver import LogCategory, get_category_logger
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.FLOW_EXPORT)
 
 
 def _sanitize_ip(ip: str) -> str:

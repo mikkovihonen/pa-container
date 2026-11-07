@@ -8,7 +8,6 @@ sys.dont_write_bytecode = True
 
 import fcntl
 import hashlib
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,8 +19,9 @@ from huggingface_hub import hf_hub_download, try_to_load_from_cache
 from huggingface_hub.constants import HF_HUB_CACHE
 
 from config import LLAMA_SERVER_LOCK_DIR
+from logging_driver import LogCategory, get_category_logger
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.MODEL)
 
 
 # ─── Configuration Dataclasses ───────────────────────────────────────────

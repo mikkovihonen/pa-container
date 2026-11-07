@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import platform
 import shutil
@@ -10,7 +9,9 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-logger = logging.getLogger(__name__)
+from logging_driver import LogCategory, get_category_logger
+
+logger = get_category_logger(__name__, LogCategory.BUILD)
 
 DEFAULT_REPO_URL = "https://github.com/ggml-org/llama.cpp.git"
 DEFAULT_TAG = "v0.9.0"

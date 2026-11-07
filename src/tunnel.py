@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import logging
 import re
 import shutil
 import subprocess
@@ -15,9 +14,10 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
+from logging_driver import LogCategory, get_category_logger
 from secret_store import DEFAULT_KEYRING_SERVICE, get_keyring_secret
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.NETWORK)
 
 FQDN_REGEX = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.[A-Za-z]{2,}$")
 

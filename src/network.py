@@ -7,18 +7,18 @@ sys.dont_write_bytecode = True
 import contextlib
 import fcntl
 import json
-import logging
 import os
 import re
 import subprocess
 import time
-import types
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from config import ADMIN_PASSWORD, CONFIG_DIR, PROXY_LOCK_DIR
+from config import ADMIN_PASSWORD, CONFIG_DIR, PROJECT_DIR, PROXY_LOCK_DIR
 from runtimes import PodmanRuntime
 from util import (
     get_free_port,
@@ -31,20 +31,22 @@ from util import (
 
 if TYPE_CHECKING:
     import types
-    from pathlib import Path
 
     from config_types import (
         AgentExtrasConfig,
         ClientInfo,
         LlamaConfig,
+        LoggingProjectConfig,
+        LogRetentionConfig,
         NestedContainersConfig,
         NetworkConfig,
         PortPublishConfig,
         ProxyConfig,
         ResourceLimits,
     )
+from logging_driver import LogCategory, get_category_logger
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.NETWORK)
 
 
 # ─── Project config (.pi-container/config.yaml) ───────────────────────────
@@ -190,6 +192,7 @@ _DEFAULT_PROXY = {
     "expose_ui": "localhost",
     "max_view_flows": 2000,
     "stream_large_bodies": "10m",
+    "open_browser": False,
 }
 
 
@@ -200,6 +203,7 @@ def read_proxy_config(config_dir: Path | None = None) -> ProxyConfig:
     - ``expose_ui``: "localhost" | "lan"
     - ``max_view_flows``: int | None (default 2000)
     - ``stream_large_bodies``: str | None (default "10m")
+    - ``open_browser``: bool (default False)
     """
     section = load_project_config(config_dir).get("proxy") or {}
     expose = str(section.get("expose_ui", _DEFAULT_PROXY["expose_ui"])).strip().lower()
@@ -219,10 +223,17 @@ def read_proxy_config(config_dir: Path | None = None) -> ProxyConfig:
         if stream_bodies.lower() in ("null", "none", "off", "0", ""):
             stream_bodies = None
 
+    raw_open_browser = section.get("open_browser", _DEFAULT_PROXY["open_browser"])
+    if isinstance(raw_open_browser, str):
+        open_browser = raw_open_browser.strip().lower() in ("true", "1", "yes", "on")
+    else:
+        open_browser = bool(raw_open_browser)
+
     return {
         "expose_ui": expose,
         "max_view_flows": max_flows,
         "stream_large_bodies": stream_bodies,
+        "open_browser": open_browser,
     }
 
 
@@ -453,6 +464,24 @@ def read_git_config(config_dir: Path | None = None) -> dict[str, bool]:
     }
 
 
+def read_logging_config(config_dir: Path | None = None) -> LoggingProjectConfig:
+    """Read the logging section from .pi-container/config.yaml."""
+    sec = load_project_config(config_dir).get("logging")
+    if not isinstance(sec, dict):
+        return {}
+    ret = sec.get("retention")
+    ret_dict: LogRetentionConfig = {}
+    if isinstance(ret, dict):
+        ret_dict = {
+            "max_days": int(ret["max_days"]) if ret.get("max_days") is not None else None,
+            "max_launches": int(ret["max_launches"]) if ret.get("max_launches") is not None else None,
+        }
+    return {
+        "log_level": str(sec["log_level"]) if sec.get("log_level") is not None else None,
+        "retention": ret_dict,
+    }
+
+
 # ─── Token Replacer Config Scanner (duplicated from coding-agent-proxy/addons/token_replacer)
 #
 # run.py lives outside coding-agent-proxy and must not import from it.
@@ -504,6 +533,7 @@ class ContainerNetworkManager:
         llama_hostnames: str | None = None,
         ipv6: bool = False,
         lock_dir: Path | None = None,
+        project_dir: Path | None = None,
     ) -> None:
         # Accept either a runtime name or a ready PodmanRuntime.
         self.runtime: PodmanRuntime = (
@@ -514,6 +544,10 @@ class ContainerNetworkManager:
         self.proxy_image: str = proxy_image
         self.proxy_name: str = proxy_name
         self.config_dir: Path = config_dir or CONFIG_DIR
+        self.project_dir: Path = (
+            project_dir or (self.config_dir.parent if self.config_dir.name == ".pi-container" else PROJECT_DIR)
+        ).resolve()
+        self.project_hash: str = self.proxy_name.removeprefix("pi-proxy-")
         self.llama_ports: str | None = llama_ports
         self.llama_hostnames: str | None = llama_hostnames
         self.ipv6: bool = ipv6
@@ -866,6 +900,14 @@ class ContainerNetworkManager:
             "--rm",
             "--name",
             self.proxy_name,
+            "--label",
+            "pi-container.type=proxy",
+            "--label",
+            f"pi-container.project.hash={self.project_hash}",
+            "--label",
+            f"pi-container.project.path={str(self.project_dir)}",
+            "--label",
+            f"pi-container.project.name={self.project_dir.name}",
             "--security-opt",
             "no-new-privileges",
             *self.runtime.proxy_network_args(self.network_name),
@@ -1077,16 +1119,194 @@ class ContainerNetworkManager:
 
     def _query_published_port(self) -> int | None:
         """Query the container runtime for the host port mapped to proxy port 8081."""
-        try:
-            out = subprocess.run(
-                [self.container_runtime, "port", self.proxy_name, "8081/tcp"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except Exception:
+        return query_container_port(self.container_runtime, self.proxy_name, 8081)
+
+
+def query_container_port(runtime_bin: str, container_name: str, target_port: int = 8081) -> int | None:
+    """Query the container runtime for the host port mapped to a container port."""
+    try:
+        out = subprocess.run(
+            [runtime_bin, "port", container_name, f"{target_port}/tcp"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            match = re.search(r":(\d+)\s*$", out.stdout.strip().splitlines()[0])
+            return int(match.group(1)) if match else None
+    except Exception:
+        pass
+    return None
+
+
+def check_proxy_health(url: str, timeout: float = 1.0) -> bool:
+    """Check if the mitmweb URL responds to an HTTP request."""
+    try:
+        urllib.request.urlopen(url, timeout=timeout)
+        return True
+    except urllib.error.HTTPError as e:
+        return 200 <= e.code < 500
+    except Exception:
+        return False
+
+
+@dataclass
+class ActiveProxyInfo:
+    """Status and connection details for an active mitmweb proxy container."""
+
+    project_name: str
+    project_path: Path | None
+    project_hash: str
+    container_name: str
+    mitmweb_port: int | None
+    mitmweb_url: str | None
+    is_healthy: bool
+    active_clients: int
+    created_at: str | None = None
+
+
+def get_project_proxy(
+    project_dir: Path,
+    runtime: str | PodmanRuntime | None = None,
+    lock_dir: Path | None = None,
+) -> ActiveProxyInfo | None:
+    """Return active proxy info for a specific project directory, or None if not running."""
+    runtime_bin = getattr(runtime, "runtime", str(runtime)) if runtime else "podman"
+    actual_lock_dir = lock_dir if lock_dir is not None else PROXY_LOCK_DIR
+
+    from project import project_key
+
+    proj_hash = project_key(project_dir)
+    container_name = f"pi-proxy-{proj_hash}"
+
+    # Verify if container is running
+    try:
+        proc = subprocess.run(
+            [runtime_bin, "inspect", container_name, "--format", "{{.State.Running}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0 or proc.stdout.strip().lower() != "true":
             return None
-        if out.returncode != 0 or not out.stdout.strip():
-            return None
-        match = re.search(r":(\d+)\s*$", out.stdout.strip().splitlines()[0])
-        return int(match.group(1)) if match else None
+    except Exception:
+        return None
+
+    port = query_container_port(runtime_bin, container_name, 8081)
+    url = f"http://127.0.0.1:{port}" if port else None
+    clients_file = actual_lock_dir / f".{container_name}.clients.json"
+    active_clients = len(read_live_clients(clients_file)) if clients_file.exists() else 0
+    is_healthy = check_proxy_health(url) if url else False
+
+    return ActiveProxyInfo(
+        project_name=project_dir.resolve().name,
+        project_path=project_dir.resolve(),
+        project_hash=proj_hash,
+        container_name=container_name,
+        mitmweb_port=port,
+        mitmweb_url=url,
+        is_healthy=is_healthy,
+        active_clients=active_clients,
+    )
+
+
+def list_active_proxies(
+    runtime: str | PodmanRuntime | None = None,
+    lock_dir: Path | None = None,
+) -> list[ActiveProxyInfo]:
+    """Discover all active proxy containers across the host."""
+    runtime_bin = getattr(runtime, "runtime", str(runtime)) if runtime else "podman"
+    actual_lock_dir = lock_dir if lock_dir is not None else PROXY_LOCK_DIR
+
+    proxies: list[ActiveProxyInfo] = []
+    seen_containers: set[str] = set()
+
+    # 1. Query running containers matching name=pi-proxy-
+    try:
+        proc = subprocess.run(
+            [runtime_bin, "ps", "--filter", "name=pi-proxy-", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            try:
+                raw_data = json.loads(proc.stdout)
+                containers = raw_data if isinstance(raw_data, list) else [raw_data]
+            except json.JSONDecodeError:
+                containers = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+
+            for c in containers:
+                names = c.get("Names") or []
+                if isinstance(names, str):
+                    names = [names]
+                if not names:
+                    continue
+                name = names[0].lstrip("/")
+                if not name.startswith("pi-proxy-"):
+                    continue
+                seen_containers.add(name)
+
+                labels = c.get("Labels") or {}
+                if not isinstance(labels, dict):
+                    labels = {}
+
+                proj_hash = labels.get("pi-container.project.hash") or name.removeprefix("pi-proxy-")
+                proj_name = labels.get("pi-container.project.name") or proj_hash
+                proj_path_raw = labels.get("pi-container.project.path")
+                proj_path = Path(proj_path_raw) if proj_path_raw else None
+
+                port = query_container_port(runtime_bin, name, 8081)
+                url = f"http://127.0.0.1:{port}" if port else None
+
+                clients_file = actual_lock_dir / f".{name}.clients.json"
+                active_clients = len(read_live_clients(clients_file)) if clients_file.exists() else 0
+
+                is_healthy = check_proxy_health(url) if url else False
+                created_at = c.get("Created") or c.get("CreatedAt")
+
+                proxies.append(
+                    ActiveProxyInfo(
+                        project_name=proj_name,
+                        project_path=proj_path,
+                        project_hash=proj_hash,
+                        container_name=name,
+                        mitmweb_port=port,
+                        mitmweb_url=url,
+                        is_healthy=is_healthy,
+                        active_clients=active_clients,
+                        created_at=str(created_at) if created_at else None,
+                    )
+                )
+    except Exception as e:
+        logger.debug(f"Error listing active proxies via {runtime_bin}: {e}")
+
+    # 2. Fallback to lock files for any proxy container not caught above
+    if actual_lock_dir.exists():
+        for entry in actual_lock_dir.iterdir():
+            if entry.name.startswith(".pi-proxy-") and entry.name.endswith(".clients.json"):
+                name = entry.name[1:].removesuffix(".clients.json")
+                if name in seen_containers:
+                    continue
+                port = query_container_port(runtime_bin, name, 8081)
+                if port is None:
+                    continue
+                seen_containers.add(name)
+                proj_hash = name.removeprefix("pi-proxy-")
+                clients = len(read_live_clients(entry))
+                url = f"http://127.0.0.1:{port}"
+                is_healthy = check_proxy_health(url)
+                proxies.append(
+                    ActiveProxyInfo(
+                        project_name=proj_hash,
+                        project_path=None,
+                        project_hash=proj_hash,
+                        container_name=name,
+                        mitmweb_port=port,
+                        mitmweb_url=url,
+                        is_healthy=is_healthy,
+                        active_clients=clients,
+                    )
+                )
+
+    return sorted(proxies, key=lambda p: p.project_name)

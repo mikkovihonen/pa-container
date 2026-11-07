@@ -9,7 +9,6 @@ sys.dont_write_bytecode = True
 import base64
 import hashlib
 import json
-import logging
 import os
 import secrets
 import time
@@ -20,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, cast
 
 from config import TOKENS_DIR
+from logging_driver import LogCategory, get_category_logger
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from config_types import TokenData
     from registry import GatewayAuth
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.SECURITY)
 
 
 # ─── PKCE Helpers ────────────────────────────────────────────────────────────

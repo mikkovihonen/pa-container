@@ -7,6 +7,7 @@ runtime:
   log_level: INFO
   bridge_interface: null
   proxy_upstream_network: podman
+  open_browser: false
 
 # Host LLaMA inference engine settings
 llama:
@@ -35,3 +36,11 @@ build:
   node_source: prebuilt
   prune_dangling: true
   purge_build_cache: false
+
+# Logging configuration and retention
+logging:
+  log_level: INFO
+  retention:
+    max_days: 14       # Delete logs older than N days (null = no age limit)
+    max_launches: 10   # Keep the latest N launch logs (null = no count limit)
+

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 import signal
@@ -14,7 +13,9 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
+    from cli import RunOptions
     from config_types import GatewayConfigItem
+    from logging_driver import LogDriver
 
 sys.dont_write_bytecode = True
 
@@ -39,6 +40,12 @@ from config import (
 )
 from config_schema import validate_config, validate_models, validate_project_yaml
 from flow_export import export_mitmweb_flows, poll_agent_container_ips, recover_dangling_flows
+from logging_driver import (
+    LogCategory,
+    get_category_logger,
+    get_log_driver,
+    init_log_driver,
+)
 from models import Model
 from network import (
     ContainerNetworkManager,
@@ -52,6 +59,7 @@ from network import (
     read_llama_config,
     read_nested_containers_config,
     read_network_config,
+    read_proxy_config,
     read_read_only_pi_container,
     read_resource_limits,
     resource_limit_args,
@@ -73,7 +81,7 @@ from util import (
     warn_missing_gitignore,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.AGENT)
 
 CONTAINER_RUNTIME: str = "podman"
 RUNTIME: PodmanRuntime = PodmanRuntime(upstream_network=PROXY_UPSTREAM_NETWORK_ENV)
@@ -159,13 +167,19 @@ def ensure_proxy_image(runtime: str, repo_root: Path = REPO_ROOT) -> bool:
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
+def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
+    log_drv = driver or get_log_driver() or init_log_driver(PROJECT_DIR)
+    _init_runtime()
+
+    log_drv.step(LogCategory.PREFLIGHT, "Validating configuration & security")
     pi_container_dir = project.ensure_project_config()
     warn_missing_gitignore(PROJECT_DIR, logger)
     models_path: Path | None = resolve_models_file(pi_container_dir)
     if models_path is None or not models_path.exists():
-        logger.error(f"Config file not found: expected {pi_container_dir / 'models.yaml'}")
-        sys.exit(1)
+        err = f"Config file not found: expected {pi_container_dir / 'models.yaml'}"
+        logger.error(err)
+        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Missing Models Configuration", err)
+        return 1
 
     # Validate per-project config schema and version compatibility.
     config_yaml_path = pi_container_dir / "config.yaml"
@@ -174,20 +188,22 @@ def main() -> None:
         logger.error("Configuration incompatible with this version of pi-container:")
         for error in errors:
             logger.error(error)
-        for line in project.config_fix_hint(errors, config_yaml_path):
-            logger.error(line)
-        sys.exit(1)
+        hints = project.config_fix_hint(errors, config_yaml_path)
+        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Configuration Incompatible", "\n".join(errors), hints=hints)
+        return 1
 
     yaml_errors = validate_project_yaml(pi_container_dir)
     if yaml_errors:
         logger.error("Configuration has duplicate YAML keys:")
         for error in yaml_errors:
             logger.error(error)
-        logger.error(
-            "\nYAML keeps only the last occurrence of a repeated key, so the earlier "
-            "value was silently discarded. Delete the duplicate line and re-run."
+        log_drv.render_hard_error(
+            LogCategory.PREFLIGHT,
+            "Duplicate YAML Keys",
+            "\n".join(yaml_errors),
+            hints=["Delete the duplicate line from config.yaml and re-run."],
         )
-        sys.exit(1)
+        return 1
 
     # Validate models schema (models.yaml).
     models_valid, models_errors = validate_models(models_path)
@@ -195,8 +211,14 @@ def main() -> None:
         logger.error(f"Configuration error in {models_path.name}:")
         for err in models_errors:
             logger.error(err)
-        logger.error(f"\nFix: update {models_path} to match the expected schema.")
-        sys.exit(1)
+        log_drv.render_hard_error(
+            LogCategory.PREFLIGHT,
+            f"Invalid {models_path.name}",
+            "\n".join(models_errors),
+            hints=[f"Update {models_path} to match the expected schema."],
+        )
+        return 1
+
     flow_export_enabled = read_flow_export_enabled(pi_container_dir)
     ipv6_enabled = read_network_config(pi_container_dir)["ipv6"]
     llama_cfg = read_llama_config(pi_container_dir)
@@ -212,122 +234,29 @@ def main() -> None:
         logger.error("Security policy violation in agent.mounts:")
         for err in mount_errors:
             logger.error(f"  ✗ {err}")
-        logger.error("\nFix: remove the forbidden host mount paths from config.yaml under agent.mounts.")
-        sys.exit(1)
+        log_drv.render_hard_error(
+            LogCategory.SECURITY,
+            "Security Policy Violation in agent.mounts",
+            "\n".join(mount_errors),
+            hints=["Remove forbidden host mount paths from config.yaml under agent.mounts."],
+        )
+        return 1
 
-    cli_t3 = False
-    cli_t3_advertise_host: str | None = None
-    cli_lan = False
-    cli_agent: str | None = None
-    cli_t3_tunnel: str | None = None
-    cli_t3_tunnel_domain: str | None = None
-    cli_t3_tunnel_quick: bool = False
-    cli_t3_tunnel_runner: str = "auto"
-    cli_t3_tunnel_keyring_account: str = "CLOUDFLARE_TUNNEL_TOKEN"
-    cli_t3_tunnel_tailscale_mode: str = "serve"
-    cli_t3_public_url: str | None = None
-    container_argv: list[str] = []
-    _arg_i = 0
-    _raw_args = sys.argv[1:]
-    while _arg_i < len(_raw_args):
-        _arg = _raw_args[_arg_i]
-        if _arg == "--agent" and _arg_i + 1 < len(_raw_args):
-            cli_agent = _raw_args[_arg_i + 1]
-            _arg_i += 2
-            continue
-        if _arg.startswith("--agent="):
-            cli_agent = _arg.split("=", 1)[1]
-            _arg_i += 1
-            continue
-        if _arg == "--t3":
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-lan":
-            cli_lan = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-external-ip":
-            cli_t3_advertise_host = "external"
-            _arg_i += 1
-            continue
-        if _arg == "--t3-advertise-host" and _arg_i + 1 < len(_raw_args):
-            cli_t3_advertise_host = _raw_args[_arg_i + 1]
-            _arg_i += 2
-            continue
-        if _arg.startswith("--t3-advertise-host="):
-            cli_t3_advertise_host = _arg.split("=", 1)[1]
-            _arg_i += 1
-            continue
-        if _arg == "--t3-tunnel" and _arg_i + 1 < len(_raw_args):
-            cli_t3_tunnel = _raw_args[_arg_i + 1]
-            cli_t3 = True
-            _arg_i += 2
-            continue
-        if _arg.startswith("--t3-tunnel="):
-            cli_t3_tunnel = _arg.split("=", 1)[1]
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-tunnel-domain" and _arg_i + 1 < len(_raw_args):
-            cli_t3_tunnel_domain = _raw_args[_arg_i + 1]
-            cli_t3 = True
-            _arg_i += 2
-            continue
-        if _arg.startswith("--t3-tunnel-domain="):
-            cli_t3_tunnel_domain = _arg.split("=", 1)[1]
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-tunnel-quick":
-            cli_t3_tunnel_quick = True
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-tunnel-runner" and _arg_i + 1 < len(_raw_args):
-            cli_t3_tunnel_runner = _raw_args[_arg_i + 1]
-            cli_t3 = True
-            _arg_i += 2
-            continue
-        if _arg.startswith("--t3-tunnel-runner="):
-            cli_t3_tunnel_runner = _arg.split("=", 1)[1]
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-tunnel-keyring-account" and _arg_i + 1 < len(_raw_args):
-            cli_t3_tunnel_keyring_account = _raw_args[_arg_i + 1]
-            cli_t3 = True
-            _arg_i += 2
-            continue
-        if _arg.startswith("--t3-tunnel-keyring-account="):
-            cli_t3_tunnel_keyring_account = _arg.split("=", 1)[1]
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-tunnel-tailscale-mode" and _arg_i + 1 < len(_raw_args):
-            cli_t3_tunnel_tailscale_mode = _raw_args[_arg_i + 1]
-            cli_t3 = True
-            _arg_i += 2
-            continue
-        if _arg.startswith("--t3-tunnel-tailscale-mode="):
-            cli_t3_tunnel_tailscale_mode = _arg.split("=", 1)[1]
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        if _arg == "--t3-public-url" and _arg_i + 1 < len(_raw_args):
-            cli_t3_public_url = _raw_args[_arg_i + 1]
-            cli_t3 = True
-            _arg_i += 2
-            continue
-        if _arg.startswith("--t3-public-url="):
-            cli_t3_public_url = _arg.split("=", 1)[1]
-            cli_t3 = True
-            _arg_i += 1
-            continue
-        container_argv.append(_arg)
-        _arg_i += 1
+    cli_agent = options.agent
+    cli_t3 = options.t3
+    cli_lan = options.t3_lan
+    cli_t3_advertise_host = options.t3_advertise_host
+    cli_t3_tunnel = options.t3_tunnel
+    cli_t3_tunnel_domain = options.t3_tunnel_domain
+    cli_t3_tunnel_quick = options.t3_tunnel_quick
+    cli_t3_tunnel_runner = options.t3_tunnel_runner
+    cli_t3_tunnel_keyring_account = options.t3_tunnel_keyring_account
+    cli_t3_tunnel_tailscale_mode = options.t3_tunnel_tailscale_mode
+    cli_t3_public_url = options.t3_public_url
+    container_argv = options.container_argv
 
     if cli_t3_tunnel:
+        cli_t3 = True
         from tunnel import TunnelValidationError, validate_tunnel_prerequisites
 
         try:
@@ -340,26 +269,31 @@ def main() -> None:
                 tailscale_mode=cli_t3_tunnel_tailscale_mode,
                 runtime=CONTAINER_RUNTIME,
             )
-        except TunnelValidationError as err:
-            logger.error(str(err))
-            sys.exit(1)
+        except TunnelValidationError as tunnel_err:
+            logger.error(str(tunnel_err))
+            log_drv.render_hard_error(LogCategory.PREFLIGHT, "Tunnel Prerequisites Failed", str(tunnel_err))
+            return 1
 
     enabled_agents = read_enabled_agents(pi_container_dir)
     agent_type = cli_agent or read_agent_type(pi_container_dir)
     if cli_agent and cli_agent.lower() not in enabled_agents:
-        logger.error(
+        disabled_msg = (
             f"Agent '{cli_agent}' is not enabled in this workspace's config.yaml. "
             f"Enabled agents: {', '.join(enabled_agents)}"
         )
-        sys.exit(1)
+        logger.error(disabled_msg)
+        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Agent Disabled", disabled_msg)
+        return 1
 
     try:
-        driver = get_agent_driver(agent_type)
+        agent_driver = get_agent_driver(agent_type)
     except ValueError as e:
         logger.error(str(e))
-        sys.exit(1)
+        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Unknown Agent Driver", str(e))
+        return 1
 
-    sessions_dir = driver.get_sessions_dir(PROJECT_DIR)
+    log_drv.step_done(LogCategory.PREFLIGHT)
+    sessions_dir = agent_driver.get_sessions_dir(PROJECT_DIR)
 
     # Crash recovery: reap orphaned servers, proxies, and agent containers from prior crashed runs
     containers.sweep_orphaned_servers(LLAMA_SERVER_LOCK_DIR)
@@ -460,7 +394,7 @@ def main() -> None:
             f"T3 Code mode enabled (https://t3.codes):"
             f"\n  Inbound server port: {t3_bind}:3773"
             f"\n  Advertised host: {t3_advertise_host}"
-            f"\n  Starting T3 Code server for {driver.name} inside container..."
+            f"\n  Starting T3 Code server for {agent_driver.name} inside container..."
             f"\n  Once initialized, open https://t3.codes and use the pairing link displayed below."
         )
 
@@ -473,7 +407,7 @@ def main() -> None:
         _,
     ) = load_project_models(pi_container_dir, models_dir=MODELS_DIR)
 
-    driver.synthesize_config(
+    agent_driver.synthesize_config(
         server_configs=server_configs,
         gateway_configs=gateway_configs,
         default_model=default_model,
@@ -565,6 +499,7 @@ def main() -> None:
                     llama_ports=portconfig,
                     llama_hostnames=" ".join(sorted(llama_hostnames)),
                     ipv6=ipv6_enabled,
+                    project_dir=PROJECT_DIR,
                 )
 
             netmgr = containers.start_dependencies_parallel(servers, _make_netmgr, stack)
@@ -573,6 +508,28 @@ def main() -> None:
             mitmweb_url = netmgr.mitmweb_url()
             if mitmweb_url:
                 logger.info(f"mitmweb UI for this project: {mitmweb_url}")
+                if not log_drv.quiet:
+                    log_drv.console.print(
+                        f"  [dim cyan][{LogCategory.NETWORK}][/dim cyan] mitmweb UI for this project: [link={mitmweb_url}]{mitmweb_url}[/link] [dim]🔗 (click to open)[/dim]"
+                    )
+                proxy_cfg = read_proxy_config(pi_container_dir)
+                eff_open_browser = (
+                    options.open_browser
+                    if getattr(options, "open_browser", None) is not None
+                    else (
+                        (os.environ.get("PI_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
+                        if "PI_CONTAINER_OPEN_BROWSER" in os.environ
+                        else (
+                            proxy_cfg.get("open_browser", False)
+                            or getattr(global_config.runtime, "open_browser", False)
+                        )
+                    )
+                )
+                if eff_open_browser:
+                    import webbrowser
+
+                    logger.info(f"Launching mitmweb UI in default web browser: {mitmweb_url}")
+                    webbrowser.open(mitmweb_url)
             proxy_isolated_ip: str | None = None
             proxy_isolated_ip6: str | None = None
             try:
@@ -611,7 +568,7 @@ def main() -> None:
                 netmgr.warn_if_proxy_lacks_ipv6_egress()
 
             # ─── Resolve agent image (shared vs. project-specific) ──────
-            driver_tools = driver.required_tools
+            driver_tools = agent_driver.required_tools
             agent_image_tag, is_project_specific = images.resolve_agent_image(PROJECT_DIR, extra_tools=driver_tools)
             if is_project_specific:
                 label_hash = images.compute_image_hash(PROJECT_DIR, extra_tools=driver_tools)
@@ -710,7 +667,7 @@ def main() -> None:
 
             # Persistent unified project shadow volume (config.yaml volumes.paths + agent shadow paths)
             volume_paths = scan_volume_paths(pi_container_dir)
-            shadow_destinations = sorted(set(volume_paths + driver.get_shadow_paths()))
+            shadow_destinations = sorted(set(volume_paths + agent_driver.get_shadow_paths()))
             shadow_vol_name = volumes.project_shadow_volume_name(project.project_key(PROJECT_DIR))
             project_path_str = str(PROJECT_DIR.resolve())
 
@@ -776,9 +733,9 @@ def main() -> None:
                     except Exception as e:
                         logger.warning(f"Could not resolve git worktree hooks path: {e}")
 
-            driver_mounts = [arg for m in driver.get_mounts(PROJECT_DIR) for arg in m.to_run_args()]
+            driver_mounts = [arg for m in agent_driver.get_mounts(PROJECT_DIR) for arg in m.to_run_args()]
             driver_env = [
-                flag for k, v in driver.get_environment(agent_extras).items() for flag in ("--env", f"{k}={v}")
+                flag for k, v in agent_driver.get_environment(agent_extras).items() for flag in ("--env", f"{k}={v}")
             ]
             t3_mounts: list[str] = []
             t3_chown: list[str] = []
@@ -791,7 +748,7 @@ def main() -> None:
             chown_paths = sorted(
                 set(tmpfs_paths + shadow_destinations + ["/workspace/.pi-container/exports"] + t3_chown)
             )
-            final_container_argv = driver.get_command(container_argv)
+            final_container_argv = agent_driver.get_command(container_argv)
 
             pi_container_cmd = [
                 CONTAINER_RUNTIME,
@@ -845,7 +802,7 @@ def main() -> None:
                 "--env",
                 f"CONTAINER_CHOWN_PATHS={':'.join(chown_paths)}",
                 "--env",
-                f"PI_CONTAINER_AGENT={driver.name}",
+                f"PI_CONTAINER_AGENT={agent_driver.name}",
                 "--env",
                 f"PI_CONTAINER_ENABLED_AGENTS={','.join(enabled_agents)}",
                 *driver_env,
@@ -883,8 +840,10 @@ def main() -> None:
                 ip_thread.start()
 
             try:
+                log_drv.pause_for_interactive()
                 result = subprocess.run(pi_container_cmd)
             finally:
+                log_drv.resume_after_interactive()
                 run_quiet(
                     [CONTAINER_RUNTIME, "rm", "-f", agent_container_name],
                     check=False,
@@ -902,15 +861,29 @@ def main() -> None:
                     exports_dir=pi_container_dir / "exports",
                 )
 
-            if result.returncode != 0:
-                sys.exit(result.returncode)
-    except Exception:
+            return result.returncode
+    except Exception as e:
         logger.exception("An error occurred")
-        sys.exit(1)
+        log_drv.render_hard_error(LogCategory.AGENT, "Fatal Error", str(e))
+        return 1
     finally:
         Model.cleanup_download_lock_dir(LLAMA_SERVER_LOCK_DIR / "model_download")
 
 
+def main(argv: list[str] | None = None) -> None:
+    """Entrypoint for run operations."""
+    from cli import RunOptions, parse_cli_args
+
+    args_to_parse = ["run", *(argv if argv is not None else [])]
+    _, options = parse_cli_args(args_to_parse)
+    if isinstance(options, RunOptions):
+        ret = execute_run(options)
+        if ret != 0:
+            sys.exit(ret)
+        return
+    raise ValueError("Failed to parse run options")
+
+
 if __name__ == "__main__":
     _init_runtime()
-    main()
+    main(sys.argv[1:])

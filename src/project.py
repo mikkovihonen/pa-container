@@ -1,18 +1,19 @@
 import hashlib
-import logging
+import os
 import shutil
 import sys
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from config import PROJECT_DIR, REPO_ROOT
 from config_schema import SCHEMA_VERSION_MISMATCH
+from logging_driver import LogCategory, get_category_logger
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
+
+SCRIPT_DIR: Path = Path(__file__).resolve().parent
+REPO_ROOT: Path = SCRIPT_DIR.parent
+PROJECT_DIR: Path = Path(os.environ.get("PROJECT_DIR", Path.cwd()))
 
 _PROJECT_CONFIG_FILES = ("config.yaml", "allowlist.yaml", "token_replacer.yaml", "models.yaml")
 
@@ -20,6 +21,22 @@ _PROJECT_CONFIG_FILES = ("config.yaml", "allowlist.yaml", "token_replacer.yaml",
 def project_key(project_dir: Path) -> str:
     """Return a 10-character sha256 hash identifying a workspace path."""
     return hashlib.sha256(str(project_dir.resolve()).encode()).hexdigest()[:10]
+
+
+def get_project_state_dir(project_dir: Path) -> Path:
+    """Return ~/.local/state/pi-container/projects/{name}-{key} or $XDG_STATE_HOME override."""
+    state_home = os.environ.get("XDG_STATE_HOME")
+    base_dir = Path(state_home) if state_home else Path.home() / ".local" / "state"
+    key = project_key(project_dir)
+    slug = f"{project_dir.resolve().name}-{key}"
+    return base_dir / "pi-container" / "projects" / slug
+
+
+def get_project_logs_dir(project_dir: Path) -> Path:
+    """Return the logs directory for the project, creating it if absent."""
+    logs_dir = get_project_state_dir(project_dir) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    return logs_dir
 
 
 def project_scope(project_dir: Path) -> tuple[str, str]:

@@ -6,10 +6,11 @@ sys.dont_write_bytecode = True
 
 """Secret resolution module for host environment variables and OS keyring."""
 
-import logging
 import os
 
-logger = logging.getLogger(__name__)
+from logging_driver import LogCategory, get_category_logger
+
+logger = get_category_logger(__name__, LogCategory.SECURITY)
 
 DEFAULT_KEYRING_SERVICE = "pi-container"
 

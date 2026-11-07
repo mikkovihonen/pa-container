@@ -1,5 +1,4 @@
 import hashlib
-import logging
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -9,9 +8,10 @@ sys.dont_write_bytecode = True
 
 import project
 from config import PI_IMAGE_TAG, PROXY_IMAGE_TAG, REPO_ROOT
+from logging_driver import LogCategory, get_category_logger
 from yaml_strict import load_yaml_strict
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.BUILD)
 
 _IMAGE_DEFINITION_FILES = (
     "Containerfile",

@@ -20,6 +20,8 @@ from pathlib import Path
 from huggingface_hub.constants import HF_HUB_CACHE
 
 from global_config import load_global_config
+from logging_driver import LogCategory, get_category_logger
+from project import get_project_logs_dir
 from secret_store import get_keyring_secret
 
 # ─── Paths ──────────────────────────────────────────────────────────────────
@@ -39,7 +41,7 @@ global_config = load_global_config(repo_root=REPO_ROOT)
 log_level_str = global_config.runtime.log_level.upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
 logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
 # ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -63,7 +65,7 @@ LLAMA_BIN: str | None = (
 MODELS_DIR: Path = Path(HF_HUB_CACHE)
 LLAMA_SERVER_LOCK_DIR: Path = GLOBAL_CACHE_DIR / "locks" / "servers"
 PROXY_LOCK_DIR: Path = GLOBAL_CACHE_DIR / "locks" / "proxies"
-LOGS_DIR: Path = GLOBAL_CACHE_DIR / "logs"
+LOGS_DIR: Path = get_project_logs_dir(PROJECT_DIR)
 TOKENS_DIR: Path = GLOBAL_CACHE_DIR / "tokens"
 if "ADMIN_PASSWORD" in os.environ:
     logger.warning("ADMIN_PASSWORD in host environment is ignored; credentials must be stored in the OS keyring.")

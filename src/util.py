@@ -25,7 +25,11 @@ if TYPE_CHECKING:
 
     from config_types import ClientInfo
 
-_LOG = logging.getLogger(__name__)
+from logging_driver import LogCategory, get_category_logger
+
+_LOG = get_category_logger(__name__, LogCategory.PREFLIGHT)
+
+AnyLogger = logging.Logger | logging.LoggerAdapter[Any]
 
 
 def run_quiet(
@@ -33,7 +37,7 @@ def run_quiet(
     *,
     check: bool = True,
     label: str | None = None,
-    logger: logging.Logger | None = None,
+    logger: AnyLogger | None = None,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command, capturing output and logging failures.
@@ -155,7 +159,7 @@ def file_lock(
     *,
     timeout: float = 30.0,
     poll_interval: float = 0.05,
-    logger: logging.Logger | None = None,
+    logger: AnyLogger | None = None,
     label: str = "resource",
 ) -> Generator[TextIO]:
     """Context manager for acquiring an exclusive file lock with timeout and contention logging."""
@@ -262,7 +266,7 @@ def start_refcounted_resource(
     cleanup_stale_fn: Callable[[], None] | None = None,
     on_attach_fn: Callable[[int], None] | None = None,
     on_adopt_fn: Callable[[], None] | None = None,
-    logger: logging.Logger | None = None,
+    logger: AnyLogger | None = None,
     label: str = "resource",
 ) -> None:
     """Acquire lock, check resource health, and attach/adopt/restart the refcounted resource."""
@@ -307,7 +311,7 @@ def stop_refcounted_resource(
     stop_fn: Callable[[], None],
     full_cleanup_fn: Callable[[], None] | None = None,
     run_id: str | None = None,
-    logger: logging.Logger | None = None,
+    logger: AnyLogger | None = None,
     label: str = "resource",
 ) -> bool:
     """Deregister client from resource under lock. If last client, trigger full stop and cleanup."""
@@ -331,7 +335,7 @@ def stop_refcounted_resource(
     return False
 
 
-def handle_signal(signum: int, frame: object | None = None, logger: logging.Logger | None = None) -> None:
+def handle_signal(signum: int, frame: object | None = None, logger: AnyLogger | None = None) -> None:
     """Handle termination signals (SIGINT, SIGTERM, SIGHUP, SIGQUIT).
 
     Compatible with Python signal handler callbacks ``(signum, frame)`` as well
@@ -351,7 +355,7 @@ def handle_signal(signum: int, frame: object | None = None, logger: logging.Logg
     raise SystemExit(128 + signum)
 
 
-def stop_process_group(pid: int, name: str, logger: logging.Logger) -> None:
+def stop_process_group(pid: int, name: str, logger: AnyLogger) -> None:
     """Stops a process group to ensure all child processes are killed."""
     logger.info(f"Stopping process group for {name} (pid: {pid})...")
     try:
@@ -417,7 +421,7 @@ def get_host_external_ip() -> str:
     return "127.0.0.1"
 
 
-def get_sanitized_git_config_json(logger: logging.Logger, allowlist: list[str] | None = None) -> str:
+def get_sanitized_git_config_json(logger: AnyLogger, allowlist: list[str] | None = None) -> str:
     """Extract global host git configuration as JSON, strictly filtering against safe allowlist keys."""
     sanitized_dict = {}
     # Regex to strip 'user:pass@' from URLs
@@ -543,7 +547,7 @@ def check_repo_tracked_pi_container(project_dir: Path) -> list[str]:
     return []
 
 
-def warn_missing_gitignore(project_dir: Path, logger: logging.Logger) -> None:
+def warn_missing_gitignore(project_dir: Path, logger: AnyLogger) -> None:
     """Log warnings if .pi-container entries are missing from .gitignore or actively tracked in git."""
     missing = check_repo_gitignore(project_dir)
     if missing:

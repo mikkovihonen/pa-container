@@ -10,7 +10,6 @@ sys.dont_write_bytecode = True
 - Models:   ~/.config/pi-container/models/<model_id>.yaml     (model-level local llama-server definitions)
 """
 
-import logging
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,9 +21,10 @@ from config import (
     GLOBAL_MODELS_REGISTRY_DIR,
     REPO_ROOT,
 )
+from logging_driver import LogCategory, get_category_logger
 from models import ServerConfig
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.MODEL)
 
 
 # ─── Data Structures ─────────────────────────────────────────────────────────

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import sys
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -12,6 +11,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
+from logging_driver import LogCategory, get_category_logger
 from registry import (
     LlamaServerModelDef,
     load_gateway_def,
@@ -20,7 +20,7 @@ from registry import (
 )
 from yaml_strict import load_yaml_strict
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.AGENT)
 
 """Model configuration synthesis engine.
 

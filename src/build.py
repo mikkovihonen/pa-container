@@ -1,4 +1,3 @@
-import argparse
 import logging
 import os
 import re
@@ -7,14 +6,19 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cli import BuildOptions
+    from logging_driver import LogDriver
 
 sys.dont_write_bytecode = True
 
 from global_config import load_global_config
+from logging_driver import LogCategory, get_category_logger, get_log_driver
 from util import EnvironmentError, validate_environment
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.BUILD)
 
 # ─── Paths ───────────────────────────────────────────────────────────────────
 
@@ -48,11 +52,11 @@ DEFAULT_ROOT_COMMANDS = REPO_ROOT / "coding-agent" / "default" / "project" / "de
 
 
 def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    """Run a subprocess, logging each stdout/stderr line via logger.info.
+    """Run a subprocess, routing through LogDriver if active or logging each line via logger.info."""
+    driver = get_log_driver()
+    if driver is not None:
+        return driver.run_command_logged(cmd, category=LogCategory.BUILD, **kwargs)
 
-    Merges stderr into stdout so both streams appear together in log output.
-    Raises ``subprocess.CalledProcessError`` on non-zero exit.
-    """
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -416,137 +420,76 @@ def build_project_image(
     _run_command_with_logging(cmd)
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for image and tool builds."""
-    parser = argparse.ArgumentParser(description="Build pi-container images and on-demand toolchains.")
-    parser.add_argument(
-        "--tools",
-        metavar="TOOLS",
-        help="Comma-separated list of on-demand tools to build (e.g. 'mold,git'), or 'all'.",
-    )
-    parser.add_argument(
-        "--llama",
-        action="store_true",
-        help="Build minimal optimized host llama-server specifically for pi-container.",
-    )
-    parser.add_argument(
-        "--llama-latest",
-        "--latest",
-        action="store_true",
-        dest="llama_latest",
-        help="Build the latest release of llama.cpp specifically for pi-container.",
-    )
-    parser.add_argument(
-        "--llama-backend",
-        metavar="BACKEND",
-        default=None,
-        help="Force specific llama acceleration backend ('metal', 'cuda', 'rocm', 'cpu').",
-    )
-    parser.add_argument(
-        "--llama-tag",
-        metavar="TAG",
-        default=None,
-        help="Override git release tag or commit for llama.cpp (e.g. 'v0.9.0', 'latest').",
-    )
-    parser.add_argument(
-        "--no-clean",
-        action="store_true",
-        help="Skip cleaning build directory before compiling llama.cpp.",
-    )
-    parser.add_argument(
-        "--clean",
-        action="store_true",
-        help="Clean orphaned containers, images, and build cache without building.",
-    )
-    parser.add_argument(
-        "--no-prune",
-        action="store_true",
-        help="Skip automatic post-build dangling image pruning.",
-    )
-    parser.add_argument(
-        "--cmake-arg",
-        action="append",
-        dest="cmake_args",
-        default=[],
-        help="Additional CMake flags to pass to the llama.cpp build.",
-    )
-    return parser.parse_known_args(argv)[0]
-
-
-def main(argv: list[str] | None = None) -> None:
-    args = parse_args(argv)
-
-    if args.clean:
+def run_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int:
+    """Execute clean pass removing orphaned containers, images, and optionally build cache."""
+    rt = runtime
+    if rt is None:
         try:
-            runtime = validate_environment(LLAMA_BIN)
+            rt = validate_environment(LLAMA_BIN)
         except EnvironmentError as e:
             logger.error(f"Environment Error: {e}")
-            sys.exit(1)
+            return 1
 
-        from containers import cleanup_orphaned_agent_containers
-        from images import cleanup_orphaned_project_images, prune_dangling_images
+    from containers import cleanup_orphaned_agent_containers
+    from images import cleanup_orphaned_project_images, prune_dangling_images
 
-        removed_containers = cleanup_orphaned_agent_containers(runtime)
-        if removed_containers:
-            logger.info(f"Removed {len(removed_containers)} orphaned container(s): {', '.join(removed_containers)}")
+    removed_containers = cleanup_orphaned_agent_containers(rt)
+    if removed_containers:
+        logger.info(f"Removed {len(removed_containers)} orphaned container(s): {', '.join(removed_containers)}")
 
-        orphaned_images = cleanup_orphaned_project_images(runtime)
-        if orphaned_images:
-            logger.info(f"Removed {len(orphaned_images)} orphaned project image(s): {', '.join(orphaned_images)}")
+    orphaned_images = cleanup_orphaned_project_images(rt)
+    if orphaned_images:
+        logger.info(f"Removed {len(orphaned_images)} orphaned project image(s): {', '.join(orphaned_images)}")
 
-        prune_dangling_images(runtime, purge_cache=True)
-        logger.info("Clean pass completed.")
-        return
+    prune_dangling_images(rt, purge_cache=purge_cache)
+    logger.info("Clean pass completed.")
+    return 0
 
-    if args.llama or args.llama_latest:
+
+def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int:
+    """Execute image and tool builds based on structured BuildOptions."""
+    if options.llama or options.llama_latest:
         from llama_build import LlamaBuildError, build_llama_server
 
-        target_tag = "latest" if args.llama_latest else (args.llama_tag or global_config.llama.build.tag)
+        target_tag = "latest" if options.llama_latest else (options.llama_tag or global_config.llama.build.tag)
         try:
             built_path = build_llama_server(
                 repo_url=global_config.llama.build.repo,
                 tag=target_tag,
-                backend=args.llama_backend or global_config.llama.build.backend,
+                backend=options.llama_backend or global_config.llama.build.backend,
                 minimal=global_config.llama.build.minimal,
-                clean=not args.no_clean,
-                cmake_flags=(global_config.llama.build.cmake_flags or []) + (args.cmake_args or []),
+                clean=not options.no_clean,
+                cmake_flags=(global_config.llama.build.cmake_flags or []) + (options.cmake_args or []),
             )
             logger.info(f"llama-server build complete: {built_path}")
-            return
+            return 0
         except LlamaBuildError as e:
             logger.error(f"Failed to build llama-server: {e}")
-            sys.exit(1)
+            return 1
 
     try:
         runtime = validate_environment(LLAMA_BIN)
-        # Reject a bad NODE_SOURCE before any build starts. build_builder() would raise
-        # on it too, but only after the memory preflight has run and podman has begun
-        # resolving the build context — and a typo should cost nothing at all.
         _node_build_args()
     except EnvironmentError as e:
         logger.error(f"Environment Error: {e}")
-        sys.exit(1)
+        return 1
 
-    # Notify BEFORE launching a build that cannot finish: the toolchain image
-    # compiles CPython, and an undersized/busy builder OOM-kills the compiler
-    # minutes in.
     if not check_build_memory(runtime):
-        sys.exit(1)
+        return 1
 
     try:
-        if args.tools:
+        if options.tools:
             from toolchains import AVAILABLE_TOOLS, CORE_TOOLS, ON_DEMAND_TOOLS
 
-            if args.tools.strip().lower() == "all":
+            if options.tools.strip().lower() == "all":
                 requested = sorted(ON_DEMAND_TOOLS)
             else:
-                requested = [t.strip() for t in args.tools.split(",") if t.strip()]
+                requested = [t.strip() for t in options.tools.split(",") if t.strip()]
                 for t in requested:
                     if t not in AVAILABLE_TOOLS:
                         logger.error(f"Unknown tool '{t}'. Available tools: {', '.join(sorted(AVAILABLE_TOOLS))}")
-                        sys.exit(1)
+                        return 1
 
-            # Builder image is the foundation
             build_builder(runtime)
             for t in requested:
                 if t in ON_DEMAND_TOOLS:
@@ -554,11 +497,11 @@ def main(argv: list[str] | None = None) -> None:
                 elif t in CORE_TOOLS:
                     logger.info(f"Tool '{t}' is already included in builder baseline ({BUILDER_IMAGE_TAG}).")
             logger.info("All requested toolchains built successfully.")
-            if not args.no_prune and global_config.build.prune_dangling:
+            if not options.no_prune and global_config.build.prune_dangling:
                 from images import prune_dangling_images
 
                 prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
-            return
+            return 0
 
         # Strict dependency order, not a preference: the proxy image COPYs its CPython
         # and uv from the toolchain image, and the agent image COPYs from both. The
@@ -568,19 +511,46 @@ def main(argv: list[str] | None = None) -> None:
         build_builder(runtime)
         build_proxy(runtime)
         build_agent(runtime)
-        if not args.no_prune and global_config.build.prune_dangling:
+        if not options.no_prune and global_config.build.prune_dangling:
             from images import prune_dangling_images
 
             prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
+        return 0
     except subprocess.CalledProcessError as e:
         logger.error(f"Build failed: {e}")
-        sys.exit(1)
+        return 1
     except FileNotFoundError:
         logger.error(
             f"Error: '{runtime}' command not found. Please ensure the container CLI is installed and in your PATH."
         )
-        sys.exit(1)
+        return 1
+
+
+def parse_args(argv: list[str] | None = None) -> BuildOptions:
+    """Parse command line arguments for image and tool builds using the unified CLI parser."""
+    from cli import BuildOptions as Opts
+    from cli import parse_cli_args
+
+    args_to_parse = ["build", *(argv if argv is not None else [])]
+    _, options = parse_cli_args(args_to_parse)
+    if isinstance(options, Opts):
+        return options
+    raise ValueError("Failed to parse build options")
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Entrypoint for build operations."""
+    options = parse_args(argv)
+    if options.clean:
+        ret = run_clean_pass(purge_cache=True)
+        if ret != 0:
+            sys.exit(ret)
+        return
+
+    ret = execute_build(options)
+    if ret != 0:
+        sys.exit(ret)
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

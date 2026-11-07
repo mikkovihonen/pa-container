@@ -143,3 +143,24 @@ class TestConfigFixHint:
     def test_no_errors_does_not_claim_the_version_is_stale(self):
         hint = " ".join(project.config_fix_hint([], self.PATH))
         assert "set schema_version" not in hint
+
+
+class TestProjectDirectories:
+    def test_get_project_state_dir(self, tmp_path, monkeypatch):
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+        ws = tmp_path / "my_project"
+        ws.mkdir()
+        state_dir = project.get_project_state_dir(ws)
+        key = project.project_key(ws)
+        assert state_dir == custom_state / "pi-container" / "projects" / f"my_project-{key}"
+
+    def test_get_project_logs_dir_creates_dir(self, tmp_path, monkeypatch):
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+        ws = tmp_path / "my_project"
+        ws.mkdir()
+        logs_dir = project.get_project_logs_dir(ws)
+        assert logs_dir.is_dir()
+        assert logs_dir.name == "logs"
+        assert logs_dir.parent == project.get_project_state_dir(ws)

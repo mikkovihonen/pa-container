@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import socket
 import subprocess
@@ -19,11 +18,12 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
+from logging_driver import LogCategory, get_category_logger
 from network import ContainerNetworkManager
 from server import Server
 from util import is_pid_alive, run_quiet
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
 # Registry hostname fragment → hosts where layer blobs are 307-redirected.
 _REGISTRY_BLOB_HOSTS: dict[str, tuple[tuple[str, str], ...]] = {

@@ -1248,6 +1248,21 @@ class TestReadProxyConfig:
         assert cfg["expose_ui"] == "localhost"
         assert cfg["max_view_flows"] == 2000
         assert cfg["stream_large_bodies"] == "10m"
+        assert cfg["open_browser"] is False
+
+    def test_open_browser_custom_values(self, tmp_path):
+        import yaml
+
+        from network import read_proxy_config
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"proxy": {"open_browser": True}}))
+        assert read_proxy_config(tmp_path)["open_browser"] is True
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"proxy": {"open_browser": "yes"}}))
+        assert read_proxy_config(tmp_path)["open_browser"] is True
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"proxy": {"open_browser": False}}))
+        assert read_proxy_config(tmp_path)["open_browser"] is False
 
     def test_custom_values_parsed(self, tmp_path):
         import yaml
@@ -1407,3 +1422,117 @@ class TestReadAgentsConfig:
 
         (tmp_path / "config.yaml").write_text("{}\n")
         assert read_agent_type(tmp_path) == "pi"
+
+
+class TestProxyDiscovery:
+    def test_query_container_port_success(self):
+        from network import query_container_port
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="127.0.0.1:49152\n")
+            port = query_container_port("podman", "test-proxy", 8081)
+            assert port == 49152
+
+    def test_query_container_port_failure(self):
+        from network import query_container_port
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            assert query_container_port("podman", "test-proxy", 8081) is None
+
+    def test_check_proxy_health_success(self):
+        from network import check_proxy_health
+
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_url.return_value = MagicMock()
+            assert check_proxy_health("http://127.0.0.1:8080") is True
+
+    def test_check_proxy_health_failure(self):
+        from network import check_proxy_health
+
+        with patch("urllib.request.urlopen", side_effect=Exception("Connection refused")):
+            assert check_proxy_health("http://127.0.0.1:8080") is False
+
+    def test_get_project_proxy_running(self, tmp_path):
+        from network import get_project_proxy
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("network.query_container_port", return_value=51234),
+            patch("network.check_proxy_health", return_value=True),
+            patch("network.read_live_clients", return_value=[{"pid": 123}]),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="true\n")
+            info = get_project_proxy(tmp_path, runtime="podman")
+            assert info is not None
+            assert info.project_name == tmp_path.name
+            assert info.mitmweb_port == 51234
+            assert info.mitmweb_url == "http://127.0.0.1:51234"
+            assert info.is_healthy is True
+
+    def test_get_project_proxy_not_running(self, tmp_path):
+        from network import get_project_proxy
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            assert get_project_proxy(tmp_path, runtime="podman") is None
+
+    def test_list_active_proxies_parses_json(self, tmp_path):
+        import json
+
+        from network import list_active_proxies
+
+        fake_ps = [
+            {
+                "Names": ["pi-proxy-abcdef1234"],
+                "Labels": {
+                    "pi-container.type": "proxy",
+                    "pi-container.project.hash": "abcdef1234",
+                    "pi-container.project.name": "my-project",
+                    "pi-container.project.path": "/tmp/my-project",
+                },
+                "Created": "2026-11-07T12:00:00Z",
+            }
+        ]
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("network.query_container_port", return_value=49999),
+            patch("network.check_proxy_health", return_value=True),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(fake_ps))
+            proxies = list_active_proxies(runtime="podman", lock_dir=tmp_path)
+            assert len(proxies) == 1
+            assert proxies[0].project_name == "my-project"
+            assert proxies[0].mitmweb_port == 49999
+            assert proxies[0].mitmweb_url == "http://127.0.0.1:49999"
+
+    def test_proxy_container_has_type_and_project_labels(self, tmp_path):
+        from network import ContainerNetworkManager
+
+        recorded_cmds = []
+
+        def fake_run_quiet(cmd, *args, **kwargs):
+            recorded_cmds.append(cmd)
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="test-proxy:latest",
+            proxy_name="pi-proxy-test1234",
+            config_dir=tmp_path,
+        )
+        mgr._wait_for_proxy_health = MagicMock()
+        mgr._pull_secrets_from_config = MagicMock(return_value={})
+
+        with (
+            patch("network.run_quiet", side_effect=fake_run_quiet),
+            patch("subprocess.run", return_value=MagicMock(returncode=0)),
+        ):
+            mgr._actually_start()
+
+        run_cmds = [cmd for cmd in recorded_cmds if "run" in cmd and "pi-proxy-test1234" in cmd]
+        assert len(run_cmds) == 1
+        cmd = run_cmds[0]
+        assert "--label" in cmd
+        assert "pi-container.type=proxy" in cmd
+        assert "pi-container.project.hash=test1234" in cmd

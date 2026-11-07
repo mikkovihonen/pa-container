@@ -3,16 +3,16 @@ from __future__ import annotations
 """Security policy definitions and preflight validations for pi-container."""
 
 import ipaddress
-import logging
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
+from logging_driver import LogCategory, get_category_logger
 from network import _egress_truthy, load_project_config
 
 if TYPE_CHECKING:
     from config_types import SecurityConfig
 
-logger = logging.getLogger(__name__)
+logger = get_category_logger(__name__, LogCategory.SECURITY)
 
 FORBIDDEN_CONTAINER_DESTINATION_PREFIXES: tuple[str, ...] = (
     "/workspace/.pi-container",
