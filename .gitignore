@@ -4,7 +4,7 @@
 __MACOS__
 .AppleDouble
 .LSOverride
-Icon[]
+Icon?
 
 # Python
 __pycache__/
@@ -25,23 +25,12 @@ venv/
 # Claude
 .claude
 .claude/**
+.claude.json
 
-# Coding Agent runtime caches and logs
+# Coding Agent runtime caches, logs, and workspace configuration
 coding-agent/logs
 coding-agent/logs/**
-.pi-container/agents/*/bin
-.pi-container/agents/*/sessions
-.pi-container/agents/**/trust.json
-.pi-container/agents/**/models-store.json
-.pi-container/agents/**/models.json
-.pi-container/t3
-
-# Proxy
-coding-agent-proxy/.locks
-coding-agent-proxy/.locks/**
-
-# Flow-export audit trail (contains captured request/response bodies + headers)
-.pi-container/exports/
+.pi-container/
 
 # Generated coverage badge (committed by CI)
 docs/assets/coverage.svg

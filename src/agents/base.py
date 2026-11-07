@@ -22,7 +22,7 @@ class AgentMount:
     read_only: bool = False
 
     def to_run_args(self) -> list[str]:
-        """Convert mount to podman/docker run CLI arguments."""
+        """Convert mount to podman run CLI arguments."""
         mode = ":ro" if self.read_only else ""
         return ["--volume", f"{self.source}:{self.destination}{mode}"]
 
@@ -57,8 +57,8 @@ class AgentDriver(ABC):
         """Return host-to-container mounts for agent-specific state and configs."""
         return []
 
-    def get_tmpfs_paths(self) -> list[str]:
-        """Return container paths to be mounted as volatile RAM disks."""
+    def get_shadow_paths(self) -> list[str]:
+        """Return container paths to be shadowed into the project shadow volume."""
         return []
 
     def get_sessions_dir(self, project_dir: Path) -> Path | None:

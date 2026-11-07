@@ -35,7 +35,7 @@ class PiAgentDriver(AgentDriver):
             AgentMount(source=state_dir, destination="/home/agent/.pi/agent"),
         ]
 
-    def get_tmpfs_paths(self) -> list[str]:
+    def get_shadow_paths(self) -> list[str]:
         return ["/home/agent/.pi/agent/bin"]
 
     def synthesize_config(

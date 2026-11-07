@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from config import ADMIN_PASSWORD, CONFIG_DIR, PROXY_LOCK_DIR
-from runtimes import ContainerRuntime
+from runtimes import PodmanRuntime
 from util import (
     get_free_port,
     get_ref_count,
@@ -481,7 +481,7 @@ def scan_config_env_refs(config: dict) -> list[str]:
 class ContainerNetworkManager:
     def __init__(
         self,
-        container_runtime: str | ContainerRuntime,
+        container_runtime: str | PodmanRuntime,
         network_name: str,
         proxy_image: str,
         proxy_name: str = "proxy",
@@ -491,11 +491,9 @@ class ContainerNetworkManager:
         ipv6: bool = False,
         lock_dir: Path | None = None,
     ) -> None:
-        # Accept either a runtime name (used by tests) or a ready ContainerRuntime.
-        self.runtime: ContainerRuntime = (
-            container_runtime
-            if isinstance(container_runtime, ContainerRuntime)
-            else ContainerRuntime.create(container_runtime)
+        # Accept either a runtime name or a ready PodmanRuntime.
+        self.runtime: PodmanRuntime = (
+            container_runtime if isinstance(container_runtime, PodmanRuntime) else PodmanRuntime()
         )
         self.container_runtime: str = self.runtime.name
         self.network_name: str = network_name
@@ -696,7 +694,7 @@ class ContainerNetworkManager:
         )
 
     @classmethod
-    def cleanup_orphaned_proxies(cls, runtime: str | ContainerRuntime, lock_dir: Path) -> list[str]:
+    def cleanup_orphaned_proxies(cls, runtime: str | PodmanRuntime, lock_dir: Path) -> list[str]:
         """Scan lock_dir for proxy instances whose clients are all dead, and stop them."""
         if not lock_dir.exists():
             return []

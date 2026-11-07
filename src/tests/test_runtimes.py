@@ -8,39 +8,23 @@ Run with:
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from runtimes import (
-    ContainerRuntime,
-    PodmanRuntime,
-)
+from runtimes import PodmanRuntime
 
 # ---------------------------------------------------------------------------
-# Factory
+# Runtime initialization
 # ---------------------------------------------------------------------------
 
 
-class TestCreate:
-    def test_creates_podman(self):
-        assert isinstance(ContainerRuntime.create("podman"), PodmanRuntime)
+class TestRuntimeInit:
+    def test_creates_podman_defaults(self):
+        rt = PodmanRuntime()
+        assert rt.name == "podman"
+        assert rt.upstream_network == "podman"
 
-    def test_unknown_runtime_raises(self):
-        with pytest.raises(ValueError, match="Unsupported container runtime"):
-            ContainerRuntime.create("nerdctl")
-
-    def test_docker_is_no_longer_registered(self):
-        """Docker support was removed deliberately — it must not resolve."""
-        with pytest.raises(ValueError, match="Unsupported container runtime"):
-            ContainerRuntime.create("docker")
-
-    def test_defaults(self):
-        assert ContainerRuntime.create("podman").upstream_network == "podman"
-
-    def test_env_overrides_win(self):
-        rt = ContainerRuntime.create("podman", bridge_interface="br0", upstream_network="mynet")
-        assert rt.bridge_interface == "br0"
+    def test_upstream_network_override(self):
+        rt = PodmanRuntime(upstream_network="mynet")
         assert rt.upstream_network == "mynet"
 
 
@@ -117,14 +101,21 @@ class TestAgentNetworkArgs:
 
 
 class TestTmpfsArgs:
-    def test_base_uses_plain_tmpfs_flag(self):
-        """The base-class default; PodmanRuntime overrides it."""
-        assert ContainerRuntime.tmpfs_args(PodmanRuntime(), "/x") == ["--tmpfs", "/x"]
-
     def test_podman_uses_mount_syntax(self):
         assert PodmanRuntime().tmpfs_args("/home/agent/") == [
             "--mount",
             "type=tmpfs,tmpfs-mode=1777,notmpcopyup,nodev,nosuid,destination=/home/agent/",
+        ]
+
+    def test_volume_subpath_args(self):
+        rt = PodmanRuntime()
+        assert rt.volume_subpath_args("pi-shadow-test", "/workspace/node_modules", "workspace/node_modules") == [
+            "--mount",
+            "type=volume,src=pi-shadow-test,dst=/workspace/node_modules,subpath=workspace/node_modules,nodev,nosuid",
+        ]
+        assert rt.volume_subpath_args("pi-shadow-test", "/workspace/.venv", "workspace/.venv", read_only=True) == [
+            "--mount",
+            "type=volume,src=pi-shadow-test,dst=/workspace/.venv,subpath=workspace/.venv,nodev,nosuid,ro",
         ]
 
 
@@ -134,9 +125,8 @@ class TestTmpfsArgs:
 
 
 class TestLlamaHostReachability:
-    def test_podman_uses_host_internal_no_socat(self):
+    def test_podman_uses_host_internal(self):
         rt = PodmanRuntime()
-        # needs_host_socat() was removed when Apple container support was dropped
         assert rt.llama_host_addr() == "host.containers.internal"
 
     def test_isolated_interface_is_eth1(self):
@@ -200,9 +190,8 @@ class TestUpstreamNetworkHasIpv6:
         entry = {"ipv6_enabled": False, "subnets": [{"subnet": "10.89.0.0/24"}]}
         assert PodmanRuntime()._network_entry_has_ipv6(entry) is False
 
-    def test_base_returns_unknown(self):
-        """Base class returns None (unknown); a runtime overrides when its JSON format is known."""
-        assert ContainerRuntime._network_entry_has_ipv6(PodmanRuntime(), {"anything": True}) is None
+    def test_unrecognized_network_format_returns_false(self):
+        assert PodmanRuntime()._network_entry_has_ipv6({"anything": True}) is False
 
     def test_inspect_command_failure_returns_none(self):
         from unittest.mock import MagicMock, patch

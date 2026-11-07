@@ -63,13 +63,11 @@ class TestInitRuntime:
         monkeypatch.setattr(run, "validate_environment", lambda bin_path: "podman")
 
         mock_rt = MagicMock()
-        mock_rt.bridge_interface = "cni-podman0"
         mock_rt.upstream_network = "podman"
-        monkeypatch.setattr(run.ContainerRuntime, "create", lambda *a, **kw: mock_rt)
+        monkeypatch.setattr(run, "PodmanRuntime", lambda *a, **kw: mock_rt)
 
         run._init_runtime()
         assert run.CONTAINER_RUNTIME == "podman"
-        assert run.BRIDGE_INTERFACE == "cni-podman0"
         assert run.PROXY_UPSTREAM_NETWORK == "podman"
 
 
@@ -88,7 +86,7 @@ class TestAgentLaunchReadOnlyPiContainerMount:
 
 
 class TestAgentLaunchReadOnlyGitHooksMount:
-    def test_read_only_git_hooks_flag_included(self, tmp_path):
+    def test_read_only_git_hooks_flag_included_for_directory(self, tmp_path):
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         hooks_dir = git_dir / "hooks"
@@ -99,6 +97,15 @@ class TestAgentLaunchReadOnlyGitHooksMount:
             flags = ["--volume", f"{hooks_dir}:/workspace/.git/hooks:ro"]
         assert flags == ["--volume", f"{hooks_dir}:/workspace/.git/hooks:ro"]
         assert hooks_dir.is_dir()
+
+    def test_read_only_git_hooks_flag_included_for_worktree_file(self, tmp_path):
+        git_file = tmp_path / ".git"
+        git_file.write_text("gitdir: /outside/path/to/gitdir\n")
+        read_only_git_hooks = True
+        flags = []
+        if read_only_git_hooks and git_file.is_file():
+            flags = ["--volume", f"{git_file}:/workspace/.git:ro"]
+        assert flags == ["--volume", f"{git_file}:/workspace/.git:ro"]
 
 
 class TestAgentLaunchSecurityOpts:
@@ -162,10 +169,15 @@ class TestAgentLaunchSourceControlFlags:
 
 class TestVolumeMountOptions:
     def test_shadow_volumes_have_nodev_nosuid(self):
-        vol_name = "pi-vol-12345-venv"
+        from runtimes import PodmanRuntime
+
+        vol_name = "pi-shadow-12345"
         dest_path = "/workspace/.venv"
-        arg = ("--volume", f"{vol_name}:{dest_path}:nodev,nosuid")
-        assert arg == ("--volume", "pi-vol-12345-venv:/workspace/.venv:nodev,nosuid")
+        arg = PodmanRuntime().volume_subpath_args(vol_name, dest_path, "workspace/.venv")
+        assert arg == [
+            "--mount",
+            "type=volume,src=pi-shadow-12345,dst=/workspace/.venv,subpath=workspace/.venv,nodev,nosuid",
+        ]
 
 
 class TestProcessGatewayConfigs:

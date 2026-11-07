@@ -1,21 +1,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# pi-container — .gitignore entries for a workspace that runs the pi-coding-agent
+# pi-container — .gitignore entries for a workspace that runs coding agents
 #
-# Copy the lines below into your project's .gitignore. Everything else under
-# .pi-container/ is configuration you SHOULD commit so the environment stays
-# reproducible: config.yaml, allowlist.yaml, token_replacer.yaml, models.yaml,
-# and dependencies/ scripts. (token_replacer.yaml holds only ${ENV:VAR}
-# references, never resolved secrets.)
+# Copy the lines below into your project's .gitignore.
+# .pi-container/ holds workspace configuration, credentials, models, and
+# runtime state and should not be committed into the repository.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# REQUIRED — sensitive and ephemeral runtime state. Never commit.
-.pi-container/exports/
-.pi-container/t3/
-.pi-container/agents/*/bin
-.pi-container/agents/*/sessions
-.pi-container/agents/**/trust.json
-.pi-container/agents/**/models-store.json
-.pi-container/agents/**/models.json
+# REQUIRED — workspace configuration and runtime state. Never commit.
+.pi-container/
 
 # OPTIONAL — scratch directories you mount as tmpfs via config.yaml (tmpfs.paths).
 # Their contents live in RAM and never persist across runs, but the (empty)

@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import subprocess
 import sys
@@ -164,102 +163,85 @@ def cleanup_orphaned_nested_volumes(runtime: str) -> list[str]:
     return removed
 
 
-def project_volume_name(project_key: str, dest_path: str) -> str:
-    """Derive a deterministic named volume name for a project's shadow mount path."""
-    dest_hash = hashlib.sha256(dest_path.strip().encode()).hexdigest()[:8]
-    return f"pi-vol-{project_key}-{dest_hash}"
+def project_shadow_volume_name(project_key: str) -> str:
+    """Derive the deterministic named volume name for a project's unified shadow volume."""
+    return f"pi-shadow-{project_key}"
+
+
+def destination_to_subpath(dest_path: str) -> str:
+    """Convert a container destination path to a safe relative subpath within the shadow volume."""
+    return dest_path.strip().lstrip("/")
 
 
 def ensure_project_volume(
     runtime: str,
     volume_name: str,
-    dest_path: str,
     project_hash: str,
     project_path: str,
+    subpaths: list[str] | None = None,
+    image: str | None = None,
 ) -> bool:
-    """Create a project shadow volume if it does not exist yet."""
-    if volume_exists(runtime, volume_name):
-        return True
-
-    logger.info(f"Creating project shadow volume: {volume_name} for {dest_path}")
-    result = subprocess.run(
-        [
+    """Create a project shadow volume if it does not exist yet, and ensure subpaths exist."""
+    if not volume_exists(runtime, volume_name):
+        logger.info(f"Creating project shadow volume: {volume_name}")
+        cmd = [
             runtime,
             "volume",
             "create",
             "--label",
-            "pi-container.type=project-volume",
+            "pi-container.type=project-shadow",
             "--label",
             f"pi-container.project.hash={project_hash}",
             "--label",
             f"pi-container.project.path={project_path}",
-            "--label",
-            f"pi-container.volume.dest={dest_path}",
             volume_name,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    if result.returncode != 0:
-        logger.error(f"Could not create project volume {volume_name}: {result.stderr.strip()}")
-        return False
-    return True
+        ]
 
-
-def cleanup_stale_project_volumes(
-    runtime: str,
-    project_hash: str,
-    active_volume_names: set[str],
-) -> list[str]:
-    """Find and remove shadow volumes that are no longer in this project's config.yaml."""
-    removed: list[str] = []
-    try:
         result = subprocess.run(
-            [
-                runtime,
-                "volume",
-                "ls",
-                "--format",
-                "{{.Name}}",
-                "--filter",
-                "label=pi-container.type=project-volume",
-                "--filter",
-                f"label=pi-container.project.hash={project_hash}",
-            ],
+            cmd,
             capture_output=True,
             text=True,
-            check=True,
-            timeout=10,
+            check=False,
+            timeout=30,
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-        logger.warning(f"Could not list project volumes for stale cleanup: {e}")
-        return removed
+        if result.returncode != 0:
+            logger.error(f"Could not create project volume {volume_name}: {result.stderr.strip()}")
+            return False
 
-    unused = unused_volumes(runtime)
+    all_subpaths = list(subpaths or [])
+    if all_subpaths and image:
+        mkdir_dirs = [f"/shadow/{sp}" for sp in all_subpaths if sp]
+        if mkdir_dirs:
+            try:
+                subprocess.run(
+                    [
+                        runtime,
+                        "run",
+                        "--rm",
+                        "--entrypoint",
+                        "/bin/mkdir",
+                        "-v",
+                        f"{volume_name}:/shadow",
+                        image,
+                        "-p",
+                        *mkdir_dirs,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                )
+            except Exception as e:
+                logger.warning(f"Could not initialize shadow volume subpaths: {e}")
 
-    for name in result.stdout.strip().splitlines():
-        name = name.strip()
-        if not name or name in active_volume_names:
-            continue
-
-        dest = get_volume_label(runtime, name, "pi-container.volume.dest") or "unknown dest"
-
-        if unused is not None and name not in unused:
-            logger.info(f"Stale project volume still in use by a container, keeping for now: {name} ({dest})")
-            continue
-
-        logger.info(f"Stale project volume (no longer in config.yaml): {name} ({dest})")
-        if remove_volume(runtime, name, label_type="project volume"):
-            removed.append(name)
-
-    return removed
+    return True
 
 
 def cleanup_orphaned_project_volumes(runtime: str) -> list[str]:
     """Remove project shadow volumes whose source project directory no longer exists on the host."""
     removed: list[str] = []
+    volume_names: set[str] = set()
+
     try:
         result = subprocess.run(
             [
@@ -269,24 +251,25 @@ def cleanup_orphaned_project_volumes(runtime: str) -> list[str]:
                 "--format",
                 "{{.Name}}",
                 "--filter",
-                "label=pi-container.type=project-volume",
+                "label=pi-container.type=project-shadow",
             ],
             capture_output=True,
             text=True,
             check=True,
             timeout=10,
         )
+        for line in result.stdout.strip().splitlines():
+            if line.strip():
+                volume_names.add(line.strip())
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-        logger.warning(f"Could not list project volumes for orphan cleanup: {e}")
+        logger.warning(f"Could not list project-shadow volumes for orphan cleanup: {e}")
+
+    if not volume_names:
         return removed
 
     unused = unused_volumes(runtime)
 
-    for name in result.stdout.strip().splitlines():
-        name = name.strip()
-        if not name:
-            continue
-
+    for name in sorted(volume_names):
         stored_path = get_volume_label(runtime, name, "pi-container.project.path")
 
         if stored_path is None or not stored_path.strip():

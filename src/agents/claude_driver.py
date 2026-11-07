@@ -29,9 +29,13 @@ class ClaudeDriver(AgentDriver):
         return cli_args
 
     def get_environment(self, config: dict | None = None) -> dict[str, str]:
-        return {
+        env = {
             "ANTHROPIC_API_KEY": "pi-container-token-placeholder",
+            "CLAUDE_CONFIG_DIR": "/home/agent/.claude",
         }
+        if config and config.get("baseUrl"):
+            env["ANTHROPIC_BASE_URL"] = str(config["baseUrl"])
+        return env
 
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:
         claude_dir = self.get_state_dir(project_dir)
@@ -47,21 +51,33 @@ class ClaudeDriver(AgentDriver):
         default_model: str | None,
         project_dir: Path,
     ) -> None:
-        """Synthesize ~/.claude.json configuration."""
+        """Synthesize Claude Code configuration in state_dir."""
         claude_dir = self.get_state_dir(project_dir)
         claude_dir.mkdir(parents=True, exist_ok=True)
         config_file = claude_dir / "claude.json"
+        settings_file = claude_dir / "settings.json"
 
+        model_name = default_model or "claude-3-7-sonnet"
         config_data: dict[str, str] = {
-            "model": default_model or "claude-3-7-sonnet",
+            "model": model_name,
         }
 
-        # If pointing to a local Anthropic-compatible server, specify base URL
+        base_url = None
         if server_configs:
-            config_data["baseUrl"] = server_configs[0].get("baseUrl") or "http://llama:9999/v1"
+            base_url = server_configs[0].get("baseUrl") or "http://llama:9999/v1"
+            config_data["baseUrl"] = base_url
 
         with config_file.open("w") as f:
             json.dump(config_data, f, indent=2)
+
+        settings_data: dict[str, object] = {
+            "model": model_name,
+        }
+        if base_url:
+            settings_data["env"] = {"ANTHROPIC_BASE_URL": base_url}
+
+        with settings_file.open("w") as f:
+            json.dump(settings_data, f, indent=2)
 
     def get_t3_driver(self) -> str | None:
         return "claudeAgent"

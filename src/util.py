@@ -482,14 +482,7 @@ def get_sanitized_git_config_json(logger, allowlist: list[str] | None = None):
     return json.dumps(sanitized_dict)
 
 
-REQUIRED_GITIGNORE_ENTRIES: tuple[str, ...] = (
-    ".pi-container/agents/*/bin",
-    ".pi-container/agents/*/sessions",
-    ".pi-container/agents/**/trust.json",
-    ".pi-container/agents/**/models-store.json",
-    ".pi-container/agents/**/models.json",
-    ".pi-container/exports/",
-)
+REQUIRED_GITIGNORE_ENTRIES: tuple[str, ...] = (".pi-container/",)
 
 
 def check_repo_gitignore(project_dir: Path) -> list[str]:
@@ -511,13 +504,14 @@ def check_repo_gitignore(project_dir: Path) -> list[str]:
     except Exception:
         return []
 
-    gitignore_file = git_root / ".gitignore"
     existing_lines: set[str] = set()
-    if gitignore_file.is_file():
-        for raw_line in gitignore_file.read_text().splitlines():
-            line = raw_line.split("#", 1)[0].strip()
-            if line:
-                existing_lines.add(line.strip("/"))
+    for root in {git_root, project_dir}:
+        gitignore_file = root / ".gitignore"
+        if gitignore_file.is_file():
+            for raw_line in gitignore_file.read_text().splitlines():
+                line = raw_line.split("#", 1)[0].strip()
+                if line:
+                    existing_lines.add(line.strip("/"))
 
     missing: list[str] = []
     for entry in REQUIRED_GITIGNORE_ENTRIES:
@@ -540,12 +534,36 @@ def check_repo_gitignore(project_dir: Path) -> list[str]:
     return missing
 
 
+def check_repo_tracked_pi_container(project_dir: Path) -> list[str]:
+    """Return a list of tracked files under .pi-container in project_dir, if any."""
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(project_dir), "ls-files", ".pi-container"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
+    except Exception:
+        pass
+    return []
+
+
 def warn_missing_gitignore(project_dir: Path, logger: logging.Logger) -> None:
-    """Log a warning if recommended .gitignore entries are missing from the repository."""
+    """Log warnings if .pi-container entries are missing from .gitignore or actively tracked in git."""
     missing = check_repo_gitignore(project_dir)
     if missing:
+        formatted = "\n".join(f"  {entry}" for entry in missing)
         logger.warning(
             "Recommended .gitignore entries are missing from this repository:\n"
-            + "\n".join(f"  {entry}" for entry in missing)
-            + "\nAdd them to .gitignore to prevent committing session tokens, trust state, or proxy flow captures."
+            f"{formatted}\n"
+            "Add them to .gitignore to prevent committing workspace configuration, credentials, or session history."
+        )
+
+    tracked = check_repo_tracked_pi_container(project_dir)
+    if tracked:
+        logger.warning(
+            f".pi-container files are currently tracked in this git repository ({len(tracked)} files found, e.g. {tracked[0]}).\n"
+            "Run 'git rm -r --cached .pi-container' to untrack them so local changes and credentials are not committed."
         )

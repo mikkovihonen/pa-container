@@ -169,16 +169,12 @@ class TestCleanupOrphanedNestedVolumes:
 
 
 class TestProjectVolumeName:
-    def test_deterministic_and_unique(self):
-        name1 = volumes.project_volume_name("abc1234567", "/workspace/node_modules")
-        name2 = volumes.project_volume_name("abc1234567", "/workspace/node_modules")
-        name3 = volumes.project_volume_name("abc1234567", "/workspace/.venv")
-        name4 = volumes.project_volume_name("otherproj", "/workspace/node_modules")
+    def test_shadow_volume_name(self):
+        assert volumes.project_shadow_volume_name("abc1234567") == "pi-shadow-abc1234567"
 
-        assert name1 == name2
-        assert name1.startswith("pi-vol-abc1234567-")
-        assert name1 != name3
-        assert name1 != name4
+    def test_destination_to_subpath(self):
+        assert volumes.destination_to_subpath("/workspace/node_modules") == "workspace/node_modules"
+        assert volumes.destination_to_subpath("/home/agent/.pi/agent/bin") == "home/agent/.pi/agent/bin"
 
 
 class TestEnsureProjectVolume:
@@ -187,15 +183,14 @@ class TestEnsureProjectVolume:
         assert (
             volumes.ensure_project_volume(
                 "podman",
-                "pi-vol-test",
-                "/workspace/node_modules",
+                "pi-shadow-test",
                 "pi-proxy-test",
                 "/host/path",
             )
             is True
         )
 
-    def test_creates_volume_with_labels(self, monkeypatch):
+    def test_creates_volume_with_labels_and_subpaths(self, monkeypatch):
         monkeypatch.setattr(volumes, "volume_exists", lambda rt, name: False)
         recorded = []
 
@@ -206,20 +201,24 @@ class TestEnsureProjectVolume:
         monkeypatch.setattr(volumes.subprocess, "run", _run)
         success = volumes.ensure_project_volume(
             "podman",
-            "pi-vol-test",
-            "/workspace/node_modules",
+            "pi-shadow-test",
             "pi-proxy-test",
             "/host/path",
+            subpaths=["workspace/node_modules"],
+            image="pi-coding-agent:local",
         )
         assert success is True
-        assert len(recorded) == 1
-        cmd = recorded[0]
-        assert "volume" in cmd and "create" in cmd
-        assert "pi-container.type=project-volume" in cmd
-        assert "pi-container.project.hash=pi-proxy-test" in cmd
-        assert "pi-container.project.path=/host/path" in cmd
-        assert "pi-container.volume.dest=/workspace/node_modules" in cmd
-        assert "pi-vol-test" in cmd
+        assert len(recorded) == 2
+        create_cmd = recorded[0]
+        assert "volume" in create_cmd and "create" in create_cmd
+        assert "pi-container.type=project-shadow" in create_cmd
+        assert "pi-container.project.hash=pi-proxy-test" in create_cmd
+        assert "pi-container.project.path=/host/path" in create_cmd
+        assert "pi-shadow-test" in create_cmd
+
+        mkdir_cmd = recorded[1]
+        assert "run" in mkdir_cmd and "/bin/mkdir" in mkdir_cmd
+        assert "-p" in mkdir_cmd and "/shadow/workspace/node_modules" in mkdir_cmd
 
     def test_handles_creation_failure(self, monkeypatch):
         monkeypatch.setattr(volumes, "volume_exists", lambda rt, name: False)
@@ -231,45 +230,12 @@ class TestEnsureProjectVolume:
         assert (
             volumes.ensure_project_volume(
                 "podman",
-                "pi-vol-test",
-                "/workspace/node_modules",
+                "pi-shadow-test",
                 "pi-proxy-test",
                 "/host/path",
             )
             is False
         )
-
-
-class TestCleanupStaleProjectVolumes:
-    def _mock_ls(self, monkeypatch, names: str, dangling: str | None = None):
-        def _run(cmd, **kw):
-            stdout = (names if dangling is None else dangling) if "dangling=true" in cmd else names
-            return MagicMock(returncode=0, stdout=stdout, stderr="")
-
-        monkeypatch.setattr(volumes.subprocess, "run", _run)
-
-    def test_removes_stale_volume(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-vol-proj-11111111\npi-vol-proj-22222222\n")
-        monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "/workspace/old")
-        removed = []
-        monkeypatch.setattr(volumes, "remove_volume", lambda rt, name, **kw: removed.append(name) or True)
-
-        active = {"pi-vol-proj-11111111"}
-        result = volumes.cleanup_stale_project_volumes("podman", "pi-proxy-proj", active)
-        assert result == ["pi-vol-proj-22222222"]
-        assert removed == ["pi-vol-proj-22222222"]
-
-    def test_keeps_stale_volume_if_in_use(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-vol-proj-22222222\n", dangling="")
-        monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "/workspace/old")
-        monkeypatch.setattr(
-            volumes,
-            "remove_volume",
-            lambda *a, **kw: pytest.fail("should not remove in-use volume"),
-        )
-
-        result = volumes.cleanup_stale_project_volumes("podman", "pi-proxy-proj", set())
-        assert result == []
 
 
 class TestCleanupOrphanedProjectVolumes:
@@ -281,17 +247,17 @@ class TestCleanupOrphanedProjectVolumes:
         monkeypatch.setattr(volumes.subprocess, "run", _run)
 
     def test_removes_orphaned_volume(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-vol-proj-11111111\n")
+        self._mock_ls(monkeypatch, "pi-shadow-proj-11111111\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "/nonexistent/path")
         removed = []
         monkeypatch.setattr(volumes, "remove_volume", lambda rt, name, **kw: removed.append(name) or True)
 
         result = volumes.cleanup_orphaned_project_volumes("podman")
-        assert result == ["pi-vol-proj-11111111"]
-        assert removed == ["pi-vol-proj-11111111"]
+        assert result == ["pi-shadow-proj-11111111"]
+        assert removed == ["pi-shadow-proj-11111111"]
 
     def test_keeps_active_project_volume(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-vol-proj-11111111\n")
+        self._mock_ls(monkeypatch, "pi-shadow-proj-11111111\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: str(Path(__file__).parent))
         monkeypatch.setattr(
             volumes,

@@ -2,12 +2,24 @@
 
 import ipaddress
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from network import _egress_truthy, load_project_config
 
 logger = logging.getLogger(__name__)
+
+FORBIDDEN_CONTAINER_DESTINATION_PREFIXES: tuple[str, ...] = (
+    "/workspace/.pi-container",
+    "/workspace/.git/hooks",
+    "/etc",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib64",
+    "/root",
+)
 
 DEFAULT_SECURITY_CONFIG: dict[str, Any] = {
     "read_only_git_hooks": True,
@@ -85,7 +97,8 @@ def read_security_config(config_dir: Path | None = None) -> dict[str, Any]:
 
 
 def validate_mount_paths(mounts: list[str], blocked_paths: list[str]) -> list[str]:
-    """Validate that extra agent bind mounts do not expose dangerous host directories.
+    """Validate that extra agent bind mounts do not expose dangerous host directories
+    or override sensitive container destinations.
 
     Args:
         mounts: List of mount specifications (e.g. "host_path:container_path[:mode]").
@@ -103,10 +116,36 @@ def validate_mount_paths(mounts: list[str], blocked_paths: list[str]) -> list[st
         except Exception:
             continue
 
+    forbidden_dest_paths = [PurePosixPath(p) for p in FORBIDDEN_CONTAINER_DESTINATION_PREFIXES]
+
     for mount in mounts:
-        host_str = mount.split(":")[0].strip() if ":" in mount else mount.strip()
+        parts = mount.split(":")
+        host_str = parts[0].strip() if parts else ""
+        container_str = parts[1].strip() if len(parts) > 1 else ""
+
         if not host_str:
             continue
+
+        # Check container destination path safety
+        if container_str:
+            if not container_str.startswith("/"):
+                errors.append(
+                    f"Mount '{mount}' is blocked: container path '{container_str}' must be an absolute path starting with '/'."
+                )
+            else:
+                try:
+                    norm_dest = PurePosixPath(container_str)
+                    for forbidden in forbidden_dest_paths:
+                        if norm_dest == forbidden or norm_dest.is_relative_to(forbidden):
+                            errors.append(
+                                f"Mount '{mount}' is blocked: container destination '{container_str}' "
+                                f"attempts to override protected system or project path '{forbidden}'."
+                            )
+                            break
+                except Exception:
+                    pass
+
+        # Check host source path safety
         try:
             host_path = Path(host_str).expanduser().resolve()
         except Exception:

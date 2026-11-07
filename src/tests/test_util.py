@@ -103,7 +103,6 @@ class TestValidateEnvironment:
 
             mock_shutil.which.side_effect = lambda cmd: {
                 "hf": "/usr/bin/hf",
-                "socat": "/usr/bin/socat",
                 "podman": "/usr/bin/podman",
             }.get(cmd)
 
@@ -135,36 +134,11 @@ class TestValidateEnvironment:
             mock_path.return_value = mock_path_instance
 
             mock_shutil.which.side_effect = lambda cmd: {
-                "socat": "/usr/bin/socat",
                 "podman": "/usr/bin/podman",
             }.get(cmd)
 
             with pytest.raises(EnvironmentError, match="hf not found"):
                 validate_environment("/usr/bin/llama-server")
-
-    def test_socat_not_found_does_not_raise(self):
-        """socat is no longer required (removed when Apple container support was dropped)."""
-        with (
-            patch("util.Path") as mock_path,
-            patch("util.shutil") as mock_shutil,
-            patch("util.subprocess.run") as mock_run,
-        ):
-            mock_path_instance = MagicMock()
-            mock_path_instance.exists.return_value = True
-            mock_path.return_value = mock_path_instance
-
-            mock_shutil.which.side_effect = lambda cmd: {
-                "hf": "/usr/bin/hf",
-                "podman": "/usr/bin/podman",
-            }.get(cmd)
-
-            mock_run.return_value = subprocess.CompletedProcess(
-                args=["podman", "info"], returncode=0, stdout="", stderr=""
-            )
-
-            # Should succeed - socat is no longer required
-            result = validate_environment("/usr/bin/llama-server")
-            assert result == "podman"
 
     def test_no_container_runtime_raises(self):
         with patch("util.Path") as mock_path, patch("util.shutil") as mock_shutil:
@@ -174,7 +148,6 @@ class TestValidateEnvironment:
 
             mock_shutil.which.side_effect = lambda cmd: {
                 "hf": "/usr/bin/hf",
-                "socat": "/usr/bin/socat",
             }.get(cmd)
 
             with pytest.raises(EnvironmentError, match="podman not found"):
@@ -207,7 +180,6 @@ class TestValidateEnvironment:
 
             mock_shutil.which.side_effect = lambda cmd: {
                 "hf": "/usr/bin/hf",
-                "socat": "/usr/bin/socat",
                 "podman": "/usr/bin/podman",
             }.get(cmd)
 
@@ -961,22 +933,9 @@ class TestCheckRepoGitignore:
         from util import check_repo_gitignore
 
         (tmp_path / ".git").mkdir()
-        # Initialize a basic .gitignore
-        (tmp_path / ".gitignore").write_text(
-            "\n".join(
-                [
-                    ".pi-container/agents/*/bin",
-                    ".pi-container/agents/*/sessions",
-                    ".pi-container/agents/**/trust.json",
-                    ".pi-container/agents/**/models-store.json",
-                    ".pi-container/agents/**/models.json",
-                    ".pi-container/exports/",
-                ]
-            )
-        )
+        (tmp_path / ".gitignore").write_text(".pi-container/\n")
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = [
-                # rev-parse --show-toplevel
                 subprocess.CompletedProcess(args=[], returncode=0, stdout=str(tmp_path) + "\n"),
             ]
             missing = check_repo_gitignore(tmp_path)
@@ -986,39 +945,65 @@ class TestCheckRepoGitignore:
         from util import check_repo_gitignore
 
         (tmp_path / ".git").mkdir()
-        (tmp_path / ".gitignore").write_text(".pi-container/exports/\n")
+        (tmp_path / ".gitignore").write_text("# empty\n")
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = [
                 subprocess.CompletedProcess(args=[], returncode=0, stdout=str(tmp_path) + "\n"),
-                # check-ignore failures
-                subprocess.CompletedProcess(args=[], returncode=1),
-                subprocess.CompletedProcess(args=[], returncode=1),
-                subprocess.CompletedProcess(args=[], returncode=1),
-                subprocess.CompletedProcess(args=[], returncode=1),
                 subprocess.CompletedProcess(args=[], returncode=1),
             ]
             missing = check_repo_gitignore(tmp_path)
-            assert ".pi-container/agents/*/bin" in missing
-            assert ".pi-container/agents/*/sessions" in missing
-            assert ".pi-container/agents/**/trust.json" in missing
-            assert ".pi-container/agents/**/models-store.json" in missing
-            assert ".pi-container/agents/**/models.json" in missing
-            assert ".pi-container/exports/" not in missing
+            assert missing == [".pi-container/"]
 
-    def test_warn_missing_gitignore_logs_warning(self, tmp_path):
+    def test_check_repo_tracked_pi_container_finds_tracked_files(self, tmp_path):
+        from util import check_repo_tracked_pi_container
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=".pi-container/config.yaml\n.pi-container/models.yaml\n"
+            )
+            tracked = check_repo_tracked_pi_container(tmp_path)
+            assert tracked == [".pi-container/config.yaml", ".pi-container/models.yaml"]
+
+    def test_check_repo_tracked_pi_container_empty_when_no_files_tracked(self, tmp_path):
+        from util import check_repo_tracked_pi_container
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="")
+            tracked = check_repo_tracked_pi_container(tmp_path)
+            assert tracked == []
+
+    def test_warn_missing_gitignore_logs_warning_for_missing_entry(self, tmp_path):
         from util import warn_missing_gitignore
 
         mock_logger = MagicMock()
-        with patch("util.check_repo_gitignore", return_value=[".pi-container/exports/"]):
+        with (
+            patch("util.check_repo_gitignore", return_value=[".pi-container/"]),
+            patch("util.check_repo_tracked_pi_container", return_value=[]),
+        ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_called_once()
-            assert ".pi-container/exports/" in str(mock_logger.warning.call_args)
+            assert ".pi-container/" in str(mock_logger.warning.call_args)
+
+    def test_warn_missing_gitignore_logs_warning_for_tracked_files(self, tmp_path):
+        from util import warn_missing_gitignore
+
+        mock_logger = MagicMock()
+        with (
+            patch("util.check_repo_gitignore", return_value=[]),
+            patch("util.check_repo_tracked_pi_container", return_value=[".pi-container/config.yaml"]),
+        ):
+            warn_missing_gitignore(tmp_path, mock_logger)
+            mock_logger.warning.assert_called_once()
+            assert "git rm -r --cached .pi-container" in str(mock_logger.warning.call_args)
 
     def test_warn_missing_gitignore_logs_nothing_when_clean(self, tmp_path):
         from util import warn_missing_gitignore
 
         mock_logger = MagicMock()
-        with patch("util.check_repo_gitignore", return_value=[]):
+        with (
+            patch("util.check_repo_gitignore", return_value=[]),
+            patch("util.check_repo_tracked_pi_container", return_value=[]),
+        ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_not_called()
 

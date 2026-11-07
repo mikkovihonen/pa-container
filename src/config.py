@@ -67,9 +67,8 @@ ADMIN_PASSWORD: str = get_keyring_secret("ADMIN_PASSWORD") or ""
 # from the host secret store.
 CONFIG_DIR: Path = REPO_ROOT / ".pi-container"
 
-# Optional explicit network overrides. ``None`` means "use the runtime's
-# default"; a non-empty value forces it for the selected runtime.
-BRIDGE_INTERFACE_ENV: str | None = os.environ.get("BRIDGE_INTERFACE") or None
+# Optional explicit upstream network override. ``None`` means "use the runtime's
+# default" ("podman"); a non-empty value forces it.
 PROXY_UPSTREAM_NETWORK_ENV: str | None = os.environ.get("PROXY_UPSTREAM_NETWORK") or None
 
 # NOTE: per-project settings — IPv6, proxy DNS, mitmweb UI exposure, mitmweb flow

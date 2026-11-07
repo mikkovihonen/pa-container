@@ -22,7 +22,4 @@ llama-server/logs
 # Pi
 coding-agent/logs
 coding-agent/setups
-.pi-container/agents/*/sessions
-
-# Proxy
-coding-agent-proxy/.locks
+.pi-container/

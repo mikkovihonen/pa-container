@@ -7,11 +7,8 @@ import sys
 import threading
 import uuid
 from contextlib import ExitStack
-from typing import TYPE_CHECKING
+from pathlib import Path
 from urllib.parse import urlparse
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 sys.dont_write_bytecode = True
 
@@ -23,7 +20,6 @@ from agents import get_agent_driver, load_project_models, resolve_models_file
 from build import DEFAULT_ROOT_COMMANDS, build_agent, build_project_image, build_proxy
 from config import (
     ADMIN_PASSWORD,
-    BRIDGE_INTERFACE_ENV,
     LLAMA_BIN,
     LLAMA_SERVER_LOCK_DIR,
     LOGS_DIR,
@@ -55,7 +51,7 @@ from network import (
     scan_tmpfs_paths,
     scan_volume_paths,
 )
-from runtimes import ContainerRuntime
+from runtimes import PodmanRuntime
 from security import read_security_config, validate_mount_paths
 from server import Server
 from source_control import read_source_control_config, resolve_source_control_tokens
@@ -100,14 +96,9 @@ def _init_runtime() -> None:
         sys.exit(1)
         return
 
-    global CONTAINER_RUNTIME, RUNTIME, BRIDGE_INTERFACE, PROXY_UPSTREAM_NETWORK
-    RUNTIME = ContainerRuntime.create(
-        _CONTAINER_RUNTIME,
-        bridge_interface=BRIDGE_INTERFACE_ENV,
-        upstream_network=PROXY_UPSTREAM_NETWORK_ENV,
-    )
+    global CONTAINER_RUNTIME, RUNTIME, PROXY_UPSTREAM_NETWORK
     CONTAINER_RUNTIME = _CONTAINER_RUNTIME
-    BRIDGE_INTERFACE = RUNTIME.bridge_interface
+    RUNTIME = PodmanRuntime(upstream_network=PROXY_UPSTREAM_NETWORK_ENV)
     PROXY_UPSTREAM_NETWORK = RUNTIME.upstream_network
 
 
@@ -701,52 +692,78 @@ def main() -> None:
             # Transient tmpfs paths (config.yaml tmpfs.paths)
             tmpfs_paths = scan_tmpfs_paths(pi_container_dir)
 
-            # Persistent named shadow volumes (config.yaml volumes.paths)
+            # Persistent unified project shadow volume (config.yaml volumes.paths + agent shadow paths)
             volume_paths = scan_volume_paths(pi_container_dir)
-            active_volume_map = {
-                path: volumes.project_volume_name(project.project_key(PROJECT_DIR), path) for path in volume_paths
-            }
+            shadow_destinations = sorted(set(volume_paths + driver.get_shadow_paths()))
+            shadow_vol_name = volumes.project_shadow_volume_name(project.project_key(PROJECT_DIR))
+            project_path_str = str(PROJECT_DIR.resolve())
+
             orphaned_project_vols = volumes.cleanup_orphaned_project_volumes(CONTAINER_RUNTIME)
             if orphaned_project_vols:
                 logger.info(
                     f"Removed {len(orphaned_project_vols)} orphaned project volume(s): "
                     f"{', '.join(orphaned_project_vols)}"
                 )
-            stale_project_vols = volumes.cleanup_stale_project_volumes(
-                CONTAINER_RUNTIME,
-                project_hash=proxy_name,
-                active_volume_names=set(active_volume_map.values()),
-            )
-            if stale_project_vols:
-                logger.info(
-                    f"Removed {len(stale_project_vols)} stale project volume(s): {', '.join(stale_project_vols)}"
-                )
-            project_path_str = str(PROJECT_DIR.resolve())
-            for dest_path, vol_name in active_volume_map.items():
+
+            if shadow_destinations:
                 volumes.ensure_project_volume(
                     CONTAINER_RUNTIME,
-                    vol_name,
-                    dest_path=dest_path,
+                    shadow_vol_name,
                     project_hash=proxy_name,
                     project_path=project_path_str,
+                    subpaths=[volumes.destination_to_subpath(p) for p in shadow_destinations],
+                    image=agent_image_tag,
                 )
+
             volume_args = [
                 arg
-                for dest_path, vol_name in active_volume_map.items()
-                for arg in ("--volume", f"{vol_name}:{dest_path}:nodev,nosuid")
+                for dest in shadow_destinations
+                for arg in RUNTIME.volume_subpath_args(
+                    shadow_vol_name,
+                    dest,
+                    volumes.destination_to_subpath(dest),
+                )
             ]
 
-            git_hooks_dir = PROJECT_DIR / ".git" / "hooks"
+            git_entry = PROJECT_DIR / ".git"
             git_hooks_mount: list[str] = []
-            if security_cfg.get("read_only_git_hooks", True) and (PROJECT_DIR / ".git").is_dir():
-                git_hooks_dir.mkdir(parents=True, exist_ok=True)
-                git_hooks_mount = ["--volume", f"{git_hooks_dir}:/workspace/.git/hooks:ro"]
+            if security_cfg.get("read_only_git_hooks", True):
+                if git_entry.is_dir():
+                    git_hooks_dir = git_entry / "hooks"
+                    git_hooks_dir.mkdir(parents=True, exist_ok=True)
+                    git_hooks_mount = ["--volume", f"{git_hooks_dir}:/workspace/.git/hooks:ro"]
+                elif git_entry.is_file():
+                    # Git worktree or submodule: protect the .git pointer file from tampering
+                    git_hooks_mount = ["--volume", f"{git_entry}:/workspace/.git:ro"]
+                    try:
+                        res = subprocess.run(
+                            ["git", "rev-parse", "--git-path", "hooks"],
+                            cwd=PROJECT_DIR,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                            timeout=5,
+                        )
+                        if res.returncode == 0 and res.stdout.strip():
+                            raw_hooks_path = Path(res.stdout.strip())
+                            resolved_hooks = (
+                                raw_hooks_path
+                                if raw_hooks_path.is_absolute()
+                                else (PROJECT_DIR / raw_hooks_path).resolve()
+                            )
+                            resolved_project = PROJECT_DIR.resolve()
+                            if resolved_hooks.is_relative_to(resolved_project):
+                                rel = resolved_hooks.relative_to(resolved_project)
+                                resolved_hooks.mkdir(parents=True, exist_ok=True)
+                                git_hooks_mount.append("--volume")
+                                git_hooks_mount.append(f"{resolved_hooks}:/workspace/{rel}:ro")
+                    except Exception as e:
+                        logger.warning(f"Could not resolve git worktree hooks path: {e}")
 
             driver_mounts = [arg for m in driver.get_mounts(PROJECT_DIR) for arg in m.to_run_args()]
             driver_env = [
                 flag for k, v in driver.get_environment(agent_extras).items() for flag in ("--env", f"{k}={v}")
             ]
-            driver_tmpfs = [flag for path in driver.get_tmpfs_paths() for flag in RUNTIME.tmpfs_args(path)]
             t3_mounts: list[str] = []
             t3_chown: list[str] = []
             if is_t3_mode:
@@ -756,13 +773,7 @@ def main() -> None:
                 t3_chown = ["/home/agent/.t3"]
 
             chown_paths = sorted(
-                set(
-                    tmpfs_paths
-                    + list(active_volume_map.keys())
-                    + driver.get_tmpfs_paths()
-                    + ["/workspace/.pi-container/exports"]
-                    + t3_chown
-                )
+                set(tmpfs_paths + shadow_destinations + ["/workspace/.pi-container/exports"] + t3_chown)
             )
             final_container_argv = driver.get_command(container_argv)
 
@@ -807,7 +818,6 @@ def main() -> None:
                 f"{PROJECT_DIR}:/workspace",
                 *(["--volume", f"{pi_container_dir}:/workspace/.pi-container:ro"] if read_only_pi_container else []),
                 *git_hooks_mount,
-                *driver_tmpfs,
                 *RUNTIME.tmpfs_args("/workspace/.pi-container/exports"),
                 *volume_args,
                 *nested_args,

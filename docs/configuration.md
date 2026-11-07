@@ -1130,13 +1130,11 @@ Paths can be absolute, use `~` home directory expansion, or specify a template n
 
 A ready-to-copy [`.gitignore.example`](https://github.com/mikkovihonen/pi-container/blob/main/docs/assets/.gitignore.example) lists every entry a workspace needs. Copy the relevant lines into your project's `.gitignore`.
 
-Most of `.pi-container/` is project configuration you **should commit** so the environment is reproducible: `config.yaml`, `allowlist.yaml`, `token_replacer.yaml`, and `dependencies/` (root/commands.sh and pi/commands.sh — see [Dependency definition files](#dependency-definition-files)). (`token_replacer.yaml` holds only `${ENV:VAR}` references, never resolved secrets — see [Token Replacer Secrets](#token-replacer-secrets).)
-
-The one directory you **must ignore** is the flow-export output:
+`.pi-container/` holds workspace configuration, credentials, local model registries, and runtime state. Best practice is that `.pi-container/` should **not be committed** into your repository:
 
 ```gitignore
-# pi-container: proxy flow capture — sensitive and ephemeral, never commit
-.pi-container/exports/
+# pi-container: workspace configuration and runtime state — never commit
+.pi-container/
 ```
 
-`.pi-container/exports/` holds the proxy's captured HTTP/HTTPS traffic. It stores full request and response bodies and headers, including any `Authorization` and cookie values the [token_replacer](proxy/token-replacer.md) did not redact. It stores them as raw `flows-<ip>.jsonl` files and date-bucketed snapshots under `exports/flows/<YYYY-MM-DD>/<HH-MM-SS-mmm>_<session-id>.jsonl`. Treat it as sensitive. It is also where run-time shadows an empty tmpfs (so the agent can't read prior captures). This can leave an empty `exports/` dir in a workspace even when no traffic was captured. This repo already ignores it. Add the entry above to **your** project's `.gitignore` when you run pi-container inside it.
+This prevents accidental check-ins of session history, credentials, trust databases, or captured proxy flows (`.pi-container/exports/`). On first launch in a new clone or workspace, `run.py` automatically seeds the workspace's `.pi-container/` directory from the template defaults.

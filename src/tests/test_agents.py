@@ -51,7 +51,7 @@ def test_pi_driver_contracts(tmp_path):
     assert mounts[0].source == agent_dir
     assert mounts[0].destination == "/home/agent/.pi/agent"
     assert mounts[0].to_run_args() == ["--volume", f"{agent_dir}:/home/agent/.pi/agent"]
-    assert driver.get_tmpfs_paths() == ["/home/agent/.pi/agent/bin"]
+    assert driver.get_shadow_paths() == ["/home/agent/.pi/agent/bin"]
     assert driver.get_sessions_dir(project_dir) == agent_dir / "sessions"
 
     # Synthesize config when models.json does not exist
@@ -130,7 +130,9 @@ def test_claude_driver_contracts(tmp_path):
     assert driver.name == "claude"
     assert driver.required_tools == ["claude-code"]
     assert driver.get_command(["-p", "hello"]) == ["-p", "hello"]
-    assert driver.get_environment()["ANTHROPIC_API_KEY"] == "pi-container-token-placeholder"
+    env = driver.get_environment()
+    assert env["ANTHROPIC_API_KEY"] == "pi-container-token-placeholder"
+    assert env["CLAUDE_CONFIG_DIR"] == "/home/agent/.claude"
     assert driver.get_t3_driver() == "claudeAgent"
 
     project_dir = tmp_path / "project"
@@ -146,3 +148,9 @@ def test_claude_driver_contracts(tmp_path):
     cfg_data = json.loads(cfg_file.read_text())
     assert cfg_data["model"] == "claude-3-7-sonnet"
     assert cfg_data["baseUrl"] == "http://llama:9999/v1"
+
+    settings_file = project_dir / ".pi-container" / "agents" / "claude" / "settings.json"
+    assert settings_file.is_file()
+    settings_data = json.loads(settings_file.read_text())
+    assert settings_data["model"] == "claude-3-7-sonnet"
+    assert settings_data["env"]["ANTHROPIC_BASE_URL"] == "http://llama:9999/v1"
