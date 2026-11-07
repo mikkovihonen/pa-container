@@ -1,5 +1,3 @@
-# podman-agent-container
-
 <p align="center">
   <img src="docs/assets/logo.svg" alt="podman-agent-container" width="360">
 </p>
