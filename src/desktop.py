@@ -327,7 +327,7 @@ def list_active_desktops(runtime: str | None = None) -> list[ActiveDesktopInfo]:
 
             proj_hash = labels.get("pa-container.project.hash") or name.removeprefix("pa-container-agent-")
             proj_name = labels.get("pa-container.project.name") or proj_hash
-            
+
             proj_path_raw = labels.get("pa-container.project.path")
             proj_path = Path(proj_path_raw) if proj_path_raw else None
 

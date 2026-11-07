@@ -23,7 +23,7 @@ _IMAGE_DEFINITION_FILES = (
 )
 _PROXY_IMAGE_DEFINITION_FILES = ("Containerfile", "entrypoint.sh")
 _SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, "pa-container-agent-builder:local")
-_PROTECTED_IMAGE_TAGS = frozenset({PA_IMAGE_TAG,*_SHARED_SOURCE_IMAGES})
+_PROTECTED_IMAGE_TAGS = frozenset({PA_IMAGE_TAG, *_SHARED_SOURCE_IMAGES})
 _UNTAGGED_NAME = "<none>:<none>"
 
 
@@ -324,7 +324,7 @@ def image_is_current(project_dir: Path, image_tag: str, current_hash: str | None
     if not is_project_specific:
         return True
 
-    stored_hash = get_image_label(image_tag, "pa-container.hash", runtime=runtime) 
+    stored_hash = get_image_label(image_tag, "pa-container.hash", runtime=runtime)
     if stored_hash is None:
         return False
 
@@ -413,34 +413,33 @@ def enumerate_project_images(runtime: str) -> list[tuple[str, str]] | None:
     """List all project images labelled ``pa-container.type=project``."""
     images: list[tuple[str, str]] = []
     seen_ids: set[str] = set()
-    for lbl in ("label=pa-container.type=project"):
-        try:
-            result = subprocess.run(
-                [
-                    runtime,
-                    "image",
-                    "ls",
-                    "--format",
-                    "{{.ID}}\t{{.Repository}}:{{.Tag}}",
-                    "--filter",
-                    lbl,
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-            logger.warning(f"Could not list project images: {e}")
-            return None
+    try:
+        result = subprocess.run(
+            [
+                runtime,
+                "image",
+                "ls",
+                "--format",
+                "{{.ID}}\t{{.Repository}}:{{.Tag}}",
+                "--filter",
+                "label=pa-container.type=project",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning(f"Could not list project images: {e}")
+        return None
 
-        for line in result.stdout.strip().splitlines():
-            image_id, _, name = line.strip().partition("\t")
-            if not image_id or image_id in seen_ids:
-                continue
-            seen_ids.add(image_id)
-            name = name.strip()
-            images.append((image_id, name if name and name != _UNTAGGED_NAME else f"{image_id} (untagged)"))
+    for line in result.stdout.strip().splitlines():
+        image_id, _, name = line.strip().partition("\t")
+        if not image_id or image_id in seen_ids:
+            continue
+        seen_ids.add(image_id)
+        name = name.strip()
+        images.append((image_id, name if name and name != _UNTAGGED_NAME else f"{image_id} (untagged)"))
     return images
 
 

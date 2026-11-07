@@ -80,8 +80,8 @@ class TestLoadGlobalConfig:
         monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
         monkeypatch.setenv("PA_MEMORY_PREFLIGHT", "0")
         monkeypatch.setenv("NODE_SOURCE", "build")
-        monkeypatch.setenv("PI_PRUNE_DANGLING", "false")
-        monkeypatch.setenv("PI_PURGE_BUILD_CACHE", "true")
+        monkeypatch.setenv("PA_PRUNE_DANGLING", "false")
+        monkeypatch.setenv("PA_PURGE_BUILD_CACHE", "true")
 
         cfg = load_global_config(config_file=target_file, repo_root=repo_root)
         assert cfg.runtime.log_level == "DEBUG"

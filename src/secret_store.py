@@ -14,6 +14,7 @@ logger = get_category_logger(__name__, LogCategory.SECURITY)
 
 DEFAULT_KEYRING_SERVICE = "pa-container"
 
+
 def get_keyring_secret(
     account: str,
     service: str = DEFAULT_KEYRING_SERVICE,
