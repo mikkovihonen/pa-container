@@ -34,8 +34,9 @@ def test_tool_collections():
     assert "antigravity" in ON_DEMAND_TOOLS
     assert "claude-code" in ON_DEMAND_TOOLS
     assert "pi" in ON_DEMAND_TOOLS
+    assert "chromium" in ON_DEMAND_TOOLS
     assert AVAILABLE_TOOLS == (CORE_TOOLS | ON_DEMAND_TOOLS)
-    assert len(AVAILABLE_TOOLS) == 26
+    assert len(AVAILABLE_TOOLS) == 27
 
 
 def test_tool_mapping_helpers():

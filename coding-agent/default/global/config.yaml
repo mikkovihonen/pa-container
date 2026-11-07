@@ -44,3 +44,7 @@ logging:
     max_days: 14       # Delete logs older than N days (null = no age limit)
     max_launches: 10   # Keep the latest N launch logs (null = no count limit)
 
+# Virtual desktop preferences
+desktop:
+  open_browser: false
+

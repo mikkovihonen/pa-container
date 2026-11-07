@@ -39,6 +39,7 @@ class LogCategory(StrEnum):
     VOLUME = "volume"
     SECURITY = "security"
     AGENT = "agent"
+    DESKTOP = "desktop"
     FLOW_EXPORT = "flow_export"
     CLEANUP = "cleanup"
 

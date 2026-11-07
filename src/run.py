@@ -39,6 +39,7 @@ from config import (
     global_config,
 )
 from config_schema import validate_config, validate_models, validate_project_yaml
+from desktop import read_desktop_config, resolve_desktop_ports
 from flow_export import export_mitmweb_flows, poll_agent_container_ips, recover_dangling_flows
 from logging_driver import (
     LogCategory,
@@ -353,6 +354,34 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     if cli_lan:
         agent_ports["expose"] = "lan"
 
+    desktop_cfg = read_desktop_config(pi_container_dir)
+    desktop_novnc_port: int | None = None
+    desktop_vnc_port: int | None = None
+    desktop_args: list[str] = []
+    gpu_args: list[str] = []
+    desktop_novnc_url: str | None = None
+    desktop_vnc_endpoint: str | None = None
+
+    if desktop_cfg["enabled"]:
+        desktop_novnc_port, desktop_vnc_port = resolve_desktop_ports(desktop_cfg)
+        desktop_args = RUNTIME.desktop_run_args(
+            desktop_cfg,
+            novnc_port=desktop_novnc_port,
+            vnc_port=desktop_vnc_port,
+        )
+        gpu_args = RUNTIME.opportunistic_gpu_args(desktop_cfg.get("gpu"))
+        desktop_novnc_url = f"http://127.0.0.1:{desktop_novnc_port}/vnc.html?autoconnect=true&resize=scale"
+        desktop_vnc_endpoint = f"127.0.0.1:{desktop_vnc_port}"
+        logger.info(
+            f"Virtual Desktop enabled ({desktop_cfg['resolution']}, {desktop_cfg['compositor']}):"
+            f"\n  noVNC Web UI: {desktop_novnc_url}"
+            f"\n  VNC Endpoint: {desktop_vnc_endpoint}"
+        )
+        if not log_drv.quiet:
+            log_drv.console.print(
+                f"  [dim cyan][{LogCategory.DESKTOP}][/dim cyan] Virtual Desktop: [link={desktop_novnc_url}]{desktop_novnc_url}[/link] [dim](VNC: {desktop_vnc_endpoint}) 🔗 (click to open)[/dim]"
+            )
+
     if is_t3_mode:
         claimed_agent_ports = {agent for _, agent in agent_ports["publish"]}
         if 3773 not in claimed_agent_ports:
@@ -621,6 +650,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         project_path=project_path,
                         build_timestamp=images.now_iso(),
                         tools=project_tools,
+                        with_desktop=desktop_cfg["enabled"],
                     )
                     if global_config.build.prune_dangling:
                         images.prune_dangling_images(CONTAINER_RUNTIME, purge_cache=False)
@@ -762,6 +792,11 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 "--label",
                 f"pi-container.project.hash={project.project_key(PROJECT_DIR)}",
                 "--label",
+                f"pi-container.project.name={PROJECT_DIR.name}",
+                "--label",
+                f"pi-container.project.path={PROJECT_DIR.resolve()}",
+                *(["--label", "pi-container.desktop.enabled=true"] if desktop_cfg["enabled"] else []),
+                "--label",
                 f"pi-container.launcher_pid={os.getpid()}",
                 "--label",
                 f"pi-container.run_id={run_id}",
@@ -796,6 +831,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 *nested_args,
                 *RUNTIME.nested_port_args(nested_cfg),
                 *RUNTIME.port_publish_args(agent_ports),
+                *desktop_args,
+                *gpu_args,
                 "--workdir",
                 "/workspace",
                 *[flag for path in tmpfs_paths for flag in RUNTIME.tmpfs_args(path)],
@@ -838,6 +875,31 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
                 ip_thread = threading.Thread(target=_discover_agent_ips, daemon=True)
                 ip_thread.start()
+
+            if desktop_cfg["enabled"] and desktop_novnc_url:
+                eff_desktop_open_browser = (
+                    options.open_browser
+                    if getattr(options, "open_browser", None) is not None
+                    else (
+                        (os.environ.get("PI_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
+                        if "PI_CONTAINER_OPEN_BROWSER" in os.environ
+                        else (
+                            desktop_cfg.get("open_browser", False)
+                            or getattr(global_config.runtime, "open_browser", False)
+                        )
+                    )
+                )
+                if eff_desktop_open_browser:
+                    import webbrowser
+
+                    def _open_desktop() -> None:
+                        import time
+
+                        time.sleep(1.5)
+                        logger.info(f"Launching virtual desktop UI in default web browser: {desktop_novnc_url}")
+                        webbrowser.open(desktop_novnc_url)
+
+                    threading.Thread(target=_open_desktop, daemon=True).start()
 
             try:
                 log_drv.pause_for_interactive()

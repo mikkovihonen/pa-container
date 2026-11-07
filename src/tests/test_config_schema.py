@@ -915,3 +915,41 @@ class TestAgentsSchema:
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is True
         assert errors == []
+
+
+class TestDesktopSchema:
+    """The desktop section is optional, but validated when present."""
+
+    def test_desktop_section_valid(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["desktop"] = {
+            "enabled": True,
+            "resolution": "1920x1080",
+            "compositor": "labwc",
+            "open_browser": False,
+            "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
+            "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
+            "gpu": {"enabled": "auto"},
+        }
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is True
+        assert errors == []
+
+    def test_desktop_invalid_type_fails(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["desktop"] = "not_a_dict"
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("desktop" in e for e in errors)

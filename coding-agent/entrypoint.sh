@@ -68,6 +68,54 @@ if [ "${PI_CONTAINER_NESTED}" = "true" ]; then
     done
 fi
 
+# ─── Virtual Desktop environment & nested container forwarding ──────────────
+if [ "${PI_CONTAINER_DESKTOP}" = "true" ]; then
+    mkdir -p /run/user/1000 /tmp/.X11-unix
+    chown agent:agent /run/user/1000
+    chmod 700 /run/user/1000
+    chmod 1777 /tmp/.X11-unix
+
+    # Forward desktop resources into nested containers if containers.conf directory exists
+    if [ -d /etc/containers/containers.conf.d ]; then
+        _dri_mount=""
+        if [ -e /dev/dri ]; then
+            _dri_mount=', "type=bind,source=/dev/dri,destination=/dev/dri"'
+        fi
+        cat <<EOF > /etc/containers/containers.conf.d/60-pi-container-desktop.conf
+[containers]
+mounts = [
+  "type=bind,source=/run/user/1000/wayland-0,destination=/run/user/1000/wayland-0",
+  "type=bind,source=/tmp/.X11-unix,destination=/tmp/.X11-unix",
+  "type=bind,source=/dev/shm,destination=/dev/shm"${_dri_mount}
+]
+env = [
+  "DISPLAY=:0",
+  "WAYLAND_DISPLAY=wayland-0",
+  "XDG_RUNTIME_DIR=/run/user/1000"
+]
+EOF
+    fi
+
+    # Managed Chromium policy: disable DoH, trust system / local CAs
+    mkdir -p /etc/chromium/policies/managed
+    cat <<'EOF' > /etc/chromium/policies/managed/00-pi-container.json
+{
+  "DnsOverHttpsMode": "off",
+  "BuiltInDnsClientEnabled": false,
+  "PromptForDownloadLocation": false
+}
+EOF
+
+    # Configure NSS DB system-wide if certutil is available
+    if command -v certutil >/dev/null 2>&1; then
+        mkdir -p /etc/pki/nssdb
+        certutil -d "sql:/etc/pki/nssdb" -N --empty-password >/dev/null 2>&1 || true
+        if [ -f /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt ]; then
+            certutil -d "sql:/etc/pki/nssdb" -A -t "C,," -n "mitmproxy" -i /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt >/dev/null 2>&1 || true
+        fi
+    fi
+fi
+
 # ─── Git workspace safety & protocol rewriting (config.yaml git.*) ───────────
 if [ "${GIT_SAFE_DIRECTORY:-true}" = "true" ]; then
     git config --system --add safe.directory '*'
@@ -126,6 +174,60 @@ fi
 
 exec gosu agent bash -c '
     set -a; source /etc/environment; set +a;
+
+    # ─── Virtual Desktop compositor & VNC/noVNC streaming ─────────────────────
+    if [ "${PI_CONTAINER_DESKTOP}" = "true" ]; then
+        if [ ! -e /dev/dri ]; then
+            export GALLIUM_DRIVER=llvmpipe
+            export LP_NUM_THREADS=$(nproc 2>/dev/null || echo 4)
+            export MESA_GL_VERSION_OVERRIDE=4.5
+            export MESA_GLSL_VERSION_OVERRIDE=450
+            export LIBGL_ALWAYS_SOFTWARE=1
+        fi
+
+        # Initialize agent user NSS DB
+        if command -v certutil >/dev/null 2>&1; then
+            mkdir -p /home/agent/.pki/nssdb
+            certutil -d "sql:/home/agent/.pki/nssdb" -N --empty-password >/dev/null 2>&1 || true
+            if [ -f /etc/pi-container-ca.crt ]; then
+                certutil -d "sql:/home/agent/.pki/nssdb" -A -t "C,," -n "mitmproxy" -i /etc/pi-container-ca.crt >/dev/null 2>&1 || true
+            elif [ -f /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt ]; then
+                certutil -d "sql:/home/agent/.pki/nssdb" -A -t "C,," -n "mitmproxy" -i /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt >/dev/null 2>&1 || true
+            fi
+        fi
+
+        export WLR_BACKENDS=headless
+        export WLR_LIBINPUT_NO_DEVICES=1
+        export WAYLAND_DISPLAY=wayland-0
+        export DISPLAY=:0
+        export XDG_RUNTIME_DIR=/run/user/1000
+
+        # Start labwc headless compositor in background
+        labwc -s /bin/true >/dev/null 2>&1 &
+
+        # Wait up to 5 seconds for wayland-0 socket to become available
+        for _ in $(seq 1 50); do
+            if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
+                break
+            fi
+            sleep 0.1
+        done
+
+        # Configure headless output resolution
+        _res="${PI_DESKTOP_RESOLUTION:-1920x1080}"
+        if command -v wlr-randr >/dev/null 2>&1; then
+            wlr-randr --output HEADLESS-1 --mode "${_res}@60Hz" 2>/dev/null || wlr-randr --output HEADLESS-1 --custom-mode "${_res}@60Hz" 2>/dev/null || true
+        fi
+
+        # Start wayvnc and websockify in background
+        _wayvnc_gpu_arg=""
+        if [ -e /dev/dri ]; then
+            _wayvnc_gpu_arg="--gpu"
+        fi
+        wayvnc --render-cursor ${_wayvnc_gpu_arg} 127.0.0.1 5900 >/dev/null 2>&1 &
+
+        websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1 &
+    fi
 
     # ─── Source control credential helpers (SETUP_GIT_CREDENTIALS) ────────────
     if [ "${SETUP_GIT_CREDENTIALS:-true}" = "true" ]; then

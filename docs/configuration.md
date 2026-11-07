@@ -703,6 +703,8 @@ tools:
     - cafe
     # Agent control panels
     - t3
+    # Graphical & browser tools
+    - chromium
     # Coding agent runtimes
     - opencode
     - antigravity
@@ -739,6 +741,8 @@ tools:
     - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (provides `/usr/local/bin/cafe`).
 - **Agent Control Panels:**
     - `t3`: T3 Code web agent server for local UI control (provides `/usr/local/bin/t3`).
+- **Graphical & Browser Tools:**
+    - `chromium`: Chrome for Testing with Wayland Ozone auto-detection, NSS DB CA trust, and sandboxed execution (provides `/usr/local/bin/chromium`, `/usr/local/bin/google-chrome`).
 - **Coding Agent Runtimes:**
     - `pi`: Pi Coding Agent CLI runtime (provides `/usr/local/bin/pi`).
     - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (provides `/usr/local/bin/opencode`).
@@ -1218,6 +1222,53 @@ pi-container logs clean
 pi-container logs clean --all-projects --older-than 7d
 ```
 
+### Virtual desktop and GUI support (`desktop:`)
+
+`desktop` enables a headless Wayland display stack (`labwc`), Xwayland backwards compatibility, and streaming services (`wayvnc` on port 5900, `noVNC` on port 6080) for running and testing GUI applications inside `pi-container`.
+
+```yaml
+desktop:
+    # Enable headless Wayland virtual desktop.
+    # Default: false.
+    enabled: false
+
+    # Virtual display resolution (WIDTHxHEIGHT).
+    # Default: 1920x1080.
+    resolution: "1920x1080"
+
+    # Wayland compositor implementation (labwc).
+    # Default: labwc.
+    compositor: "labwc"
+
+    # Native VNC server streaming endpoint.
+    vnc:
+        enabled: true
+        port: auto          # 'auto' or explicit port 1-65535
+        expose: localhost   # 'localhost' (127.0.0.1) or 'lan' (0.0.0.0)
+
+    # Browser-based HTML5 noVNC endpoint.
+    novnc:
+        enabled: true
+        port: auto          # 'auto' or explicit port 1-65535
+        expose: localhost   # 'localhost' (127.0.0.1) or 'lan' (0.0.0.0)
+
+    # Automatically launch noVNC web interface in the default host browser on start.
+    # Default: false.
+    open_browser: false
+
+    # Graphics acceleration mode.
+    # Default: auto.
+    gpu:
+        enabled: auto       # 'auto', true, or false
+```
+
+Key features:
+- **Zero Bloat for CLI Projects**: The shared base image (`pi-coding-agent:local`) ships with zero GUI packages. Desktop packages (`labwc`, `xwayland`, `wayvnc`, `novnc`, `websockify`, `grim`, `wlrctl`, `wtype`, Mesa, GTK, fonts, and NSS DB tools) are installed **only** when `desktop.enabled: true` in your workspace configuration.
+- **`applehv` & Opportunistic Hardware Acceleration**: On Linux hosts or VMs exposing `/dev/dri`, hardware DRI acceleration is automatically passed through (`--device /dev/dri --group-add keep-groups`). On macOS under Apple's Virtualization Framework (`applehv`) where `/dev/dri` is absent, multi-threaded Mesa `llvmpipe` leverages Apple Silicon's ARM64 NEON SIMD vector JIT (`LP_NUM_THREADS=$(nproc)` and OpenGL 4.5 override) for 60 FPS 1080p rendering.
+- **Multi-Instance Support**: Multiple `pi-container` instances can run simultaneously without port collisions. When `port: auto` is set, `pi-container` dynamically claims free ephemeral host ports.
+- **In-Container Automation (`pi-desktop`)**: The agent can inspect and control the desktop using `/usr/local/bin/pi-desktop` (taking screenshots with `grim`, inspecting windows with `wlrctl`, and typing or sending keys with `wtype`).
+- **Nested Containers**: Wayland (`wayland-0`), X11 (`:0`), `/dev/shm`, and `/dev/dri` are automatically forwarded into nested tool containers via `/etc/containers/containers.conf.d/60-pi-container-desktop.conf`.
+
 ### Active Proxies Inspection (`pi-container proxy` / `proxies`)
 
 The `proxy` (or `proxies`) subcommand queries running mitmproxy instances and their published `mitmweb` endpoints:
@@ -1239,11 +1290,35 @@ pi-container proxy --url
 pi-container proxy --json
 ```
 
+### Active Virtual Desktops Inspection (`pi-container desktop` / `desktops` / `vnc` / `gui`)
+
+The `desktop` subcommand queries running virtual desktop instances, active endpoints, and health status:
+
+```bash
+# Query active virtual desktop for the current project workspace
+pi-container desktop
+
+# List all active virtual desktops across all projects on the host
+pi-container desktop --all
+
+# Open the resolved noVNC web interface in the default web browser immediately
+pi-container desktop --open
+
+# Output only the raw noVNC URL (for shell scripts or browser automation)
+pi-container desktop --url
+
+# Output only the host VNC endpoint (e.g. 127.0.0.1:5900)
+pi-container desktop --vnc
+
+# Output active desktop metadata as structured JSON
+pi-container desktop --json
+```
+
 URLs in terminal output are formatted using ANSI OSC 8 escape sequences, rendering as native clickable hyperlinks in VS Code, macOS Terminal, iTerm2, WezTerm, GNOME Terminal, and Windows Terminal.
 
 ### Command Line Handling and Progress Milestones
 
-The CLI provides unified execution across `run`, `build`, `clean`, `logs`, and `proxy` (`proxies`) subcommands:
+The CLI provides unified execution across `run`, `build`, `clean`, `logs`, `proxy` (`proxies`), and `desktop` (`desktops`, `vnc`, `gui`) subcommands:
 - Global flags:
     - `-v, --verbose`: Stream raw diagnostic events and build output directly to the terminal.
     - `-q, --quiet`: Suppress live progress spinners and non-fatal progress milestones; output errors only.

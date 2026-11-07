@@ -72,6 +72,17 @@ class ProxyOptions(GlobalCliOptions):
 
 
 @dataclass
+class DesktopOptions(GlobalCliOptions):
+    """Options for the 'desktop' / 'desktops' subcommand."""
+
+    all: bool = False
+    open: bool = False
+    url: bool = False
+    vnc: bool = False
+    json: bool = False
+
+
+@dataclass
 class BuildOptions(GlobalCliOptions):
     """Options for the 'build' subcommand."""
 
@@ -430,6 +441,43 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output proxy metadata in JSON format.",
     )
 
+    # ─── 'desktop' / 'desktops' subcommand ──────────────────────────────────
+    desktop_parser = subparsers.add_parser(
+        "desktop",
+        aliases=["desktops", "vnc", "gui"],
+        parents=[common_parser],
+        help="Inspect active virtual desktop containers, noVNC web UIs, and VNC endpoints.",
+        description="Query active virtual desktop sessions for this project or globally, showing clickable links and status.",
+    )
+    desktop_parser.add_argument(
+        "-a",
+        "--all",
+        action="store_true",
+        help="List all active virtual desktop containers across all projects.",
+    )
+    desktop_parser.add_argument(
+        "-o",
+        "--open",
+        action="store_true",
+        help="Open the noVNC web UI in the default OS web browser.",
+    )
+    desktop_parser.add_argument(
+        "-u",
+        "--url",
+        action="store_true",
+        help="Print only the noVNC web UI URL (for shell scripts or piping).",
+    )
+    desktop_parser.add_argument(
+        "--vnc",
+        action="store_true",
+        help="Print only the VNC endpoint host:port (for VNC clients).",
+    )
+    desktop_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output virtual desktop metadata in JSON format.",
+    )
+
     return parser
 
 
@@ -463,7 +511,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
     raw_args = normalized_args
 
     # Check for subcommand presence
-    subcommands = {"run", "build", "clean", "logs", "proxy", "proxies"}
+    subcommands = {"run", "build", "clean", "logs", "proxy", "proxies", "desktop", "desktops", "vnc", "gui"}
     help_or_version = {"-h", "--help", "-V", "--version"}
     if not any(cmd in raw_args for cmd in subcommands) and not (raw_args and raw_args[0] in help_or_version):
         raw_args.insert(0, "run")
@@ -577,6 +625,21 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             json=bool(getattr(args, "json", False)),
         )
         return cmd, p_options
+
+    if cmd in ("desktop", "desktops", "vnc", "gui"):
+        d_options = DesktopOptions(
+            verbose=verbose,
+            quiet=quiet,
+            log_level=log_level,
+            log_file=log_file,
+            no_color=no_color,
+            all=bool(getattr(args, "all", False)),
+            open=bool(getattr(args, "open", False)),
+            url=bool(getattr(args, "url", False)),
+            vnc=bool(getattr(args, "vnc", False)),
+            json=bool(getattr(args, "json", False)),
+        )
+        return cmd, d_options
 
     return cmd, args
 
@@ -711,6 +774,148 @@ def handle_proxy_command(options: ProxyOptions) -> int:
     return 0
 
 
+def handle_desktop_command(options: DesktopOptions) -> int:
+    """Execute the 'desktop' / 'desktops' subcommand actions."""
+    import json as json_module
+    import webbrowser
+
+    from desktop import get_project_desktop, list_active_desktops
+
+    console = Console(no_color=options.no_color)
+    is_in_project = (PROJECT_DIR / ".pi-container").exists() or (PROJECT_DIR / "config.yaml").exists()
+
+    # If --all is requested, or if executed outside of any project workspace, list all active desktops
+    if options.all or not is_in_project:
+        desktops = list_active_desktops()
+
+        if options.json:
+            data = [
+                {
+                    "project_name": d.project_name,
+                    "project_path": str(d.project_path) if d.project_path else None,
+                    "project_hash": d.project_hash,
+                    "container_name": d.container_name,
+                    "novnc_port": d.novnc_port,
+                    "novnc_url": d.novnc_url,
+                    "vnc_port": d.vnc_port,
+                    "vnc_endpoint": d.vnc_endpoint,
+                    "display": d.display,
+                    "is_healthy": d.is_healthy,
+                    "created_at": d.created_at,
+                }
+                for d in desktops
+            ]
+            console.print(json_module.dumps(data, indent=2))
+            return 0
+
+        if options.url:
+            for d in desktops:
+                if d.novnc_url:
+                    console.print(d.novnc_url)
+            return 0
+
+        if options.vnc:
+            for d in desktops:
+                if d.vnc_endpoint:
+                    console.print(d.vnc_endpoint)
+            return 0
+
+        if not desktops:
+            console.print("[dim]No active pi-container virtual desktops found on this system.[/dim]")
+            return 0
+
+        table = Table(title="Active pi-container Desktops", box=None)
+        table.add_column("Project", style="bold cyan")
+        table.add_column("Container")
+        table.add_column("Status")
+        table.add_column("noVNC Web UI")
+        table.add_column("VNC Endpoint")
+
+        for d in desktops:
+            status_str = "[green]Healthy[/green]" if d.is_healthy else "[yellow]Unreachable[/yellow]"
+            url_str = f"[link={d.novnc_url}]{d.novnc_url}[/link] [dim]🔗[/dim]" if d.novnc_url else "[dim]None[/dim]"
+            vnc_str = f"[bold]{d.vnc_endpoint}[/bold]" if d.vnc_endpoint else "[dim]None[/dim]"
+            table.add_row(
+                d.project_name,
+                d.container_name,
+                status_str,
+                url_str,
+                vnc_str,
+            )
+
+        console.print(table)
+
+        if options.open:
+            for d in desktops:
+                if d.novnc_url:
+                    webbrowser.open(d.novnc_url)
+        return 0
+
+    # Project-specific query
+    desktop_info = get_project_desktop(PROJECT_DIR)
+
+    if options.json:
+        if not desktop_info:
+            console.print(json_module.dumps({"status": "inactive", "project": PROJECT_DIR.name}))
+            return 1
+        data_single = {
+            "status": "running",
+            "project_name": desktop_info.project_name,
+            "project_path": str(desktop_info.project_path) if desktop_info.project_path else None,
+            "project_hash": desktop_info.project_hash,
+            "container_name": desktop_info.container_name,
+            "novnc_port": desktop_info.novnc_port,
+            "novnc_url": desktop_info.novnc_url,
+            "vnc_port": desktop_info.vnc_port,
+            "vnc_endpoint": desktop_info.vnc_endpoint,
+            "display": desktop_info.display,
+            "is_healthy": desktop_info.is_healthy,
+        }
+        console.print(json_module.dumps(data_single, indent=2))
+        return 0
+
+    if options.url:
+        if desktop_info and desktop_info.novnc_url:
+            console.print(desktop_info.novnc_url)
+            return 0
+        console.print("[red]noVNC port not published[/red]")
+        return 1
+
+    if options.vnc:
+        if desktop_info and desktop_info.vnc_endpoint:
+            console.print(desktop_info.vnc_endpoint)
+            return 0
+        console.print("[red]VNC port not published[/red]")
+        return 1
+
+    if not desktop_info:
+        console.print(f"[yellow]No active virtual desktop running for project '{PROJECT_DIR.name}'.[/yellow]")
+        console.print(
+            "[dim]Ensure 'desktop.enabled: true' in .pi-container/config.yaml and run 'pi-container run' to start.[/dim]"
+        )
+        return 1
+
+    status_str = "[green]Healthy[/green]" if desktop_info.is_healthy else "[yellow]Unreachable[/yellow]"
+    url_str = (
+        f"[bold cyan][link={desktop_info.novnc_url}]{desktop_info.novnc_url}[/link][/bold cyan] [dim]🔗 (click to open)[/dim]"
+        if desktop_info.novnc_url
+        else "[dim]Not published[/dim]"
+    )
+    vnc_str = f"[bold]{desktop_info.vnc_endpoint}[/bold]" if desktop_info.vnc_endpoint else "[dim]Not published[/dim]"
+
+    console.print(f"[bold]Project:[/bold]       {desktop_info.project_name} ([dim]{desktop_info.project_path}[/dim])")
+    console.print(f"[bold]Container:[/bold]     {desktop_info.container_name} ([green]running[/green])")
+    console.print(f"[bold]Display:[/bold]       {desktop_info.display}")
+    console.print(f"[bold]noVNC Web UI:[/bold]  {url_str}")
+    console.print(f"[bold]VNC Endpoint:[/bold]  {vnc_str}")
+    console.print(f"[bold]Health:[/bold]        {status_str}")
+
+    if options.open and desktop_info.novnc_url:
+        webbrowser.open(desktop_info.novnc_url)
+
+    return 0
+
+
 def handle_logs_command(options: LogsOptions) -> int:
     """Execute the 'logs' subcommand actions."""
     console = Console(no_color=options.no_color)
@@ -813,6 +1018,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if cmd in ("proxy", "proxies"):
         sys.exit(handle_proxy_command(options))
+        return
+
+    if cmd in ("desktop", "desktops", "vnc", "gui"):
+        sys.exit(handle_desktop_command(options))
         return
 
     # Initialize log driver for 'run' and 'build' commands

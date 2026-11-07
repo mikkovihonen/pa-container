@@ -361,6 +361,7 @@ def build_project_image(
     project_path: str = "",
     build_timestamp: str = "",
     tools: list[str] | None = None,
+    with_desktop: bool = False,
 ) -> None:
     """Build a project-specific agent image with baked-in command scripts and optional tools.
 
@@ -374,6 +375,7 @@ def build_project_image(
         project_path: Absolute project directory path → set as pi-container.project.path label.
         build_timestamp: ISO 8601 timestamp → set as pi-container.build.time label.
         tools: Optional list of tools to enable (e.g. ["go", "rust"]).
+        with_desktop: Whether to install desktop/GUI packages.
     """
     logger.info(f"Building project-specific agent image ({runtime}): {image_tag}")
     cmd = [
@@ -387,6 +389,8 @@ def build_project_image(
         f"ROOT_COMMANDS_PATH={Path(root_commands_path).name}",
         "--build-arg",
         f"LABEL_HASH={label_hash}",
+        "--build-arg",
+        f"WITH_DESKTOP={'true' if with_desktop else 'false'}",
     ]
     tools_set = set(tools or [])
     from toolchains import (

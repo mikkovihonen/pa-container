@@ -16,6 +16,7 @@ logger = get_category_logger(__name__, LogCategory.BUILD)
 _IMAGE_DEFINITION_FILES = (
     "Containerfile",
     "entrypoint.sh",
+    "pi-desktop",
     "t3-advertise-host.cjs",
     "t3-seed-settings.cjs",
     "t3-policy.json",
@@ -103,7 +104,12 @@ def compute_image_hash(
             files_to_hash.append(cmd_file)
 
     tools = read_project_tools(project_dir, extra_tools=extra_tools)
-    if not files_to_hash and not tools:
+    from desktop import read_desktop_config
+
+    desktop_cfg = read_desktop_config(project_dir / ".pi-container")
+    desktop_active = bool(desktop_cfg.get("enabled", False))
+
+    if not files_to_hash and not tools and not desktop_active:
         return None
 
     files_to_hash.sort()
@@ -122,6 +128,9 @@ def compute_image_hash(
             if t in ON_DEMAND_TOOLS:
                 tool_hash = compute_tool_hash(t, r_root)
                 combined_hash.update(f"tool:{t}:{tool_hash}".encode())
+
+    if desktop_active:
+        combined_hash.update(b"desktop:enabled:true")
 
     return combined_hash.hexdigest()[:16]
 
@@ -216,9 +225,14 @@ def resolve_agent_image(
     extra_tools: list[str] | None = None,
 ) -> tuple[str, bool]:
     """Resolve the agent container image tag for this workspace."""
+    from desktop import read_desktop_config
+
+    desktop_cfg = read_desktop_config(project_dir / ".pi-container")
+    desktop_enabled = bool(desktop_cfg.get("enabled", False))
+
     has_deps = has_dependency_files(project_dir)
     tools = read_project_tools(project_dir, extra_tools=extra_tools)
-    if not has_deps and not tools:
+    if not has_deps and not tools and not desktop_enabled:
         return PI_IMAGE_TAG, False
 
     project_hash, _ = project.project_scope(project_dir)

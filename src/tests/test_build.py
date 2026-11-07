@@ -519,6 +519,32 @@ class TestBuildProjectImage:
             assert "tool_mold=docker-image://localhost/pi-coding-agent-tool-mold:local" in contexts
             assert "tool_ripgrep=docker-image://localhost/pi-coding-agent-tool-ripgrep:local" in contexts
 
+    def test_build_project_image_with_desktop(self):
+        """When with_desktop is True, WITH_DESKTOP=true should be passed as a build arg."""
+        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+            build_project_image(
+                "podman",
+                "/path/to/root/commands.sh",
+                "test.local",
+                "abc123",
+                with_desktop=True,
+            )
+            cmd = mock_popen.call_args[0][0]
+            assert "WITH_DESKTOP=true" in cmd
+
+    def test_build_project_image_without_desktop(self):
+        """When with_desktop is False, WITH_DESKTOP=false should be passed as a build arg."""
+        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+            build_project_image(
+                "podman",
+                "/path/to/root/commands.sh",
+                "test.local",
+                "abc123",
+                with_desktop=False,
+            )
+            cmd = mock_popen.call_args[0][0]
+            assert "WITH_DESKTOP=false" in cmd
+
 
 class TestBuildTool:
     @staticmethod

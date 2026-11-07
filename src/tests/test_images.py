@@ -404,6 +404,36 @@ class TestResolveAgentImage:
         tag2, _ = images.resolve_agent_image(tmp_path)
         assert tag1 == tag2
 
+    def test_resolve_agent_image_with_desktop_enabled(self, tmp_path):
+        cfg_dir = tmp_path / ".pi-container"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        (cfg_dir / "config.yaml").write_text("desktop:\n  enabled: true\n")
+        pi_agent = tmp_path / "coding-agent"
+        pi_agent.mkdir(parents=True, exist_ok=True)
+        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        tag, is_project_specific = images.resolve_agent_image(tmp_path, repo_root=tmp_path)
+        assert is_project_specific is True
+        assert "pi-container-project-" in tag
+
+    def test_compute_image_hash_desktop_changes_hash(self, tmp_path):
+        cfg_dir = tmp_path / ".pi-container"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        pi_agent = tmp_path / "coding-agent"
+        pi_agent.mkdir(parents=True, exist_ok=True)
+        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (cfg_dir / "dependencies" / "root").mkdir(parents=True, exist_ok=True)
+        (cfg_dir / "dependencies" / "root" / "commands.sh").write_text("echo test")
+
+        (cfg_dir / "config.yaml").write_text("desktop:\n  enabled: false\n")
+        hash_without = images.compute_image_hash(tmp_path, repo_root=tmp_path)
+
+        (cfg_dir / "config.yaml").write_text("desktop:\n  enabled: true\n")
+        hash_with = images.compute_image_hash(tmp_path, repo_root=tmp_path)
+
+        assert hash_without is not None
+        assert hash_with is not None
+        assert hash_without != hash_with
+
 
 class TestGetImageLabel:
     def test_returns_none_when_command_fails(self, monkeypatch):

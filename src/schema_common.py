@@ -214,6 +214,41 @@ SCHEMA: dict[str, Any] = {
             },
         },
     },
+    "desktop": {
+        "type": dict,
+        "required": False,
+        "keys": {
+            "enabled": {"type": (bool, str, int), "required": False},
+            "resolution": {"type": str, "required": False},
+            "compositor": {"type": str, "required": False},
+            "open_browser": {"type": (bool, str, int), "required": False},
+            "vnc": {
+                "type": dict,
+                "required": False,
+                "keys": {
+                    "enabled": {"type": (bool, str, int), "required": False},
+                    "port": {"type": (int, str), "required": False},
+                    "expose": {"type": str, "required": False},
+                },
+            },
+            "novnc": {
+                "type": dict,
+                "required": False,
+                "keys": {
+                    "enabled": {"type": (bool, str, int), "required": False},
+                    "port": {"type": (int, str), "required": False},
+                    "expose": {"type": str, "required": False},
+                },
+            },
+            "gpu": {
+                "type": dict,
+                "required": False,
+                "keys": {
+                    "enabled": {"type": (bool, str, int), "required": False},
+                },
+            },
+        },
+    },
 }
 
 
@@ -280,6 +315,13 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
                     "max_launches": {"type": (int, type(None)), "required": False},
                 },
             },
+        },
+    },
+    "desktop": {
+        "type": dict,
+        "required": False,
+        "keys": {
+            "open_browser": {"type": (bool, str, int, type(None)), "required": False},
         },
     },
 }

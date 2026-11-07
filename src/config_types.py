@@ -147,6 +147,32 @@ class LoggingProjectConfig(TypedDict, total=False):
     retention: LogRetentionConfig
 
 
+class DesktopEndpointConfig(TypedDict, total=False):
+    """Configuration for a virtual desktop network endpoint (VNC or noVNC)."""
+
+    enabled: bool
+    port: int | str
+    expose: str
+
+
+class DesktopGpuConfig(TypedDict, total=False):
+    """Configuration for virtual desktop graphics acceleration."""
+
+    enabled: bool | str
+
+
+class DesktopConfig(TypedDict, total=False):
+    """Headless Wayland desktop and GUI application configuration."""
+
+    enabled: bool
+    resolution: str
+    compositor: str
+    vnc: DesktopEndpointConfig
+    novnc: DesktopEndpointConfig
+    open_browser: bool
+    gpu: DesktopGpuConfig
+
+
 class ProjectConfig(TypedDict, total=False):
     """Top-level parsed representation of .pi-container/config.yaml."""
 
@@ -167,6 +193,7 @@ class ProjectConfig(TypedDict, total=False):
     git: dict[str, object]
     agents: dict[str, object]
     logging: LoggingProjectConfig
+    desktop: DesktopConfig
 
 
 # ─── Global Configuration (~/.config/pi-container/config.yaml) ────────────────

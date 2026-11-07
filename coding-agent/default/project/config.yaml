@@ -48,6 +48,27 @@ proxy:
   # Stream bodies larger than this threshold directly without full RAM buffering (e.g. "10m", "50m", or null/off).
   stream_large_bodies: 10m
 
+# Headless Wayland Desktop & GUI Application Support.
+# When enabled, pi-container installs the desktop stack, starts a headless
+# wlroots compositor (labwc), Xwayland, wayvnc (5900), and noVNC (6080).
+# Acceleration is automatically enabled for applehv and Linux hosts.
+# Disabled by default.
+desktop:
+  enabled: false
+  resolution: 1920x1080
+  compositor: labwc
+  vnc:
+    enabled: true
+    port: auto
+    expose: localhost
+  novnc:
+    enabled: true
+    port: auto
+    expose: localhost
+  open_browser: false
+  gpu:
+    enabled: auto
+
 # Toolchains staged by coding-agent-builder to include in the agent container.
 # By default, only the core baseline (Python 3.14, Node 26, Podman 6, Netavark)
 # is included. Add extra toolchains here (e.g. "go", "rust") to include them:

@@ -9,10 +9,12 @@ sys.dont_write_bytecode = True
 from cli import (
     BuildOptions,
     CleanOptions,
+    DesktopOptions,
     LogsOptions,
     ProxyOptions,
     RunOptions,
     _parse_duration,
+    handle_desktop_command,
     handle_logs_command,
     handle_proxy_command,
     main,
@@ -551,5 +553,249 @@ class TestProxyCli:
             patch("sys.exit") as mock_exit,
         ):
             main(["proxy", "--all"])
+            mock_handle.assert_called_once()
+            mock_exit.assert_called_once_with(0)
+
+
+class TestDesktopCli:
+    def test_desktop_options_parsing(self) -> None:
+        cmd, options = parse_cli_args(["desktop", "-a", "-o", "-u", "--vnc", "--json"])
+        assert cmd == "desktop"
+        assert isinstance(options, DesktopOptions)
+        assert options.all is True
+        assert options.open is True
+        assert options.url is True
+        assert options.vnc is True
+        assert options.json is True
+
+    def test_desktops_alias_parsing(self) -> None:
+        cmd, options = parse_cli_args(["desktops", "--all"])
+        assert cmd == "desktops"
+        assert isinstance(options, DesktopOptions)
+        assert options.all is True
+
+    def test_vnc_alias_parsing(self) -> None:
+        cmd, options = parse_cli_args(["vnc", "--open"])
+        assert cmd == "vnc"
+        assert isinstance(options, DesktopOptions)
+        assert options.open is True
+
+    def test_gui_alias_parsing(self) -> None:
+        cmd, options = parse_cli_args(["gui", "--url"])
+        assert cmd == "gui"
+        assert isinstance(options, DesktopOptions)
+        assert options.url is True
+
+    def test_desktop_active_project(self, tmp_path: Path, monkeypatch) -> None:
+        from desktop import ActiveDesktopInfo
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        (tmp_path / ".pi-container").mkdir()
+        fake_desktop = ActiveDesktopInfo(
+            project_name="gui-project",
+            project_path=tmp_path,
+            project_hash="abcdef1234",
+            container_name="pi-coding-agent-gui-abcdef1234",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T12:00:00Z",
+        )
+        with (
+            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions())
+            assert code == 0
+            output = "".join(str(call) for call in mock_print.call_args_list)
+            assert "gui-project" in output
+            assert "6080" in output
+            assert "5900" in output
+
+    def test_desktop_inactive_project(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        (tmp_path / ".pi-container").mkdir()
+        with (
+            patch("desktop.get_project_desktop", return_value=None),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions())
+            assert code == 1
+            output = "".join(str(call) for call in mock_print.call_args_list)
+            assert "No active virtual desktop running" in output
+
+    def test_desktop_url_flag(self, tmp_path: Path, monkeypatch) -> None:
+        from desktop import ActiveDesktopInfo
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        (tmp_path / ".pi-container").mkdir()
+        fake_desktop = ActiveDesktopInfo(
+            project_name="gui-project",
+            project_path=tmp_path,
+            project_hash="abcdef1234",
+            container_name="pi-coding-agent-gui-abcdef1234",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T12:00:00Z",
+        )
+        with (
+            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(url=True))
+            assert code == 0
+            mock_print.assert_called_once_with("http://127.0.0.1:6080")
+
+    def test_desktop_vnc_flag(self, tmp_path: Path, monkeypatch) -> None:
+        from desktop import ActiveDesktopInfo
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        (tmp_path / ".pi-container").mkdir()
+        fake_desktop = ActiveDesktopInfo(
+            project_name="gui-project",
+            project_path=tmp_path,
+            project_hash="abcdef1234",
+            container_name="pi-coding-agent-gui-abcdef1234",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T12:00:00Z",
+        )
+        with (
+            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(vnc=True))
+            assert code == 0
+            mock_print.assert_called_once_with("127.0.0.1:5900")
+
+    def test_desktop_json_flag(self, tmp_path: Path, monkeypatch) -> None:
+        import json
+
+        from desktop import ActiveDesktopInfo
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        (tmp_path / ".pi-container").mkdir()
+        fake_desktop = ActiveDesktopInfo(
+            project_name="gui-project",
+            project_path=tmp_path,
+            project_hash="abcdef1234",
+            container_name="pi-coding-agent-gui-abcdef1234",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T12:00:00Z",
+        )
+        with (
+            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(json=True))
+            assert code == 0
+            printed_raw = mock_print.call_args[0][0]
+            data = json.loads(printed_raw)
+            assert data["status"] == "running"
+            assert data["novnc_port"] == 6080
+            assert data["vnc_port"] == 5900
+
+    def test_desktop_open_flag(self, tmp_path: Path, monkeypatch) -> None:
+        from desktop import ActiveDesktopInfo
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        (tmp_path / ".pi-container").mkdir()
+        fake_desktop = ActiveDesktopInfo(
+            project_name="gui-project",
+            project_path=tmp_path,
+            project_hash="abcdef1234",
+            container_name="pi-coding-agent-gui-abcdef1234",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T12:00:00Z",
+        )
+        with (
+            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch("webbrowser.open") as mock_open,
+            patch("rich.console.Console.print"),
+        ):
+            code = handle_desktop_command(DesktopOptions(open=True))
+            assert code == 0
+            mock_open.assert_called_once_with("http://127.0.0.1:6080")
+
+    def test_desktop_all_empty(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        with (
+            patch("desktop.list_active_desktops", return_value=[]),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(all=True))
+            assert code == 0
+            mock_print.assert_called_once_with(
+                "[dim]No active pi-container virtual desktops found on this system.[/dim]"
+            )
+
+    def test_desktop_all_with_desktops(self, tmp_path: Path, monkeypatch) -> None:
+        from desktop import ActiveDesktopInfo
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        desktops = [
+            ActiveDesktopInfo(
+                project_name="d1",
+                project_path=Path("/tmp/d1"),
+                project_hash="1111111111",
+                container_name="pi-agent-1111111111",
+                novnc_port=6080,
+                novnc_url="http://127.0.0.1:6080",
+                vnc_port=5900,
+                vnc_endpoint="127.0.0.1:5900",
+                display=":0",
+                is_healthy=True,
+                created_at="2026-11-07T10:00:00Z",
+            ),
+            ActiveDesktopInfo(
+                project_name="d2",
+                project_path=Path("/tmp/d2"),
+                project_hash="2222222222",
+                container_name="pi-agent-2222222222",
+                novnc_port=6081,
+                novnc_url="http://127.0.0.1:6081",
+                vnc_port=5901,
+                vnc_endpoint="127.0.0.1:5901",
+                display=":0",
+                is_healthy=False,
+                created_at="2026-11-07T11:00:00Z",
+            ),
+        ]
+        with (
+            patch("desktop.list_active_desktops", return_value=desktops),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(all=True))
+            assert code == 0
+            assert mock_print.called
+
+    def test_main_desktop_dispatches(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        with (
+            patch("cli.handle_desktop_command", return_value=0) as mock_handle,
+            patch("sys.exit") as mock_exit,
+        ):
+            main(["desktop", "--all"])
             mock_handle.assert_called_once()
             mock_exit.assert_called_once_with(0)

@@ -43,6 +43,7 @@ ON_DEMAND_TOOLS: frozenset[str] = frozenset(
         "antigravity",
         "claude-code",
         "pi",
+        "chromium",
     }
 )
 
