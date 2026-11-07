@@ -1,4 +1,4 @@
-# Place in ~/.config/pi-container/models/Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml
+# Place in ~/.config/pa-container/models/Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml
 id: Qwen3.6-35B-A3B-UD-Q6_K_XL
 kind: llama-server
 description: "Qwen 3.6 35B with speculative decoding"
@@ -48,7 +48,7 @@ flags:
   - 4096
   - "--jinja"
   - "--chat-template-file"
-  - "~/.config/pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
+  - "~/.config/pa-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
   - "--reasoning"
   - "on"
   - "--n-gpu-layers"

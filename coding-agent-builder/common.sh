@@ -4,11 +4,11 @@
 # Sourced, never executed: the caller owns `set -euo pipefail`.
 
 # Everything that will be copied into the agent image is staged here, mirroring
-# its final layout — $PI_STAGE/usr/local/bin/podman becomes /usr/local/bin/podman.
+# its final layout — $PA_STAGE/usr/local/bin/podman becomes /usr/local/bin/podman.
 # Staging (rather than installing into the builder's own /usr/local) is what keeps
 # the toolchains out of the shipped image: Go, Rust, the source trees and their
 # build caches add ~3 GB that never leaves this image.
-PI_STAGE="${PI_STAGE:-/out}"
+PA_STAGE="${PA_STAGE:-/out}"
 
 # ─── Architecture ────────────────────────────────────────────────────────────
 # Every download below is per-architecture. Getting it wrong is not caught until
@@ -118,11 +118,11 @@ run_logged() {
 # inside the agent container without network access.
 #
 # One fragment file per build script rather than one shared manifest: each script runs
-# in its own build stage with its own $PI_STAGE, and four stages appending to the same
+# in its own build stage with its own $PA_STAGE, and four stages appending to the same
 # path would mean the last COPY silently wins. The agent image concatenates the
-# fragments into /usr/local/share/pi-container/toolchain-versions.txt.
+# fragments into /usr/local/share/pa-container/toolchain-versions.txt.
 stage_record() {
-    local fragment_dir="${PI_STAGE}/usr/local/share/pi-container/toolchain-versions.d"
+    local fragment_dir="${PA_STAGE}/usr/local/share/pa-container/toolchain-versions.d"
     local name
     name="$(basename "$0" .sh)"
     if [ "${name}" = "build" ]; then

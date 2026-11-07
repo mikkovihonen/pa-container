@@ -4,14 +4,14 @@
 import re
 from pathlib import Path
 
-REPO_URL = "https://github.com/mikkovihonen/pi-container/blob/main"
+REPO_URL = "https://github.com/mikkovihonen/pa-container/blob/main"
 README_PATH = Path("README.md")
 INDEX_PATH = Path("docs/index.md")
 
 FRONTMATTER = """---
-title: pi-container
-description: Containerized environment for running pi-coding-agent with auditability on macOS and Linux
-keywords: sandbox, isolation, mitmproxy, containerization, audit-trail, podman, mitmproxy-addons, agentic-ai, agentic-coding, pi-coding-agent
+title: pa-container
+description: Containerized environment for running pa-container-agent with auditability on macOS and Linux
+keywords: sandbox, isolation, mitmproxy, containerization, audit-trail, podman, mitmproxy-addons, agentic-ai, agentic-coding, pa-container-agent
 ---
 
 """
@@ -41,10 +41,10 @@ def fix_links(content: str) -> str:
         content,
     )
 
-    # Convert ../../.pi-container/... to GitHub URLs
+    # Convert ../../.pa-container/... to GitHub URLs
     content = re.sub(
-        r"\.\./\.\./\.pi-container/",
-        f"{REPO_URL}/.pi-container/",
+        r"\.\./\.\./\.pa-container/",
+        f"{REPO_URL}/.pa-container/",
         content,
     )
 

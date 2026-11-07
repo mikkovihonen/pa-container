@@ -1,4 +1,4 @@
-# Place in ~/.config/pi-container/gateways/opper.yaml
+# Place in ~/.config/pa-container/gateways/opper.yaml
 id: opper
 description: "Opper AI Model Gateway"
 baseUrl: "https://api.opper.ai/v3/compat"
@@ -7,5 +7,5 @@ type: openai-compat
 auth:
   type: api-key
   envVar: "OPPER_API_KEY"
-  keyringService: "pi-container"
+  keyringService: "pa-container"
   keyringAccount: "OPPER_API_KEY"

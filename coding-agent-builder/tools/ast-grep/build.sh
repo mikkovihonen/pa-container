@@ -16,11 +16,11 @@ clone_verified "https://github.com/ast-grep/ast-grep.git" "${AST_GREP_VERSION}" 
 
 cd "${src}"
 cargo build --release -p ast-grep
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 target/release/ast-grep "${PI_STAGE}/usr/local/bin/ast-grep"
-ln -sf ast-grep "${PI_STAGE}/usr/local/bin/sg"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 target/release/ast-grep "${PA_STAGE}/usr/local/bin/ast-grep"
+ln -sf ast-grep "${PA_STAGE}/usr/local/bin/sg"
 rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
 
-"${PI_STAGE}/usr/local/bin/ast-grep" --version
+"${PA_STAGE}/usr/local/bin/ast-grep" --version
 stage_record "ast-grep" "${AST_GREP_VERSION}"
 

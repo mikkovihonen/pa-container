@@ -25,10 +25,10 @@ glab_url="https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/packages/generic/g
 
 fetch_verified "${glab_url}" "${glab_sha}" "/tmp/${glab_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local"
-tar -C "${PI_STAGE}/usr/local" -xzf "/tmp/${glab_tarball}" bin/glab
+mkdir -p "${PA_STAGE}/usr/local"
+tar -C "${PA_STAGE}/usr/local" -xzf "/tmp/${glab_tarball}" bin/glab
 rm -f "/tmp/${glab_tarball}"
 
-"${PI_STAGE}/usr/local/bin/glab" --version
+"${PA_STAGE}/usr/local/bin/glab" --version
 stage_record "glab" "${GLAB_VERSION}"
 

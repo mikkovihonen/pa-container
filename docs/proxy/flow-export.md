@@ -38,10 +38,10 @@ flowchart TB
     subgraph host["<b>Host (run.py)</b>"]
         DISCOVER["Discover agent\ncontainer IPs\n(isolated-net)"]
         READ["Read flows-<ip>.jsonl\nfiles from bind mount"]
-        MERGE["Concatenate\n(date-bucketed)\n→ .pi-container/exports/flows/"]
+        MERGE["Concatenate\n(date-bucketed)\n→ .pa-container/exports/flows/"]
         CLEANUP["Remove raw\nflows-<ip>.jsonl\nfiles"]
 
-        subgraph export_dir["<b>.pi-container/exports/</b>\n(bind-mounted from\n/home/mitmproxy/exports)"]
+        subgraph export_dir["<b>.pa-container/exports/</b>\n(bind-mounted from\n/home/mitmproxy/exports)"]
             RAW["flows-<ip>.jsonl\n(raw per-IP JSON Lines)"]
             SNAPSHOT["flows/<YYYY-MM-DD>/\n<timestamp>_<session-id>.jsonl\n(date-bucketed snapshot)"]
         end
@@ -127,14 +127,14 @@ Notes on serialization:
 ### Integration with the Proxy Container
 
 > **In this project the flow_export addon is already wired in and active.** The
-> [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/Containerfile) bakes the script and creates a
+> [Containerfile](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/Containerfile) bakes the script and creates a
 > `mitmproxy`-owned `/home/mitmproxy/exports` directory. The
-> [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/entrypoint.sh) loads it with `-s`. `run.py` mounts the host
+> [entrypoint](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/entrypoint.sh) loads it with `-s`. `run.py` mounts the host
 > export directory over `/home/mitmproxy/exports`. It names each run's agent
-> container `pi-coding-agent-<run-id>`. It looks up that container's isolated-net
+> container `pa-container-agent-<run-id>`. It looks up that container's isolated-net
 > IPs (IPv4 **and** IPv6). After the agent exits it reads and merges the
 > matching `flows-<ip>.jsonl` file(s) into a snapshot bucketed by UTC date under
-> `.pi-container/exports/flows/<YYYY-MM-DD>/<HH-MM-SS-mmm>_<session-id>.json`. It then **deletes
+> `.pa-container/exports/flows/<YYYY-MM-DD>/<HH-MM-SS-mmm>_<session-id>.json`. It then **deletes
 > the raw file(s)** it consumed so the same flows are not stored twice (only after
 > the snapshot is written successfully). The steps below describe that wiring for
 > reference or other proxies.

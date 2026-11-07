@@ -1,6 +1,6 @@
 # Nested Containers — Design
 
-This design enables the `pi-coding-agent` to run containers *inside* its own container. The agent runs `podman
+This design enables the `pa-container-agent` to run containers *inside* its own container. The agent runs `podman
 build`, `podman run`, `docker compose up`, and testcontainers-style integration tests. The design does not open a path around the mitmproxy interception layer or onto the host.
 
 **Recommendation: rootless podman-in-podman inside the agent container, and drop
@@ -21,7 +21,7 @@ on tmpfs so nothing persists.
 None of the tooling to start a container is present:
 
 ```
-$ podman run --rm --entrypoint sh pi-coding-agent:local \
+$ podman run --rm --entrypoint sh pa-container-agent:local \
     -c 'command -v newuidmap fuse-overlayfs slirp4netns pasta podman || echo NONE-OF-THESE'
 NONE-OF-THESE
 ```
@@ -53,7 +53,7 @@ podman run -v /:/host --privileged --network host <anything>
 ```
 
 …which yields the host filesystem, host networking (bypassing the proxy entirely), and
-effectively host root. It does not weaken pi-container's isolation model. It deletes it.
+effectively host root. It does not weaken pa-container's isolation model. It deletes it.
 This must never be offered, not even as an opt-in.
 
 ### Docker-in-Docker (`--privileged` daemon)
@@ -114,7 +114,7 @@ the proxy) and can bind-mount the agent's view of `/workspace` directly.
 
 ```mermaid
 flowchart TB
-    subgraph agent["<b>pi-coding-agent</b> (user pi, rootless)"]
+    subgraph agent["<b>pa-container-agent</b> (user pi, rootless)"]
         direction TB
         pi["pi agent process"]
         pod["podman (rootless, uid 1000)<br/>subuid 1:999 + 1001:64535"]
@@ -129,7 +129,7 @@ flowchart TB
     style inner fill:none,text-align:left
 
     eth0["agent eth0<br/>isolated-net (no gateway)"]
-    proxy["<b>pi-coding-agent-proxy</b><br/>REDIRECT 80/443 → mitmproxy :8080<br/>REDIRECT 53 → DNS :5353<br/>FORWARD policy DROP"]
+    proxy["<b>pa-container-agent-proxy</b><br/>REDIRECT 80/443 → mitmproxy :8080<br/>REDIRECT 53 → DNS :5353<br/>FORWARD policy DROP"]
 
     pi --> pod
     pod --> inner
@@ -152,7 +152,7 @@ Added to the agent `podman run` when nesting is enabled:
 | `--cap-add SYS_ADMIN` | **Correction, measured during implementation.** Podman's default seccomp profile permits `mount`/`sethostname`/`umount2`/`pivot_root` only when `CAP_SYS_ADMIN` is in the container's capability set, and a seccomp filter cannot be relaxed from inside a nested userns. Without this, the inner runtime dies with `crun: sethostname: Operation not permitted`. |
 | `--volume pi-nested-<project-hash>:/home/agent/.local/share/containers` | Persistent nested image store |
 | `--env XDG_RUNTIME_DIR=/run/user/1000` | Rootless podman's lock/pid directory |
-| `--env PI_CONTAINER_NESTED=true` | Entrypoint gate (see below) |
+| `--env PA_CONTAINER_NESTED=true` | Entrypoint gate (see below) |
 
 The two corrections above replace this design's original claim that nesting needs no
 capability or seccomp relaxation. That claim came from testing only the *primitive*
@@ -194,10 +194,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Node + CPython/uv/podman-compose + podman + netavark + aardvark-dns, prebuilt.
 # One staged tree per component; the proxy image copies /python/ only.
-COPY --from=pi-coding-agent-builder:local /python/ /
-COPY --from=pi-coding-agent-builder:local /node/ /
-COPY --from=pi-coding-agent-builder:local /podman/ /
-COPY --from=pi-coding-agent-builder:local /network/ /
+COPY --from=pa-container-agent-builder:local /python/ /
+COPY --from=pa-container-agent-builder:local /node/ /
+COPY --from=pa-container-agent-builder:local /podman/ /
+COPY --from=pa-container-agent-builder:local /network/ /
 
 # Nested subordinate ID ranges for `pi` (uid 1000). These must fall INSIDE the UID
 # range the outer user namespace maps (verified: container UIDs 1..1000000). The
@@ -233,7 +233,7 @@ Four corrections found while implementing this, all measured in the agent image
   user-defined network per project. netavark sets that bridge up itself. Without
   the `nft` binary the service fails to start with `netavark: nftables error: unable
   to execute nft`. Verified: with `nftables` installed, `docker compose up` inside the
-  agent container runs a service. It sees the injected CA at `/etc/pi-container-ca.crt`.
+  agent container runs a service. It sees the injected CA at `/etc/pa-container-ca.crt`.
   On the `--internal` network it still cannot reach the internet.
 - **A `docker` shim ships after all** (open question 5): several tools shell out to
   `docker` by name. The shim is a one-line `exec podman "$@"` at
@@ -279,8 +279,8 @@ resolves to the native **`overlay`** driver on it — not `vfs`.
 
 Persisting it across runs is a deliberate exception to the ephemeral-home rule: without
 it every session re-pulls every base image through mitmproxy. The volume carries the same
-labels as project images (`pi-container.type=nested-storage`,
-`pi-container.project.hash`, `pi-container.project.path`) so the orphan-cleanup pass in
+labels as project images (`pa-container.type=nested-storage`,
+`pa-container.project.hash`, `pa-container.project.path`) so the orphan-cleanup pass in
 [`run.py`](../../src/run.py) can reclaim it with the same
 path-no-longer-exists rule already used for images. A `storage: tmpfs` setting is offered
 for workspaces that want no persistence and have the RAM.
@@ -311,7 +311,7 @@ proxy-side changes at all**.
 
 For reference, on a normal (routed) network the same nested container gets a working
 stack — its own bridge address, `aardvark-dns` at `169.254.1.1`, and successful HTTPS.
-Inside pi-container that inner resolver forwards to the agent's `resolv.conf`, which
+Inside pa-container that inner resolver forwards to the agent's `resolv.conf`, which
 points at the proxy: DNS interception survives, one hop deeper.
 
 Two honest consequences:
@@ -370,19 +370,19 @@ idea about the mitmproxy CA. Every TLS call from inside it fails. The system fix
 mechanisms verified working:
 
 ```toml
-# /etc/containers/containers.conf.d/50-pi-container.conf
+# /etc/containers/containers.conf.d/50-pa-container.conf
 # Baked into the image at /etc (NOT under /home/agent — that path is tmpfs at runtime and
 # would mask anything the image shipped there).
 [containers]
 mounts = [
-  "type=bind,source=/etc/ssl/certs/ca-certificates.crt,destination=/etc/pi-container-ca.crt,ro=true",
+  "type=bind,source=/etc/ssl/certs/ca-certificates.crt,destination=/etc/pa-container-ca.crt,ro=true",
 ]
 env = [
-  "SSL_CERT_FILE=/etc/pi-container-ca.crt",
-  "NODE_EXTRA_CA_CERTS=/etc/pi-container-ca.crt",
-  "REQUESTS_CA_BUNDLE=/etc/pi-container-ca.crt",
-  "CURL_CA_BUNDLE=/etc/pi-container-ca.crt",
-  "GIT_SSL_CAINFO=/etc/pi-container-ca.crt",
+  "SSL_CERT_FILE=/etc/pa-container-ca.crt",
+  "NODE_EXTRA_CA_CERTS=/etc/pa-container-ca.crt",
+  "REQUESTS_CA_BUNDLE=/etc/pa-container-ca.crt",
+  "CURL_CA_BUNDLE=/etc/pa-container-ca.crt",
+  "GIT_SSL_CAINFO=/etc/pa-container-ca.crt",
 ]
 
 [engine]
@@ -458,10 +458,10 @@ compiler minutes later. Enabling nesting warrants more again.
 the one setup step that needs it:
 
 ```bash
-# ─── Nested container support (PI_CONTAINER_NESTED, injected by run.py) ───
+# ─── Nested container support (PA_CONTAINER_NESTED, injected by run.py) ───
 # Rootless podman needs a private XDG_RUNTIME_DIR for its locks and pid files.
 # Created here (as root, pre-gosu) because the agent runs as pi.
-if [ "${PI_CONTAINER_NESTED}" = "true" ]; then
+if [ "${PA_CONTAINER_NESTED}" = "true" ]; then
     mkdir -p /run/user/1000
     chown agent:agent /run/user/1000
     chmod 700 /run/user/1000
@@ -473,7 +473,7 @@ fi
 
 ### 10. Configuration surface
 
-New top-level section in `.pi-container/config.yaml`:
+New top-level section in `.pa-container/config.yaml`:
 
 ```yaml
 # Nested containers. When enabled, the agent can run its own containers (podman /
@@ -676,17 +676,17 @@ the obvious explanation. The same override file also set a marker `env` entry. T
 *did* reach the container, so the file was read. Only the key was disregarded. That
 is consistent with the `/run/.containerenv` propagation above outranking it. The team also rejected: rewriting `/etc/hosts` in the agent image (the agent's own entry is correct
 *for the agent* — it really can reach the host through the proxy). It also rejected a per-project
-`--add-host` injected by pi-container (there is no hook on the nested `podman run`. It
+`--add-host` injected by pa-container (there is no hook on the nested `podman run`. It
 would be wrong for containers that legitimately mean the host).
 
 **So this stays a documented constraint with a per-project fix**: the literal address in
 the project's own config. That does not have to be an untracked file. `169.254.1.2` is
-meaningless outside a pi-container agent. A compose **named overlay** confines it. An
-explicit `-f` list replaces auto-discovery. `docker-compose.pi-container.yml` is
+meaningless outside a pa-container agent. A compose **named overlay** confines it. An
+explicit `-f` list replaces auto-discovery. `docker-compose.pa-container.yml` is
 inert for everyone who does not pass it. `docker-compose.override.yml` (loaded
 automatically) would not be. That makes the fix reviewable and shared instead of
-rediscovered per operator. Selecting it is what the `PI_CONTAINER` marker is for. "Forgot the overlay" stops being a failure mode rather than becoming a warning. The
-address is `PI_CONTAINER_HOST_IP` wherever substitution is possible. Documented in
+rediscovered per operator. Selecting it is what the `PA_CONTAINER` marker is for. "Forgot the overlay" stops being a failure mode rather than becoming a warning. The
+address is `PA_CONTAINER_HOST_IP` wherever substitution is possible. Documented in
 [Configuration](../configuration.md#nested-containers) because the failure gives the
 operator nothing to search for. No error, no log line, just an empty graph.
 
@@ -743,7 +743,7 @@ runtime would attach. Collapsing it would be a large diff for no gain.
 | Nested container publishes a port | Binds in the agent's netns. Reachable from the isolated network. Reachable from the **host** only for ports listed in `nested_containers.ports.publish` (which adds the outer `-p` hop — see [Exposing nested ports to the host](#11-exposing-nested-ports-to-the-host)). |
 | Nested container bind-mounts `/workspace/...` | Works. nested containers are children in the agent's mount namespace. They cannot reach beyond what the agent already sees. |
 | TLS from inside a nested container | Works for tools honouring `SSL_CERT_FILE`/`NODE_EXTRA_CA_CERTS`/etc. Images with a hardcoded bundle path need a per-image `COPY`. |
-| `storage: volume`, project directory deleted | Volume is labelled with `pi-container.project.path`. The orphan-cleanup pass reclaims it exactly as it does project images. |
+| `storage: volume`, project directory deleted | Volume is labelled with `pa-container.project.path`. The orphan-cleanup pass reclaims it exactly as it does project images. |
 | `storage: tmpfs` on the 2 GiB default machine | First sizeable pull hits OOM. Docs must state the machine-sizing requirement. |
 | Concurrent runs in the same workspace | Both mount the same nested-storage volume. Podman's own storage locks (in the per-run `XDG_RUNTIME_DIR`) do **not** span containers (see [Open questions](#open-questions)). |
 | Inner `podman run --memory=…` | Best-effort. No cgroup delegation. Aggregate limit from `resources.agent` still applies. |
@@ -776,12 +776,12 @@ Each phase leaves the tree working. The security-relevant surface all lands in p
 |---|---|
 | `src/runtimes.py` | Delete `DockerRuntime` + registry entry + `proxy_secondary_connect_argv()`. Add `PodmanRuntime.nested_container_args(cfg, project_hash) -> list[str]` returning the device/security/volume/env flags. Update the module docstring (it currently documents two runtimes). |
 | `src/network.py` | Delete the `proxy_secondary_connect_argv()` call in `_actually_start()`. Add `read_nested_containers_config()`. |
-| `src/run.py` | Call `read_nested_containers_config()`; splice `nested_container_args()` into `pi_container_cmd`. Add `_ensure_nested_volume()` (create + label) and `_cleanup_orphaned_nested_volumes()` mirroring `_cleanup_orphaned_project_images()`. |
+| `src/run.py` | Call `read_nested_containers_config()`; splice `nested_container_args()` into `PA_CONTAINER_cmd`. Add `_ensure_nested_volume()` (create + label) and `_cleanup_orphaned_nested_volumes()` mirroring `_cleanup_orphaned_project_images()`. |
 | `src/util.py` | `validate_environment()`: podman-only. |
 | `src/schema_common.py` | `SCHEMA` gains `nested_containers` (`enabled`, `storage`, `security`). |
-| `coding-agent/Containerfile` | Nesting runtime packages; `COPY --from` the toolchain image; `/etc/subuid`/`/etc/subgid`; `setcap` on `newuidmap`/`newgidmap`; `docker` shim; `/etc/containers/{policy.json,registries.conf,containers.conf.d/50-pi-container.conf}`. |
+| `coding-agent/Containerfile` | Nesting runtime packages; `COPY --from` the toolchain image; `/etc/subuid`/`/etc/subgid`; `setcap` on `newuidmap`/`newgidmap`; `docker` shim; `/etc/containers/{policy.json,registries.conf,containers.conf.d/50-pa-container.conf}`. |
 | `coding-agent-builder/` | **New.** Builds podman 6 (explicit `BUILDTAGS`), netavark/aardvark-dns 2.0 and CPython/uv/podman-compose from source, and stages Node 26 (official tarball by default, `NODE_SOURCE=build` to compile) — one independent stage each, under `/out`. Every version, commit and sha256 is an `ARG` in its `Containerfile`; the scripts assert them via `require_env` and default nothing. |
-| `coding-agent/entrypoint.sh` | `PI_CONTAINER_NESTED` block creating/chowning `/run/user/1000` and the store. |
+| `coding-agent/entrypoint.sh` | `PA_CONTAINER_NESTED` block creating/chowning `/run/user/1000` and the store. |
 | `coding-agent/default/project/config.yaml` | New `nested_containers` section; bump `schema_version`. |
 | `coding-agent/default/project/allowlist.yaml` | Commented registry allow-rule block. |
 | `docs/configuration.md`, `docs/architecture.md`, `docs/getting-started.md` | Document the section, the trust model change, machine sizing; drop Docker references. |
@@ -835,11 +835,11 @@ podman machine ssh 'cat /etc/subuid; ls -l /dev/fuse /dev/net/tun; getenforce'
 podman machine ssh 'stat -fc %T /sys/fs/cgroup'                    # cgroup2fs
 
 # ── Nesting primitives, in the real agent image ─────────────────────────────
-podman run --rm --entrypoint cat pi-coding-agent:local /proc/self/uid_map
+podman run --rm --entrypoint cat pa-container-agent:local /proc/self/uid_map
 #   0 501 1  /  1 100000 1000000     → container UIDs 1..1000000 are mapped
-podman run --rm --user pi --entrypoint unshare pi-coding-agent:local -U -r id
+podman run --rm --user pi --entrypoint unshare pa-container-agent:local -U -r id
 #   uid=0(root) — nested userns works as uid 1000, no extra flags
-podman run --rm --entrypoint sh pi-coding-agent:local \
+podman run --rm --entrypoint sh pa-container-agent:local \
   -c 'command -v newuidmap fuse-overlayfs slirp4netns pasta podman || echo NONE-OF-THESE'
 #   NONE-OF-THESE → toolchain must be added
 
@@ -878,7 +878,7 @@ podman run --rm --device /dev/fuse --security-opt label=disable --user podman \
 
 ## Appendix B: implementation-time verification (agent image, not the reference image)
 
-Re-run against the real `pi-coding-agent` image once the toolchain landed. Everything
+Re-run against the real `pa-container-agent` image once the toolchain landed. Everything
 below was measured, and three of the four findings contradict the design above.
 
 ```bash
@@ -903,7 +903,7 @@ podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}}'
 # label=disable + SYS_ADMIN              → crun: ping_group_range: Read-only file system
 # label=disable + unmask=ALL             → crun: sethostname: Operation not permitted
 # label=disable + unmask=ALL + SYS_ADMIN → INNER-STARTED-OK ✅
-#   inner container also confirmed: SSL_CERT_FILE set + /etc/pi-container-ca.crt
+#   inner container also confirmed: SSL_CERT_FILE set + /etc/pa-container-ca.crt
 #   readable (the containers.conf drop-in works), HTTPS OK on a routed network.
 
 # ── Compose, end to end in the agent image ─────────────────────────────────
@@ -931,7 +931,7 @@ podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}}'
 
 The apt-installed podman 5.4.2 was replaced by podman 6.0.2 built from source (with
 netavark/aardvark-dns 2.0.0 and CPython/uv/podman-compose), copied in from
-`pi-coding-agent-builder:local`. Everything above was re-run against it, unchanged
+`pa-container-agent-builder:local`. Everything above was re-run against it, unchanged
 flags:
 
 ```bash

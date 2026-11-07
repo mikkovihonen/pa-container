@@ -57,7 +57,7 @@ FROM debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b
 
 # Everything that will be copied into the agent image is staged here, mirroring its
 # final layout: /out/usr/local/bin/podman → /usr/local/bin/podman.
-ENV PI_STAGE=/out
+ENV PA_STAGE=/out
 
 # Build dependencies for every script below, grouped by what needs them. None of this
 # is shipped — the agent image installs its own (smaller) runtime set.
@@ -598,4 +598,4 @@ COPY --from=podman /out/ /podman/
 COPY --from=network /out/ /network/
 COPY --from=go /out/ /go/
 COPY --from=rust /out/ /rust/
-LABEL pi-container.type="shared"
+LABEL pa-container.type="shared"

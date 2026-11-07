@@ -1,4 +1,4 @@
-# Append to the rules list in .pi-container/allowlist.yaml:
+# Append to the rules list in .pa-container/allowlist.yaml:
 - name: "opper-ai-allow"
   mode: "allow"
   hostnames:

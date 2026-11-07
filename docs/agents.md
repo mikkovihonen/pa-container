@@ -1,12 +1,12 @@
 # Multi-Agent Support
 
-`pi-container` features a decoupled, pluggable agent architecture that allows running multiple coding agent engines within the exact same hardened container sandbox and audit proxy environment.
+`pa-container` features a decoupled, pluggable agent architecture that allows running multiple coding agent engines within the exact same hardened container sandbox and audit proxy environment.
 
 Whether you run the default **Pi Coding Agent**, **OpenCode**, **Antigravity**, or **Claude Code**, your workspace benefits from:
 
 - **Identical Security Boundary**: Rootless container execution, read-only root filesystem, tmpfs isolation, and egress proxy inspection.
 - **Credential Protection**: Agents run with placeholder credentials; actual secrets are stored in the host OS keyring and injected on proxy egress via the Token Replacer addon.
-- **Dynamic Model Synthesis**: Host-wide models and gateways (`~/.config/pi-container/models/` and `gateways/`) are translated automatically into native configuration formats for each agent.
+- **Dynamic Model Synthesis**: Host-wide models and gateways (`~/.config/pa-container/models/` and `gateways/`) are translated automatically into native configuration formats for each agent.
 - **On-Demand Toolchain Staging**: Alternative agent binaries are built and staged independently as lightweight scratch images and layered into project containers on demand.
 
 ---
@@ -26,7 +26,7 @@ Whether you run the default **Pi Coding Agent**, **OpenCode**, **Antigravity**, 
 
 ### 1. Workspace Configuration (`config.yaml`)
 
-Specify enabled agents and the default active agent in `.pi-container/config.yaml`. Every agent—including Pi—can be enabled or disabled. At least one agent must be enabled in the configuration:
+Specify enabled agents and the default active agent in `.pa-container/config.yaml`. Every agent—including Pi—can be enabled or disabled. At least one agent must be enabled in the configuration:
 
 ```yaml
 agents:
@@ -43,7 +43,7 @@ agent:
   options: ["--verbose"] # Optional CLI options appended to invocation
 ```
 
-When configured in `config.yaml`, `pi-container` automatically builds and includes the toolchains for all enabled agents in the project container image and sets up the appropriate state directories and mounts.
+When configured in `config.yaml`, `pa-container` automatically builds and includes the toolchains for all enabled agents in the project container image and sets up the appropriate state directories and mounts.
 
 ### 2. Command-Line Override (`--agent`)
 
@@ -60,7 +60,7 @@ You can select any enabled agent for a single invocation using the `--agent` com
 ./run.sh --agent claude
 ```
 
-If an agent is not listed in `agents.enabled`, `pi-container` rejects the invocation with an error.
+If an agent is not listed in `agents.enabled`, `pa-container` rejects the invocation with an error.
 
 ---
 
@@ -68,44 +68,44 @@ If an agent is not listed in `agents.enabled`, `pi-container` rejects the invoca
 
 ### 1. Pi Coding Agent (`pi`)
 
-- **State Directory**: `.pi-container/agents/pi/` mounted to `/home/agent/.pi/agent`.
+- **State Directory**: `.pa-container/agents/pi/` mounted to `/home/agent/.pi/agent`.
 - **Configuration**: Synthesizes native `/home/agent/.pi/agent/models.json` on-demand from host models and project allowlist.
 - **Tmpfs Isolation**: Transient binaries in `/home/agent/.pi/agent/bin` are mounted on tmpfs to prevent disk persistence.
 
 ### 2. OpenCode (`opencode`)
 
-- **State Directory**: `.pi-container/agents/opencode/` mounted to `/home/agent/.config/opencode`.
-- **Model Translation**: Synthesizes `.pi-container/agents/opencode/config.json` with OpenAI-compatible endpoint configurations.
-- **Egress Authentication**: Outgoing requests carry placeholder `Bearer pi-container-token-placeholder` headers that the proxy transforms into the real API key.
+- **State Directory**: `.pa-container/agents/opencode/` mounted to `/home/agent/.config/opencode`.
+- **Model Translation**: Synthesizes `.pa-container/agents/opencode/config.json` with OpenAI-compatible endpoint configurations.
+- **Egress Authentication**: Outgoing requests carry placeholder `Bearer pa-container-token-placeholder` headers that the proxy transforms into the real API key.
 
 ### 3. Google Antigravity (`antigravity`)
 
-- **State Directory**: `.pi-container/agents/antigravity/` mounted to `/home/agent/.gemini/antigravity`.
-- **Model Translation**: Synthesizes `.pi-container/agents/antigravity/config.json` targeting Gemini models.
+- **State Directory**: `.pa-container/agents/antigravity/` mounted to `/home/agent/.gemini/antigravity`.
+- **Model Translation**: Synthesizes `.pa-container/agents/antigravity/config.json` targeting Gemini models.
 - **Egress Authentication**: Proxy injects the host's `GEMINI_API_KEY` into `x-goog-api-key` headers for `generativelanguage.googleapis.com`.
 
 ### 4. Claude Code (`claude`)
 
-- **State Directory**: `.pi-container/agents/claude/` mounted to `/home/agent/.claude`.
-- **Model Translation**: Synthesizes `.pi-container/agents/claude/claude.json`.
-- **Egress Authentication**: Outgoing requests carry `x-api-key: pi-container-token-placeholder` replaced with the host's `ANTHROPIC_API_KEY`.
+- **State Directory**: `.pa-container/agents/claude/` mounted to `/home/agent/.claude`.
+- **Model Translation**: Synthesizes `.pa-container/agents/claude/claude.json`.
+- **Egress Authentication**: Outgoing requests carry `x-api-key: pa-container-token-placeholder` replaced with the host's `ANTHROPIC_API_KEY`.
 - **T3 Code Integration**: Enables the `claudeAgent` provider in T3 Code for web-based multi-agent workflows.
 
 ---
 
 ## Dynamic Model Synthesis
 
-Instead of managing separate configuration formats for each agent, `pi-container` synthesizes native configuration files dynamically from your global models and an optional project-level allowlist.
+Instead of managing separate configuration formats for each agent, `pa-container` synthesizes native configuration files dynamically from your global models and an optional project-level allowlist.
 
 ### Global Models & Gateways
 
 Global model definitions reside on your host:
-- `~/.config/pi-container/models/*.yaml`: Local LLM endpoints (llama.cpp, Ollama, vLLM).
-- `~/.config/pi-container/gateways/*.yaml`: Remote gateways (OpenAI, Anthropic, Opper, OpenRouter).
+- `~/.config/pa-container/models/*.yaml`: Local LLM endpoints (llama.cpp, Ollama, vLLM).
+- `~/.config/pa-container/gateways/*.yaml`: Remote gateways (OpenAI, Anthropic, Opper, OpenRouter).
 
-### Project Allowlist (`.pi-container/models.yaml`)
+### Project Allowlist (`.pa-container/models.yaml`)
 
-You can restrict which models are available to the agent in your project workspace by creating `.pi-container/models.yaml`:
+You can restrict which models are available to the agent in your project workspace by creating `.pa-container/models.yaml`:
 
 ```yaml
 # Optional default model to set as active
@@ -131,7 +131,7 @@ Agent toolchains are packaged as independent recipes in `coding-agent-builder/to
 Each recipe verifies SHA256 checksums across both `amd64` and `arm64` architectures and exports a standalone scratch stage (`stage-<tool>`).
 
 When an agent is selected:
-1. `pi-container` checks if the tool image `localhost/pi-coding-agent-tool-<agent>:local` exists and matches the content hash of the recipe.
+1. `pa-container` checks if the tool image `localhost/pa-container-agent-tool-<agent>:local` exists and matches the content hash of the recipe.
 2. If absent or stale, the tool image is built in seconds.
 3. The tool image is layered into the project-specific agent container image via build-contexts (`--build-context tool_<agent>=docker-image://...`).
 
@@ -139,7 +139,7 @@ When an agent is selected:
 
 ## Adding Custom Agent Drivers
 
-New agents can be integrated into `pi-container` by creating a new `AgentDriver` subclass:
+New agents can be integrated into `pa-container` by creating a new `AgentDriver` subclass:
 
 1. Create a driver class inheriting from `agents.base.AgentDriver`:
     - Implement `name`, `required_tools`, `get_mounts()`, `get_command()`, and `synthesize_config()`.

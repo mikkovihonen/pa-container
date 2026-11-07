@@ -23,6 +23,16 @@ def resolve_chat_template_path(
     if p.is_absolute():
         if p.exists():
             return p
+        # If path contains "chat-templates", check under active global or bundled templates
+        if "chat-templates" in p.parts:
+            idx = p.parts.index("chat-templates")
+            rel = Path(*p.parts[idx + 1 :])
+            candidate = g_dir / rel
+            if candidate.exists():
+                return candidate.resolve()
+            bundled = r_root / "coding-agent" / "default" / "global" / "chat-templates" / rel
+            if bundled.exists():
+                return bundled.resolve()
         # If it points to global chat-templates directory but doesn't exist on disk,
         # check if it exists in the bundled repository chat-templates
         try:
@@ -34,11 +44,11 @@ def resolve_chat_template_path(
             pass
         return p
 
-    # 1. Directly under global chat-templates directory (~/.config/pi-container/chat-templates/)
+    # 1. Directly under global chat-templates directory (~/.config/pa-container/chat-templates/)
     if (g_dir / p).exists():
         return (g_dir / p).resolve()
 
-    # 2. Relative to ~/.config/pi-container/ (e.g. "chat-templates/<model>/...")
+    # 2. Relative to ~/.config/pa-container/ (e.g. "chat-templates/<model>/...")
     if (GLOBAL_CONFIG_DIR / p).exists():
         return (GLOBAL_CONFIG_DIR / p).resolve()
 

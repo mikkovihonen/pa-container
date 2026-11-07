@@ -665,10 +665,10 @@ def clean_project_logs(
 
 
 def clean_all_projects_logs(*, older_than_seconds: float | None = None) -> list[Path]:
-    """Delete log files across all workspaces in ~/.local/state/pi-container/projects/."""
+    """Delete log files across all workspaces in ~/.local/state/pa-container/projects/."""
     state_home = os.environ.get("XDG_STATE_HOME")
     base_dir = Path(state_home) if state_home else Path.home() / ".local" / "state"
-    projects_root = base_dir / "pi-container" / "projects"
+    projects_root = base_dir / "pa-container" / "projects"
 
     if not projects_root.is_dir():
         return []

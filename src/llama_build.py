@@ -15,7 +15,7 @@ logger = get_category_logger(__name__, LogCategory.BUILD)
 
 DEFAULT_REPO_URL = "https://github.com/ggml-org/llama.cpp.git"
 DEFAULT_TAG = "v0.9.0"
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "pi-container"
+DEFAULT_CACHE_DIR = Path.home() / ".cache" / "pa-container"
 DEFAULT_SRC_DIR = DEFAULT_CACHE_DIR / "src" / "llama.cpp"
 DEFAULT_BIN_DIR = DEFAULT_CACHE_DIR / "bin"
 DEFAULT_OUTPUT_BIN = DEFAULT_BIN_DIR / "llama-server"
@@ -103,7 +103,7 @@ def get_minimal_cmake_flags(
     ]
 
     if minimal:
-        # Strip all features unnecessary for pi-container's automated loopback daemon.
+        # Strip all features unnecessary for pa-container's automated loopback daemon.
         flags.extend(
             [
                 "-DLLAMA_BUILD_SERVER=ON",
@@ -213,7 +213,7 @@ def build_llama_server(
     src_dir: Path = DEFAULT_SRC_DIR,
     bin_dir: Path = DEFAULT_BIN_DIR,
 ) -> Path:
-    """Build the minimal, optimized llama-server binary for host execution in pi-container."""
+    """Build the minimal, optimized llama-server binary for host execution in pa-container."""
     ok, err = check_build_prerequisites()
     if not ok:
         raise LlamaBuildError(err)

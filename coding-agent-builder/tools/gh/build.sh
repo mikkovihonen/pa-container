@@ -25,10 +25,10 @@ gh_url="https://github.com/cli/cli/releases/download/v${GH_VERSION}/${gh_tarball
 
 fetch_verified "${gh_url}" "${gh_sha}" "/tmp/${gh_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local"
-tar -C "${PI_STAGE}/usr/local" --strip-components=1 -xzf "/tmp/${gh_tarball}"
+mkdir -p "${PA_STAGE}/usr/local"
+tar -C "${PA_STAGE}/usr/local" --strip-components=1 -xzf "/tmp/${gh_tarball}"
 rm -f "/tmp/${gh_tarball}"
 
-"${PI_STAGE}/usr/local/bin/gh" --version
+"${PA_STAGE}/usr/local/bin/gh" --version
 stage_record "gh" "${GH_VERSION}"
 

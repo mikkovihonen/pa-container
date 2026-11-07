@@ -38,8 +38,8 @@ uv run pytest --cov --cov-report=term-missing
 <a name="schema-validation"></a>
 ## Schema validation
 
-The system validates per-project configuration (`.pi-container/config.yaml`) at launch
-against the pi-container version and the expected schema. The validation checks:
+The system validates per-project configuration (`.pa-container/config.yaml`) at launch
+against the pa-container version and the expected schema. The validation checks:
 
 1. **Schema version** — The `schema_version` field in the config matches the
    app version (from the latest git tag). Bump this field in the templates
@@ -48,7 +48,7 @@ against the pi-container version and the expected schema. The validation checks:
    the correct types.
 
 Validation failure makes the launch exit with a clear error message. The message lists the
-issues and suggests the fix (delete `.pi-container` and re-run).
+issues and suggests the fix (delete `.pa-container` and re-run).
 
 The validation logic lives in `src/config_schema.py` and is tested in
 `src/tests/test_config_schema.py`.

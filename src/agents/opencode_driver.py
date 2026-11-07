@@ -32,7 +32,7 @@ class OpenCodeDriver(AgentDriver):
 
     def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
         return {
-            "OPENAI_API_KEY": "pi-container-token-placeholder",
+            "OPENAI_API_KEY": "pa-container-token-placeholder",
         }
 
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:
@@ -69,7 +69,7 @@ class OpenCodeDriver(AgentDriver):
             endpoints[name] = {
                 "type": "openai",
                 "base_url": base_url,
-                "api_key": "pi-container-token-placeholder",
+                "api_key": "pa-container-token-placeholder",
             }
 
         config_data = {

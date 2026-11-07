@@ -147,16 +147,16 @@ def test_list_active_desktops():
             {
                 "Names": ["pi-agent-proj1"],
                 "Labels": {
-                    "pi-container.project.name": "Project1",
-                    "pi-container.project.hash": "hash1",
+                    "pa-container.project.name": "Project1",
+                    "pa-container.project.hash": "hash1",
                 },
                 "Created": "2026-11-07T20:00:00Z",
             },
             {
                 "Names": ["pi-agent-proj2"],
                 "Labels": {
-                    "pi-container.project.name": "Project2",
-                    "pi-container.project.hash": "hash2",
+                    "pa-container.project.name": "Project2",
+                    "pa-container.project.hash": "hash2",
                 },
                 "Created": "2026-11-07T20:05:00Z",
             },
@@ -248,8 +248,8 @@ def test_agent_desktop_cli_structure():
     assert os.access(agent_desktop, os.X_OK)
 
     # Legacy pi-desktop must not exist
-    pi_desktop = REPO_ROOT / "coding-agent" / "pi-desktop"
-    assert not pi_desktop.exists()
+    PA_DESKTOP = REPO_ROOT / "coding-agent" / "pi-desktop"
+    assert not PA_DESKTOP.exists()
 
     content = agent_desktop.read_text()
     assert "Usage: agent-desktop <command> [args...]" in content
@@ -301,7 +301,7 @@ def test_in_container_virtual_desktop_skill():
 
     # Pure in-container abstraction
     assert "agent-desktop" in content
-    assert "pi-container desktop" not in content
+    assert "pa-container desktop" not in content
     assert "mouse-click-left" in content
     assert "mouse-click-right" in content
     assert "drag" in content
@@ -319,11 +319,11 @@ def test_containerfile_and_entrypoint_desktop_skill_integration():
     # Containerfile COPY
     containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
     assert "COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop" in containerfile
-    assert "COPY coding-agent/skills /usr/local/share/pi-container/skills" in containerfile
+    assert "COPY coding-agent/skills /usr/local/share/pa-container/skills" in containerfile
     assert "pi-desktop" not in containerfile
 
     # entrypoint.sh dynamic provisioning and cleanup
     entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
     assert "/home/agent/.pi/agent/skills/virtual-desktop" in entrypoint
-    assert "/usr/local/share/pi-container/skills/virtual-desktop" in entrypoint
+    assert "/usr/local/share/pa-container/skills/virtual-desktop" in entrypoint
     assert "rm -rf /home/agent/.pi/agent/skills/virtual-desktop" in entrypoint

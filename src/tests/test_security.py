@@ -69,7 +69,7 @@ class TestValidateMountPaths:
         safe_file = tmp_path / "custom.yaml"
         safe_file.write_text("safe: true")
         mounts = [
-            f"{safe_file}:/workspace/.pi-container/allowlist.yaml:rw",
+            f"{safe_file}:/workspace/.pa-container/allowlist.yaml:rw",
             f"{safe_file}:/workspace/.git/hooks/pre-commit:rw",
             f"{safe_file}:/etc/hosts:rw",
             f"{safe_file}:/usr/bin/bash:rw",
@@ -77,7 +77,7 @@ class TestValidateMountPaths:
         ]
         errors = validate_mount_paths(mounts, DEFAULT_SECURITY_CONFIG["blocked_mount_paths"])
         assert len(errors) == 5
-        assert any("/workspace/.pi-container" in e for e in errors)
+        assert any("/workspace/.pa-container" in e for e in errors)
         assert any("/workspace/.git/hooks" in e for e in errors)
         assert any("/etc" in e for e in errors)
         assert any("/usr" in e for e in errors)

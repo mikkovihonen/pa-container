@@ -45,13 +45,13 @@ logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
 # ─── Constants ──────────────────────────────────────────────────────────────
 
-GLOBAL_CONFIG_DIR: Path = Path.home() / ".config" / "pi-container"
+GLOBAL_CONFIG_DIR: Path = Path.home() / ".config" / "pa-container"
 GLOBAL_MODELS_REGISTRY_DIR: Path = GLOBAL_CONFIG_DIR / "models"
 GLOBAL_GATEWAYS_REGISTRY_DIR: Path = GLOBAL_CONFIG_DIR / "gateways"
 GLOBAL_CHAT_TEMPLATES_DIR: Path = GLOBAL_CONFIG_DIR / "chat-templates"
-GLOBAL_CACHE_DIR: Path = Path.home() / ".cache" / "pi-container"
+GLOBAL_CACHE_DIR: Path = Path.home() / ".cache" / "pa-container"
 
-PI_IMAGE_TAG: str = global_config.build.images.agent
+PA_IMAGE_TAG: str = global_config.build.images.agent
 PROXY_IMAGE_TAG: str = global_config.build.images.proxy
 BUILDER_IMAGE_TAG: str = global_config.build.images.builder
 
@@ -76,7 +76,7 @@ ADMIN_PASSWORD: str = get_keyring_secret("ADMIN_PASSWORD") or ""
 # The token_replacer config is mounted into the container at runtime so that
 # run.py can scan it for ${ENV:...} references and pull required secrets
 # from the host secret store.
-CONFIG_DIR: Path = REPO_ROOT / ".pi-container"
+CONFIG_DIR: Path = REPO_ROOT / ".pa-container"
 
 # Optional explicit upstream network override. ``None`` means "use the runtime's
 # default" ("podman"); a non-empty value forces it.
@@ -87,5 +87,5 @@ PROXY_UPSTREAM_NETWORK_ENV: str | None = (
 # NOTE: per-project settings — IPv6, proxy DNS, mitmweb UI exposure, mitmweb flow
 # export, proxy egress policy, tmpfs paths, llama-server startup tuning, container
 # resource limits, and extra agent env/mounts — are read from
-# ``{PROJECT_DIR}/.pi-container/config.yaml`` (see ``network.load_project_config``
+# ``{PROJECT_DIR}/.pa-container/config.yaml`` (see ``network.load_project_config``
 # and its accessors), not environment variables.

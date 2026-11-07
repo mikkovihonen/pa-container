@@ -71,7 +71,7 @@ baseUrl: "https://gw.nitor.app/v1"
 auth:
   type: openid
   discoveryUrl: "https://auth.nitor.app/.well-known/openid-configuration"
-  clientId: "pi-container"
+  clientId: "pa-container"
   scopes:
     - "openid"
     - "profile"
@@ -86,7 +86,7 @@ auth:
     assert gw_def.auth is not None
     assert gw_def.auth.type == "openid"
     assert gw_def.auth.discovery_url == "https://auth.nitor.app/.well-known/openid-configuration"
-    assert gw_def.auth.client_id == "pi-container"
+    assert gw_def.auth.client_id == "pa-container"
     assert "openid" in gw_def.auth.scopes
 
 
@@ -103,7 +103,7 @@ auth:
   authorizationUrl: "https://auth.example.com/oauth/authorize"
   tokenUrl: "https://auth.example.com/oauth/token"
   clientId: "test-client"
-  tokenCache: "~/.cache/pi-container/tokens/custom.json"
+  tokenCache: "~/.cache/pa-container/tokens/custom.json"
 """
     (gw_dir / "custom-gw.yaml").write_text(gw_yaml)
 
@@ -113,7 +113,7 @@ auth:
     assert gw_def.auth is not None
     assert gw_def.auth.authorization_url == "https://auth.example.com/oauth/authorize"
     assert gw_def.auth.token_url == "https://auth.example.com/oauth/token"
-    assert gw_def.auth.token_cache == Path.home() / ".cache" / "pi-container" / "tokens" / "custom.json"
+    assert gw_def.auth.token_cache == Path.home() / ".cache" / "pa-container" / "tokens" / "custom.json"
 
 
 def test_load_gateway_def_api_key(tmp_path: Path):
@@ -128,7 +128,7 @@ baseUrl: "https://api.opper.ai/v3/compat"
 auth:
   type: api-key
   envVar: "OPPER_API_KEY"
-  keyringService: "pi-container"
+  keyringService: "pa-container"
   keyringAccount: "OPPER_API_KEY"
 """
     (gw_dir / "opper.yaml").write_text(gw_yaml)
@@ -142,7 +142,7 @@ auth:
     assert gw_def.auth is not None
     assert gw_def.auth.type == "api-key"
     assert gw_def.auth.env_var == "OPPER_API_KEY"
-    assert gw_def.auth.keyring_service == "pi-container"
+    assert gw_def.auth.keyring_service == "pa-container"
     assert gw_def.auth.keyring_account == "OPPER_API_KEY"
 
 

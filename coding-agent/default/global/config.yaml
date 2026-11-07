@@ -1,4 +1,4 @@
-# Global pi-container configuration (~/.config/pi-container/config.yaml)
+# Global pa-container configuration (~/.config/pa-container/config.yaml)
 # Seeded automatically on first run; edit to customize host-wide defaults.
 schema_version: "0.6.6"
 
@@ -11,8 +11,8 @@ runtime:
 
 # Host LLaMA inference engine settings
 llama:
-  # Path to llama-server. If null or omitted, pi-container resolves:
-  # 1. ~/.cache/pi-container/bin/llama-server (built via ./build.sh --llama)
+  # Path to llama-server. If null or omitted, pa-container resolves:
+  # 1. ~/.cache/pa-container/bin/llama-server (built via ./build.sh --llama)
   # 2. Host PATH (e.g. /opt/homebrew/bin/llama-server or distro package)
   bin: null
 
@@ -27,9 +27,9 @@ llama:
 # Container image build preferences
 build:
   images:
-    agent: pi-coding-agent:local
-    proxy: pi-coding-agent-proxy:local
-    builder: pi-coding-agent-builder:local
+    agent: pa-container-agent:local
+    proxy: pa-container-agent-proxy:local
+    builder: pa-container-agent-builder:local
   dns: "1.1.1.1"
   python_optimize: true
   memory_preflight: true

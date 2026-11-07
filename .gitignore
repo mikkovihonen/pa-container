@@ -32,7 +32,7 @@ venv/
 # Coding Agent runtime caches, logs, and workspace configuration
 coding-agent/logs
 coding-agent/logs/**
-.pi-container/
+.pa-container/
 
 # Generated coverage badge (committed by CI)
 docs/assets/coverage.svg

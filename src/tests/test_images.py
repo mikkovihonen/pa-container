@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import images
-from config import PI_IMAGE_TAG
+from config import PA_IMAGE_TAG
 
 sys.dont_write_bytecode = True
 
@@ -19,13 +19,13 @@ def _make_project_with_deps(tmp_path: Path) -> Path:
     """Create a workspace whose dependency files select a project-specific image."""
     project_dir = tmp_path / "project"
     project_dir.mkdir(exist_ok=True)
-    root_cmd = project_dir / ".pi-container" / "dependencies" / "root" / "commands.sh"
+    root_cmd = project_dir / ".pa-container" / "dependencies" / "root" / "commands.sh"
     root_cmd.parent.mkdir(parents=True, exist_ok=True)
     root_cmd.write_text("#!/bin/bash\necho install\n")
-    pi_agent = project_dir / "coding-agent"
-    pi_agent.mkdir(parents=True, exist_ok=True)
-    (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
-    (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
+    pa_agent = project_dir / "coding-agent"
+    pa_agent.mkdir(parents=True, exist_ok=True)
+    (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+    (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
     return project_dir
 
 
@@ -41,7 +41,7 @@ def _mock_podman(image_ls_stdout: str, ps_stdout: str = ""):
 class TestComputeImageHash:
     def test_includes_repo_files_and_root_commands_sh(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,7 @@ class TestComputeImageHash:
 
     def test_includes_agent_commands_sh(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
@@ -63,7 +63,7 @@ class TestComputeImageHash:
 
     def test_different_root_content_different_hash(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
 
@@ -79,7 +79,7 @@ class TestComputeImageHash:
 
     def test_different_agent_content_different_hash(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
 
@@ -108,7 +108,7 @@ class TestComputeImageHash:
 
     def test_empty_commands_skipped(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +130,7 @@ class TestComputeImageHash:
     def test_tools_inclusion_changes_hash(self, tmp_path):
         repo = tmp_path / "repo"
         repo.mkdir()
-        cfg_dir = repo / ".pi-container"
+        cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
         hash_none = images.compute_image_hash(repo)
         assert hash_none is not None
@@ -148,7 +148,7 @@ class TestComputeImageHash:
         repo.mkdir()
         assert images.read_project_tools(repo) == []
 
-        cfg_dir = repo / ".pi-container"
+        cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
         (cfg_dir / "config.yaml").write_text("tools:\n  include: ['rust', 'go']\n")
         assert images.read_project_tools(repo) == ["go", "rust"]
@@ -181,14 +181,14 @@ class TestComputeImageHash:
 
         tag_cli, is_project_cli = images.resolve_agent_image(repo, extra_tools=["opencode"])
         assert is_project_cli is True
-        assert "pi-container-project-" in tag_cli
+        assert "pa-container-project-" in tag_cli
 
-        cfg_dir = repo / ".pi-container"
+        cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
         (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go']\n")
         tag, is_project = images.resolve_agent_image(repo)
         assert is_project is True
-        assert "pi-container-project-" in tag
+        assert "pa-container-project-" in tag
 
 
 class TestComputeProxyImageHash:
@@ -311,7 +311,7 @@ class TestHasDependencyFiles:
 
     def test_returns_true_when_root_exists(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
@@ -320,7 +320,7 @@ class TestHasDependencyFiles:
 
     def test_returns_true_when_agent_exists(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "agent" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
@@ -329,7 +329,7 @@ class TestHasDependencyFiles:
 
     def test_returns_false_when_files_empty(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
@@ -344,83 +344,83 @@ class TestResolveAgentImage:
         repo = tmp_path / "repo"
         repo.mkdir()
         tag, is_project = images.resolve_agent_image(repo)
-        assert tag == PI_IMAGE_TAG
+        assert tag == PA_IMAGE_TAG
         assert is_project is False
 
     def test_returns_project_when_deps_exist(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
         tag, is_project = images.resolve_agent_image(repo)
-        assert tag.startswith("pi-container-project-")
+        assert tag.startswith("pa-container-project-")
         assert tag.endswith(".local")
         assert is_project is True
 
     def test_project_tag_includes_hash(self, tmp_path):
         repo = tmp_path / "repo"
-        deps = repo / ".pi-container" / "dependencies"
+        deps = repo / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = repo / "coding-agent"
-        pi_agent.mkdir(parents=True, exist_ok=True)
-        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
-        (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
+        pa_agent = repo / "coding-agent"
+        pa_agent.mkdir(parents=True, exist_ok=True)
+        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         tag, _ = images.resolve_agent_image(repo)
-        assert re.fullmatch(r"pi-container-project-[0-9a-f]{10}-[0-9a-f]{16}\.local", tag)
+        assert re.fullmatch(r"pa-container-project-[0-9a-f]{10}-[0-9a-f]{16}\.local", tag)
 
     def test_project_tag_differs_across_repos(self, tmp_path):
         a = tmp_path / "a"
         b = tmp_path / "b"
         for d in (a, b):
-            deps = d / ".pi-container" / "dependencies"
+            deps = d / ".pa-container" / "dependencies"
             deps.parent.mkdir(parents=True, exist_ok=True)
             deps.mkdir(parents=True, exist_ok=True)
             (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
             (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-            pi_agent = d / "coding-agent"
-            pi_agent.mkdir(parents=True, exist_ok=True)
-            (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
-            (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
+            pa_agent = d / "coding-agent"
+            pa_agent.mkdir(parents=True, exist_ok=True)
+            (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+            (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         tag_a, _ = images.resolve_agent_image(a)
         tag_b, _ = images.resolve_agent_image(b)
         assert tag_a != tag_b
 
     def test_project_tag_same_dir_same_tag(self, tmp_path):
-        deps = tmp_path / ".pi-container" / "dependencies"
+        deps = tmp_path / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "coding-agent"
-        pi_agent.mkdir(parents=True, exist_ok=True)
-        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
-        (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
+        pa_agent = tmp_path / "coding-agent"
+        pa_agent.mkdir(parents=True, exist_ok=True)
+        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         tag1, _ = images.resolve_agent_image(tmp_path)
         tag2, _ = images.resolve_agent_image(tmp_path)
         assert tag1 == tag2
 
     def test_resolve_agent_image_with_desktop_enabled(self, tmp_path):
-        cfg_dir = tmp_path / ".pi-container"
+        cfg_dir = tmp_path / ".pa-container"
         cfg_dir.mkdir(parents=True, exist_ok=True)
         (cfg_dir / "config.yaml").write_text("desktop:\n  enabled: true\n")
-        pi_agent = tmp_path / "coding-agent"
-        pi_agent.mkdir(parents=True, exist_ok=True)
-        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        pa_agent = tmp_path / "coding-agent"
+        pa_agent.mkdir(parents=True, exist_ok=True)
+        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
         tag, is_project_specific = images.resolve_agent_image(tmp_path, repo_root=tmp_path)
         assert is_project_specific is True
-        assert "pi-container-project-" in tag
+        assert "pa-container-project-" in tag
 
     def test_compute_image_hash_desktop_changes_hash(self, tmp_path):
-        cfg_dir = tmp_path / ".pi-container"
+        cfg_dir = tmp_path / ".pa-container"
         cfg_dir.mkdir(parents=True, exist_ok=True)
-        pi_agent = tmp_path / "coding-agent"
-        pi_agent.mkdir(parents=True, exist_ok=True)
-        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        pa_agent = tmp_path / "coding-agent"
+        pa_agent.mkdir(parents=True, exist_ok=True)
+        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
         (cfg_dir / "dependencies" / "root").mkdir(parents=True, exist_ok=True)
         (cfg_dir / "dependencies" / "root" / "commands.sh").write_text("echo test")
 
@@ -443,7 +443,7 @@ class TestGetImageLabel:
             raise subprocess.TimeoutExpired(args, 5)
 
         monkeypatch.setattr(images.subprocess, "run", mock_run)
-        result = images.get_image_label("nonexistent-image:latest", "pi-container.hash")
+        result = images.get_image_label("nonexistent-image:latest", "pa-container.hash")
         assert result is None
 
     def test_returns_value_when_label_exists(self, monkeypatch):
@@ -453,7 +453,7 @@ class TestGetImageLabel:
         mock_result.stderr = ""
 
         monkeypatch.setattr(images.subprocess, "run", lambda *args, **kwargs: mock_result)
-        result = images.get_image_label("test-image:latest", "pi-container.hash", runtime="podman")
+        result = images.get_image_label("test-image:latest", "pa-container.hash", runtime="podman")
         assert result == "abc123def456"
 
     def test_returns_none_when_no_value(self, monkeypatch):
@@ -463,50 +463,50 @@ class TestGetImageLabel:
         mock_result.stderr = ""
 
         monkeypatch.setattr(images.subprocess, "run", lambda *args, **kwargs: mock_result)
-        result = images.get_image_label("test-image:latest", "pi-container.hash", runtime="podman")
+        result = images.get_image_label("test-image:latest", "pa-container.hash", runtime="podman")
         assert result is None
 
 
 class TestImageIsCurrent:
     def test_returns_true_when_label_matches(self, monkeypatch, tmp_path):
         monkeypatch.setattr(images, "get_image_label", lambda image_tag, label_key, **kw: "abc123")
-        deps = tmp_path / ".pi-container" / "dependencies"
+        deps = tmp_path / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "coding-agent"
-        pi_agent.mkdir(parents=True, exist_ok=True)
-        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
-        (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
+        pa_agent = tmp_path / "coding-agent"
+        pa_agent.mkdir(parents=True, exist_ok=True)
+        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         result = images.image_is_current(project_dir=tmp_path, image_tag="test:latest", current_hash="abc123")
         assert result is True
 
     def test_returns_false_when_label_missing(self, monkeypatch, tmp_path):
         monkeypatch.setattr(images, "get_image_label", lambda image_tag, label_key, **kw: None)
-        deps = tmp_path / ".pi-container" / "dependencies"
+        deps = tmp_path / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "coding-agent"
-        pi_agent.mkdir(parents=True, exist_ok=True)
-        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
-        (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
+        pa_agent = tmp_path / "coding-agent"
+        pa_agent.mkdir(parents=True, exist_ok=True)
+        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         result = images.image_is_current(project_dir=tmp_path, image_tag="test:latest", current_hash="abc123")
         assert result is False
 
     def test_returns_false_when_label_mismatch(self, monkeypatch, tmp_path):
         monkeypatch.setattr(images, "get_image_label", lambda image_tag, label_key, **kw: "different-hash")
-        deps = tmp_path / ".pi-container" / "dependencies"
+        deps = tmp_path / ".pa-container" / "dependencies"
         deps.parent.mkdir(parents=True, exist_ok=True)
         deps.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").parent.mkdir(parents=True, exist_ok=True)
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
-        pi_agent = tmp_path / "coding-agent"
-        pi_agent.mkdir(parents=True, exist_ok=True)
-        (pi_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
-        (pi_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
+        pa_agent = tmp_path / "coding-agent"
+        pa_agent.mkdir(parents=True, exist_ok=True)
+        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         result = images.image_is_current(project_dir=tmp_path, image_tag="test:latest", current_hash="abc123")
         assert result is False
 
@@ -563,15 +563,15 @@ class TestListProjectImages:
             images,
             "get_image_label",
             lambda image_id, label_key, **kw: (
-                "a1b2c" if label_key == "pi-container.project.hash" else "1111111111111111"
+                "a1b2c" if label_key == "pa-container.project.hash" else "1111111111111111"
             ),
         )
 
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = (
-            "aaaaaaaaaaaa\tpi-container-project-a1b2c-1111111111111111.local:latest\n"
-            "bbbbbbbbbbbb\tpi-container-project-a1b2c-2222222222222222.local:latest\n"
+            "aaaaaaaaaaaa\tpa-container-project-a1b2c-1111111111111111.local:latest\n"
+            "bbbbbbbbbbbb\tpa-container-project-a1b2c-2222222222222222.local:latest\n"
         )
         monkeypatch.setattr(images.subprocess, "run", lambda *args, **kwargs: mock_result)
 
@@ -579,7 +579,7 @@ class TestListProjectImages:
         assert len(result) == 2
         assert result[0] == (
             "aaaaaaaaaaaa",
-            "pi-container-project-a1b2c-1111111111111111.local:latest",
+            "pa-container-project-a1b2c-1111111111111111.local:latest",
             "1111111111111111",
         )
         for _image_id, name, _content_hash in result:
@@ -642,14 +642,14 @@ class TestCleanupStaleProjectImages:
     def test_removes_stale_images(self, monkeypatch, tmp_path):
         project_hash = "a1b2c"
         new_hash = "newhash1234567890"
-        stale_tag = f"pi-container-project-{project_hash}-oldhash1234567890.local"
+        stale_tag = f"pa-container-project-{project_hash}-oldhash1234567890.local"
 
         monkeypatch.setattr(images.subprocess, "run", _mock_podman(f"aaaaaaaaaaaa\t{stale_tag}\n"))
         monkeypatch.setattr(
             images,
             "get_image_label",
             lambda image_id, label_key, **kw: (
-                project_hash if label_key == "pi-container.project.hash" else "oldhash1234567890"
+                project_hash if label_key == "pa-container.project.hash" else "oldhash1234567890"
             ),
         )
 
@@ -662,7 +662,7 @@ class TestCleanupStaleProjectImages:
 
     def test_keeps_stale_image_still_in_use(self, monkeypatch):
         project_hash = "a1b2c"
-        stale_tag = f"pi-container-project-{project_hash}-oldhash1234567890.local"
+        stale_tag = f"pa-container-project-{project_hash}-oldhash1234567890.local"
 
         monkeypatch.setattr(
             images.subprocess,
@@ -673,7 +673,7 @@ class TestCleanupStaleProjectImages:
             images,
             "get_image_label",
             lambda image_id, label_key, **kw: (
-                project_hash if label_key == "pi-container.project.hash" else "oldhash1234567890"
+                project_hash if label_key == "pa-container.project.hash" else "oldhash1234567890"
             ),
         )
 
@@ -687,13 +687,13 @@ class TestCleanupStaleProjectImages:
     def test_skips_images_matching_new_hash(self, monkeypatch):
         project_hash = "a1b2c"
         new_hash = "newhash1234567890"
-        matching_tag = f"pi-container-project-{project_hash}-{new_hash}.local"
+        matching_tag = f"pa-container-project-{project_hash}-{new_hash}.local"
 
         monkeypatch.setattr(images.subprocess, "run", _mock_podman(f"aaaaaaaaaaaa\t{matching_tag}\n"))
         monkeypatch.setattr(
             images,
             "get_image_label",
-            lambda tag, label_key, **kw: project_hash if label_key == "pi-container.project.hash" else new_hash,
+            lambda tag, label_key, **kw: project_hash if label_key == "pa-container.project.hash" else new_hash,
         )
 
         result = images.cleanup_stale_project_images(
@@ -706,13 +706,13 @@ class TestCleanupStaleProjectImages:
     def test_skips_other_projects_images(self, monkeypatch):
         this_hash = "a1b2c"
         other_hash = "xyz99"
-        other_tag = f"pi-container-project-{other_hash}-somehash1234567.local"
+        other_tag = f"pa-container-project-{other_hash}-somehash1234567.local"
 
         monkeypatch.setattr(images.subprocess, "run", _mock_podman(f"bbbbbbbbbbbb\t{other_tag}\n"))
         monkeypatch.setattr(
             images,
             "get_image_label",
-            lambda tag, label_key, **kw: other_hash if label_key == "pi-container.project.hash" else "somehash1234567",
+            lambda tag, label_key, **kw: other_hash if label_key == "pa-container.project.hash" else "somehash1234567",
         )
 
         result = images.cleanup_stale_project_images(
@@ -728,7 +728,7 @@ class TestImageIsCurrentShared:
         monkeypatch.setattr(images, "has_dependency_files", lambda d: False)
         result = images.image_is_current(
             project_dir=tmp_path,
-            image_tag="pi-coding-agent:local",
+            image_tag="pa-container-agent:local",
             current_hash="anything",
         )
         assert result is True
@@ -788,11 +788,11 @@ class TestCleanupOrphanedProjectImages:
         import subprocess as sp
 
         monkeypatch.setattr(
-            sp, "run", _mock_podman("aaaaaaaaaaaa\tpi-container-project-abc12-def3456789012345.local:latest\n")
+            sp, "run", _mock_podman("aaaaaaaaaaaa\tpa-container-project-abc12-def3456789012345.local:latest\n")
         )
 
         def mock_get_label(image_id, label, **kw):
-            if label == "pi-container.project.path":
+            if label == "pa-container.project.path":
                 return "/nonexistent/project/path"
             return None
 
@@ -802,18 +802,18 @@ class TestCleanupOrphanedProjectImages:
 
         result = images.cleanup_orphaned_project_images("podman")
         assert len(result) == 1
-        assert "pi-container-project-abc12-def3456789012345.local:latest" in result
+        assert "pa-container-project-abc12-def3456789012345.local:latest" in result
         assert removed == ["aaaaaaaaaaaa"]
 
     def test_keeps_image_with_existing_path(self, monkeypatch):
         import subprocess as sp
 
         monkeypatch.setattr(
-            sp, "run", _mock_podman("aaaaaaaaaaaa\tpi-container-project-abc12-def3456789012345.local:latest\n")
+            sp, "run", _mock_podman("aaaaaaaaaaaa\tpa-container-project-abc12-def3456789012345.local:latest\n")
         )
 
         def mock_get_label(image_id, label, **kw):
-            if label == "pi-container.project.path":
+            if label == "pa-container.project.path":
                 return str(Path(__file__).parent)
             return None
 
@@ -829,26 +829,26 @@ class TestCleanupOrphanedProjectImages:
         import subprocess as sp
 
         monkeypatch.setattr(
-            sp, "run", _mock_podman("aaaaaaaaaaaa\tpi-container-project-abc12-def3456789012345.local:latest\n")
+            sp, "run", _mock_podman("aaaaaaaaaaaa\tpa-container-project-abc12-def3456789012345.local:latest\n")
         )
         monkeypatch.setattr(images, "get_image_label", lambda image_id, label, **kw: None)
         monkeypatch.setattr(images, "remove_image", lambda runtime, image_id: True)
 
         result = images.cleanup_orphaned_project_images("podman")
         assert len(result) == 1
-        assert "pi-container-project-abc12-def3456789012345.local:latest" in result
+        assert "pa-container-project-abc12-def3456789012345.local:latest" in result
 
     def test_removes_images_with_blank_path_label(self, monkeypatch):
         import subprocess as sp
 
         monkeypatch.setattr(
-            sp, "run", _mock_podman("aaaaaaaaaaaa\tpi-container-project-abc12-def3456789012345.local:latest\n")
+            sp, "run", _mock_podman("aaaaaaaaaaaa\tpa-container-project-abc12-def3456789012345.local:latest\n")
         )
         monkeypatch.setattr(images, "get_image_label", lambda image_id, label, **kw: "")
         monkeypatch.setattr(images, "remove_image", lambda runtime, image_id: True)
 
         result = images.cleanup_orphaned_project_images("podman")
-        assert result == ["pi-container-project-abc12-def3456789012345.local:latest"]
+        assert result == ["pa-container-project-abc12-def3456789012345.local:latest"]
 
     def test_removes_untagged_image_by_id(self, monkeypatch):
         import subprocess as sp
@@ -870,7 +870,7 @@ class TestCleanupOrphanedProjectImages:
             sp,
             "run",
             _mock_podman(
-                "aaaaaaaaaaaa\tpi-container-project-abc12-def3456789012345.local:latest\n",
+                "aaaaaaaaaaaa\tpa-container-project-abc12-def3456789012345.local:latest\n",
                 ps_stdout="aaaaaaaaaaaa\n",
             ),
         )
@@ -939,26 +939,26 @@ class TestNewestSharedImageTime:
     def test_returns_the_newer_of_the_two(self, monkeypatch):
         times = {
             images.PROXY_IMAGE_TAG: "2025-01-01T00:00:00Z",
-            "pi-coding-agent-builder:local": "2025-06-01T00:00:00Z",
+            "pa-container-agent-builder:local": "2025-06-01T00:00:00Z",
         }
         monkeypatch.setattr(
             images,
             "get_image_label",
-            lambda tag, key, **kw: times[tag] if key == "pi-container.build.time" else None,
+            lambda tag, key, **kw: times[tag] if key == "pa-container.build.time" else None,
         )
 
         result = images.newest_shared_image_time()
-        assert result == ("pi-coding-agent-builder:local", _ts("2025-06-01T00:00:00Z"))
+        assert result == ("pa-container-agent-builder:local", _ts("2025-06-01T00:00:00Z"))
 
     def test_proxy_wins_when_newer(self, monkeypatch):
         times = {
             images.PROXY_IMAGE_TAG: "2025-06-01T00:00:00Z",
-            "pi-coding-agent-builder:local": "2025-01-01T00:00:00Z",
+            "pa-container-agent-builder:local": "2025-01-01T00:00:00Z",
         }
         monkeypatch.setattr(
             images,
             "get_image_label",
-            lambda tag, key, **kw: times[tag] if key == "pi-container.build.time" else None,
+            lambda tag, key, **kw: times[tag] if key == "pa-container.build.time" else None,
         )
 
         result = images.newest_shared_image_time()
@@ -969,7 +969,7 @@ class TestNewestSharedImageTime:
         monkeypatch.setattr(
             images,
             "get_image_label",
-            lambda tag, key, **kw: times.get(tag) if key == "pi-container.build.time" else None,
+            lambda tag, key, **kw: times.get(tag) if key == "pa-container.build.time" else None,
         )
 
         assert images.newest_shared_image_time() is None
@@ -977,7 +977,7 @@ class TestNewestSharedImageTime:
     def test_covers_both_source_images(self):
         assert set(images._SHARED_SOURCE_IMAGES) == {
             images.PROXY_IMAGE_TAG,
-            "pi-coding-agent-builder:local",
+            "pa-container-agent-builder:local",
         }
 
 
@@ -988,7 +988,7 @@ class TestProjectImageBuildReason:
 
         reason = images.project_image_build_reason(
             project_dir,
-            "pi-container-project-abcde-abc123def4567890.local",
+            "pa-container-project-abcde-abc123def4567890.local",
             "abc123def4567890",
             _ts("2025-01-01T00:00:00Z"),
         )
@@ -999,9 +999,9 @@ class TestProjectImageBuildReason:
         monkeypatch.setattr(images, "image_exists", lambda tag, **kw: True)
 
         def mock_get_label(image_tag, label_key, **kw):
-            if label_key == "pi-container.build.time":
+            if label_key == "pa-container.build.time":
                 return "2025-06-01T00:00:00Z"
-            if label_key == "pi-container.hash":
+            if label_key == "pa-container.hash":
                 return "abc123def4567890"
             return None
 
@@ -1009,7 +1009,7 @@ class TestProjectImageBuildReason:
 
         reason = images.project_image_build_reason(
             project_dir,
-            "pi-container-project-abcde-abc123def4567890.local",
+            "pa-container-project-abcde-abc123def4567890.local",
             "abc123def4567890",
             _ts("2025-01-01T00:00:00Z"),
         )
@@ -1020,9 +1020,9 @@ class TestProjectImageBuildReason:
         monkeypatch.setattr(images, "image_exists", lambda tag, **kw: True)
 
         def mock_get_label(image_tag, label_key, **kw):
-            if label_key == "pi-container.build.time":
+            if label_key == "pa-container.build.time":
                 return "2025-01-01T00:00:00Z"
-            if label_key == "pi-container.hash":
+            if label_key == "pa-container.hash":
                 return "abc123def4567890"
             return None
 
@@ -1030,7 +1030,7 @@ class TestProjectImageBuildReason:
 
         reason = images.project_image_build_reason(
             project_dir,
-            "pi-container-project-abcde-abc123def4567890.local",
+            "pa-container-project-abcde-abc123def4567890.local",
             "abc123def4567890",
             _ts("2025-06-01T00:00:00Z"),
         )
@@ -1041,9 +1041,9 @@ class TestProjectImageBuildReason:
         monkeypatch.setattr(images, "image_exists", lambda tag, **kw: True)
 
         def mock_get_label(image_tag, label_key, **kw):
-            if label_key == "pi-container.build.time":
+            if label_key == "pa-container.build.time":
                 return "2025-01-01T00:00:00Z"
-            if label_key == "pi-container.hash":
+            if label_key == "pa-container.hash":
                 return "abc123def4567890"
             return None
 
@@ -1052,22 +1052,22 @@ class TestProjectImageBuildReason:
         with caplog.at_level("WARNING"):
             reason = images.project_image_build_reason(
                 project_dir,
-                "pi-container-project-abcde-abc123def4567890.local",
+                "pa-container-project-abcde-abc123def4567890.local",
                 "abc123def4567890",
                 _ts("2025-06-01T00:00:00Z"),
-                "pi-coding-agent-builder:local",
+                "pa-container-agent-builder:local",
             )
         assert reason == "stale shared image"
-        assert "pi-coding-agent-builder:local" in caplog.text
+        assert "pa-container-agent-builder:local" in caplog.text
 
     def test_content_hash_mismatch(self, monkeypatch, tmp_path):
         project_dir = _make_project_with_deps(tmp_path)
         monkeypatch.setattr(images, "image_exists", lambda tag, **kw: True)
 
         def mock_get_label(image_tag, label_key, **kw):
-            if label_key == "pi-container.build.time":
+            if label_key == "pa-container.build.time":
                 return "2025-06-01T00:00:00Z"
-            if label_key == "pi-container.hash":
+            if label_key == "pa-container.hash":
                 return "0000000000000000"
             return None
 
@@ -1075,7 +1075,7 @@ class TestProjectImageBuildReason:
 
         reason = images.project_image_build_reason(
             project_dir,
-            "pi-container-project-abcde-abc123def4567890.local",
+            "pa-container-project-abcde-abc123def4567890.local",
             "abc123def4567890",
             _ts("2025-01-01T00:00:00Z"),
         )

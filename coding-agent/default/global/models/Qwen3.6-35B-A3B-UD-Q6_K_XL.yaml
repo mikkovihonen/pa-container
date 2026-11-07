@@ -52,7 +52,7 @@ flags:
   - 8192
   - "--jinja"
   - "--chat-template-file"
-  - "~/.config/pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
+  - "~/.config/pa-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
   - "--reasoning"
   - "on"
   - "--n-gpu-layers"

@@ -51,7 +51,7 @@ def resolve_oidc_endpoints(auth: GatewayAuth) -> tuple[str, str]:
     """Resolve (authorization_endpoint, token_endpoint) from discoveryUrl or explicit URLs."""
     if auth.discovery_url:
         logger.info(f"Fetching OIDC configuration from {auth.discovery_url}")
-        req = urllib.request.Request(auth.discovery_url, headers={"User-Agent": "pi-container"})
+        req = urllib.request.Request(auth.discovery_url, headers={"User-Agent": "pa-container"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             auth_ep = data.get("authorization_endpoint")
@@ -118,7 +118,7 @@ def refresh_access_token(token_endpoint: str, client_id: str, refresh_token: str
         data=payload,
         headers={
             "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "pi-container",
+            "User-Agent": "pa-container",
         },
         method="POST",
     )
@@ -211,7 +211,7 @@ def interactive_browser_login(
     }
     auth_url = f"{auth_endpoint}?{urllib.parse.urlencode(query_params)}"
 
-    print(f"\n[pi-container] Opening browser for OpenID authentication:\n  {auth_url}\n")
+    print(f"\n[pa-container] Opening browser for OpenID authentication:\n  {auth_url}\n")
     webbrowser.open(auth_url)
 
     # Poll server for callback with timeout
@@ -248,7 +248,7 @@ def interactive_browser_login(
         data=payload,
         headers={
             "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "pi-container",
+            "User-Agent": "pa-container",
         },
         method="POST",
     )
@@ -283,7 +283,7 @@ def ensure_gateway_auth(gateway_id: str, auth: GatewayAuth) -> str:
         if "refresh_token" in cached:
             try:
                 _, token_ep = resolve_oidc_endpoints(auth)
-                client_id = auth.client_id or "pi-container"
+                client_id = auth.client_id or "pa-container"
                 refreshed = refresh_access_token(token_ep, client_id, cached["refresh_token"])
                 if refreshed and "access_token" in refreshed:
                     if "refresh_token" not in refreshed:
@@ -296,7 +296,7 @@ def ensure_gateway_auth(gateway_id: str, auth: GatewayAuth) -> str:
 
     # 3. Interactive browser login
     auth_ep, token_ep = resolve_oidc_endpoints(auth)
-    client_id = auth.client_id or "pi-container"
+    client_id = auth.client_id or "pa-container"
     new_tokens = interactive_browser_login(
         auth_endpoint=auth_ep,
         token_endpoint=token_ep,

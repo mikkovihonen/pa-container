@@ -24,7 +24,7 @@ sys.dont_write_bytecode = True
 
 
 def get_app_version(repo_root: Path | None = None) -> str | None:
-    """Retrieve the current pi-container version from git tags on the repository."""
+    """Retrieve the current pa-container version from git tags on the repository."""
     r_root = repo_root if repo_root is not None else Path(__file__).resolve().parent.parent
     return get_git_tag_version(r_root)
 
@@ -103,8 +103,8 @@ def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
     if app_version is not None and schema_version_str != app_version:
         errors.append(
             f"  {SCHEMA_VERSION_MISMATCH}: config has '{schema_version_str}', "
-            f"but pi-container version is '{app_version}' (from git tag). "
-            f"Delete .pi-container and re-run to re-seed, or update schema_version in config.yaml."
+            f"but pa-container version is '{app_version}' (from git tag). "
+            f"Delete .pa-container and re-run to re-seed, or update schema_version in config.yaml."
         )
 
     # Validate schema
@@ -130,7 +130,7 @@ def validate_global_config(
     config_path: Path,
     repo_root: Path | None = None,
 ) -> tuple[bool, list[str], str | None]:
-    """Validate global ~/.config/pi-container/config.yaml structure, required fields, and schema version.
+    """Validate global ~/.config/pa-container/config.yaml structure, required fields, and schema version.
 
     Returns:
         tuple of (is_valid, error_list, schema_version_string).
@@ -166,8 +166,8 @@ def validate_global_config(
     if app_version is not None and schema_version_str != app_version:
         errors.append(
             f"  {SCHEMA_VERSION_MISMATCH}: global config has '{schema_version_str}', "
-            f"but pi-container version is '{app_version}' (from git tag). "
-            f"Delete ~/.config/pi-container/config.yaml and re-run to re-seed, or update schema_version."
+            f"but pa-container version is '{app_version}' (from git tag). "
+            f"Delete ~/.config/pa-container/config.yaml and re-run to re-seed, or update schema_version."
         )
 
     schema_errors = _validate_schema(data, GLOBAL_CONFIG_SCHEMA)
@@ -206,7 +206,7 @@ def validate_models(
     gateways_dir: Path | None = None,
     models_dir: Path | None = None,
 ) -> tuple[bool, list[str]]:
-    """Validate `.pi-container/models.yaml` structure."""
+    """Validate `.pa-container/models.yaml` structure."""
     errors: list[str] = []
 
     if not models_path.exists():

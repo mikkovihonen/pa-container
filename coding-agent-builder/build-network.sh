@@ -86,8 +86,8 @@ build_helper() {
     # helper_binaries_dir's default list starts with /usr/local/libexec/podman,
     # which is where podman looks for both of these.
     install -D -m 0755 "target/release/${name}" \
-        "${PI_STAGE}/usr/local/libexec/podman/${name}"
-    "${PI_STAGE}/usr/local/libexec/podman/${name}" --version
+        "${PA_STAGE}/usr/local/libexec/podman/${name}"
+    "${PA_STAGE}/usr/local/libexec/podman/${name}" --version
 
     cd /
     rm -rf "${src}"

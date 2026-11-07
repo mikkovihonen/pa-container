@@ -69,22 +69,22 @@ class TestEnsureProjectConfig:
         monkeypatch.setattr(project, "REPO_ROOT", repo)
         monkeypatch.setattr(project, "PROJECT_DIR", proj)
 
-        pi_container_dir = project.ensure_project_config()
+        PA_CONTAINER_dir = project.ensure_project_config()
 
-        assert pi_container_dir == proj / ".pi-container"
-        assert (proj / ".pi-container" / "agents" / "pi" / "config.json").exists()
-        assert not (proj / ".pi-container" / "chat-templates").exists()
+        assert PA_CONTAINER_dir == proj / ".pa-container"
+        assert (proj / ".pa-container" / "agents" / "pi" / "config.json").exists()
+        assert not (proj / ".pa-container" / "chat-templates").exists()
         for name in ("config.yaml", "allowlist.yaml", "token_replacer.yaml", "models.yaml"):
-            assert (proj / ".pi-container" / name).exists()
-        assert (proj / ".pi-container" / "dependencies" / "root" / "commands.sh").exists()
-        assert (proj / ".pi-container" / "dependencies" / "agent" / "commands.sh").exists()
+            assert (proj / ".pa-container" / name).exists()
+        assert (proj / ".pa-container" / "dependencies" / "root" / "commands.sh").exists()
+        assert (proj / ".pa-container" / "dependencies" / "agent" / "commands.sh").exists()
 
     def test_does_not_overwrite_existing(self, tmp_path, monkeypatch):
         repo = tmp_path / "repo"
         proj = tmp_path / "project"
         self._make_template(repo)
         # Pre-existing, user-edited allowlist must be preserved.
-        existing = proj / ".pi-container" / "allowlist.yaml"
+        existing = proj / ".pa-container" / "allowlist.yaml"
         existing.parent.mkdir(parents=True)
         existing.write_text("global: {custom: true}\n")
         monkeypatch.setattr(project, "REPO_ROOT", repo)
@@ -94,8 +94,8 @@ class TestEnsureProjectConfig:
 
         assert existing.read_text() == "global: {custom: true}\n"
         # Missing ones are still seeded.
-        assert (proj / ".pi-container" / "token_replacer.yaml").exists()
-        assert (proj / ".pi-container" / "agents" / "pi" / "config.json").exists()
+        assert (proj / ".pa-container" / "token_replacer.yaml").exists()
+        assert (proj / ".pa-container" / "agents" / "pi" / "config.json").exists()
 
 
 class TestEnsureProjectConfigMissingTemplate:
@@ -112,10 +112,10 @@ class TestEnsureProjectConfigMissingTemplate:
 class TestConfigFixHint:
     """The remedy printed when config.yaml fails validation."""
 
-    PATH = Path("/ws/.pi-container/config.yaml")
+    PATH = Path("/ws/.pa-container/config.yaml")
 
     def test_stale_version_alone_is_fixed_by_editing_the_version(self):
-        errors = [f"  {SCHEMA_VERSION_MISMATCH}: config has '0.4.1', pi-container is '0.4.2'"]
+        errors = [f"  {SCHEMA_VERSION_MISMATCH}: config has '0.4.1', pa-container is '0.4.2'"]
         hint = " ".join(project.config_fix_hint(errors, self.PATH))
         assert "set schema_version" in hint
         assert "rm " not in hint
@@ -133,7 +133,7 @@ class TestConfigFixHint:
 
     def test_version_and_field_errors_together_take_the_reseed_path(self):
         errors = [
-            f"  {SCHEMA_VERSION_MISMATCH}: config has '0.4.1', pi-container is '0.4.2'",
+            f"  {SCHEMA_VERSION_MISMATCH}: config has '0.4.1', pa-container is '0.4.2'",
             "  nested_containers.ports: required field missing",
         ]
         hint = " ".join(project.config_fix_hint(errors, self.PATH))
@@ -153,7 +153,7 @@ class TestProjectDirectories:
         ws.mkdir()
         state_dir = project.get_project_state_dir(ws)
         key = project.project_key(ws)
-        assert state_dir == custom_state / "pi-container" / "projects" / f"my_project-{key}"
+        assert state_dir == custom_state / "pa-container" / "projects" / f"my_project-{key}"
 
     def test_get_project_logs_dir_creates_dir(self, tmp_path, monkeypatch):
         custom_state = tmp_path / "state"

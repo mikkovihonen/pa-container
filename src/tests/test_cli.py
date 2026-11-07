@@ -394,7 +394,7 @@ class TestProxyCli:
         from network import ActiveProxyInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_proxy = ActiveProxyInfo(
             project_name="test-project",
             project_path=tmp_path,
@@ -417,7 +417,7 @@ class TestProxyCli:
 
     def test_proxy_inactive_project(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         with (
             patch("network.get_project_proxy", return_value=None),
             patch("rich.console.Console.print") as mock_print,
@@ -431,7 +431,7 @@ class TestProxyCli:
         from network import ActiveProxyInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_proxy = ActiveProxyInfo(
             project_name="test-project",
             project_path=tmp_path,
@@ -456,7 +456,7 @@ class TestProxyCli:
         from network import ActiveProxyInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_proxy = ActiveProxyInfo(
             project_name="test-project",
             project_path=tmp_path,
@@ -482,7 +482,7 @@ class TestProxyCli:
         from network import ActiveProxyInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_proxy = ActiveProxyInfo(
             project_name="test-project",
             project_path=tmp_path,
@@ -510,7 +510,7 @@ class TestProxyCli:
         ):
             code = handle_proxy_command(ProxyOptions(all=True))
             assert code == 0
-            mock_print.assert_called_once_with("[dim]No active pi-container proxies found on this system.[/dim]")
+            mock_print.assert_called_once_with("[dim]No active pa-container proxies found on this system.[/dim]")
 
     def test_proxy_all_with_proxies(self, tmp_path: Path, monkeypatch) -> None:
         from network import ActiveProxyInfo
@@ -590,12 +590,12 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
             project_hash="abcdef1234",
-            container_name="pi-coding-agent-gui-abcdef1234",
+            container_name="pa-container-agent-gui-abcdef1234",
             novnc_port=6080,
             novnc_url="http://127.0.0.1:6080",
             vnc_port=5900,
@@ -617,7 +617,7 @@ class TestDesktopCli:
 
     def test_desktop_inactive_project(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         with (
             patch("desktop.get_project_desktop", return_value=None),
             patch("rich.console.Console.print") as mock_print,
@@ -631,12 +631,12 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
             project_hash="abcdef1234",
-            container_name="pi-coding-agent-gui-abcdef1234",
+            container_name="pa-container-agent-gui-abcdef1234",
             novnc_port=6080,
             novnc_url="http://127.0.0.1:6080",
             vnc_port=5900,
@@ -657,12 +657,12 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
             project_hash="abcdef1234",
-            container_name="pi-coding-agent-gui-abcdef1234",
+            container_name="pa-container-agent-gui-abcdef1234",
             novnc_port=6080,
             novnc_url="http://127.0.0.1:6080",
             vnc_port=5900,
@@ -685,12 +685,12 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
             project_hash="abcdef1234",
-            container_name="pi-coding-agent-gui-abcdef1234",
+            container_name="pa-container-agent-gui-abcdef1234",
             novnc_port=6080,
             novnc_url="http://127.0.0.1:6080",
             vnc_port=5900,
@@ -715,12 +715,12 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container").mkdir()
+        (tmp_path / ".pa-container").mkdir()
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
             project_hash="abcdef1234",
-            container_name="pi-coding-agent-gui-abcdef1234",
+            container_name="pa-container-agent-gui-abcdef1234",
             novnc_port=6080,
             novnc_url="http://127.0.0.1:6080",
             vnc_port=5900,
@@ -747,7 +747,7 @@ class TestDesktopCli:
             code = handle_desktop_command(DesktopOptions(all=True))
             assert code == 0
             mock_print.assert_called_once_with(
-                "[dim]No active pi-container virtual desktops found on this system.[/dim]"
+                "[dim]No active pa-container virtual desktops found on this system.[/dim]"
             )
 
     def test_desktop_all_with_desktops(self, tmp_path: Path, monkeypatch) -> None:

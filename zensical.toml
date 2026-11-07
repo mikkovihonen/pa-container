@@ -1,10 +1,10 @@
 [project]
-site_name = "pi-container"
+site_name = "pa-container"
 site_description = "A containerized environment for running the pi-coding-agent with local LLM inference and full auditability"
-site_url = "https://mikkovihonen.github.io/pi-container"
+site_url = "https://mikkovihonen.github.io/pa-container"
 
-repo_name = "mikkovihonen/pi-container"
-repo_url = "https://github.com/mikkovihonen/pi-container"
+repo_name = "mikkovihonen/pa-container"
+repo_url = "https://github.com/mikkovihonen/pa-container"
 
 nav = [
   { "Home" = "index.md" },
@@ -28,8 +28,8 @@ nav = [
 
 [project.theme]
 language = "en"
-logo = "assets/pi-container-logo.svg"
-favicon = "assets/png/pi-container-32.png"
+logo = "assets/pa-container-logo.svg"
+favicon = "assets/png/pa-container-32.png"
 custom_dir = "docs/overrides"
 features = [
   "content.code.annotate",

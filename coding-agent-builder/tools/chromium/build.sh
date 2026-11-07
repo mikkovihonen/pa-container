@@ -33,14 +33,14 @@ chrome_url="https://storage.googleapis.com/chrome-for-testing-public/${CHROMIUM_
 
 fetch_verified "${chrome_url}" "${chrome_sha}" "/tmp/${zip_file}"
 
-mkdir -p "${PI_STAGE}/usr/local/lib/chromium" "/tmp/chrome_unpack"
+mkdir -p "${PA_STAGE}/usr/local/lib/chromium" "/tmp/chrome_unpack"
 unzip -q "/tmp/${zip_file}" -d "/tmp/chrome_unpack"
-cp -a "/tmp/chrome_unpack/${dir_name}"/* "${PI_STAGE}/usr/local/lib/chromium/"
+cp -a "/tmp/chrome_unpack/${dir_name}"/* "${PA_STAGE}/usr/local/lib/chromium/"
 rm -rf "/tmp/${zip_file}" "/tmp/chrome_unpack"
 
-mkdir -p "${PI_STAGE}/usr/local/bin"
+mkdir -p "${PA_STAGE}/usr/local/bin"
 
-cat <<'EOF' > "${PI_STAGE}/usr/local/bin/chromium"
+cat <<'EOF' > "${PA_STAGE}/usr/local/bin/chromium"
 #!/bin/bash
 # Wrapper script for containerized Chromium / Chrome for Testing.
 set -euo pipefail
@@ -48,7 +48,7 @@ set -euo pipefail
 CHROME_BIN="/usr/local/lib/chromium/chrome"
 
 # Initialize user NSS DB with mitmproxy CA if certutil is available and CA exists
-CA_CERT="/etc/pi-container-ca.crt"
+CA_CERT="/etc/pa-container-ca.crt"
 if [ ! -f "${CA_CERT}" ]; then
     CA_CERT="/usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt"
 fi
@@ -86,7 +86,7 @@ exec "${CHROME_BIN}" \
     "$@"
 EOF
 
-chmod 0755 "${PI_STAGE}/usr/local/bin/chromium"
-ln -sf "/usr/local/bin/chromium" "${PI_STAGE}/usr/local/bin/google-chrome"
+chmod 0755 "${PA_STAGE}/usr/local/bin/chromium"
+ln -sf "/usr/local/bin/chromium" "${PA_STAGE}/usr/local/bin/google-chrome"
 
 stage_record "chromium" "${CHROMIUM_VERSION}"

@@ -241,10 +241,10 @@ class TestNestedContainerArgs:
         assert "/dev/fuse" in args
         assert "/dev/net/tun" in args
         assert "XDG_RUNTIME_DIR=/run/user/1000" in args
-        assert "PI_CONTAINER_NESTED=true" in args
+        assert "PA_CONTAINER_NESTED=true" in args
 
     def test_nested_flag_is_namespaced_with_no_legacy_alias(self):
-        """``NESTED_CONTAINERS`` was the pre-``PI_CONTAINER_*`` name and is gone.
+        """``NESTED_CONTAINERS`` was the pre-``PA_CONTAINER_*`` name and is gone.
 
         No fallback is shipped because ``run.py`` rebuilds the project image from
         this repo on every launch, so the runner and the entrypoint reading this
@@ -376,11 +376,11 @@ class TestDesktopRunArgs:
         assert "-p" in args
         assert "127.0.0.1:6080:6080" in args
         assert "127.0.0.1:5900:5900" in args
-        assert "PI_CONTAINER_DESKTOP=true" in args
+        assert "PA_CONTAINER_DESKTOP=true" in args
         assert "DISPLAY=:0" in args
         assert "WAYLAND_DISPLAY=wayland-0" in args
         assert "XDG_RUNTIME_DIR=/run/user/1000" in args
-        assert "PI_DESKTOP_RESOLUTION=1920x1080" in args
+        assert "PA_DESKTOP_RESOLUTION=1920x1080" in args
 
     def test_enabled_lan_binding(self):
         rt = PodmanRuntime()
@@ -393,7 +393,7 @@ class TestDesktopRunArgs:
         args = rt.desktop_run_args(cfg, 6081, 5901)
         assert "6081:6080" in args
         assert "5901:5900" in args
-        assert "PI_DESKTOP_RESOLUTION=1280x720" in args
+        assert "PA_DESKTOP_RESOLUTION=1280x720" in args
 
 
 class TestOpportunisticGpuArgs:

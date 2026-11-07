@@ -201,7 +201,7 @@ def upgrade_tool(tool: str, release_info: ToolReleaseInfo, containerfile_path: P
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Toolchain upgrade manager for pi-container.")
+    parser = argparse.ArgumentParser(description="Toolchain upgrade manager for pa-container.")
     parser.add_argument("--check", action="store_true", help="Audit tools against upstream (read-only).")
     parser.add_argument("--upgrade", metavar="TOOL", help="Tool to upgrade, or 'all'.")
     parser.add_argument(

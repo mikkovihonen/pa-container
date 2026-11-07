@@ -17,14 +17,14 @@ The addon also works in reverse. In `block` mode, it denies only blocked hosts/I
 ## Quick Start
 
 > **In this project the allowlist is already wired in and active.** The
-> `pi-coding-agent-proxy` image bakes the script and a fail-closed default config.
-> `run.py` mounts the host's [`.pi-container/allowlist.yaml`](https://github.com/mikkovihonen/pi-container/blob/main/.pi-container/allowlist.yaml)
+> `pa-container-agent-proxy` image bakes the script and a fail-closed default config.
+> `run.py` mounts the host's [`.pa-container/allowlist.yaml`](https://github.com/mikkovihonen/pa-container/blob/main/.pa-container/allowlist.yaml)
 > over it at runtime. Edit that host file to change the policy. You do not need
 > the manual steps below unless you're wiring the addon into a different proxy.
 
 ### In this project
 
-The addon loads as part of the mitmproxy startup in the [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/entrypoint.sh). It loads alongside the `token_replacer` and `flow_export` addons:
+The addon loads as part of the mitmproxy startup in the [entrypoint](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/entrypoint.sh). It loads alongside the `token_replacer` and `flow_export` addons:
 
 ```bash
 exec gosu mitmproxy /home/mitmproxy/.venv/bin/mitmweb \
@@ -53,7 +53,7 @@ and can be repeated for multiple addons):
 mitmweb -s allowlist.py
 ```
 
-Or in Docker — see the [Containerfile](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/Containerfile):
+Or in Docker — see the [Containerfile](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/Containerfile):
 
 ```dockerfile
 COPY addons/allowlist/allowlist.py /home/mitmproxy/scripts/allowlist.py
@@ -250,7 +250,7 @@ mitmweb --set scripts=allowlist.py \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ALLOWLIST_CONFIG_PATH` | `allowlist_config.yaml` (same directory as the script) | Path to config file. In the `pi-coding-agent-proxy` image this is set to `/home/mitmproxy/config/allowlist.yaml`, which `run.py` mounts from the host's `.pi-container/allowlist.yaml`. |
+| `ALLOWLIST_CONFIG_PATH` | `allowlist_config.yaml` (same directory as the script) | Path to config file. In the `pa-container-agent-proxy` image this is set to `/home/mitmproxy/config/allowlist.yaml`, which `run.py` mounts from the host's `.pa-container/allowlist.yaml`. |
 
 > **Note:** the allowlist only governs HTTP/HTTPS traffic that mitmproxy
 > intercepts. Non-HTTP protocols are handled separately by the proxy's `FORWARD`

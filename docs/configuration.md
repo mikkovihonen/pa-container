@@ -1,30 +1,30 @@
 # Configuration
 
 
-## Global Configuration (~/.config/pi-container/config.yaml)
+## Global Configuration (~/.config/pa-container/config.yaml)
 
-pi-container automatically seeds a global configuration file at `~/.config/pi-container/config.yaml` on first launch. This file holds host-wide defaults for container runtime settings, local LLaMA builds, and image tags.
+pa-container automatically seeds a global configuration file at `~/.config/pa-container/config.yaml` on first launch. This file holds host-wide defaults for container runtime settings, local LLaMA builds, and image tags.
 
 ### Security
 
 - **`ADMIN_PASSWORD`** MUST be stored in the OS keyring before running:
     ```bash
-    uv run keyring set pi-container ADMIN_PASSWORD
+    uv run keyring set pa-container ADMIN_PASSWORD
     ```
     The proxy's mitmweb UI will refuse to start with an unset or empty password. Host environment variables are strictly rejected.
-- **Model integrity**: Set `sha256` in model definitions (`~/.config/pi-container/models/<id>.yaml`) to verify downloaded model files.
+- **Model integrity**: Set `sha256` in model definitions (`~/.config/pa-container/models/<id>.yaml`) to verify downloaded model files.
     The download skips integrity checks without a checksum.
 
 ### Host & Run Configuration
 
-Global configuration properties can be edited in `~/.config/pi-container/config.yaml` or overridden on the command line via direct environment variables:
+Global configuration properties can be edited in `~/.config/pa-container/config.yaml` or overridden on the command line via direct environment variables:
 
 | Global Config YAML Property | Canonical Environment Variable | Description | Default |
 |-----------------------------|--------------------------------|-------------|---------|
-| `build.images.agent` | `PI_IMAGE_TAG` | The tag of the pi container image to run | `pi-coding-agent:local` |
-| `build.images.proxy` | `PROXY_IMAGE_TAG` | The tag of the proxy container image to run | `pi-coding-agent-proxy:local` |
-| `build.images.builder` | `BUILDER_IMAGE_TAG` | Toolchain image that the agent image copies from | `pi-coding-agent-builder:local` |
-| `llama.bin` | `LLAMA_BIN` | Path to the `llama-server` executable | `~/.cache/pi-container/bin/llama-server` or `llama-server` |
+| `build.images.agent` | `PA_IMAGE_TAG` | The tag of the pi container image to run | `pa-container-agent:local` |
+| `build.images.proxy` | `PROXY_IMAGE_TAG` | The tag of the proxy container image to run | `pa-container-agent-proxy:local` |
+| `build.images.builder` | `BUILDER_IMAGE_TAG` | Toolchain image that the agent image copies from | `pa-container-agent-builder:local` |
+| `llama.bin` | `LLAMA_BIN` | Path to the `llama-server` executable | `~/.cache/pa-container/bin/llama-server` or `llama-server` |
 | `runtime.bridge_interface` | `BRIDGE_INTERFACE` | Host bridge interface for container networking | `null` (`podman0` on Linux, none on macOS) |
 | `runtime.proxy_upstream_network` | `PROXY_UPSTREAM_NETWORK` | Upstream network the proxy connects to for internet access | `podman` |
 | `runtime.log_level` | `LOG_LEVEL` | Log level | `INFO` |
@@ -34,14 +34,14 @@ Global configuration properties can be edited in `~/.config/pi-container/config.
 | `build.dns` | `BUILD_DNS` | Upstream DNS resolver for container builds | `1.1.1.1` |
 | `build.node_source` | `NODE_SOURCE` | `build` compiles Node from source (~1 hour); `prebuilt` stages official tarball | `prebuilt` |
 | `build.python_optimize` | `PYTHON_OPTIMIZE` | `0` skips PGO CPython build: faster build, ~10-20% slower Python | `1` (PGO on) |
-| `build.memory_preflight` | `PI_MEMORY_PREFLIGHT` | `0` skips pre-build memory validation | `1` (check on) |
+| `build.memory_preflight` | `PA_MEMORY_PREFLIGHT` | `0` skips pre-build memory validation | `1` (check on) |
 
 ### Logging and Log Retention
 
-pi-container routes diagnostic output through a per-project logging driver that stores execution logs in the user's state home following the XDG State Specification:
+pa-container routes diagnostic output through a per-project logging driver that stores execution logs in the user's state home following the XDG State Specification:
 
 ```text
-~/.local/state/pi-container/projects/<workspace-name>-<hash>/logs/
+~/.local/state/pa-container/projects/<workspace-name>-<hash>/logs/
 ```
 
 Inside each workspace's logs directory:
@@ -50,7 +50,7 @@ Inside each workspace's logs directory:
 - `latest.log`: Atomic symlink pointing to the most recent workspace session log.
 - `latest-build.log`: Atomic symlink pointing to the most recent container build log.
 
-Retention can be configured globally in `~/.config/pi-container/config.yaml`:
+Retention can be configured globally in `~/.config/pa-container/config.yaml`:
 
 ```yaml
 logging:
@@ -67,7 +67,7 @@ Properties:
 
 ### Minimal llama.cpp Build
 
-pi-container provides an integrated command to compile a minimal, optimized version of `llama-server` natively for host hardware:
+pa-container provides an integrated command to compile a minimal, optimized version of `llama-server` natively for host hardware:
 
 ```bash
 ./build.sh --llama         # build minimal, optimized llama-server (default release)
@@ -78,39 +78,39 @@ This build strips out irrelevant features (WebUI assets, libcurl, SSL, and examp
 
 `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` have per-runtime defaults. They rarely need setting. Provide them only to override the default for your host.
 
-`NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `build.sh` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `build.sh` forwards only the two knobs above:
+`NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `build.sh` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `build.sh` forwards only the two knobs above:
 
 ```bash
 podman build --build-arg PODMAN_VERSION=v6.1.0 --build-arg PODMAN_COMMIT=<peeled-sha> \
-    --tag pi-coding-agent-builder:local -f coding-agent-builder/Containerfile .
+    --tag pa-container-agent-builder:local -f coding-agent-builder/Containerfile .
 ```
 
 A version and its hashes must move together. The build refuses to start if any pin is unset or empty (naming the `ARG`). A mismatched hash fails the download instead of building something unverified.
 
-> **Docker is not supported.** pi-container's isolation model depends on the agent container running inside a user namespace where container uid 0 maps to an unprivileged host user. Stock Docker provides no such remap. The same configuration would give two materially different security guarantees. See [Nested containers](#nested-containers).
+> **Docker is not supported.** pa-container's isolation model depends on the agent container running inside a user namespace where container uid 0 maps to an unprivileged host user. Stock Docker provides no such remap. The same configuration would give two materially different security guarantees. See [Nested containers](#nested-containers).
 
-> Per-project settings (IPv6, proxy DNS, mitmweb UI exposure, llama-server startup tuning, resource limits, tmpfs, flow export, egress, nested containers, extra agent env or mounts) are **not** environment variables. They live in `.pi-container/config.yaml`, documented below.
+> Per-project settings (IPv6, proxy DNS, mitmweb UI exposure, llama-server startup tuning, resource limits, tmpfs, flow export, egress, nested containers, extra agent env or mounts) are **not** environment variables. They live in `.pa-container/config.yaml`, documented below.
 
 ## Per-workspace Configuration
 
 ### Introduction
 
-When you launch pi-container, it looks for workspace-specific overrides in `./.pi-container` and package dependencies in the directory you launched it from. Each workspace gets its own agent config, proxy, and isolated network. They all live under that workspace's `.pi-container/` (seeded from the `coding-agent/default/project/` template on first run).
+When you launch pa-container, it looks for workspace-specific overrides in `./.pa-container` and package dependencies in the directory you launched it from. Each workspace gets its own agent config, proxy, and isolated network. They all live under that workspace's `.pa-container/` (seeded from the `coding-agent/default/project/` template on first run).
 
 Orchestration settings live in a single **`config.yaml`**. The proxy addon configs (`allowlist.yaml`, `token_replacer.yaml`) stay in their own files. The proxy container mounts and parses them.
 
 ### Project Models Allowlist (`models.yaml`) and Global Model Registry
 
-You configure the models available to the agent in `.pi-container/models.yaml`. This file defines an allowlist of model IDs permitted in this workspace and an optional default model. Native agent configs (such as Pi's internal `/home/agent/.pi/agent/models.json` or OpenCode/Claude configurations) are synthesized on-demand from this allowlist and the global model registry.
+You configure the models available to the agent in `.pa-container/models.yaml`. This file defines an allowlist of model IDs permitted in this workspace and an optional default model. Native agent configs (such as Pi's internal `/home/agent/.pi/agent/models.json` or OpenCode/Claude configurations) are synthesized on-demand from this allowlist and the global model registry.
 
-Backend server parameters (Hugging Face model downloads and `llama-server` CLI flags) are stored in the **models registry** at `~/.config/pi-container/models/<model-id>.yaml`. External model gateways (endpoints, authentication, and secret resolution) are stored at the provider level in the **gateways registry** at `~/.config/pi-container/gateways/<provider-name>.yaml`.
+Backend server parameters (Hugging Face model downloads and `llama-server` CLI flags) are stored in the **models registry** at `~/.config/pa-container/models/<model-id>.yaml`. External model gateways (endpoints, authentication, and secret resolution) are stored at the provider level in the **gateways registry** at `~/.config/pa-container/gateways/<provider-name>.yaml`.
 
-Model weights are downloaded to and read directly from the standard Hugging Face cache (`~/.cache/huggingface/hub/` or `$HF_HOME`/`$HF_HUB_CACHE`), sharing downloads with `huggingface-cli` and other tools without duplicating storage. Process locks, logs, and authentication tokens are stored under `~/.cache/pi-container/`.
+Model weights are downloaded to and read directly from the standard Hugging Face cache (`~/.cache/huggingface/hub/` or `$HF_HOME`/`$HF_HUB_CACHE`), sharing downloads with `huggingface-cli` and other tools without duplicating storage. Process locks, logs, and authentication tokens are stored under `~/.cache/pa-container/`.
 
-The file structure in `.pi-container/models.yaml` looks like this:
+The file structure in `.pa-container/models.yaml` looks like this:
 
 ```yaml
-# .pi-container/models.yaml
+# .pa-container/models.yaml
 default: "Qwen3.6-35B-A3B-UD-Q6_K_XL"
 
 allow:
@@ -118,14 +118,14 @@ allow:
   - "opper"
 ```
 
-#### Models Registry (`~/.config/pi-container/models/`)
+#### Models Registry (`~/.config/pa-container/models/`)
 
-When pi-container starts, it matches model IDs from `.pi-container/models.yaml` against definitions in `~/.config/pi-container/models/<id>.yaml` (or `.json`).
+When pa-container starts, it matches model IDs from `.pa-container/models.yaml` against definitions in `~/.config/pa-container/models/<id>.yaml` (or `.json`).
 
-Each definition specifies the Hugging Face weights to download and the CLI flags passed to `llama-server`. pi-container automatically handles the process lifecycle (downloading weights, port allocation, health polling, multi-workspace refcounting, and teardown).
+Each definition specifies the Hugging Face weights to download and the CLI flags passed to `llama-server`. pa-container automatically handles the process lifecycle (downloading weights, port allocation, health polling, multi-workspace refcounting, and teardown).
 
 ```yaml
-# ~/.config/pi-container/models/Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml
+# ~/.config/pa-container/models/Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml
 id: Qwen3.6-35B-A3B-UD-Q6_K_XL
 kind: llama-server
 description: "Qwen 3.6 35B with speculative decoding"
@@ -166,7 +166,7 @@ You must set each `hfModels` entry:
 | `repo` | Hugging Face repository slug (e.g. `unsloth/gemma-4-26B-A4B-it-qat-GGUF`). |
 | `file` | Filename within the repository (e.g. `ornith-1.0-35b-Q6_K.gguf`). |
 | `additionalServerFlags` | Extra flags appended after this model's `fileFlag` and path on the llama-server command line. Use this for per-model options like speculative decoding settings (`--spec-type`, `--spec-draft-n-max`). |
-| `sha256` | *(optional)* SHA-256 hex digest of the model file. If you set it, pi-container verifies the downloaded file before starting llama-server. A mismatch aborts startup. Without a checksum, downloads proceed without integrity verification. |
+| `sha256` | *(optional)* SHA-256 hex digest of the model file. If you set it, pa-container verifies the downloaded file before starting llama-server. A mismatch aborts startup. Without a checksum, downloads proceed without integrity verification. |
 
 The system processes `hfModels` entries in sorted label order. Each entry's `additionalServerFlags` keep their specified order. The system passes the overall `flags` list to llama-server verbatim and in the order defined.
 
@@ -203,13 +203,13 @@ Common categories:
 - **GPU**: `--n-gpu-layers` (999 = offload all layers to GPU)
 - **Chat template**: `--jinja`, `--chat-template-file`, `--reasoning`
 
-The `--chat-template-file` path resolves globally against `~/.config/pi-container/chat-templates/` or as an absolute path (with `~` expansion). So `~/.config/pi-container/chat-templates/<model>/chat_template.jinja` or `chat-templates/<model>/chat_template.jinja` is the typical pattern.
+The `--chat-template-file` path resolves globally against `~/.config/pa-container/chat-templates/` or as an absolute path (with `~` expansion). So `~/.config/pa-container/chat-templates/<model>/chat_template.jinja` or `chat-templates/<model>/chat_template.jinja` is the typical pattern.
 
-#### Gateways Registry (`~/.config/pi-container/gateways/`)
+#### Gateways Registry (`~/.config/pa-container/gateways/`)
 
-External model gateways (e.g. corporate gateways or cloud gateways like [Opper AI](https://platform.opper.ai/)) are defined at the **provider level** in `~/.config/pi-container/gateways/<provider-name>.yaml`. When an entry in `.pi-container/models.yaml` matches a file in this directory, all models under that provider automatically route through the gateway.
+External model gateways (e.g. corporate gateways or cloud gateways like [Opper AI](https://platform.opper.ai/)) are defined at the **provider level** in `~/.config/pa-container/gateways/<provider-name>.yaml`. When an entry in `.pa-container/models.yaml` matches a file in this directory, all models under that provider automatically route through the gateway.
 
-pi-container does not manage a local process for gateways, but instead handles authentication, token caching, OS keyring resolution, and proxy secret injection via `token_replacer`.
+pa-container does not manage a local process for gateways, but instead handles authentication, token caching, OS keyring resolution, and proxy secret injection via `token_replacer`.
 
 Two authentication schemes are supported:
 
@@ -218,7 +218,7 @@ Two authentication schemes are supported:
 Used for corporate gateways (e.g. Nitor Gateway) requiring interactive user authentication with PKCE:
 
 ```yaml
-# ~/.config/pi-container/gateways/nitor.yaml
+# ~/.config/pa-container/gateways/nitor.yaml
 id: nitor
 description: "Nitor Corporate Model Gateway"
 type: nitor
@@ -231,21 +231,21 @@ auth:
   # Or explicit endpoints if discoveryUrl is omitted:
   # authorizationUrl: "https://auth.nitor.app/oauth/authorize"
   # tokenUrl: "https://auth.nitor.app/oauth/token"
-  clientId: "pi-container"
+  clientId: "pa-container"
   scopes:
     - "openid"
     - "profile"
     - "offline_access"
 ```
 
-For OpenID authentication, pi-container initiates an interactive browser login with PKCE, securely caches the tokens in `~/.cache/pi-container/tokens/` with `0600` permissions, and passes the Bearer token to the proxy. The agent container uses a placeholder token and never accesses the real credential.
+For OpenID authentication, pa-container initiates an interactive browser login with PKCE, securely caches the tokens in `~/.cache/pa-container/tokens/` with `0600` permissions, and passes the Bearer token to the proxy. The agent container uses a placeholder token and never accesses the real credential.
 
 ##### B. API Key with OS Keyring (`type: api-key`)
 
 Used for cloud gateways such as [Opper AI](https://platform.opper.ai/) (`https://api.opper.ai/v3/compat`):
 
 ```yaml
-# ~/.config/pi-container/gateways/opper.yaml
+# ~/.config/pa-container/gateways/opper.yaml
 id: opper
 description: "Opper AI Model Gateway"
 type: openai-compat
@@ -254,22 +254,22 @@ baseUrl: "https://api.opper.ai/v3/compat"
 auth:
   type: api-key
   envVar: "OPPER_API_KEY"
-  keyringService: "pi-container"
+  keyringService: "pa-container"
   keyringAccount: "OPPER_API_KEY"
 ```
 
-API keys MUST be stored in the OS user keyring (macOS Keychain, Linux GNOME Keyring / Secret Service, Windows Credential Manager) queried via `keyringService` and `keyringAccount` (defaulting to service `pi-container`). Host environment variables are strictly ignored to prevent credential leakage.
+API keys MUST be stored in the OS user keyring (macOS Keychain, Linux GNOME Keyring / Secret Service, Windows Credential Manager) queried via `keyringService` and `keyringAccount` (defaulting to service `pa-container`). Host environment variables are strictly ignored to prevent credential leakage.
 
 Store your API keys in the keyring anytime with:
 ```bash
-uv run keyring set pi-container OPPER_API_KEY
+uv run keyring set pa-container OPPER_API_KEY
 ```
 
 The real API key is injected exclusively into the proxy container via `token_replacer.yaml`. The agent container holds only a dummy placeholder string (`OPPER_API_KEY_PLACEHOLDER`) and never has access to the actual secret.
 
 #### Server sharing and fingerprints
 
-A llama-server process is a **host-wide shared resource**. It uses the provider name plus a stable fingerprint of its model definition (model files, flags in `~/.config/pi-container/models/<id>.yaml`) as its key. Two projects with the same provider name and identical model definition parameters share one llama-server process. This saves RAM by avoiding double-loading a model. A same-named provider with different parameters gets its own server. This ensures a project never silently attaches to a llama-server running the wrong model.
+A llama-server process is a **host-wide shared resource**. It uses the provider name plus a stable fingerprint of its model definition (model files, flags in `~/.config/pa-container/models/<id>.yaml`) as its key. Two projects with the same provider name and identical model definition parameters share one llama-server process. This saves RAM by avoiding double-loading a model. A same-named provider with different parameters gets its own server. This ensures a project never silently attaches to a llama-server running the wrong model.
 
 This means:
 - Identical model definitions across projects → one process (efficient).
@@ -284,10 +284,10 @@ This means:
 Configuration error in models.yaml:
   allow: required field missing
 
-Fix: update .pi-container/models.yaml to match the expected schema.
+Fix: update .pa-container/models.yaml to match the expected schema.
 ```
 
-It also checks that any `--chat-template-file` paths referenced in `flags` exist on disk, resolving relative paths against the global `~/.config/pi-container/chat-templates/` directory.
+It also checks that any `--chat-template-file` paths referenced in `flags` exist on disk, resolving relative paths against the global `~/.config/pa-container/chat-templates/` directory.
 
 #### Ready-made setups
 
@@ -299,11 +299,11 @@ Example configurations for popular models are shipped under `docs/setups/`:
 | [gemma-4-26b-a4b-it-qat-GGUF](setups/gemma-4-26b-a4b-it-qat-GGUF/) | Gemma 4 26B-A4B (MTP + vision) | `unsloth/gemma-4-26B-A4B-it-qat-GGUF` |
 | [opper](setups/opper/) | Opper AI Cloud Gateway (Claude, GPT, DeepSeek, failover pools) | `https://api.opper.ai/v3/compat` |
 
-Each setup directory contains setup instructions and model definitions you can drop into `~/.config/pi-container/models/` or `~/.config/pi-container/gateways/`, plus any required chat templates. See each setup's `README.md` for notes and caveats.
+Each setup directory contains setup instructions and model definitions you can drop into `~/.config/pa-container/models/` or `~/.config/pa-container/gateways/`, plus any required chat templates. See each setup's `README.md` for notes and caveats.
 
 ### The `config.yaml` file
 
-`.pi-container/config.yaml` is the single source of truth for this workspace's orchestration knobs:
+`.pa-container/config.yaml` is the single source of truth for this workspace's orchestration knobs:
 
 > **A repeated key is rejected, not merged.** YAML keeps only the **last** occurrence of a duplicated mapping key and discards the earlier value. The easy way to hit this is adding an entry above a seeded empty default instead of replacing it:
 >
@@ -317,7 +317,7 @@ Each setup directory contains setup instructions and model definitions you can d
 > `run.sh` parses `config.yaml`, `allowlist.yaml` and `token_replacer.yaml` strictly and aborts with the file and line number if any of them repeats a key. Without that check the file parses clean, passes schema validation, and the setting simply never takes effect.
 
 ```yaml
-# .pi-container/config.yaml
+# .pa-container/config.yaml
 resources:
   agent: { memory: 16g, cpus: 8 }
   proxy: { memory: 4g, cpus: 4 }
@@ -339,7 +339,7 @@ agent:
   mounts: []                  # extra bind mounts (absolute host paths)
   capabilities: []            # Linux capabilities to add (e.g., SYS_PTRACE)
   devices: []                 # device passthroughs (e.g., /dev/video0:/dev/video0)
-  read_only_pi_container: true # lock .pi-container inside /workspace as read-only
+  read_only_PA_CONTAINER: true # lock .pa-container inside /workspace as read-only
   mode: cli                   # agent mode: cli | t3
   ports:
     expose: localhost         # agent host bind: localhost | lan
@@ -377,12 +377,12 @@ Any missing section falls back to a safe default (values above). The system trea
 
 ### Proxy configuration
 
-The `proxy` section tunes the `pi-coding-agent-proxy` container:
+The `proxy` section tunes the `pa-container-agent-proxy` container:
 
 - `proxy.expose_ui` controls where the proxy's mitmweb UI (on its auto-assigned port) is published:
     - `localhost` (default) — bound to `127.0.0.1` only. Not reachable from other machines.
     - `lan` — bound to `0.0.0.0`. Reachable across the network (still password-gated by `ADMIN_PASSWORD`).
-- `proxy.open_browser` (boolean, default `false`) automatically opens the `mitmweb` UI in the host's default web browser upon session startup. Can be overridden per-run via `pi-container run --open-browser` (or `--no-open-browser`).
+- `proxy.open_browser` (boolean, default `false`) automatically opens the `mitmweb` UI in the host's default web browser upon session startup. Can be overridden per-run via `pa-container run --open-browser` (or `--no-open-browser`).
 - `proxy.max_view_flows` (integer, default `2000`) sets the maximum number of allowed flows retained in `mitmweb`'s in-memory view to prevent container memory exhaustion and OOM crashes during long sessions. **Blocked/denied flows are always retained** so rejections remain inspectable. Set to `null` or `0` for unlimited in-memory retention.
 - `proxy.stream_large_bodies` (string, default `"10m"`) enables direct body streaming for transfers larger than this threshold, bypassing full RAM buffering in mitmproxy. Set to `null`, `"none"`, or `"off"` to disable.
 
@@ -440,9 +440,9 @@ agent:
 
 Device entries support the optional `mode` suffix (`r` for read-only, `w` for write-only, `rw` for read-write). The default is `rw` if omitted.
 
-### Read-only `.pi-container` workspace lock
+### Read-only `.pa-container` workspace lock
 
-`agent.read_only_pi_container` (boolean, default `true`) mounts `/workspace/.pi-container` as a read-only (`:ro`) bind mount inside the agent container.
+`agent.read_only_PA_CONTAINER` (boolean, default `true`) mounts `/workspace/.pa-container` as a read-only (`:ro`) bind mount inside the agent container.
 
 This provides protection against prompt injection and untrusted scripts by preventing the agent from modifying:
 - `config.yaml` (resource limits, network settings, security policies)
@@ -453,7 +453,7 @@ This provides protection against prompt injection and untrusted scripts by preve
 
 ```yaml
 agent:
-  read_only_pi_container: true   # default: true (secure)
+  read_only_PA_CONTAINER: true   # default: true (secure)
 ```
 
 Subdirectories mounted under separate container paths (such as `/home/agent/.pi/agent` or `/home/agent/.claude` for storing session logs, agent state, and configs) remain fully functional and writable. Set to `false` only if you explicitly want the agent to edit project configuration files directly.
@@ -536,13 +536,13 @@ source_control:
     # Provider overrides, custom keyring variable names, or explicit tokens.
     providers:
         github:
-            keyring_var: PI_CONTAINER_T3_GH_TOKEN  # or list: [VAR1, VAR2]
+            keyring_var: PA_CONTAINER_T3_GH_TOKEN  # or list: [VAR1, VAR2]
 ```
 
 #### Credential Storage
 
 For security, host process environment variables and unencrypted files are strictly rejected as credential stores. Tokens are resolved exclusively from:
-1. **OS Keyring** (service `"pi-container"` looking up configured `keyring_var`, falling back to default provider account names).
+1. **OS Keyring** (service `"pa-container"` looking up configured `keyring_var`, falling back to default provider account names).
 2. **Host CLI active sessions** (only if `auto_detect_host_cli: true`).
 
 ### Security hardening
@@ -558,7 +558,7 @@ security:
 
   # Dangerous host directories that should NEVER be mounted into the agent container.
   # If any of these paths (or their subdirectories) appear in agent.mounts,
-  # pi-container will reject launching the container to prevent host credential theft.
+  # pa-container will reject launching the container to prevent host credential theft.
   blocked_mount_paths:
     - "~/.ssh"
     - "~/.gnupg"
@@ -615,10 +615,10 @@ Key security protections:
 <a name="upgrading-a-workspace"></a>
 ### Upgrading an existing workspace
 
-`.pi-container/` is seeded on first run and then **never edited again**. The seeder only writes files that are absent, so your changes are never overwritten. The cost is that a workspace does not pick up new config fields on its own. When a release adds one, the next launch stops with:
+`.pa-container/` is seeded on first run and then **never edited again**. The seeder only writes files that are absent, so your changes are never overwritten. The cost is that a workspace does not pick up new config fields on its own. When a release adds one, the next launch stops with:
 
 ```
-Configuration incompatible with this version of pi-container:
+Configuration incompatible with this version of pa-container:
   nested_containers.ports: required field missing
 ```
 
@@ -626,50 +626,50 @@ Two failures produce that banner, and they have different fixes:
 
 | What the error says | Fix |
 |---|---|
-| **Only** `schema_version mismatch` | Edit `schema_version` in `.pi-container/config.yaml` to the version named. The shape already validates, so nothing else changes and your settings are kept. |
-| Anything naming a **field** | Re-seed that one file: `rm .pi-container/config.yaml` and re-run. |
+| **Only** `schema_version mismatch` | Edit `schema_version` in `.pa-container/config.yaml` to the version named. The shape already validates, so nothing else changes and your settings are kept. |
+| Anything naming a **field** | Re-seed that one file: `rm .pa-container/config.yaml` and re-run. |
 
 Bumping the version string is not a general remedy. When a field is missing, no edit to `schema_version` conjures it — you clear the version check and fail the field check one line further down. The launch error names whichever applies rather than offering both.
 
-Re-seeding is **one file, not the directory**. Because the seeder only fills in what is missing, deleting `config.yaml` alone regenerates it from the current template and leaves `allowlist.yaml`, `token_replacer.yaml`, `models.yaml`, and `dependencies/` untouched. `rm -rf .pi-container` also works but takes every hand-edited file in the workspace with it — reach for it only when several are out of date at once.
+Re-seeding is **one file, not the directory**. Because the seeder only fills in what is missing, deleting `config.yaml` alone regenerates it from the current template and leaves `allowlist.yaml`, `token_replacer.yaml`, `models.yaml`, and `dependencies/` untouched. `rm -rf .pa-container` also works but takes every hand-edited file in the workspace with it — reach for it only when several are out of date at once.
 
 Your own edits to `config.yaml` are not merged into the fresh copy, so note your settings before deleting it. A `diff` against `coding-agent/default/project/config.yaml` beforehand shows exactly what you changed.
 
-<a name="pi-container-environment"></a>
-### The `PI_CONTAINER_*` environment contract
+<a name="pa-container-environment"></a>
+### The `PA_CONTAINER_*` environment contract
 
-A project's own scripts often need to behave differently inside the agent. They may pick a different compose overlay, skip a test that wants host networking, or point a tool at an address that only exists here. The agent injects a small, stable set of variables for exactly that. Nothing has to probe for it. Every variable pi-container sets shares the `PI_CONTAINER` prefix.
+A project's own scripts often need to behave differently inside the agent. They may pick a different compose overlay, skip a test that wants host networking, or point a tool at an address that only exists here. The agent injects a small, stable set of variables for exactly that. Nothing has to probe for it. Every variable pa-container sets shares the `PA_CONTAINER` prefix.
 
 | Variable | Value | Set by |
 |----------|-------|--------|
-| `PI_CONTAINER` | `1`, always | The image. Present for every process (login shells, `podman exec`, anything the entrypoint never touches). |
-| `PI_CONTAINER_VERSION` | The running pi-container version, e.g. `0.4.2` | `run.py`, from the validated `schema_version`. Absent if the workspace has none. |
-| `PI_CONTAINER_HOST_IP` | `169.254.1.2` | The image. Where the **agent** is reachable from inside a nested container (see [Nested containers](#nested-containers)). |
-| `PI_CONTAINER_NESTED` | `true` | `run.py`, only when `nested_containers.enabled` is true. |
+| `PA_CONTAINER` | `1`, always | The image. Present for every process (login shells, `podman exec`, anything the entrypoint never touches). |
+| `PA_CONTAINER_VERSION` | The running pa-container version, e.g. `0.4.2` | `run.py`, from the validated `schema_version`. Absent if the workspace has none. |
+| `PA_CONTAINER_HOST_IP` | `169.254.1.2` | The image. Where the **agent** is reachable from inside a nested container (see [Nested containers](#nested-containers)). |
+| `PA_CONTAINER_NESTED` | `true` | `run.py`, only when `nested_containers.enabled` is true. |
 
 Test the marker, not a side effect:
 
 ```make
 # A project Makefile choosing a compose overlay
-ifdef PI_CONTAINER
-  COMPOSE_FILES := -f docker-compose.yml -f docker-compose.pi-container.yml
+ifdef PA_CONTAINER
+  COMPOSE_FILES := -f docker-compose.yml -f docker-compose.pa-container.yml
 endif
 ```
 
 ```bash
 # A shell script
-if [ -n "$PI_CONTAINER" ]; then …; fi
+if [ -n "$PA_CONTAINER" ]; then …; fi
 ```
 
-The system deliberately makes `PI_CONTAINER` **not** a general "am I in a container" test. `/run/.containerenv` and `/.dockerenv` answer that. They are true inside nested containers too. `PI_CONTAINER` means *this* container: the agent, with its isolated network, its proxy-only egress, and the workspace bind-mounted at `/workspace`.
+The system deliberately makes `PA_CONTAINER` **not** a general "am I in a container" test. `/run/.containerenv` and `/.dockerenv` answer that. They are true inside nested containers too. `PA_CONTAINER` means *this* container: the agent, with its isolated network, its proxy-only egress, and the workspace bind-mounted at `/workspace`.
 
-Two properties worth relying on. The variables are set at the image and `run` layers. They survive `podman exec` and any shell the agent spawns. They do **not** propagate into nested containers. A container the agent starts gets a clean environment. This makes `PI_CONTAINER` mean "I am the agent" rather than "I am somewhere under it".
+Two properties worth relying on. The variables are set at the image and `run` layers. They survive `podman exec` and any shell the agent spawns. They do **not** propagate into nested containers. A container the agent starts gets a clean environment. This makes `PA_CONTAINER` mean "I am the agent" rather than "I am somewhere under it".
 
 ### Declarative toolchain selection (`tools:`)
 
 The shared agent base image includes the core runtime baseline: **Python 3.14 (with `uv`)**, **Node.js 26**, **Podman 6**, and **Netavark/Aardvark-dns**.
 
-To keep the baseline image lightweight and fast to build, additional toolchains built by `pi-coding-agent-builder` are opt-in per workspace under `tools.include` in `.pi-container/config.yaml`:
+To keep the baseline image lightweight and fast to build, additional toolchains built by `pa-container-agent-builder` are opt-in per workspace under `tools.include` in `.pa-container/config.yaml`:
 
 ```yaml
 tools:
@@ -749,18 +749,18 @@ tools:
     - `antigravity`: Google Antigravity agent runtime with Gemini API integration (provides `/usr/local/bin/antigravity`, `/usr/local/bin/agy`).
     - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (provides `/usr/local/bin/claude`, `/usr/local/bin/claude-code`).
 
-When `tools.include` is non-empty, pi-container builds or reuses the required tool images and layers them into a project-specific container image in seconds.
+When `tools.include` is non-empty, pa-container builds or reuses the required tool images and layers them into a project-specific container image in seconds.
 
 ### Coding agent configuration (`agents:`)
 
-pi-container supports multiple coding agent runtimes within the same sandboxed container environment:
+pa-container supports multiple coding agent runtimes within the same sandboxed container environment:
 
 - **Pi Coding Agent (`pi`)**: Agent runtime packaged as an on-demand toolchain.
 - **OpenCode (`opencode`)**: High-performance agent with OpenAI-compatible gateway routing.
 - **Antigravity (`antigravity`)**: Gemini-powered agent with native Google toolchain integrations.
 - **Claude Code (`claude`)**: Anthropic's agent runtime with CLI and T3 Code integration.
 
-You can configure enabled agents and the default agent in `.pi-container/config.yaml`:
+You can configure enabled agents and the default agent in `.pa-container/config.yaml`:
 
 ```yaml
 agents:
@@ -786,10 +786,10 @@ You can select any enabled agent for a single execution using the `--agent` CLI 
 ./run.sh --agent claude
 ```
 
-When agents are enabled, pi-container automatically:
+When agents are enabled, pa-container automatically:
 1. Includes the agent toolchains (e.g. `pi`, `opencode`, `antigravity`, or `claude-code`) during image build.
 2. Synthesizes native configuration files dynamically from your global and project model configurations.
-3. Sets up agent-specific state directory mounts under `.pi-container/agents/<agent>/`.
+3. Sets up agent-specific state directory mounts under `.pa-container/agents/<agent>/`.
 4. Injects required credentials via proxy token replacement on egress.
 
 For comprehensive details on agent drivers and configuration synthesis, see [Agents](agents.md).
@@ -800,7 +800,7 @@ For comprehensive details on agent drivers and configuration synthesis, see [Age
 `nested_containers` lets the agent run its own containers **inside** the agent container as rootless podman. It supports `podman build`, `podman run`, `docker compose up`, and testcontainers-style integration tests. It is **off by default**. Enabling it is a genuine (small, bounded) reduction in the agent container's confinement.
 
 ```yaml
-# .pi-container/config.yaml
+# .pa-container/config.yaml
 nested_containers:
   enabled: false
   storage: volume     # volume | tmpfs
@@ -861,12 +861,12 @@ nested_containers:
         - "18080:8080"    # host 18080 → agent 8080
 ```
 
-Two things then have to line up. pi-container only builds the outer hop:
+Two things then have to line up. pa-container only builds the outer hop:
 
 1. **The nested container must publish the agent-side port itself** — `podman run -p 3000:3000 …`, or a compose `ports:` entry. Listing `3000` here does not reach into a nested container that only listens on its own internal port.
 2. **The service must listen on all interfaces inside the nested container**, not `127.0.0.1`. A dev server bound to loopback is unreachable from outside its own container, whatever is published in front of it. (Vite: `--host`. `next dev`: `-H 0.0.0.0`.)
 
-Ports must be **declared in config** rather than discovered. You fix a container's published ports at start. pi-container cannot add one to a running agent. Changing this list takes effect on the next `pi` launch. If a host port is already taken the launch **fails immediately**. It names the port instead of letting podman reject it after the images are built and the proxy is up. Use the `"HOSTPORT:AGENTPORT"` form to move a collision out of the way without changing what the nested container publishes.
+Ports must be **declared in config** rather than discovered. You fix a container's published ports at start. pa-container cannot add one to a running agent. Changing this list takes effect on the next `pi` launch. If a host port is already taken the launch **fails immediately**. It names the port instead of letting podman reject it after the images are built and the proxy is up. Use the `"HOSTPORT:AGENTPORT"` form to move a collision out of the way without changing what the nested container publishes.
 
 This is **inbound only and creates no egress.** The agent's only route out is still the proxy. A published port does not change that (verified: a nested container on the isolated network still cannot reach HTTPS or a raw IP). What it does change is that something outside can now reach a service the agent controls. `expose: localhost` (the default) keeps that to processes on your own machine. `expose: lan` binds `0.0.0.0`. That makes an unauthenticated dev server reachable by anything that can route to your machine. The mitmweb UI is at least password-gated. This is not. Prefer an SSH tunnel to opening it to the network.
 
@@ -874,7 +874,7 @@ Under the hood, this is also why the image sets `netns = "bridge"` in its `conta
 
 **`host.docker.internal` does not reach the agent from inside a nested container.** This is the mirror image of the outbound hop above. It bites any project that runs a sidecar on the agent (an exporter, a mock API, a language server) and has a nested container talk to it. Inside a nested container, both `host.containers.internal` and `host.docker.internal` resolve to the podman machine's gvproxy address (`192.168.127.254` on macOS). That is **your Mac, not the agent**. The service isn't there. The agent's isolated network has no route to it either. The connection times out instead of being refused. This reads like a slow service instead of a wrong address.
 
-The address that does work is **`169.254.1.2`**. That is not a value pi-container picks. podman assigns it when it builds the rootless network namespace. You can see it in the `pasta` command line inside the agent:
+The address that does work is **`169.254.1.2`**. That is not a value pa-container picks. podman assigns it when it builds the rootless network namespace. You can see it in the `pasta` command line inside the agent:
 
 ```
 /usr/bin/pasta --config-net … --no-map-gw --map-guest-addr 169.254.1.2
@@ -901,14 +901,14 @@ busybox `wget` takes the first match and succeeds. A quick check from inside the
 Podman will not omit its own entry. `--no-hosts` suppresses it but is mutually exclusive with `--add-host`. Put the literal address wherever the target is configured. For a compose stack, that fits in a **named overlay**. It is a tracked file that only applies when you ask for it. An explicit `-f` list replaces compose's auto-discovery:
 
 ```yaml
-# docker-compose.pi-container.yml — tracked, and inert unless named
+# docker-compose.pa-container.yml — tracked, and inert unless named
 services:
   prometheus:
     volumes:
       # Replaces rather than adds: compose merges volumes keyed on the
       # container-side target path, so the committed mount is superseded
       # while named volumes survive.
-        - ./config/prometheus.pi-container.yml:/etc/prometheus/prometheus.yml:ro
+        - ./config/prometheus.pa-container.yml:/etc/prometheus/prometheus.yml:ro
 
   caddy:
     # Ports do NOT merge that way — a second entry is appended, giving two
@@ -922,26 +922,26 @@ That asymmetry is worth knowing before writing an overlay. **volumes merge by ta
 The same overlay is where a loopback bind gets relaxed. A service bound to `127.0.0.1` inside a nested container is unreachable from the host whatever the agent publishes (see the two conditions above). It has to bind `0.0.0.0`, but only inside the agent. Doing that in the committed compose file would widen every other operator's exposure to fix an environment they are not in. Doing it in the overlay confines it to the agent. Inside the agent, `0.0.0.0` is bounded by the isolated network and the real control is `nested_containers.ports.expose`.
 
 ```
-compose -f docker-compose.yml -f docker-compose.pi-container.yml up -d
+compose -f docker-compose.yml -f docker-compose.pa-container.yml up -d
 ```
 
 The name matters. `docker-compose.override.yml` is loaded automatically. An agent-only address placed there reaches every operator. You must gitignore it to keep it out of their way. Any other filename is inert until you pass it with `-f`. This is what makes the fix safe to commit and review rather than something each operator rediscovers.
 
-Selecting it is what [`PI_CONTAINER`](#pi-container-environment) is for — no probing, and no way to forget:
+Selecting it is what [`PA_CONTAINER`](#pa-container-environment) is for — no probing, and no way to forget:
 
 ```make
-ifdef PI_CONTAINER
-  COMPOSE_FILES := -f docker-compose.yml -f docker-compose.pi-container.yml
+ifdef PA_CONTAINER
+  COMPOSE_FILES := -f docker-compose.yml -f docker-compose.pa-container.yml
 endif
 ```
 
-The address itself is available as `PI_CONTAINER_HOST_IP`. A generated config or a tool invocation can substitute it instead of hardcoding. Prometheus is the awkward case. Its config file has no environment substitution. The literal has to be written down somewhere. That makes the caveat worth repeating: `169.254.1.2` is **coupled to podman's rootless-netns layout**, not to a documented interface. Treat it as a version-pinned constant that a podman upgrade in the agent image can invalidate. Its failure mode is a silently empty dashboard.
+The address itself is available as `PA_CONTAINER_HOST_IP`. A generated config or a tool invocation can substitute it instead of hardcoding. Prometheus is the awkward case. Its config file has no environment substitution. The literal has to be written down somewhere. That makes the caveat worth repeating: `169.254.1.2` is **coupled to podman's rootless-netns layout**, not to a documented interface. Treat it as a version-pinned constant that a podman upgrade in the agent image can invalidate. Its failure mode is a silently empty dashboard.
 
 This is **not** fixable in the image's `containers.conf` drop-in, which is where the `netns` default above lives. `host_containers_internal_ip` is ignored there, under `[containers]` and under `[network]` alike (verified with an override file proven to be read: a marker `env` entry in the same file reached the container while the `/etc/hosts` line stayed unchanged). The agent has `/run/.containerenv`. The nested podman detects that it is itself inside a container. It propagates the agent's own `host.containers.internal` entry. That entry outranks the config key. Hence a per-project fix rather than a transparent default.
 
 **Registries must be allowlisted.** The proxy's allowlist is `default_action: block`. Image pulls return 403 until you permit a registry. `allowlist.yaml` ships a commented-out `container-registries-allow` rule (Docker Hub, GHCR, Quay, GCR). Uncomment it, or add the registries you use. `run.py` logs a warning at startup when nesting is enabled and no registry hostname is allowed.
 
-**TLS inside nested containers.** The image ships `/etc/containers/containers.conf.d/50-pi-container.conf`. It mounts the agent's full CA bundle (system CAs *plus* the mitmproxy CA) into every nested container. It points `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO` at it. That covers tools honouring those variables (OpenSSL, Go, Node, Python-requests, curl, git). A tool that only reads a hardcoded path inside its own image still fails. The fix is per-image (`COPY` the CA in a build stage).
+**TLS inside nested containers.** The image ships `/etc/containers/containers.conf.d/50-pa-container.conf`. It mounts the agent's full CA bundle (system CAs *plus* the mitmproxy CA) into every nested container. It points `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO` at it. That covers tools honouring those variables (OpenSSL, Go, Node, Python-requests, curl, git). A tool that only reads a hardcoded path inside its own image still fails. The fix is per-image (`COPY` the CA in a build stage).
 
 **Machine sizing.** A podman machine of **at least 4 GB is required** to build the agent image at all (see [Getting Started](getting-started.md#prerequisites)). Nesting is the workload most likely to expose anything smaller than that. The default `resources.agent.memory` is `16g`, which a 4 GB VM cannot honour. Raise the machine (`podman machine set --memory 8192` or more) before enabling nesting. Do this especially before choosing `storage: tmpfs`, where the first sizeable image pull lands in RAM.
 
@@ -954,14 +954,14 @@ Fix one of:
     * give the VM more memory:  podman machine stop && podman machine set --memory 4096 && podman machine start
     * free memory in the VM:    stop containers you are not using (podman ps)
     * skip the PGO build:       PYTHON_OPTIMIZE=0 ./build.sh  (~10-20% slower Python)
-    * already-cached Python:    PI_MEMORY_PREFLIGHT=0 ./build.sh  (skips this check)
+    * already-cached Python:    PA_MEMORY_PREFLIGHT=0 ./build.sh  (skips this check)
 ```
 
 The check reads `MemAvailable` (reclaimable page cache counts). On a warm builder it is an order of magnitude above `MemFree`. The check runs inside the podman VM. It applies to `build.sh` only. `run.py`'s project-image build compiles nothing. The toolchain arrives as a `COPY` from a prebuilt image.
 
 The compilers are also capped by *memory* rather than core count. `make -j`, `go build -p`, and `cargo --jobs` each get `MemAvailable / peak-RSS-per-job` jobs. They never get more than `nproc`. Giving the VM more memory automatically raises the cap. `MAKE_JOBS` overrides it for CPython.
 
-**Storage lifecycle.** The `pi-nested-<project-hash>` volume carries the same labels as project-specific images (`pi-container.type=nested-storage`, `pi-container.project.hash`, `pi-container.project.path`). The same orphan-cleanup pass reclaims it when the project directory is deleted or moved (see [Orphan detection](#orphan-detection)). As with images, a volume any container still holds open is skipped rather than removed. A later run reclaims it once that container is gone. Concurrent runs in one workspace share the volume (that is what makes the layer cache shared). They interlock through containers/storage's own lockfiles (which live inside the shared graph root). Each run keeps its own podman run root under its private `XDG_RUNTIME_DIR`.
+**Storage lifecycle.** The `pi-nested-<project-hash>` volume carries the same labels as project-specific images (`pa-container.type=nested-storage`, `pa-container.project.hash`, `pa-container.project.path`). The same orphan-cleanup pass reclaims it when the project directory is deleted or moved (see [Orphan detection](#orphan-detection)). As with images, a volume any container still holds open is skipped rather than removed. A later run reclaims it once that container is gone. Concurrent runs in one workspace share the volume (that is what makes the layer cache shared). They interlock through containers/storage's own lockfiles (which live inside the shared graph root). Each run keeps its own podman run root under its private `XDG_RUNTIME_DIR`.
 
 **`docker` and `compose` both work out of the box.** A `docker` to `podman` shim is installed at `/usr/local/bin/docker`. Tools that shell out to `docker` by name work (`docker build`, `docker run`, `docker ps`, …). **`podman-compose`** ships as the compose provider. `docker compose up` and `podman compose up` work with no per-project setup. The provider is pinned in `containers.conf` (`compose_providers = ["podman-compose"]`). Without that pin podman would try `docker-compose` first and report it missing instead of using the provider that is installed.
 
@@ -969,12 +969,12 @@ For the full design (including the rejected alternatives: host socket, privilege
 
 ### Dependency definition files
 
-Project-specific setup is defined in two files under `.pi-container/dependencies/`. These are **baked into the project-specific image at build time**, not installed at runtime. This eliminates redundant `apt-get update` and `apt-get install` calls at container startup.
+Project-specific setup is defined in two files under `.pa-container/dependencies/`. These are **baked into the project-specific image at build time**, not installed at runtime. This eliminates redundant `apt-get update` and `apt-get install` calls at container startup.
 
 | File | Privilege | Runs | Purpose |
 |------|-----------|------|---------|
-| `.pi-container/dependencies/root/commands.sh` | root | **Build time** | Install system packages (`apt-get`), npm globals, and system config (baked into image) |
-| `.pi-container/dependencies/agent/commands.sh` | agent | **Runtime** (via entrypoint) | Init venvs, clone repos, and workspace setup (runs against bind-mounted workspace) |
+| `.pa-container/dependencies/root/commands.sh` | root | **Build time** | Install system packages (`apt-get`), npm globals, and system config (baked into image) |
+| `.pa-container/dependencies/agent/commands.sh` | agent | **Runtime** (via entrypoint) | Init venvs, clone repos, and workspace setup (runs against bind-mounted workspace) |
 
 **Example `root/commands.sh`:**
 ```bash
@@ -1003,8 +1003,8 @@ git clone https://github.com/example/repo.git
 
 **How it works:**
 
-1. On first run, pi-container seeds both files from templates in `coding-agent/default/project/dependencies/`.
-2. When definition files exist and are non-empty, pi-container computes a content hash and builds a **project-specific image** with the scripts baked in. The image is tagged `pi-container-project-<project-hash>-<image-hash>.local` and carries labels (`pi-container.hash`, `pi-container.project.hash`, `pi-container.build.time`, `pi-container.type`) for cache invalidation and discovery.
+1. On first run, pa-container seeds both files from templates in `coding-agent/default/project/dependencies/`.
+2. When definition files exist and are non-empty, pa-container computes a content hash and builds a **project-specific image** with the scripts baked in. The image is tagged `pa-container-project-<project-hash>-<image-hash>.local` and carries labels (`pa-container.hash`, `pa-container.project.hash`, `pa-container.build.time`, `pa-container.type`) for cache invalidation and discovery.
 3. At **build time**, `root/commands.sh` executes (system-wide setup: apt, npm globals). At **runtime**, `agent/commands.sh` executes via the entrypoint (workspace-local setup: venvs, cloned repos).
 4. If definition files are empty or absent, the workspace uses the shared base image (no project-specific build).
 
@@ -1015,22 +1015,22 @@ git clone https://github.com/example/repo.git
 
 **Image caching and cleanup:**
 
-Project-specific images are cached and reused across runs. pi-container computes a content hash of:
-- `.pi-container/dependencies/root/commands.sh` (if it exists and is non-empty)
-- `.pi-container/dependencies/agent/commands.sh` (if it exists and is non-empty)
+Project-specific images are cached and reused across runs. pa-container computes a content hash of:
+- `.pa-container/dependencies/root/commands.sh` (if it exists and is non-empty)
+- `.pa-container/dependencies/agent/commands.sh` (if it exists and is non-empty)
 - `coding-agent/Containerfile` (always)
 - `coding-agent/entrypoint.sh` (always)
 
 The toolchain (`coding-agent-builder/`) is deliberately **not** hashed. The project image consumes it as a built image, not as source. What invalidates a project image there is the builder image's **build time** (see below).
 
-The hash is stored as the `pi-container.hash` label on the image. The image tag is `pi-container-project-<project-hash>-<image-hash>.local`, where:
+The hash is stored as the `pa-container.hash` label on the image. The image tag is `pa-container-project-<project-hash>-<image-hash>.local`, where:
 - `<project-hash>` is the first 10 characters of `SHA-256(str(project_dir.resolve()))` — the same hash used for proxy and network naming (`pi-proxy-<hash>`, `pi-isolated-net-<hash>`).
 - `<image-hash>` is the first 16 characters of the content digest computed from `root/commands.sh`, `agent/commands.sh`, `Containerfile`, and `entrypoint.sh`.
 
-On each run, pi-container:
-1. Enumerates all existing project-specific images (those with the `pi-container.type=project` label).
-2. Removes any images whose `pi-container.project.hash` matches this project but whose `pi-container.hash` differs from the current content hash.
-3. Compares the image's `pi-container.build.time` against the newest build time of the two images it copies content from. These are `pi-coding-agent-proxy:local` (the mitmproxy CA certificate) and `pi-coding-agent-builder:local` (the toolchain). If either is newer, the copy is stale and the image is rebuilt.
+On each run, pa-container:
+1. Enumerates all existing project-specific images (those with the `pa-container.type=project` label).
+2. Removes any images whose `pa-container.project.hash` matches this project but whose `pa-container.hash` differs from the current content hash.
+3. Compares the image's `pa-container.build.time` against the newest build time of the two images it copies content from. These are `pa-container-agent-proxy:local` (the mitmproxy CA certificate) and `pa-container-agent-builder:local` (the toolchain). If either is newer, the copy is stale and the image is rebuilt.
 4. If no image matches the current hash, builds a new one.
 5. If an image already matches and is not stale, uses it (no rebuild).
 
@@ -1042,12 +1042,12 @@ This enables:
 
 #### Orphan detection
 
-Each project-specific image stores the absolute path of its source project directory in the `pi-container.project.path` label. On every run, pi-container scans all project images and removes any that don't have a verifiable source project. An image is removed if:
+Each project-specific image stores the absolute path of its source project directory in the `pa-container.project.path` label. On every run, pa-container scans all project images and removes any that don't have a verifiable source project. An image is removed if:
 
-- Its `pi-container.project.path` label points to a path that no longer exists (deleted project), OR
-- Its `pi-container.project.path` label is missing or blank (older images from before this feature — unverifiable).
+- Its `pa-container.project.path` label points to a path that no longer exists (deleted project), OR
+- Its `pa-container.project.path` label is missing or blank (older images from before this feature — unverifiable).
 
-The system keeps only images with a path label pointing to an **existing** directory. The shared images (`pi-coding-agent:local`, `pi-coding-agent-proxy:local`, `pi-coding-agent-builder:local`) are never cleanup candidates whatever their labels say. They belong to no project and are rebuilt only by `build.sh`.
+The system keeps only images with a path label pointing to an **existing** directory. The shared images (`pa-container-agent:local`, `pa-container-agent-proxy:local`, `pa-container-agent-builder:local`) are never cleanup candidates whatever their labels say. They belong to no project and are rebuilt only by `build.sh`.
 
 The system enumerates and removes images **by image ID**, not by tag. A rebuild that moves a tag leaves the previous image untagged. An untagged image has no usable name. podman renders it as the literal `<none>:<none>`, which is not a valid image reference. Identifying by ID is what lets those images be reclaimed.
 
@@ -1067,22 +1067,22 @@ The `build_project_image()` function in `src/build.py` accepts the following par
 |-----------|------|----------|-------------|
 | `runtime` | `str` | Yes | Container runtime (`podman`) |
 | `root_commands_path` | `str` | Yes | Absolute path to `root/commands.sh` on the host |
-| `pi_commands_path` | `str` | Yes | Absolute path to `pi/commands.sh` on the host |
-| `image_tag` | `str` | Yes | Image tag (format: `pi-container-project-<project-hash>-<image-hash>.local`) |
+| `pa_commands_path` | `str` | Yes | Absolute path to `pi/commands.sh` on the host |
+| `image_tag` | `str` | Yes | Image tag (format: `pa-container-project-<project-hash>-<image-hash>.local`) |
 | `label_hash` | `str` | Yes | Content hash for cache invalidation |
-| `project_hash` | `str` | No | Project identity hash → set as `pi-container.project.hash` label |
-| `project_path` | `str` | No | Absolute project directory path → set as `pi-container.project.path` label (enables orphan detection) |
-| `build_timestamp` | `str` | No | ISO 8601 timestamp → set as `pi-container.build.time` label |
+| `project_hash` | `str` | No | Project identity hash → set as `pa-container.project.hash` label |
+| `project_path` | `str` | No | Absolute project directory path → set as `pa-container.project.path` label (enables orphan detection) |
+| `build_timestamp` | `str` | No | ISO 8601 timestamp → set as `pa-container.build.time` label |
 
 **Image labels:**
 
 | Label | Purpose | How it's calculated |
 |-------|---------|---------------------|
-| `pi-container.hash` | Content hash for cache invalidation (compares against current definition files). | SHA-256 of concatenated hashes of: `.pi-container/dependencies/root/commands.sh` and `agent/commands.sh` (each if non-empty), `coding-agent/Containerfile`, `coding-agent/entrypoint.sh` (16-char hex digest) |
-| `pi-container.project.hash` | Project identity hash (links the image to its source workspace). | First 10 chars of SHA-256 of the absolute project directory path (10-char hex digest) |
-| `pi-container.project.path` | **Absolute path of the project directory at build time** (used for orphan detection). If the path no longer exists, the image is automatically removed on the next run. | Stored as-is from `PROJECT_DIR.resolve()` at build time |
-| `pi-container.build.time` | ISO 8601 timestamp of the build (used for age-based discovery). | UTC timestamp at build time in ISO 8601 format (e.g., `2024-01-15T12:30:45Z`) |
-| `pi-container.type` | Set to `"project"` for project-specific images (enables system-wide discovery via `podman image ls --filter label=pi-container.type=project`). | Always set to `"project"` by `build_project_image()` |
+| `pa-container.hash` | Content hash for cache invalidation (compares against current definition files). | SHA-256 of concatenated hashes of: `.pa-container/dependencies/root/commands.sh` and `agent/commands.sh` (each if non-empty), `coding-agent/Containerfile`, `coding-agent/entrypoint.sh` (16-char hex digest) |
+| `pa-container.project.hash` | Project identity hash (links the image to its source workspace). | First 10 chars of SHA-256 of the absolute project directory path (10-char hex digest) |
+| `pa-container.project.path` | **Absolute path of the project directory at build time** (used for orphan detection). If the path no longer exists, the image is automatically removed on the next run. | Stored as-is from `PROJECT_DIR.resolve()` at build time |
+| `pa-container.build.time` | ISO 8601 timestamp of the build (used for age-based discovery). | UTC timestamp at build time in ISO 8601 format (e.g., `2024-01-15T12:30:45Z`) |
+| `pa-container.type` | Set to `"project"` for project-specific images (enables system-wide discovery via `podman image ls --filter label=pa-container.type=project`). | Always set to `"project"` by `build_project_image()` |
 
 **Key principles:**
 
@@ -1093,7 +1093,7 @@ The `build_project_image()` function in `src/build.py` accepts the following par
 
 ### Allowlist
 
-The `allowlist.yaml` config in the project's `.pi-container/` defines hostname rules for the [allowlist addon](proxy/allowlist.md) running on that project's mitmproxy transparent proxy. It is **per-project**. Each workspace's proxy mounts its own allowlist (seeded from a generic pypi/npm/github/apt template on first run). Edit it per project. Traffic from the agent container to non-allowlisted hosts is **blocked with HTTP 403**. If the file is missing entirely, the image's fail-closed default blocks all hosts.
+The `allowlist.yaml` config in the project's `.pa-container/` defines hostname rules for the [allowlist addon](proxy/allowlist.md) running on that project's mitmproxy transparent proxy. It is **per-project**. Each workspace's proxy mounts its own allowlist (seeded from a generic pypi/npm/github/apt template on first run). Edit it per project. Traffic from the agent container to non-allowlisted hosts is **blocked with HTTP 403**. If the file is missing entirely, the image's fail-closed default blocks all hosts.
 
 Each rule has a `name`, `mode` (`allow`), a list of `hostnames` (supporting `*` wildcards), and optional `ip_ranges`. Traffic matching any rule is permitted. All other traffic is denied. The default mode is `allow` with a `block` default action.
 
@@ -1108,21 +1108,21 @@ Add new rules for any additional hostnames the agent needs to reach (e.g. intern
 
 ### Token Replacer Secrets
 
-The `token_replacer.yaml` config in `.pi-container/` may reference `${ENV:VAR}` values. At startup, `run.py` resolves these variables with automatic fallback to your **OS user keyring** (macOS Keychain, Linux GNOME Keyring / Secret Service, or Windows Credential Manager under the `pi-container` service).
+The `token_replacer.yaml` config in `.pa-container/` may reference `${ENV:VAR}` values. At startup, `run.py` resolves these variables with automatic fallback to your **OS user keyring** (macOS Keychain, Linux GNOME Keyring / Secret Service, or Windows Credential Manager under the `pa-container` service).
 
 To store secrets in the OS keyring without putting them in shell rc files:
 ```bash
-uv run keyring set pi-container OPPER_API_KEY
+uv run keyring set pa-container OPPER_API_KEY
 ```
 
-`run.py` scans `token_replacer.yaml`, resolves each secret (first from `os.environ`, then from the keyring), and injects them securely into the proxy container as environment variables. Override `ContainerNetworkManager._pull_secrets_from_config()` (in [`src/network.py`](https://github.com/mikkovihonen/pi-container/blob/main/src/network.py)) to integrate with an enterprise secret store (Vault, AWS Secrets Manager, Azure Key Vault, etc.).
+`run.py` scans `token_replacer.yaml`, resolves each secret (first from `os.environ`, then from the keyring), and injects them securely into the proxy container as environment variables. Override `ContainerNetworkManager._pull_secrets_from_config()` (in [`src/network.py`](https://github.com/mikkovihonen/pa-container/blob/main/src/network.py)) to integrate with an enterprise secret store (Vault, AWS Secrets Manager, Azure Key Vault, etc.).
 
 ### Transient tmpfs Mounts
 
 `config.yaml`'s `tmpfs.paths` defines paths mounted as **tmpfs** (volatile RAM disks) inside the pi container. Data written to these paths is **lost when the container stops** — useful for build artifacts, caches, and temp files that should not persist across runs.
 
 ```yaml
-# .pi-container/config.yaml
+# .pa-container/config.yaml
 tmpfs:
   paths:
     - /workspace/.venv
@@ -1137,19 +1137,19 @@ The system mounts each path at the same absolute location inside the container. 
 `config.yaml`'s `flow_export.enabled` toggles whether the proxy's captured HTTP/HTTPS flow history for this workspace is exported after the agent shuts down (defaults to disabled):
 
 ```yaml
-# .pi-container/config.yaml
+# .pa-container/config.yaml
 flow_export:
   enabled: true
 ```
 
-When enabled, `run.py` reads the flows the proxy staged for this session. It writes a merged snapshot bucketed by UTC date under `.pi-container/exports/flows/<YYYY-MM-DD>/<HH-MM-SS-mmm>_<session-id>.jsonl`. When the section is absent or malformed, export is **off** (fail-safe). The export contains full request and response bodies and headers — see [Version control](#version-control-gitignore) for why `.pi-container/exports/` must never be committed.
+When enabled, `run.py` reads the flows the proxy staged for this session. It writes a merged snapshot bucketed by UTC date under `.pa-container/exports/flows/<YYYY-MM-DD>/<HH-MM-SS-mmm>_<session-id>.jsonl`. When the section is absent or malformed, export is **off** (fail-safe). The export contains full request and response bodies and headers — see [Version control](#version-control-gitignore) for why `.pa-container/exports/` must never be committed.
 
 ### Egress policy
 
 `config.yaml`'s `egress.allow` is the **per-project** proxy egress policy. Only HTTP/HTTPS/DNS are intercepted by mitmproxy. Every other protocol is denied by default. Opt a protocol in here to let the agent use it. Note that these are forwarded **uninspected** (plain NAT). mitmproxy and the allowlist do not see them.
 
 ```yaml
-# .pi-container/config.yaml
+# .pa-container/config.yaml
 egress:
   allow:
     ssh: false            # TCP 22 (e.g. git over SSH)
@@ -1164,21 +1164,21 @@ egress:
 
 ### Chat templates
 
-Chat templates are configured **globally** in `~/.config/pi-container/chat-templates/` so they are shared across all workspaces rather than duplicated per project.
+Chat templates are configured **globally** in `~/.config/pa-container/chat-templates/` so they are shared across all workspaces rather than duplicated per project.
 
-Place custom Jinja templates under `~/.config/pi-container/chat-templates/<model>/chat_template.jinja`. Reference them from a model's `flags` in `~/.config/pi-container/models/<id>.yaml`:
+Place custom Jinja templates under `~/.config/pa-container/chat-templates/<model>/chat_template.jinja`. Reference them from a model's `flags` in `~/.config/pa-container/models/<id>.yaml`:
 
 ```yaml
 - "--jinja"
 - "--chat-template-file"
-- "~/.config/pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
+- "~/.config/pa-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
 ```
 
-Paths can be absolute, use `~` home directory expansion, or specify a template name relative to `~/.config/pi-container/chat-templates/`. Default chat templates (e.g. for Qwen 3.6) are automatically seeded to `~/.config/pi-container/chat-templates/` on first launch.
+Paths can be absolute, use `~` home directory expansion, or specify a template name relative to `~/.config/pa-container/chat-templates/`. Default chat templates (e.g. for Qwen 3.6) are automatically seeded to `~/.config/pa-container/chat-templates/` on first launch.
 
 ### Workspace Logging Configuration
 
-Workspaces can override global logging and retention policies in `.pi-container/config.yaml`:
+Workspaces can override global logging and retention policies in `.pa-container/config.yaml`:
 
 ```yaml
 logging:
@@ -1188,43 +1188,43 @@ logging:
         max_launches: 5
 ```
 
-### Log Inspection and Management (`pi-container logs`)
+### Log Inspection and Management (`pa-container logs`)
 
 The `logs` subcommand manages per-project log viewing, live streaming, and cleanup:
 
 ```bash
 # View recent tail of the latest session run
-pi-container logs
+pa-container logs
 
 # Follow active session log in real time (similar to tail -f)
-pi-container logs -f
+pa-container logs -f
 
 # Filter log lines by explicit category tag
-pi-container logs --category build
-pi-container logs --category proxy
+pa-container logs --category build
+pa-container logs --category proxy
 
 # Target the latest container build log instead of the session run log
-pi-container logs --build
+pa-container logs --build
 
 # Print the absolute path to this project's logs directory
-pi-container logs --path
+pa-container logs --path
 
 # List historical log files with sizes and modification times
-pi-container logs --list
+pa-container logs --list
 
 # Display custom number of lines
-pi-container logs -n 100
+pa-container logs -n 100
 
 # Purge historical logs for this workspace
-pi-container logs clean
+pa-container logs clean
 
-# Purge logs across ALL projects in ~/.local/state/pi-container/projects/
-pi-container logs clean --all-projects --older-than 7d
+# Purge logs across ALL projects in ~/.local/state/pa-container/projects/
+pa-container logs clean --all-projects --older-than 7d
 ```
 
 ### Virtual desktop and GUI support (`desktop:`)
 
-`desktop` enables a headless Wayland display stack (`labwc`), Xwayland backwards compatibility, and streaming services (`wayvnc` on port 5900, `noVNC` on port 6080) for running and testing GUI applications inside `pi-container`.
+`desktop` enables a headless Wayland display stack (`labwc`), Xwayland backwards compatibility, and streaming services (`wayvnc` on port 5900, `noVNC` on port 6080) for running and testing GUI applications inside `pa-container`.
 
 ```yaml
 desktop:
@@ -1263,55 +1263,55 @@ desktop:
 ```
 
 Key features:
-- **Zero Bloat for CLI Projects**: The shared base image (`pi-coding-agent:local`) ships with zero GUI packages. Desktop packages (`labwc`, `xwayland`, `wayvnc`, `novnc`, `websockify`, `grim`, `wlrctl`, `wtype`, Mesa, GTK, fonts, and NSS DB tools) are installed **only** when `desktop.enabled: true` in your workspace configuration.
+- **Zero Bloat for CLI Projects**: The shared base image (`pa-container-agent:local`) ships with zero GUI packages. Desktop packages (`labwc`, `xwayland`, `wayvnc`, `novnc`, `websockify`, `grim`, `wlrctl`, `wtype`, Mesa, GTK, fonts, and NSS DB tools) are installed **only** when `desktop.enabled: true` in your workspace configuration.
 - **`applehv` & Opportunistic Hardware Acceleration**: On Linux hosts or VMs exposing `/dev/dri`, hardware DRI acceleration is automatically passed through (`--device /dev/dri --group-add keep-groups`). On macOS under Apple's Virtualization Framework (`applehv`) where `/dev/dri` is absent, multi-threaded Mesa `llvmpipe` leverages Apple Silicon's ARM64 NEON SIMD vector JIT (`LP_NUM_THREADS=$(nproc)` and OpenGL 4.5 override) for 60 FPS 1080p rendering.
-- **Multi-Instance Support**: Multiple `pi-container` instances can run simultaneously without port collisions. When `port: auto` is set, `pi-container` dynamically claims free ephemeral host ports.
+- **Multi-Instance Support**: Multiple `pa-container` instances can run simultaneously without port collisions. When `port: auto` is set, `pa-container` dynamically claims free ephemeral host ports.
 - **In-Container Automation (`agent-desktop`)**: The agent can inspect and control the desktop using `/usr/local/bin/agent-desktop` (taking screenshots with `grim`, inspecting windows with `wlrctl`, and sending synthetic mouse clicks, drags, text, and key combinations with `wtype`/`xdotool`). When desktop support is enabled, `agent-desktop` is paired with the in-container `virtual-desktop` skill dynamically loaded into the agent's environment.
-- **Nested Containers**: Wayland (`wayland-0`), X11 (`:0`), `/dev/shm`, and `/dev/dri` are automatically forwarded into nested tool containers via `/etc/containers/containers.conf.d/60-pi-container-desktop.conf`.
+- **Nested Containers**: Wayland (`wayland-0`), X11 (`:0`), `/dev/shm`, and `/dev/dri` are automatically forwarded into nested tool containers via `/etc/containers/containers.conf.d/60-pa-container-desktop.conf`.
 
-### Active Proxies Inspection (`pi-container proxy` / `proxies`)
+### Active Proxies Inspection (`pa-container proxy` / `proxies`)
 
 The `proxy` (or `proxies`) subcommand queries running mitmproxy instances and their published `mitmweb` endpoints:
 
 ```bash
 # Query active proxy for the current project workspace
-pi-container proxy
+pa-container proxy
 
 # List all active proxies across all workspaces on the host in a table
-pi-container proxies --all
+pa-container proxies --all
 
 # Open the resolved mitmweb UI in the default web browser immediately
-pi-container proxy --open
+pa-container proxy --open
 
 # Output only the raw mitmweb URL (for shell scripts or piping)
-pi-container proxy --url
+pa-container proxy --url
 
 # Output active proxy metadata as structured JSON
-pi-container proxy --json
+pa-container proxy --json
 ```
 
-### Active Virtual Desktops Inspection (`pi-container desktop` / `desktops` / `vnc` / `gui`)
+### Active Virtual Desktops Inspection (`pa-container desktop` / `desktops` / `vnc` / `gui`)
 
 The `desktop` subcommand queries running virtual desktop instances, active endpoints, and health status:
 
 ```bash
 # Query active virtual desktop for the current project workspace
-pi-container desktop
+pa-container desktop
 
 # List all active virtual desktops across all projects on the host
-pi-container desktop --all
+pa-container desktop --all
 
 # Open the resolved noVNC web interface in the default web browser immediately
-pi-container desktop --open
+pa-container desktop --open
 
 # Output only the raw noVNC URL (for shell scripts or browser automation)
-pi-container desktop --url
+pa-container desktop --url
 
 # Output only the host VNC endpoint (e.g. 127.0.0.1:5900)
-pi-container desktop --vnc
+pa-container desktop --vnc
 
 # Output active desktop metadata as structured JSON
-pi-container desktop --json
+pa-container desktop --json
 ```
 
 URLs in terminal output are formatted using ANSI OSC 8 escape sequences, rendering as native clickable hyperlinks in VS Code, macOS Terminal, iTerm2, WezTerm, GNOME Terminal, and Windows Terminal.
@@ -1326,12 +1326,12 @@ The CLI provides unified execution across `run`, `build`, `clean`, `logs`, `prox
     - `--log-file`: Explicitly specify destination path for the session log file.
     - `--no-color`: Disable ANSI color and cursor formatting (also respects `NO_COLOR=1`).
 - Browser auto-launch on `run`:
-    - `pi-container run --open-browser`: Automatically open `mitmweb` in the default OS browser once healthy.
-    - `pi-container run --no-open-browser`: Disable browser opening regardless of config defaults.
+    - `pa-container run --open-browser`: Automatically open `mitmweb` in the default OS browser once healthy.
+    - `pa-container run --no-open-browser`: Disable browser opening regardless of config defaults.
 - Container argument forwarding:
     - Arguments placed after POSIX `--` separator forward directly to the inner agent binary without CLI parser interpretation:
         ```bash
-        pi-container run --agent pi -- --help
+        pa-container run --agent pi -- --help
         ```
 - Category progress milestones:
     - Subsystem milestones (`preflight`, `build`, `network`, `proxy`, `server`, `security`, `agent`, `volume`, `cleanup`) update in place via rich terminal spinners and status indicators.
@@ -1339,13 +1339,13 @@ The CLI provides unified execution across `run`, `build`, `clean`, `logs`, `prox
 
 ### Version control (.gitignore)
 
-A ready-to-copy [`.gitignore.example`](https://github.com/mikkovihonen/pi-container/blob/main/docs/assets/.gitignore.example) lists every entry a workspace needs. Copy the relevant lines into your project's `.gitignore`.
+A ready-to-copy [`.gitignore.example`](https://github.com/mikkovihonen/pa-container/blob/main/docs/assets/.gitignore.example) lists every entry a workspace needs. Copy the relevant lines into your project's `.gitignore`.
 
-`.pi-container/` holds workspace configuration, credentials, local model registries, and runtime state. Best practice is that `.pi-container/` should **not be committed** into your repository:
+`.pa-container/` holds workspace configuration, credentials, local model registries, and runtime state. Best practice is that `.pa-container/` should **not be committed** into your repository:
 
 ```gitignore
-# pi-container: workspace configuration and runtime state — never commit
-.pi-container/
+# pa-container: workspace configuration and runtime state — never commit
+.pa-container/
 ```
 
-This prevents accidental check-ins of session history, credentials, trust databases, or captured proxy flows (`.pi-container/exports/`). On first launch in a new clone or workspace, `run.py` automatically seeds the workspace's `.pi-container/` directory from the template defaults.
+This prevents accidental check-ins of session history, credentials, trust databases, or captured proxy flows (`.pa-container/exports/`). On first launch in a new clone or workspace, `run.py` automatically seeds the workspace's `.pa-container/` directory from the template defaults.

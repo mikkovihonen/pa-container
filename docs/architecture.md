@@ -4,14 +4,14 @@
 
 ```mermaid
 flowchart TB
-    agent_eth["<b>pi-coding-agent</b><br/><br/>eth0<br/>isolated-net"]
+    agent_eth["<b>pa-container-agent</b><br/><br/>eth0<br/>isolated-net"]
 
     subgraph net["isolated-net<br/>(--internal, no gateway)"]
         direction TB
     end
     style net fill:none,text-align:left
 
-    subgraph proxy["<b>pi-coding-agent-proxy</b>"]
+    subgraph proxy["<b>pa-container-agent-proxy</b>"]
         direction TB
         mitm["mitmproxy<br/>transparent :8080<br/>allowlist + token_replacer"]
         dns["mitmproxy<br/>DNS :5353<br/>resolves 'llama' / provider hosts → eth1 IP"]
@@ -51,18 +51,18 @@ flowchart TB
 
 The key components of the system are
 
-1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pi-container/models.yaml` and resolved against host model definitions at `~/.config/pi-container/models/<model-id>.yaml` or gateways at `~/.config/pi-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/project/` template and default model definitions from `coding-agent/default/global/models/` on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
+1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pa-container/models.yaml` and resolved against host model definitions at `~/.config/pa-container/models/<model-id>.yaml` or gateways at `~/.config/pa-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/project/` template and default model definitions from `coding-agent/default/global/models/` on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
 
-2. **`pi-coding-agent-proxy`** (container): A transparent proxy container based on Debian with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that redacts API keys, bearer tokens, cookies, and JWTs. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
+2. **`pa-container-agent-proxy`** (container): A transparent proxy container based on Debian with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that redacts API keys, bearer tokens, cookies, and JWTs. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
 
-3. **`pi-coding-agent`** (container): The main agent container. The system builds it from `debian:trixie-slim`. It includes Node 26, Python 3.14.6, `uv` for dependency management, and (for nested containers) rootless podman plus `podman-compose`. The [toolchain builder image](design-details.md#toolchain-builder-image) compiles all of these from source and copies them in. No workspace needs to install them. The agent connects **only** to an internal `isolated-net` network. Its default route and DNS point at the proxy so all traffic goes through it. The proxy reaches the host `llama-server` via `host.containers.internal` on podman for macOS or directly on Linux. This requires no socat. With `nested_containers.enabled`, the agent runs its own rootless podman inside itself. Those containers live in the agent's namespaces. Their traffic also goes through the proxy (see [Nested containers](design-details.md#nested-containers)).
+3. **`pa-container-agent`** (container): The main agent container. The system builds it from `debian:trixie-slim`. It includes Node 26, Python 3.14.6, `uv` for dependency management, and (for nested containers) rootless podman plus `podman-compose`. The [toolchain builder image](design-details.md#toolchain-builder-image) compiles all of these from source and copies them in. No workspace needs to install them. The agent connects **only** to an internal `isolated-net` network. Its default route and DNS point at the proxy so all traffic goes through it. The proxy reaches the host `llama-server` via `host.containers.internal` on podman for macOS or directly on Linux. This requires no socat. With `nested_containers.enabled`, the agent runs its own rootless podman inside itself. Those containers live in the agent's namespaces. Their traffic also goes through the proxy (see [Nested containers](design-details.md#nested-containers)).
 
 <a name="network-topology"></a>
 ## Networking
 
-The proxy's iptables rules enforce a **default-deny** forward policy. HTTP, HTTPS, and DNS from the agent go through mitmproxy. The proxy uses `REDIRECT` to ports 8080 and 5353. This bypasses the `FORWARD` chain entirely. The system denies every other protocol by default. Opt-in forwarding uses plain NAT. You configure it per-project in `.pi-container/config.yaml` under `egress.allow`. Options include ssh, smtp, git, ntp, and custom TCP or UDP ports. mitmproxy does **not inspect** these opt-in connections. The system creates `isolated-net` with `--internal`. This removes the external gateway. The agent has no route to the internet except the default route and DNS pointed at the proxy.
+The proxy's iptables rules enforce a **default-deny** forward policy. HTTP, HTTPS, and DNS from the agent go through mitmproxy. The proxy uses `REDIRECT` to ports 8080 and 5353. This bypasses the `FORWARD` chain entirely. The system denies every other protocol by default. Opt-in forwarding uses plain NAT. You configure it per-project in `.pa-container/config.yaml` under `egress.allow`. Options include ssh, smtp, git, ntp, and custom TCP or UDP ports. mitmproxy does **not inspect** these opt-in connections. The system creates `isolated-net` with `--internal`. This removes the external gateway. The agent has no route to the internet except the default route and DNS pointed at the proxy.
 
-By default the whole stack is **IPv4-only**. The isolated network has no IPv6 subnet. Both containers disable IPv6 via sysctl. This prevents agent traffic from escaping the transparent-proxy REDIRECT over v6. Set `network.ipv6: true` in the project's `.pi-container/config.yaml` to enable IPv6. IPv6 mode creates the network with an IPv6 subnet (`--ipv6`). It mirrors the proxy's REDIRECT, NAT, and FORWARD rules in `ip6tables`. It gives the agent an IPv6 default route through the proxy. The container runtime **and** the host must both have IPv6 egress. This option targets **Linux hosts running podman with working host IPv6**. Leave it `false` on macOS.
+By default the whole stack is **IPv4-only**. The isolated network has no IPv6 subnet. Both containers disable IPv6 via sysctl. This prevents agent traffic from escaping the transparent-proxy REDIRECT over v6. Set `network.ipv6: true` in the project's `.pa-container/config.yaml` to enable IPv6. IPv6 mode creates the network with an IPv6 subnet (`--ipv6`). It mirrors the proxy's REDIRECT, NAT, and FORWARD rules in `ip6tables`. It gives the agent an IPv6 default route through the proxy. The container runtime **and** the host must both have IPv6 egress. This option targets **Linux hosts running podman with working host IPv6**. Leave it `false` on macOS.
 
 
 ## Startup orchestration & parallel initialization
@@ -81,7 +81,7 @@ flowchart TB
         direction TB
         S1["<b>llama-server 1</b><br/>Port allocated<br/>Model weight loading & /health polling"]
         S2["<b>llama-server 2</b><br/>Port allocated<br/>Model weight loading & /health polling"]
-        Proxy["<b>pi-coding-agent-proxy</b><br/>Create isolated network<br/>Start proxy container & poll mitmweb"]
+        Proxy["<b>pa-container-agent-proxy</b><br/>Create isolated network<br/>Start proxy container & poll mitmweb"]
     end
     style Parallel fill:none,text-align:left
 
@@ -92,7 +92,7 @@ flowchart TB
     S2 --> Barrier
     Proxy --> Barrier
 
-    Barrier -->|All healthy| Agent["<b>4. Start pi-coding-agent</b><br/>Attach to isolated-net<br/>Route default gateway & DNS to proxy"]
+    Barrier -->|All healthy| Agent["<b>4. Start pa-container-agent</b><br/>Attach to isolated-net<br/>Route default gateway & DNS to proxy"]
     Barrier -.->|Any failure or SIGINT| Rollback["<b>ExitStack Rollback</b><br/>Clean teardown of all started resources"]
 ```
 
@@ -112,7 +112,7 @@ flowchart TB
 
 3. **Agent container launch**:
     - Inspects the running proxy's internal interface IP and provisions shadow volumes and tmpfs mounts.
-    - Launches `pi-coding-agent` attached to the isolated bridge network with default route and DNS directed to the proxy.
+    - Launches `pa-container-agent` attached to the isolated bridge network with default route and DNS directed to the proxy.
 
 For in-depth explanations of proxy egress forwarding rules, nested container architecture, and the toolchain builder image, see [Design details](design-details.md).
 
@@ -175,16 +175,16 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │   ├── Containerfile                 # Image definition (apt, toolchain COPY, pi, /etc/containers, CA)
 │   ├── entrypoint.sh                 # Container entrypoint (default route via proxy, git config, uv venv)
 │   └── default/                      # Seed templates (global and project configurations)
-│       ├── global/                   # Seed template for ~/.config/pi-container/
+│       ├── global/                   # Seed template for ~/.config/pa-container/
 │       │   ├── config.yaml           # Global configuration (runtime, llama, build)
-│       │   ├── models/               # Seed model definitions (~/.config/pi-container/models/)
+│       │   ├── models/               # Seed model definitions (~/.config/pa-container/models/)
 │       │   │   └── Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml
-│       │   ├── gateways/             # Seed gateway directory (~/.config/pi-container/gateways/)
-│       │   └── chat-templates/       # Bundled Jinja chat templates (~/.config/pi-container/chat-templates/)
+│       │   ├── gateways/             # Seed gateway directory (~/.config/pa-container/gateways/)
+│       │   └── chat-templates/       # Bundled Jinja chat templates (~/.config/pa-container/chat-templates/)
 │       │       └── Qwen3.6-35B-A3B-UD-Q6_K-XL/
 │       │           └── chat_template.jinja
-│       └── project/                  # Seed template for <project>/.pi-container
-│           ├── agents/               # → .pi-container/agents
+│       └── project/                  # Seed template for <project>/.pa-container
+│           ├── agents/               # → .pa-container/agents
 │           │   └── pi/               # Pi coding agent template
 │           │       ├── AGENTS.md     # Agent instructions
 │           │       ├── config.json
@@ -216,7 +216,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 ├── docs/setups/                      # Model-specific setup directories
 │   └── gemma-4-26b-a4b-it-qat-GGUF/  # Notes and config for specific model setups
 │
-└── .pi-container/                    # Per-project config (this repo's own; each workspace gets its own)
+└── .pa-container/                    # Per-project config (this repo's own; each workspace gets its own)
     ├── agent/                        # Agent launch config (sessions, config.json, …)
     ├── models.yaml                   # Allowed models allowlist
     ├── config.yaml                   # Orchestration: resource limits, tmpfs, flow-export, egress

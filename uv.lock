@@ -1093,7 +1093,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pi-container"
+name = "pa-container"
 version = "0.6.6"
 source = { virtual = "." }
 default-groups = ["dev", "proxy", "src"]

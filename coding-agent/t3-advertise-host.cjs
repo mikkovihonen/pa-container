@@ -1,4 +1,4 @@
-// Preload shim for T3 Code server inside pi-container.
+// Preload shim for T3 Code server inside pa-container.
 //
 // Intercepts network interfaces and public URLs so T3 Code advertises localhost,
 // custom domains, or secure tunnel URLs in pairing links, connection strings,

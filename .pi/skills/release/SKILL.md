@@ -1,12 +1,12 @@
 ---
 name: release
-description: Creates a new pi-container release. Bumps versions across all files,
+description: Creates a new pa-container release. Bumps versions across all files,
   regenerates uv.lock, validates consistency, then guides the CHANGELOG update,
   release commit, and git tag. Use when the user says "release vX.Y.Z" or
   "make a new release".
 ---
 
-# Release pi-container
+# Release pa-container
 
 ## When to Use
 
@@ -44,7 +44,7 @@ The script will:
   taken, CHANGELOG already in order. It refuses before touching any file.
 - Bump `pyproject.toml` version
 - Bump `schema_version` in `coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml`
-- Bump `schema_version` in `.pi-container/config.yaml`
+- Bump `schema_version` in `.pa-container/config.yaml`
 - Run `uv lock` to regenerate the lockfile
 - Commit the bumps as `chore: bump to <version>`
 - Validate version consistency with `validate_versions.py`
@@ -112,7 +112,7 @@ CI will create the GitHub Release automatically.
 - The script never touches `CHANGELOG.md` or creates the tag — those are steps
   3 and 4 above.
 - The `validate_versions.py` hook runs in CI only (not pre-commit) because the git tag doesn't exist until after the commit.
-- `.pi-container/config.yaml` must be updated separately from the template — seeding is copy-once.
+- `.pa-container/config.yaml` must be updated separately from the template — seeding is copy-once.
 - The lint step runs with `SKIP=pytest`; the suite runs once afterwards with
   `--cov`, rather than twice.
 - If the user wants to skip pushing, everything through the tag stays local.

@@ -53,7 +53,7 @@ class AgentDriver(ABC):
 
     def get_state_dir(self, project_dir: Path) -> Path:
         """Return host path for agent-specific state and configs."""
-        return project_dir / ".pi-container" / "agents" / self.name
+        return project_dir / ".pa-container" / "agents" / self.name
 
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:
         """Return host-to-container mounts for agent-specific state and configs."""

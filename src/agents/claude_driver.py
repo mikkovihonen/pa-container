@@ -32,7 +32,7 @@ class ClaudeDriver(AgentDriver):
 
     def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
         env = {
-            "ANTHROPIC_API_KEY": "pi-container-token-placeholder",
+            "ANTHROPIC_API_KEY": "pa-container-token-placeholder",
             "CLAUDE_CONFIG_DIR": "/home/agent/.claude",
         }
         if config and config.get("env") and "ANTHROPIC_BASE_URL" in config["env"]:

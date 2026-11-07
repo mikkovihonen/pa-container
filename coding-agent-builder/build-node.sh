@@ -1,5 +1,5 @@
 #!/bin/bash
-# Provide Node.js for the agent image, and stage it under $PI_STAGE.
+# Provide Node.js for the agent image, and stage it under $PA_STAGE.
 #
 # WHY THIS IS HERE AT ALL
 # The agent image used to *be* the `node:<ver>-trixie-slim` image. That made Node the
@@ -75,8 +75,8 @@ stage_prebuilt_node() {
     # CHANGELOG.md and README.md are excluded: they would sit loose in /usr/local and
     # `make install` does not produce them either, so excluding them keeps the two
     # modes' output identical. LICENSE is kept.
-    mkdir -p "${PI_STAGE}/usr/local"
-    tar -xJf "/tmp/${tarball}" -C "${PI_STAGE}/usr/local" \
+    mkdir -p "${PA_STAGE}/usr/local"
+    tar -xJf "/tmp/${tarball}" -C "${PA_STAGE}/usr/local" \
         --strip-components=1 --no-same-owner \
         --exclude=CHANGELOG.md --exclude=README.md
     rm -f "/tmp/${tarball}"
@@ -166,10 +166,10 @@ build_node_from_source() {
     run_logged "Building Node ${NODE_VERSION}" /tmp/node-make.log \
         make -j "${make_jobs}"
 
-    # Installed only into $PI_STAGE — nothing later in this stage needs to *run* node,
+    # Installed only into $PA_STAGE — nothing later in this stage needs to *run* node,
     # so there is no reason to install it into the builder's own /usr/local.
     run_logged "Staging Node ${NODE_VERSION}" /tmp/node-make-install.log \
-        make install DESTDIR="${PI_STAGE}"
+        make install DESTDIR="${PA_STAGE}"
 
     # Drop the source tree (~2 GB with build artefacts) and the toolchain that was only
     # needed for Temporal.
@@ -196,13 +196,13 @@ esac
 
 # The node: image shipped this alias; some scripts and shebangs use `nodejs`. Neither
 # the tarball nor `make install` creates it.
-ln -sf node "${PI_STAGE}/usr/local/bin/nodejs"
+ln -sf node "${PA_STAGE}/usr/local/bin/nodejs"
 
 # ─── Verify the STAGED tree (both modes) ─────────────────────────────────────
 # Parity with what node:26.3.1-trixie-slim provided is the bar: node, npm, npx and the
 # nodejs alias, with full ICU and Temporal. (That image shipped no yarn, so its absence
 # here is not a regression.)
-stage_bin="${PI_STAGE}/usr/local/bin"
+stage_bin="${PA_STAGE}/usr/local/bin"
 for tool in node nodejs npm npx; do
     if [ ! -e "${stage_bin}/${tool}" ]; then
         echo "ERROR: ${tool} was not staged into ${stage_bin}." >&2
@@ -221,7 +221,7 @@ fi
 # npm is a script run by node; exercise it through the staged interpreter so a broken
 # lib/node_modules layout surfaces here rather than at `npm install -g` in the agent
 # image, several layers later.
-npm_version="$("${stage_bin}/node" "${PI_STAGE}/usr/local/lib/node_modules/npm/bin/npm-cli.js" --version)"
+npm_version="$("${stage_bin}/node" "${PA_STAGE}/usr/local/lib/node_modules/npm/bin/npm-cli.js" --version)"
 echo "npm ${npm_version}"
 
 # Intl with full ICU is the behaviour the node: image had. A --with-intl=small-icu

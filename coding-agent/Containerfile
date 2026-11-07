@@ -130,7 +130,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && locale-gen en_US.UTF-8
 
 # ─── Virtual Desktop & GUI Support (Conditional) ───────────────────────────
-# Installed only when desktop.enabled: true in .pi-container/config.yaml.
+# Installed only when desktop.enabled: true in .pa-container/config.yaml.
 # Base shared image (WITH_DESKTOP=false) remains lean (~500 MB saved).
 ARG WITH_DESKTOP=false
 RUN if [ "${WITH_DESKTOP}" = "true" ]; then \
@@ -182,20 +182,20 @@ RUN if [ "${WITH_DESKTOP}" = "true" ]; then \
 # Copying prebuilt trees instead of compiling in place is what keeps a
 # project-specific image rebuild cheap: these layers are invalidated only when the
 # builder image itself changes, and even then they are copies, not compiles.
-COPY --from=pi-coding-agent-builder:local /python/ /
-COPY --from=pi-coding-agent-builder:local /node/ /
-COPY --from=pi-coding-agent-builder:local /podman/ /
-COPY --from=pi-coding-agent-builder:local /network/ /
+COPY --from=pa-container-agent-builder:local /python/ /
+COPY --from=pa-container-agent-builder:local /node/ /
+COPY --from=pa-container-agent-builder:local /podman/ /
+COPY --from=pa-container-agent-builder:local /network/ /
 
 # ─── Optional toolchains from the builder image ──────────────────────────────
-# Enabled per-project in .pi-container/config.yaml under tools.include: [go, rust].
+# Enabled per-project in .pa-container/config.yaml under tools.include: [go, rust].
 # When false (default for shared image), layers are no-ops to keep image size minimal.
 ARG WITH_GO=false
-RUN --mount=type=bind,from=pi-coding-agent-builder:local,src=/go,target=/mnt/go \
+RUN --mount=type=bind,from=pa-container-agent-builder:local,src=/go,target=/mnt/go \
     if [ "${WITH_GO}" = "true" ]; then cp -a /mnt/go/* /; fi
 
 ARG WITH_RUST=false
-RUN --mount=type=bind,from=pi-coding-agent-builder:local,src=/rust,target=/mnt/rust \
+RUN --mount=type=bind,from=pa-container-agent-builder:local,src=/rust,target=/mnt/rust \
     if [ "${WITH_RUST}" = "true" ]; then cp -a /mnt/rust/* /; fi
 
 # ─── Optional on-demand tools from separate tool images ──────────────────────
@@ -309,7 +309,7 @@ ENV UV_SYSTEM_CERTS=1
 #
 # The manifest is assembled from one fragment per build script — see stage_record() in
 # coding-agent-builder/common.sh for why they arrive separately — into a single file
-# the agent can read: /usr/local/share/pi-container/toolchain-versions.txt.
+# the agent can read: /usr/local/share/pa-container/toolchain-versions.txt.
 RUN ldconfig \
  && node --version \
  && npm --version \
@@ -346,14 +346,14 @@ RUN ldconfig \
  && if [ -x /usr/local/bin/antigravity ]; then /usr/local/bin/antigravity --version || true; fi \
  && if [ -x /usr/local/bin/claude ]; then /usr/local/bin/claude --version || true; fi \
  && if [ -x /usr/local/bin/chromium ]; then /usr/local/bin/chromium --version || true; fi \
- && cat /usr/local/share/pi-container/toolchain-versions.d/*.txt \
-      | sort > /usr/local/share/pi-container/toolchain-versions.txt \
- && cat /usr/local/share/pi-container/toolchain-versions.txt
+ && cat /usr/local/share/pa-container/toolchain-versions.d/*.txt \
+      | sort > /usr/local/share/pa-container/toolchain-versions.txt \
+ && cat /usr/local/share/pa-container/toolchain-versions.txt
 
 # ─── Nested container toolchain ──────────────────────────────────────────────
 # Lets the agent run its own rootless podman *inside* this container (podman
 # build/run, docker compose, testcontainers). Always present in the image but
-# inert unless nested_containers.enabled is set in .pi-container/config.yaml —
+# inert unless nested_containers.enabled is set in .pa-container/config.yaml —
 # run.py then passes the device/security/storage flags (see
 # docs/design/nested-containers.md).
 
@@ -377,7 +377,7 @@ RUN printf 'agent:1:999\nagent:1001:64535\n' > /etc/subuid \
 # (testcontainers, Makefiles, CI scripts). Debian's podman-docker package would
 # provide this, but it is not installed: it depends on Debian's podman, which is
 # 5.4.2 and would land next to the 6.x built here.
-RUN printf '%s\n' '#!/bin/sh' '# pi-container: docker(1) is podman.' \
+RUN printf '%s\n' '#!/bin/sh' '# pa-container: docker(1) is podman.' \
       'exec /usr/local/bin/podman "$@"' > /usr/local/bin/docker \
  && chmod 0755 /usr/local/bin/docker
 
@@ -452,14 +452,14 @@ RUN mkdir -p /etc/containers/containers.conf.d \
  && printf '%s\n' \
       '[containers]' \
       'mounts = [' \
-      '  "type=bind,source=/etc/ssl/certs/ca-certificates.crt,destination=/etc/pi-container-ca.crt,ro=true",' \
+      '  "type=bind,source=/etc/ssl/certs/ca-certificates.crt,destination=/etc/pa-container-ca.crt,ro=true",' \
       ']' \
       'env = [' \
-      '  "SSL_CERT_FILE=/etc/pi-container-ca.crt",' \
-      '  "NODE_EXTRA_CA_CERTS=/etc/pi-container-ca.crt",' \
-      '  "REQUESTS_CA_BUNDLE=/etc/pi-container-ca.crt",' \
-      '  "CURL_CA_BUNDLE=/etc/pi-container-ca.crt",' \
-      '  "GIT_SSL_CAINFO=/etc/pi-container-ca.crt",' \
+      '  "SSL_CERT_FILE=/etc/pa-container-ca.crt",' \
+      '  "NODE_EXTRA_CA_CERTS=/etc/pa-container-ca.crt",' \
+      '  "REQUESTS_CA_BUNDLE=/etc/pa-container-ca.crt",' \
+      '  "CURL_CA_BUNDLE=/etc/pa-container-ca.crt",' \
+      '  "GIT_SSL_CAINFO=/etc/pa-container-ca.crt",' \
       ']' \
       'log_driver = "k8s-file"' \
       'netns = "bridge"' \
@@ -468,20 +468,20 @@ RUN mkdir -p /etc/containers/containers.conf.d \
       'cgroup_manager = "cgroupfs"' \
       'compose_providers = ["podman-compose"]' \
       'compose_warning_logs = false' \
-    > /etc/containers/containers.conf.d/50-pi-container.conf
+    > /etc/containers/containers.conf.d/50-pa-container.conf
 
-# ─── The PI_CONTAINER_* environment contract ────────────────────────────────
+# ─── The PA_CONTAINER_* environment contract ────────────────────────────────
 #
 # What a project's own scripts test to know they are running inside the agent,
 # so a Makefile, compose wrapper or test harness can pick agent-specific
-# settings without probing for them. Everything pi-container injects shares this
+# settings without probing for them. Everything pa-container injects shares this
 # prefix; see docs/configuration.md.
 #
-#   PI_CONTAINER=1          set here, so it is present for every process in the
+#   PA_CONTAINER=1          set here, so it is present for every process in the
 #                           image — login shells, `podman exec`, and anything the
 #                           entrypoint never touches. Its truth is a property of
 #                           the image, not of how run.py invoked it.
-#   PI_CONTAINER_HOST_IP    where the agent is reachable **from inside a nested
+#   PA_CONTAINER_HOST_IP    where the agent is reachable **from inside a nested
 #                           container**, which is the one address projects
 #                           routinely need and cannot guess. It lives next to the
 #                           podman pin on purpose: the value is podman's, not
@@ -494,17 +494,17 @@ RUN mkdir -p /etc/containers/containers.conf.d \
 #                           the agent has no route to.
 #
 # Injected by run.py rather than here, because they describe the run and not the
-# image: PI_CONTAINER_VERSION, PI_CONTAINER_NESTED. The latter replaces the
+# image: PA_CONTAINER_VERSION, PA_CONTAINER_NESTED. The latter replaces the
 # unprefixed NESTED_CONTAINERS outright, with no fallback — run.py rebuilds this
 # image from this repo on every launch, so runner and image cannot disagree.
-ENV PI_CONTAINER=1
-ENV PI_CONTAINER_HOST_IP=169.254.1.2
+ENV PA_CONTAINER=1
+ENV PA_CONTAINER_HOST_IP=169.254.1.2
 
 COPY coding-agent/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop
-COPY coding-agent/skills /usr/local/share/pi-container/skills
-COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pi-container/t3-advertise-host.cjs
-COPY coding-agent/t3-seed-settings.cjs /usr/local/share/pi-container/t3-seed-settings.cjs
+COPY coding-agent/skills /usr/local/share/pa-container/skills
+COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pa-container/t3-advertise-host.cjs
+COPY coding-agent/t3-seed-settings.cjs /usr/local/share/pa-container/t3-seed-settings.cjs
 COPY coding-agent/t3-policy.json /etc/t3code/policy.json
 
 ARG AGENT_UID=1000
@@ -525,7 +525,7 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 RUN mkdir -p /usr/local/share/ca-certificates/extra
-COPY --from=pi-coding-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
+COPY --from=pa-container-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
 RUN openssl x509 -in /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem -inform PEM -out /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt && update-ca-certificates
 RUN npm set cafile /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
 
@@ -541,11 +541,11 @@ RUN chmod +x /root/commands.sh && /root/commands.sh
 
 WORKDIR /workspace
 
-LABEL pi-container.hash="${LABEL_HASH}"
-LABEL pi-container.project.hash="${PROJECT_HASH}"
-LABEL pi-container.project.path="${PROJECT_PATH}"
-LABEL pi-container.build.time="${BUILD_TIMESTAMP}"
-# pi-container.type is deliberately NOT set here. This Containerfile builds two
+LABEL pa-container.hash="${LABEL_HASH}"
+LABEL pa-container.project.hash="${PROJECT_HASH}"
+LABEL pa-container.project.path="${PROJECT_PATH}"
+LABEL pa-container.build.time="${BUILD_TIMESTAMP}"
+# pa-container.type is deliberately NOT set here. This Containerfile builds two
 # different things: the shared base image (build_agent, no label ARGs passed) and
 # per-project images (build_project_image, all ARGs passed). Hardcoding
 # type="project" stamped the shared base as a project image too, so run.py's

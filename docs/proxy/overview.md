@@ -23,7 +23,7 @@ RUN timeout 3s mitmweb || [ $? -eq 124 ]
 The container uses additional capabilities to manage network interfaces and routing tables:
 - `CAP_NET_ADMIN`
 
-The [entrypoint](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/entrypoint.sh) uses `iptables` on the isolated-net interface
+The [entrypoint](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/entrypoint.sh) uses `iptables` on the isolated-net interface
 (`eth1`) to transparently intercept the agent's traffic. HTTP, HTTPS, and DNS are
 redirected into mitmproxy (running transparent + DNS modes). The local
 `llama-server` API is DNAT'd out to the host. A `POSTROUTING -j MASQUERADE`
@@ -66,25 +66,25 @@ entrypoint). The addons operate on the intercepted HTTP/HTTPS traffic:
 
 | Addon | Purpose | Config (host → container) |
 |-------|---------|---------------------------|
-| [`allowlist`](allowlist.md) | Blocks requests to non-allowlisted hosts/IPs (default action `block`). | `.pi-container/allowlist.yaml` → `/home/mitmproxy/config/allowlist.yaml` |
-| [`token_replacer`](token-replacer.md) | Redacts secrets (API keys, Bearer tokens, cookies, JWTs) from requests/responses. | `.pi-container/token_replacer.yaml` → `/home/mitmproxy/config/token_replacer.yaml` |
+| [`allowlist`](allowlist.md) | Blocks requests to non-allowlisted hosts/IPs (default action `block`). | `.pa-container/allowlist.yaml` → `/home/mitmproxy/config/allowlist.yaml` |
+| [`token_replacer`](token-replacer.md) | Redacts secrets (API keys, Bearer tokens, cookies, JWTs) from requests/responses. | `.pa-container/token_replacer.yaml` → `/home/mitmproxy/config/token_replacer.yaml` |
 | [`flow_export`](flow-export.md) | Exports completed flows (JSON Lines) to per-client-IP files for post-session inspection. | N/A (baked in, writes to `/home/mitmproxy/exports/`) |
 
 The image bakes fail-closed default configs. `run.py` mounts the host configs
-from `.pi-container/` over them at runtime (and injects any `${ENV:VAR}` secrets
+from `.pa-container/` over them at runtime (and injects any `${ENV:VAR}` secrets
 the token_replacer config references). Edit the host files to change policy. See
 [addon development guide](addon-development.md) for how mitmproxy addons work.
 
 ## Installing the mitmproxy CA certificate to Pi Coding Agent
 
-The mitmproxy CA cert is located in `/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem` in a local container image tagged with the `PROXY_IMAGE_TAG` setting (default: `pi-coding-agent-proxy:local`).
+The mitmproxy CA cert is located in `/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem` in a local container image tagged with the `PROXY_IMAGE_TAG` setting (default: `pa-container-agent-proxy:local`).
 
-Copy `mitmproxy-ca-cert.crt` from the transparent proxy container to install it into the pi-coding-agent container during build:
+Copy `mitmproxy-ca-cert.crt` from the transparent proxy container to install it into the pa-container-agent container during build:
 
 In `coding-agent/Containerfile`, `mitmproxy-ca-cert.pem` is copied from the transparent proxy container image, converted to .cer format, and installed:
 
 ``` Containerfile
-COPY --from=pi-coding-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
+COPY --from=pa-container-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
 ```
 
 Then:
@@ -96,4 +96,4 @@ Then:
 - System CA certificates are updated
     - `RUN update-ca-certificates`
 
-After this, the pi-coding-agent image has the mitmproxy CA installed.
+After this, the pa-container-agent image has the mitmproxy CA installed.

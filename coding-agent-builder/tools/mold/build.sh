@@ -16,7 +16,7 @@ clone_verified "https://github.com/rui314/mold.git" "${MOLD_VERSION}" "${MOLD_CO
 
 mkdir -p /tmp/mold-build
 cmake -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX="${PI_STAGE}/usr/local" \
+      -DCMAKE_INSTALL_PREFIX="${PA_STAGE}/usr/local" \
       -DMOLD_USE_SYSTEM_MIMALLOC=OFF \
       -DMOLD_LTO=ON \
       -B /tmp/mold-build -S "${src}"
@@ -25,6 +25,6 @@ cmake --build /tmp/mold-build -j "$(mem_capped_jobs 400)"
 cmake --install /tmp/mold-build
 rm -rf /tmp/mold-build "${src}"
 
-"${PI_STAGE}/usr/local/bin/mold" --version
+"${PA_STAGE}/usr/local/bin/mold" --version
 stage_record "mold" "${MOLD_VERSION}"
 

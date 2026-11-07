@@ -51,14 +51,14 @@ if [ -n "$CONTAINER_CHOWN_PATHS" ]; then
     done
 fi
 
-# ─── Nested container support (PI_CONTAINER_NESTED, injected by run.py) ───
+# ─── Nested container support (PA_CONTAINER_NESTED, injected by run.py) ───
 # Only the setup that genuinely needs root happens here, before `gosu agent`.
 # Rootless podman needs a private XDG_RUNTIME_DIR for its locks and pid files,
 # and it must own its own image store: the volume (or tmpfs) mounted at
 # ~/.local/share/containers is freshly created and root-owned on the first run.
 # The chown is deliberately non-recursive — a populated store already belongs to
 # agent, and walking every layer would be slow for nothing.
-if [ "${PI_CONTAINER_NESTED}" = "true" ]; then
+if [ "${PA_CONTAINER_NESTED}" = "true" ]; then
     mkdir -p /run/user/1000
     chown agent:agent /run/user/1000
     chmod 700 /run/user/1000
@@ -69,7 +69,7 @@ if [ "${PI_CONTAINER_NESTED}" = "true" ]; then
 fi
 
 # ─── Virtual Desktop environment & nested container forwarding ──────────────
-if [ "${PI_CONTAINER_DESKTOP}" = "true" ]; then
+if [ "${PA_CONTAINER_DESKTOP}" = "true" ]; then
     mkdir -p /run/user/1000 /tmp/.X11-unix
     chown agent:agent /run/user/1000
     chmod 700 /run/user/1000
@@ -81,7 +81,7 @@ if [ "${PI_CONTAINER_DESKTOP}" = "true" ]; then
         if [ -e /dev/dri ]; then
             _dri_mount=', "type=bind,source=/dev/dri,destination=/dev/dri"'
         fi
-        cat <<EOF > /etc/containers/containers.conf.d/60-pi-container-desktop.conf
+        cat <<EOF > /etc/containers/containers.conf.d/60-pa-container-desktop.conf
 [containers]
 mounts = [
   "type=bind,source=/run/user/1000/wayland-0,destination=/run/user/1000/wayland-0",
@@ -98,7 +98,7 @@ EOF
 
     # Managed Chromium policy: disable DoH, trust system / local CAs
     mkdir -p /etc/chromium/policies/managed
-    cat <<'EOF' > /etc/chromium/policies/managed/00-pi-container.json
+    cat <<'EOF' > /etc/chromium/policies/managed/00-pa-container.json
 {
   "DnsOverHttpsMode": "off",
   "BuiltInDnsClientEnabled": false,
@@ -144,7 +144,7 @@ fi
 
 # ─── T3 Code allowedDrivers synchronization ─────────────────────────────────
 if [ -d /etc/t3code ]; then
-    _enabled_agents="${PI_CONTAINER_ENABLED_AGENTS:-${PI_CONTAINER_AGENT:-pi}}"
+    _enabled_agents="${PA_CONTAINER_ENABLED_AGENTS:-${PA_CONTAINER_AGENT:-pi}}"
     IFS=',' read -ra _arr <<< "$_enabled_agents"
     _drivers=()
     for _ag in "${_arr[@]}"; do
@@ -159,7 +159,7 @@ if [ -d /etc/t3code ]; then
         cat <<EOF > /etc/t3code/policy.json
 {
   "schemaVersion": 1,
-  "organization": "pi-container",
+  "organization": "pa-container",
   "limits": {
     "providers": {
       "allowedDrivers": [
@@ -176,7 +176,7 @@ exec gosu agent bash -c '
     set -a; source /etc/environment; set +a;
 
     # ─── Virtual Desktop compositor & VNC/noVNC streaming ─────────────────────
-    if [ "${PI_CONTAINER_DESKTOP}" = "true" ]; then
+    if [ "${PA_CONTAINER_DESKTOP}" = "true" ]; then
         if [ ! -e /dev/dri ]; then
             export GALLIUM_DRIVER=llvmpipe
             export LP_NUM_THREADS=$(nproc 2>/dev/null || echo 4)
@@ -189,8 +189,8 @@ exec gosu agent bash -c '
         if command -v certutil >/dev/null 2>&1; then
             mkdir -p /home/agent/.pki/nssdb
             certutil -d "sql:/home/agent/.pki/nssdb" -N --empty-password >/dev/null 2>&1 || true
-            if [ -f /etc/pi-container-ca.crt ]; then
-                certutil -d "sql:/home/agent/.pki/nssdb" -A -t "C,," -n "mitmproxy" -i /etc/pi-container-ca.crt >/dev/null 2>&1 || true
+            if [ -f /etc/pa-container-ca.crt ]; then
+                certutil -d "sql:/home/agent/.pki/nssdb" -A -t "C,," -n "mitmproxy" -i /etc/pa-container-ca.crt >/dev/null 2>&1 || true
             elif [ -f /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt ]; then
                 certutil -d "sql:/home/agent/.pki/nssdb" -A -t "C,," -n "mitmproxy" -i /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt >/dev/null 2>&1 || true
             fi
@@ -214,7 +214,7 @@ exec gosu agent bash -c '
         done
 
         # Configure headless output resolution
-        _res="${PI_DESKTOP_RESOLUTION:-1920x1080}"
+        _res="${PA_DESKTOP_RESOLUTION:-1920x1080}"
         if command -v wlr-randr >/dev/null 2>&1; then
             wlr-randr --output HEADLESS-1 --mode "${_res}@60Hz" 2>/dev/null || wlr-randr --output HEADLESS-1 --custom-mode "${_res}@60Hz" 2>/dev/null || true
         fi
@@ -229,7 +229,7 @@ exec gosu agent bash -c '
         websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1 &
 
         # Provision virtual-desktop skill for active coding agents
-        if [ -d /usr/local/share/pi-container/skills/virtual-desktop ]; then
+        if [ -d /usr/local/share/pa-container/skills/virtual-desktop ]; then
             for _skill_dir in \
                 /home/agent/.pi/agent/skills/virtual-desktop \
                 /home/agent/.gemini/antigravity/skills/virtual-desktop \
@@ -237,7 +237,7 @@ exec gosu agent bash -c '
             do
                 mkdir -p "$(dirname "$_skill_dir")"
                 rm -rf "$_skill_dir"
-                cp -a /usr/local/share/pi-container/skills/virtual-desktop "$_skill_dir"
+                cp -a /usr/local/share/pa-container/skills/virtual-desktop "$_skill_dir"
             done
         fi
     else
@@ -261,24 +261,24 @@ exec gosu agent bash -c '
         fi
     fi
 
-    if [ -x .pi-container/dependencies/agent/commands.sh ]; then
-        .pi-container/dependencies/agent/commands.sh
+    if [ -x .pa-container/dependencies/agent/commands.sh ]; then
+        .pa-container/dependencies/agent/commands.sh
     fi
 
-    if [ "$PI_CONTAINER_MODE" = "t3" ]; then
+    if [ "$PA_CONTAINER_MODE" = "t3" ]; then
         if ! command -v t3 >/dev/null 2>&1; then
             echo "ERROR: t3 CLI is not installed in the container." >&2
-            echo "Install it via tools.include: [\"t3\"], npm install -g t3, or .pi-container/dependencies/root/commands.sh." >&2
+            echo "Install it via tools.include: [\"t3\"], npm install -g t3, or .pa-container/dependencies/root/commands.sh." >&2
             exit 1
         fi
         echo "=================================================================="
-        echo "  Starting T3 Code server for ${PI_CONTAINER_AGENT:-pi} inside pi-container..."
+        echo "  Starting T3 Code server for ${PA_CONTAINER_AGENT:-pi} inside pa-container..."
         echo "  Web UI: https://t3.codes"
         if [ -n "${T3_PUBLIC_URL:-}" ]; then
             echo "  Tunnel URL: ${T3_PUBLIC_URL}"
         fi
         echo "=================================================================="
-        _shim="/usr/local/share/pi-container/t3-advertise-host.cjs"
+        _shim="/usr/local/share/pa-container/t3-advertise-host.cjs"
         if [ -f "$_shim" ]; then
             export NODE_OPTIONS="${NODE_OPTIONS:+${NODE_OPTIONS} }--require ${_shim}"
         fi
@@ -289,14 +289,14 @@ exec gosu agent bash -c '
         fi
 
         # Seed T3 Code settings for active agent
-        _seed_script="/usr/local/share/pi-container/t3-seed-settings.cjs"
+        _seed_script="/usr/local/share/pa-container/t3-seed-settings.cjs"
         if [ -f "$_seed_script" ]; then
             node "$_seed_script" 2>/dev/null || true
         fi
 
         exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
     else
-        case "${PI_CONTAINER_AGENT:-pi}" in
+        case "${PA_CONTAINER_AGENT:-pi}" in
             opencode|open-code)
                 exec opencode "$@"
                 ;;

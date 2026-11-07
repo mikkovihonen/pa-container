@@ -876,7 +876,7 @@ class TestCheckRepoGitignore:
         from util import check_repo_gitignore
 
         (tmp_path / ".git").mkdir()
-        (tmp_path / ".gitignore").write_text(".pi-container/\n")
+        (tmp_path / ".gitignore").write_text(".pa-container/\n")
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = [
                 subprocess.CompletedProcess(args=[], returncode=0, stdout=str(tmp_path) + "\n"),
@@ -895,24 +895,24 @@ class TestCheckRepoGitignore:
                 subprocess.CompletedProcess(args=[], returncode=1),
             ]
             missing = check_repo_gitignore(tmp_path)
-            assert missing == [".pi-container/"]
+            assert missing == [".pa-container/"]
 
-    def test_check_repo_tracked_pi_container_finds_tracked_files(self, tmp_path):
-        from util import check_repo_tracked_pi_container
+    def test_check_repo_tracked_PA_CONTAINER_finds_tracked_files(self, tmp_path):
+        from util import check_repo_tracked_PA_CONTAINER
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
-                args=[], returncode=0, stdout=".pi-container/config.yaml\n.pi-container/models.yaml\n"
+                args=[], returncode=0, stdout=".pa-container/config.yaml\n.pa-container/models.yaml\n"
             )
-            tracked = check_repo_tracked_pi_container(tmp_path)
-            assert tracked == [".pi-container/config.yaml", ".pi-container/models.yaml"]
+            tracked = check_repo_tracked_PA_CONTAINER(tmp_path)
+            assert tracked == [".pa-container/config.yaml", ".pa-container/models.yaml"]
 
-    def test_check_repo_tracked_pi_container_empty_when_no_files_tracked(self, tmp_path):
-        from util import check_repo_tracked_pi_container
+    def test_check_repo_tracked_PA_CONTAINER_empty_when_no_files_tracked(self, tmp_path):
+        from util import check_repo_tracked_PA_CONTAINER
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="")
-            tracked = check_repo_tracked_pi_container(tmp_path)
+            tracked = check_repo_tracked_PA_CONTAINER(tmp_path)
             assert tracked == []
 
     def test_warn_missing_gitignore_logs_warning_for_missing_entry(self, tmp_path):
@@ -920,12 +920,12 @@ class TestCheckRepoGitignore:
 
         mock_logger = MagicMock()
         with (
-            patch("util.check_repo_gitignore", return_value=[".pi-container/"]),
-            patch("util.check_repo_tracked_pi_container", return_value=[]),
+            patch("util.check_repo_gitignore", return_value=[".pa-container/"]),
+            patch("util.check_repo_tracked_PA_CONTAINER", return_value=[]),
         ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_called_once()
-            assert ".pi-container/" in str(mock_logger.warning.call_args)
+            assert ".pa-container/" in str(mock_logger.warning.call_args)
 
     def test_warn_missing_gitignore_logs_warning_for_tracked_files(self, tmp_path):
         from util import warn_missing_gitignore
@@ -933,11 +933,11 @@ class TestCheckRepoGitignore:
         mock_logger = MagicMock()
         with (
             patch("util.check_repo_gitignore", return_value=[]),
-            patch("util.check_repo_tracked_pi_container", return_value=[".pi-container/config.yaml"]),
+            patch("util.check_repo_tracked_PA_CONTAINER", return_value=[".pa-container/config.yaml"]),
         ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_called_once()
-            assert "git rm -r --cached .pi-container" in str(mock_logger.warning.call_args)
+            assert "git rm -r --cached .pa-container" in str(mock_logger.warning.call_args)
 
     def test_warn_missing_gitignore_logs_nothing_when_clean(self, tmp_path):
         from util import warn_missing_gitignore
@@ -945,7 +945,7 @@ class TestCheckRepoGitignore:
         mock_logger = MagicMock()
         with (
             patch("util.check_repo_gitignore", return_value=[]),
-            patch("util.check_repo_tracked_pi_container", return_value=[]),
+            patch("util.check_repo_tracked_PA_CONTAINER", return_value=[]),
         ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_not_called()

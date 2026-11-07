@@ -16,10 +16,10 @@ clone_verified "https://github.com/tree-sitter/tree-sitter.git" "${TREE_SITTER_V
 
 cd "${src}"
 cargo build --release -p tree-sitter-cli
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 target/release/tree-sitter "${PI_STAGE}/usr/local/bin/tree-sitter"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 target/release/tree-sitter "${PA_STAGE}/usr/local/bin/tree-sitter"
 rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
 
-"${PI_STAGE}/usr/local/bin/tree-sitter" --version
+"${PA_STAGE}/usr/local/bin/tree-sitter" --version
 stage_record "tree-sitter-cli" "${TREE_SITTER_VERSION}"
 

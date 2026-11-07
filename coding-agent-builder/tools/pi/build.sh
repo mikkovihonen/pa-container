@@ -16,7 +16,7 @@ pi_url="https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-a
 
 fetch_verified "${pi_url}" "${PI_SHA256}" "/tmp/${pi_tarball}"
 
-npm install -g --prefix "${PI_STAGE}/usr/local" --ignore-scripts "/tmp/${pi_tarball}"
+npm install -g --prefix "${PA_STAGE}/usr/local" --ignore-scripts "/tmp/${pi_tarball}"
 rm -f "/tmp/${pi_tarball}"
 
 stage_record "pi" "${PI_VERSION}"

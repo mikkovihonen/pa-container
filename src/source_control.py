@@ -4,7 +4,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
-"""Source control authentication and token lifecycle management for pi-container.
+"""Source control authentication and token lifecycle management for pa-container.
 
 Resolves authentication credentials for source control providers (GitHub, GitLab,
 Forgejo/Gitea, Azure DevOps, Bitbucket, GitCafe) exclusively from the host OS Keyring

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Security policy definitions and preflight validations for pi-container."""
+"""Security policy definitions and preflight validations for pa-container."""
 
 import ipaddress
 from pathlib import Path, PurePosixPath
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 logger = get_category_logger(__name__, LogCategory.SECURITY)
 
 FORBIDDEN_CONTAINER_DESTINATION_PREFIXES: tuple[str, ...] = (
-    "/workspace/.pi-container",
+    "/workspace/.pa-container",
     "/workspace/.git/hooks",
     "/etc",
     "/usr",

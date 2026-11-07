@@ -72,8 +72,8 @@ After applying upgrades:
     ```
 2. Verify builder target compilation (e.g. for `sqlite-vec` or the upgraded tool):
     ```bash
-    podman build --target stage-<tool> -t pi-coding-agent-tool-<tool>:test -f coding-agent-builder/Containerfile .
-    podman rmi pi-coding-agent-tool-<tool>:test
+    podman build --target stage-<tool> -t pa-container-agent-tool-<tool>:test -f coding-agent-builder/Containerfile .
+    podman rmi pa-container-agent-tool-<tool>:test
     ```
 3. Run all workspace pre-commit checks:
     ```bash

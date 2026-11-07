@@ -117,7 +117,7 @@ def _load_flows_from_mount(
 
     The flow_export addon appends one flow per line (JSON Lines) to
     ``/home/mitmproxy/exports/{flows_filename}`` inside the proxy container,
-    which is bind-mounted to ``{PROJECT_DIR}/.pi-container/exports/`` on the host.
+    which is bind-mounted to ``{PROJECT_DIR}/.pa-container/exports/`` on the host.
     ``flows_filename`` is unique per agent container (see ``export_mitmweb_flows``).
     This function reads that file and returns the parsed flow list.
 
@@ -129,7 +129,7 @@ def _load_flows_from_mount(
         read.
     """
     if exports_dir is None:
-        exports_dir = PROJECT_DIR / ".pi-container" / "exports"
+        exports_dir = PROJECT_DIR / ".pa-container" / "exports"
 
     flows_file = exports_dir / flows_filename
     if not flows_file.exists():
@@ -201,7 +201,7 @@ def export_mitmweb_flows(
         exports_dir: The per-project exports directory — both where the proxy
             stages raw ``flows-<ip>.jsonl`` files (its bind mount) and where the
             session snapshot is written. Defaults to
-            ``{PROJECT_DIR}/.pi-container/exports``.
+            ``{PROJECT_DIR}/.pa-container/exports``.
         client_ips: The agent container's isolated-net IPs (IPv4 and/or IPv6),
             used to select its ``flows-<ip>.jsonl`` files. See
             ``_resolve_flows_filenames`` for the unknown-IP fallback.
@@ -210,9 +210,9 @@ def export_mitmweb_flows(
     goes wrong.
     """
     if sessions_dir is None:
-        sessions_dir = PROJECT_DIR / ".pi-container" / "agents" / "pi" / "sessions"
+        sessions_dir = PROJECT_DIR / ".pa-container" / "agents" / "pi" / "sessions"
     if exports_dir is None:
-        exports_dir = PROJECT_DIR / ".pi-container" / "exports"
+        exports_dir = PROJECT_DIR / ".pa-container" / "exports"
 
     # 1. Determine the session ID from the most recent session file.
     latest = _get_latest_session_file(sessions_dir)
@@ -297,9 +297,9 @@ def recover_dangling_flows(
     and removes the consumed raw files.
     """
     if exports_dir is None:
-        exports_dir = PROJECT_DIR / ".pi-container" / "exports"
+        exports_dir = PROJECT_DIR / ".pa-container" / "exports"
     if sessions_dir is None:
-        sessions_dir = PROJECT_DIR / ".pi-container" / "agents" / "pi" / "sessions"
+        sessions_dir = PROJECT_DIR / ".pa-container" / "agents" / "pi" / "sessions"
 
     if not exports_dir.exists():
         return None

@@ -24,17 +24,17 @@ logger = get_category_logger(__name__, LogCategory.AGENT)
 
 """Model configuration synthesis engine.
 
-Loads models from a lightweight project-level `.pi-container/models.yaml`
-allowlist, resolving against global registries `~/.config/pi-container/models/`
-and `~/.config/pi-container/gateways/`.
+Loads models from a lightweight project-level `.pa-container/models.yaml`
+allowlist, resolving against global registries `~/.config/pa-container/models/`
+and `~/.config/pa-container/gateways/`.
 """
 
 
-def resolve_models_file(pi_container_dir: Path) -> Path | None:
-    """Find the project models configuration file (.pi-container/models.yaml or models.yml)."""
+def resolve_models_file(PA_CONTAINER_dir: Path) -> Path | None:
+    """Find the project models configuration file (.pa-container/models.yaml or models.yml)."""
     yaml_candidates = (
-        pi_container_dir / "models.yaml",
-        pi_container_dir / "models.yml",
+        PA_CONTAINER_dir / "models.yaml",
+        PA_CONTAINER_dir / "models.yml",
     )
     for candidate in yaml_candidates:
         if candidate.is_file():
@@ -140,19 +140,19 @@ def extract_models_from_yaml(
 
 
 def load_project_models(
-    pi_container_dir: Path,
+    PA_CONTAINER_dir: Path,
     models_dir: Path | None = None,
     gateways_dir: Path | None = None,
 ) -> tuple[dict[str, Any], list[ServerConfigItem], set[str], list[GatewayConfigItem], str | None, Path]:
-    """Load and parse models from `.pi-container/models.yaml`.
+    """Load and parse models from `.pa-container/models.yaml`.
 
     Returns:
         (synthetic_models_data, server_configs, llama_hostnames, gateway_configs, default_model, models_file_path)
     """
-    models_path = resolve_models_file(pi_container_dir)
+    models_path = resolve_models_file(PA_CONTAINER_dir)
     if models_path is None:
-        expected = pi_container_dir / "models.yaml"
-        raise FileNotFoundError(f"No models configuration found in {pi_container_dir}. Expected {expected.name}.")
+        expected = PA_CONTAINER_dir / "models.yaml"
+        raise FileNotFoundError(f"No models configuration found in {PA_CONTAINER_dir}. Expected {expected.name}.")
 
     raw = load_yaml_strict(models_path.read_text())
     data = raw if isinstance(raw, dict) else {}

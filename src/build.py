@@ -35,13 +35,13 @@ log_level_str = global_config.runtime.log_level.upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
 logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
-_cached_llama = Path.home() / ".cache" / "pi-container" / "bin" / "llama-server"
+_cached_llama = Path.home() / ".cache" / "pa-container" / "bin" / "llama-server"
 LLAMA_BIN = (
     global_config.llama.bin
     or (str(_cached_llama) if _cached_llama.exists() and os.access(_cached_llama, os.X_OK) else None)
     or shutil.which("llama-server")
 )
-PI_IMAGE_TAG = global_config.build.images.agent
+PA_IMAGE_TAG = global_config.build.images.agent
 PROXY_IMAGE_TAG = global_config.build.images.proxy
 BUILDER_IMAGE_TAG = global_config.build.images.builder
 
@@ -133,7 +133,7 @@ def _parse_mem_available_mib(meminfo: str) -> int | None:
 
 def check_build_memory(runtime: str, fatal: bool = True) -> bool:
     """Verify that sufficient memory is available to compile CPython in the builder container."""
-    val = os.environ.get("PI_MEMORY_PREFLIGHT")
+    val = os.environ.get("PA_MEMORY_PREFLIGHT")
     preflight_enabled = (
         (val.strip() not in ("0", "false", "no", "off")) if val is not None else global_config.build.memory_preflight
     )
@@ -162,7 +162,7 @@ def check_build_memory(runtime: str, fatal: bool = True) -> bool:
         "  * give the VM more memory:  podman machine stop && podman machine set --memory 4096 && podman machine start\n"
         "  * free memory in the VM:    stop containers you are not using (podman ps)\n"
         "  * skip the PGO build:       PYTHON_OPTIMIZE=0 ./build.sh  (~10-20% slower Python)\n"
-        "  * already-cached Python:    PI_MEMORY_PREFLIGHT=0 ./build.sh  (skips this check)"
+        "  * already-cached Python:    PA_MEMORY_PREFLIGHT=0 ./build.sh  (skips this check)"
     )
     return not fatal
 
@@ -182,7 +182,7 @@ def _build_dns_args() -> list[str]:
     In Podman on macOS, container builds default to gvproxy's nameserver,
     which can drop or time out on concurrent AAAA (IPv6) queries. Explicitly
     passing an upstream DNS resolver avoids transient build resolution failures.
-    Configured via build.dns in ~/.config/pi-container/config.yaml or BUILD_DNS.
+    Configured via build.dns in ~/.config/pa-container/config.yaml or BUILD_DNS.
     Disable by setting build.dns to 'none', 'off', '0', or empty string.
     """
     dns_val = os.environ.get("BUILD_DNS") if "BUILD_DNS" in os.environ else global_config.build.dns
@@ -236,9 +236,9 @@ def build_builder(runtime: str) -> None:
             "--target",
             "stage",
             "--label",
-            f"pi-container.build.time={build_ts}",
+            f"pa-container.build.time={build_ts}",
             "--label",
-            "pi-container.type=shared",
+            "pa-container.type=shared",
             "--tag",
             BUILDER_IMAGE_TAG,
             "--file",
@@ -277,13 +277,13 @@ def build_tool(runtime: str, tool: str) -> None:
             "--target",
             target,
             "--label",
-            f"pi-container.build.time={build_ts}",
+            f"pa-container.build.time={build_ts}",
             "--label",
-            "pi-container.type=tool",
+            "pa-container.type=tool",
             "--label",
-            f"pi-container.tool={tool}",
+            f"pa-container.tool={tool}",
             "--label",
-            f"pi-container.hash={tool_hash}",
+            f"pa-container.hash={tool_hash}",
             "--tag",
             tag,
             "--file",
@@ -309,11 +309,11 @@ def build_proxy(runtime: str) -> None:
             "--force-rm",
             *_build_dns_args(),
             "--label",
-            f"pi-container.build.time={build_ts}",
+            f"pa-container.build.time={build_ts}",
             "--label",
-            "pi-container.type=shared",
+            "pa-container.type=shared",
             "--label",
-            f"pi-container.hash={proxy_hash}",
+            f"pa-container.hash={proxy_hash}",
             "--tag",
             PROXY_IMAGE_TAG,
             "--file",
@@ -328,7 +328,7 @@ def build_agent(runtime: str) -> None:
     from datetime import UTC, datetime
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    logger.info(f"Building agent image ({runtime}): {PI_IMAGE_TAG}")
+    logger.info(f"Building agent image ({runtime}): {PA_IMAGE_TAG}")
     _run_command_with_logging(
         [
             runtime,
@@ -340,11 +340,11 @@ def build_agent(runtime: str) -> None:
             "--build-arg",
             f"ROOT_COMMANDS_PATH={DEFAULT_ROOT_COMMANDS.name}",
             "--label",
-            f"pi-container.build.time={build_ts}",
+            f"pa-container.build.time={build_ts}",
             "--label",
-            "pi-container.type=shared",
+            "pa-container.type=shared",
             "--tag",
-            PI_IMAGE_TAG,
+            PA_IMAGE_TAG,
             "--file",
             str(REPO_ROOT / "coding-agent" / "Containerfile"),
             str(REPO_ROOT),
@@ -369,11 +369,11 @@ def build_project_image(
         runtime: Container runtime (podman).
         root_commands_path: Absolute path to root/commands.sh on the host.
         image_tag: Image tag for the project-specific image
-            (e.g., "pi-container-project-<hash>-<hash>.local").
+            (e.g., "pa-container-project-<hash>-<hash>.local").
         label_hash: Content hash to store in the image label for cache invalidation.
-        project_hash: Project identity hash → set as pi-container.project.hash label.
-        project_path: Absolute project directory path → set as pi-container.project.path label.
-        build_timestamp: ISO 8601 timestamp → set as pi-container.build.time label.
+        project_hash: Project identity hash → set as pa-container.project.hash label.
+        project_path: Absolute project directory path → set as pa-container.project.path label.
+        build_timestamp: ISO 8601 timestamp → set as pa-container.build.time label.
         tools: Optional list of tools to enable (e.g. ["go", "rust"]).
         with_desktop: Whether to install desktop/GUI packages.
     """
@@ -414,7 +414,7 @@ def build_project_image(
         cmd += ["--build-arg", f"BUILD_TIMESTAMP={build_timestamp}"]
     cmd += [
         "--label",
-        "pi-container.type=project",
+        "pa-container.type=project",
         "--tag",
         image_tag,
         "--file",

@@ -91,11 +91,11 @@ def ensure_nested_volume(runtime: str, volume_name: str, project_hash: str, proj
             "volume",
             "create",
             "--label",
-            "pi-container.type=nested-storage",
+            "pa-container.type=nested-storage",
             "--label",
-            f"pi-container.project.hash={project_hash}",
+            f"pa-container.project.hash={project_hash}",
             "--label",
-            f"pi-container.project.path={project_path}",
+            f"pa-container.project.path={project_path}",
             volume_name,
         ],
         capture_output=True,
@@ -124,7 +124,7 @@ def cleanup_orphaned_nested_volumes(runtime: str) -> list[str]:
                 "--format",
                 "{{.Name}}",
                 "--filter",
-                "label=pi-container.type=nested-storage",
+                "label=pa-container.type=nested-storage",
             ],
             capture_output=True,
             text=True,
@@ -142,7 +142,7 @@ def cleanup_orphaned_nested_volumes(runtime: str) -> list[str]:
         if not name:
             continue
 
-        stored_path = get_volume_label(runtime, name, "pi-container.project.path")
+        stored_path = get_volume_label(runtime, name, "pa-container.project.path")
 
         if stored_path is None or not stored_path.strip():
             reason = "no path label"
@@ -190,11 +190,11 @@ def ensure_project_volume(
             "volume",
             "create",
             "--label",
-            "pi-container.type=project-shadow",
+            "pa-container.type=project-shadow",
             "--label",
-            f"pi-container.project.hash={project_hash}",
+            f"pa-container.project.hash={project_hash}",
             "--label",
-            f"pi-container.project.path={project_path}",
+            f"pa-container.project.path={project_path}",
             volume_name,
         ]
 
@@ -252,7 +252,7 @@ def cleanup_orphaned_project_volumes(runtime: str) -> list[str]:
                 "--format",
                 "{{.Name}}",
                 "--filter",
-                "label=pi-container.type=project-shadow",
+                "label=pa-container.type=project-shadow",
             ],
             capture_output=True,
             text=True,
@@ -271,7 +271,7 @@ def cleanup_orphaned_project_volumes(runtime: str) -> list[str]:
     unused = unused_volumes(runtime)
 
     for name in sorted(volume_names):
-        stored_path = get_volume_label(runtime, name, "pi-container.project.path")
+        stored_path = get_volume_label(runtime, name, "pa-container.project.path")
 
         if stored_path is None or not stored_path.strip():
             reason = "no path label"

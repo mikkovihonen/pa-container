@@ -119,7 +119,7 @@ SCHEMA: dict[str, Any] = {
             "mounts": {"type": list},
             "capabilities": {"type": list, "required": False},
             "devices": {"type": list, "required": False},
-            "read_only_pi_container": {"type": (bool, str, int), "required": False},
+            "read_only_PA_CONTAINER": {"type": (bool, str, int), "required": False},
             "mode": {"type": str, "required": False},
             "ports": {
                 "type": dict,
@@ -363,7 +363,7 @@ def _validate_models_yaml(
 
 
 def validate_model_def_data(data: dict[str, Any], model_id: str = "") -> list[str]:
-    """Validate local model definition dictionary (~/.config/pi-container/models/<id>.yaml)."""
+    """Validate local model definition dictionary (~/.config/pa-container/models/<id>.yaml)."""
     errors: list[str] = []
     hf_models = data.get("hfModels")
     if hf_models is None:

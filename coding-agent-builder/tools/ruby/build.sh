@@ -20,7 +20,7 @@ tar -C /usr/src -xJf "/tmp/${tarball}"
 rm -f "/tmp/${tarball}"
 
 cd "${src}"
-./configure --prefix="${PI_STAGE}/usr/local" \
+./configure --prefix="${PA_STAGE}/usr/local" \
     --enable-yjit \
     --with-jemalloc \
     --disable-install-doc
@@ -28,6 +28,6 @@ make -j "$(mem_capped_jobs 400)"
 make install
 rm -rf "${src}"
 
-"${PI_STAGE}/usr/local/bin/ruby" --version
+"${PA_STAGE}/usr/local/bin/ruby" --version
 stage_record "ruby" "${RUBY_VERSION}"
 

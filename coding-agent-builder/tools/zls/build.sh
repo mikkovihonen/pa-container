@@ -37,9 +37,9 @@ src="/usr/src/zls"
 clone_verified "https://github.com/zigtools/zls.git" "${ZLS_VERSION}" "${ZLS_COMMIT}" "${src}"
 
 cd "${src}"
-zig build -Doptimize=ReleaseSafe --prefix "${PI_STAGE}/usr/local"
+zig build -Doptimize=ReleaseSafe --prefix "${PA_STAGE}/usr/local"
 rm -rf "${src}" /opt/zig /root/.cache/zig
 
-"${PI_STAGE}/usr/local/bin/zls" --version
+"${PA_STAGE}/usr/local/bin/zls" --version
 stage_record "zls" "${ZLS_VERSION}"
 

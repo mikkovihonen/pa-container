@@ -9,7 +9,7 @@ Checks:
      (required fields present, correct types)
 
 This script runs in CI as a consistency gate before a release is published.
-It validates the *template* seed config, not a seeded .pi-container/config.yaml
+It validates the *template* seed config, not a seeded .pa-container/config.yaml
 (which is checked at runtime by src/run.py).
 
 Exit codes:

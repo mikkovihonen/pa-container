@@ -47,7 +47,7 @@ def test_tool_mapping_helpers():
     assert tool_to_context_name("ripgrep") == "tool_ripgrep"
     assert tool_to_context_name("tree-sitter-cli") == "tool_tree_sitter_cli"
 
-    assert tool_to_image_tag("mold") == "pi-coding-agent-tool-mold:local"
+    assert tool_to_image_tag("mold") == "pa-container-agent-tool-mold:local"
     assert tool_to_stage_target("mold") == "stage-mold"
 
 

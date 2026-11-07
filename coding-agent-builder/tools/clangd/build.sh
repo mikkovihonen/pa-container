@@ -17,7 +17,7 @@ clone_verified "https://github.com/llvm/llvm-project.git" "${CLANGD_VERSION}" "$
 mkdir -p /tmp/llvm-build
 cmake -G Ninja -S "${src}/llvm" -B /tmp/llvm-build \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="${PI_STAGE}/usr/local" \
+    -DCMAKE_INSTALL_PREFIX="${PA_STAGE}/usr/local" \
     -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
     -DLLVM_TARGETS_TO_BUILD="host" \
     -DLLVM_INCLUDE_TESTS=OFF \
@@ -26,10 +26,10 @@ cmake -G Ninja -S "${src}/llvm" -B /tmp/llvm-build \
     -DLLVM_ENABLE_BINDINGS=OFF
 
 ninja -C /tmp/llvm-build -j "$(mem_capped_jobs 800)" clangd
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 /tmp/llvm-build/bin/clangd "${PI_STAGE}/usr/local/bin/clangd"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 /tmp/llvm-build/bin/clangd "${PA_STAGE}/usr/local/bin/clangd"
 rm -rf /tmp/llvm-build "${src}"
 
-"${PI_STAGE}/usr/local/bin/clangd" --version
+"${PA_STAGE}/usr/local/bin/clangd" --version
 stage_record "clangd" "${CLANGD_VERSION}"
 

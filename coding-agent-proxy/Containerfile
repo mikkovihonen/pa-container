@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y \
 # CPython + uv (+ pip, and podman-compose, which is inert here). Just the /python/
 # tree: the builder stages each component at its own root precisely so this image does
 # not have to carry Node, podman and netavark to get an interpreter.
-COPY --from=pi-coding-agent-builder:local /python/ /
+COPY --from=pa-container-agent-builder:local /python/ /
 
 # Fail the build here, not at the first request the proxy handles. A staged binary that
 # cannot resolve a shared library — an ABI skew against the builder's base image, or a
@@ -62,9 +62,9 @@ RUN ldconfig \
  && uv --version \
  && uvx --version \
  && python -c 'import _zstd, bz2, ctypes, curses, lzma, readline, sqlite3, ssl, zlib' \
- && cat /usr/local/share/pi-container/toolchain-versions.d/*.txt \
-      | sort > /usr/local/share/pi-container/toolchain-versions.txt \
- && cat /usr/local/share/pi-container/toolchain-versions.txt
+ && cat /usr/local/share/pa-container/toolchain-versions.d/*.txt \
+      | sort > /usr/local/share/pa-container/toolchain-versions.txt \
+ && cat /usr/local/share/pa-container/toolchain-versions.txt
 
 # uv must build the venv on the interpreter copied in above, never on one it downloads:
 # a managed CPython would quietly reintroduce exactly the drift this image removed.

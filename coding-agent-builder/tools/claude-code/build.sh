@@ -25,10 +25,10 @@ claude_url="https://registry.npmjs.org/@anthropic-ai/claude-code-linux-${claude_
 
 fetch_verified "${claude_url}" "${claude_sha}" "/tmp/${claude_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local/bin"
-tar -xzf "/tmp/${claude_tarball}" --strip-components=1 -C "${PI_STAGE}/usr/local/bin" "package/claude"
-chmod 755 "${PI_STAGE}/usr/local/bin/claude"
-ln -s "claude" "${PI_STAGE}/usr/local/bin/claude-code"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+tar -xzf "/tmp/${claude_tarball}" --strip-components=1 -C "${PA_STAGE}/usr/local/bin" "package/claude"
+chmod 755 "${PA_STAGE}/usr/local/bin/claude"
+ln -s "claude" "${PA_STAGE}/usr/local/bin/claude-code"
 rm -f "/tmp/${claude_tarball}"
 
 stage_record "claude-code" "${CLAUDE_CODE_VERSION}"

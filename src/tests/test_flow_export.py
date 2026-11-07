@@ -96,16 +96,16 @@ class TestExportMitmwebFlows:
         assert not raw_file.exists()
 
     def test_default_exports_dir_is_per_project(self, tmp_path, monkeypatch):
-        """With no exports_dir given, it defaults to PROJECT_DIR/.pi-container/exports."""
+        """With no exports_dir given, it defaults to PROJECT_DIR/.pa-container/exports."""
         sessions = tmp_path / "sessions"
         _make_session(sessions, "sid")
         monkeypatch.setattr(flow_export, "PROJECT_DIR", tmp_path)
-        (tmp_path / ".pi-container" / "exports").mkdir(parents=True)
-        (tmp_path / ".pi-container" / "exports" / "flows-10.0.0.5.jsonl").write_text('{"id": "f1"}\n')
+        (tmp_path / ".pa-container" / "exports").mkdir(parents=True)
+        (tmp_path / ".pa-container" / "exports" / "flows-10.0.0.5.jsonl").write_text('{"id": "f1"}\n')
 
         out = flow_export.export_mitmweb_flows(sessions_dir=sessions, client_ips=["10.0.0.5"])
 
-        assert out.parent.parent == tmp_path / ".pi-container" / "exports" / "flows"
+        assert out.parent.parent == tmp_path / ".pa-container" / "exports" / "flows"
         assert out.name.endswith(".jsonl")
 
     def test_ipv6_client_ip_sanitized_to_filename(self, tmp_path):
@@ -223,10 +223,10 @@ class TestExportMitmwebFlows:
         assert a.exists() and b.exists()  # nothing attributed → nothing removed
 
     def test_default_sessions_dir_when_none(self, tmp_path, monkeypatch):
-        """When sessions_dir=None, uses PROJECT_DIR/.pi-container/agents/pi/sessions."""
+        """When sessions_dir=None, uses PROJECT_DIR/.pa-container/agents/pi/sessions."""
         monkeypatch.setattr(flow_export, "PROJECT_DIR", tmp_path)
-        sessions = tmp_path / ".pi-container" / "agents" / "pi" / "sessions"
-        exports = tmp_path / ".pi-container" / "exports"
+        sessions = tmp_path / ".pa-container" / "agents" / "pi" / "sessions"
+        exports = tmp_path / ".pa-container" / "exports"
         sessions.mkdir(parents=True, exist_ok=True)
         exports.mkdir(parents=True, exist_ok=True)
         _make_session(sessions, "sid-from-default")
@@ -351,9 +351,9 @@ class TestLoadFlowsFromMount:
         assert flow_export._load_flows_from_mount(exports_dir=tmp_path) == []
 
     def test_default_exports_dir_when_none(self, tmp_path, monkeypatch):
-        """When exports_dir=None, uses PROJECT_DIR/.pi-container/exports."""
+        """When exports_dir=None, uses PROJECT_DIR/.pa-container/exports."""
         monkeypatch.setattr(flow_export, "PROJECT_DIR", tmp_path)
-        exports = tmp_path / ".pi-container" / "exports"
+        exports = tmp_path / ".pa-container" / "exports"
         exports.mkdir(parents=True, exist_ok=True)
         (exports / "flows.jsonl").write_text('{"id": "default-path"}\n')
         flows = flow_export._load_flows_from_mount(exports_dir=None)

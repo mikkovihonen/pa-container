@@ -8,11 +8,11 @@ try {
     try {
         settings = JSON.parse(fs.readFileSync(path, "utf8"));
     } catch {}
-    const enabledList = (process.env.PI_CONTAINER_ENABLED_AGENTS || process.env.PI_CONTAINER_AGENT || "pi")
+    const enabledList = (process.env.PA_CONTAINER_ENABLED_AGENTS || process.env.PA_CONTAINER_AGENT || "pi")
         .toLowerCase()
         .split(",")
         .map((s) => s.trim());
-    const activeAgent = (process.env.PI_CONTAINER_AGENT || enabledList[0] || "pi").toLowerCase();
+    const activeAgent = (process.env.PA_CONTAINER_AGENT || enabledList[0] || "pi").toLowerCase();
 
     const isClaudeEnabled = enabledList.some((a) => a === "claude" || a === "claude-code");
     const isCodexEnabled = enabledList.some((a) => a === "codex" || a === "opencode" || a === "open-code");

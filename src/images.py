@@ -7,7 +7,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 import project
-from config import PI_IMAGE_TAG, PROXY_IMAGE_TAG, REPO_ROOT
+from config import PA_IMAGE_TAG, PROXY_IMAGE_TAG, REPO_ROOT
 from logging_driver import LogCategory, get_category_logger
 from yaml_strict import load_yaml_strict
 
@@ -22,8 +22,8 @@ _IMAGE_DEFINITION_FILES = (
     "t3-policy.json",
 )
 _PROXY_IMAGE_DEFINITION_FILES = ("Containerfile", "entrypoint.sh")
-_SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, "pi-coding-agent-builder:local")
-_PROTECTED_IMAGE_TAGS = frozenset({PI_IMAGE_TAG, *_SHARED_SOURCE_IMAGES})
+_SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, "pa-container-agent-builder:local")
+_PROTECTED_IMAGE_TAGS = frozenset({PA_IMAGE_TAG,*_SHARED_SOURCE_IMAGES})
 _UNTAGGED_NAME = "<none>:<none>"
 
 
@@ -38,8 +38,8 @@ def now_iso() -> str:
 
 
 def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) -> list[str]:
-    """Read the list of tools enabled in .pi-container/config.yaml plus any driver-requested tools."""
-    cfg_path = project_dir / ".pi-container" / "config.yaml"
+    """Read the list of tools enabled in .pa-container/config.yaml plus any driver-requested tools."""
+    cfg_path = project_dir / ".pa-container" / "config.yaml"
     tools: set[str] = set()
     if extra_tools:
         tools.update(t for t in extra_tools if isinstance(t, str))
@@ -89,7 +89,7 @@ def compute_image_hash(
 ) -> str | None:
     """Compute content hash for files affecting the project-specific container image."""
     r_root = repo_root or REPO_ROOT
-    deps_root = project_dir / ".pi-container" / "dependencies"
+    deps_root = project_dir / ".pa-container" / "dependencies"
     agent_dir = r_root / "coding-agent"
     files_to_hash = []
 
@@ -106,7 +106,7 @@ def compute_image_hash(
     tools = read_project_tools(project_dir, extra_tools=extra_tools)
     from desktop import read_desktop_config
 
-    desktop_cfg = read_desktop_config(project_dir / ".pi-container")
+    desktop_cfg = read_desktop_config(project_dir / ".pa-container")
     desktop_active = bool(desktop_cfg.get("enabled", False))
 
     if not files_to_hash and not tools and not desktop_active:
@@ -168,7 +168,7 @@ def proxy_image_is_current(repo_root: Path | str | None = None, runtime: str | N
     if not image_exists(PROXY_IMAGE_TAG, runtime=runtime):
         return False
 
-    stored_hash = get_image_label(PROXY_IMAGE_TAG, "pi-container.hash", runtime=runtime)
+    stored_hash = get_image_label(PROXY_IMAGE_TAG, "pa-container.hash", runtime=runtime)
     if stored_hash is None:
         return False
 
@@ -185,7 +185,7 @@ def tool_image_is_current(tool: str, repo_root: Path | str | None = None, runtim
     if not image_exists(tag, runtime=runtime):
         return False
 
-    stored_hash = get_image_label(tag, "pi-container.hash", runtime=runtime)
+    stored_hash = get_image_label(tag, "pa-container.hash", runtime=runtime)
     if stored_hash is None:
         return False
 
@@ -211,7 +211,7 @@ def ensure_tool_images(
 
 def has_dependency_files(project_dir: Path) -> bool:
     """Check if the project has non-empty dependency definition command files."""
-    deps_root = project_dir / ".pi-container" / "dependencies"
+    deps_root = project_dir / ".pa-container" / "dependencies"
     for cmd_file in ("root/commands.sh", "agent/commands.sh"):
         cmd_path = deps_root / cmd_file
         if cmd_path.exists() and cmd_path.stat().st_size > 0:
@@ -227,18 +227,18 @@ def resolve_agent_image(
     """Resolve the agent container image tag for this workspace."""
     from desktop import read_desktop_config
 
-    desktop_cfg = read_desktop_config(project_dir / ".pi-container")
+    desktop_cfg = read_desktop_config(project_dir / ".pa-container")
     desktop_enabled = bool(desktop_cfg.get("enabled", False))
 
     has_deps = has_dependency_files(project_dir)
     tools = read_project_tools(project_dir, extra_tools=extra_tools)
     if not has_deps and not tools and not desktop_enabled:
-        return PI_IMAGE_TAG, False
+        return PA_IMAGE_TAG, False
 
     project_hash, _ = project.project_scope(project_dir)
     key = project_hash.split("pi-proxy-")[1]
     image_hash = compute_image_hash(project_dir, repo_root=repo_root, extra_tools=extra_tools)
-    project_image_tag = f"pi-container-project-{key}-{image_hash}.local"
+    project_image_tag = f"pa-container-project-{key}-{image_hash}.local"
     return project_image_tag, True
 
 
@@ -286,9 +286,9 @@ def image_exists(image_tag: str, runtime: str | None = None) -> bool:
 
 
 def get_image_build_time(image_tag: str, runtime: str | None = None) -> datetime | None:
-    """Read and parse the ``pi-container.build.time`` label from a container image."""
+    """Read and parse the ``pa-container.build.time`` label from a container image."""
     try:
-        ts_str = get_image_label(image_tag, "pi-container.build.time", runtime=runtime)
+        ts_str = get_image_label(image_tag, "pa-container.build.time", runtime=runtime)
     except Exception:
         logger.warning(f"Could not read build time from image {image_tag}")
         return None
@@ -324,7 +324,7 @@ def image_is_current(project_dir: Path, image_tag: str, current_hash: str | None
     if not is_project_specific:
         return True
 
-    stored_hash = get_image_label(image_tag, "pi-container.hash", runtime=runtime)
+    stored_hash = get_image_label(image_tag, "pa-container.hash", runtime=runtime) 
     if stored_hash is None:
         return False
 
@@ -410,34 +410,37 @@ def images_in_use(runtime: str) -> set[str]:
 
 
 def enumerate_project_images(runtime: str) -> list[tuple[str, str]] | None:
-    """List all project images labelled ``pi-container.type=project``."""
-    try:
-        result = subprocess.run(
-            [
-                runtime,
-                "image",
-                "ls",
-                "--format",
-                "{{.ID}}\t{{.Repository}}:{{.Tag}}",
-                "--filter",
-                "label=pi-container.type=project",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
-        )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-        logger.warning(f"Could not list project images: {e}")
-        return None
-
+    """List all project images labelled ``pa-container.type=project``."""
     images: list[tuple[str, str]] = []
-    for line in result.stdout.strip().splitlines():
-        image_id, _, name = line.strip().partition("\t")
-        if not image_id:
-            continue
-        name = name.strip()
-        images.append((image_id, name if name and name != _UNTAGGED_NAME else f"{image_id} (untagged)"))
+    seen_ids: set[str] = set()
+    for lbl in ("label=pa-container.type=project"):
+        try:
+            result = subprocess.run(
+                [
+                    runtime,
+                    "image",
+                    "ls",
+                    "--format",
+                    "{{.ID}}\t{{.Repository}}:{{.Tag}}",
+                    "--filter",
+                    lbl,
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+            logger.warning(f"Could not list project images: {e}")
+            return None
+
+        for line in result.stdout.strip().splitlines():
+            image_id, _, name = line.strip().partition("\t")
+            if not image_id or image_id in seen_ids:
+                continue
+            seen_ids.add(image_id)
+            name = name.strip()
+            images.append((image_id, name if name and name != _UNTAGGED_NAME else f"{image_id} (untagged)"))
     return images
 
 
@@ -449,7 +452,7 @@ def list_project_images(runtime: str) -> list[tuple[str, str, str]]:
 
     result = []
     for image_id, name in listed:
-        lbl = get_image_label(image_id, "pi-container.hash", runtime=runtime)
+        lbl = get_image_label(image_id, "pa-container.hash", runtime=runtime)
         result.append((image_id, name, lbl or ""))
     return result
 
@@ -474,7 +477,7 @@ def cleanup_stale_project_images(
             continue
         if stored_hash == new_hash:
             continue
-        stored_project_hash = get_image_label(image_id, "pi-container.project.hash", runtime=runtime)
+        stored_project_hash = get_image_label(image_id, "pa-container.project.hash", runtime=runtime)
 
         if stored_project_hash is None:
             continue
@@ -501,7 +504,7 @@ def cleanup_orphaned_project_images(runtime: str) -> list[str]:
         if is_protected_image(name):
             continue
 
-        stored_path = get_image_label(image_id, "pi-container.project.path", runtime=runtime)
+        stored_path = get_image_label(image_id, "pa-container.project.path", runtime=runtime)
 
         if stored_path is None or not stored_path.strip():
             reason = "no path label"

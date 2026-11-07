@@ -24,7 +24,7 @@ from yaml_strict import load_yaml_strict
 
 logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
-DEFAULT_GLOBAL_CONFIG_DIR: Path = Path.home() / ".config" / "pi-container"
+DEFAULT_GLOBAL_CONFIG_DIR: Path = Path.home() / ".config" / "pa-container"
 DEFAULT_GLOBAL_CONFIG_FILE: Path = DEFAULT_GLOBAL_CONFIG_DIR / "config.yaml"
 
 
@@ -34,7 +34,7 @@ def get_repo_root() -> Path:
 
 
 def ensure_global_config(config_dir: Path | None = None, repo_root: Path | None = None) -> Path:
-    """Ensure global ~/.config/pi-container/config.yaml exists, seeding from template if absent.
+    """Ensure global ~/.config/pa-container/config.yaml exists, seeding from template if absent.
 
     Also ensures registry directories (models, gateways, chat-templates) exist.
     """
@@ -99,7 +99,10 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
         bridge_interface=os.environ.get("BRIDGE_INTERFACE") or raw_rt.get("bridge_interface"),
         proxy_upstream_network=os.environ.get("PROXY_UPSTREAM_NETWORK")
         or str(raw_rt.get("proxy_upstream_network", "podman")),
-        open_browser=_parse_bool(os.environ.get("PI_CONTAINER_OPEN_BROWSER", raw_rt.get("open_browser", False))),
+        open_browser=_parse_bool(PA_CONTAINER
+            os.environ.get("PA_CONTAINER_OPEN_BROWSER")
+            or os.environ.get("PI_CONTAINER_OPEN_BROWSER", raw_rt.get("open_browser", False))
+        ),
     )
 
     # LLaMA section
@@ -128,19 +131,25 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
     raw_bld = data.get("build", {})
     raw_imgs = raw_bld.get("images", {})
     images_cfg = BuildImagesGlobalConfig(
-        agent=os.environ.get("PI_IMAGE_TAG") or str(raw_imgs.get("agent", "pi-coding-agent:local")),
-        proxy=os.environ.get("PROXY_IMAGE_TAG") or str(raw_imgs.get("proxy", "pi-coding-agent-proxy:local")),
-        builder=os.environ.get("BUILDER_IMAGE_TAG") or str(raw_imgs.get("builder", "pi-coding-agent-builder:local")),
+        agent=os.environ.get("PA_IMAGE_TAG") or os.environ.get("PA_IMAGE_TAG") or str(raw_imgs.get("agent", "pa-container-agent:local")),
+        proxy=os.environ.get("PROXY_IMAGE_TAG") or str(raw_imgs.get("proxy", "pa-container-agent-proxy:local")),
+        builder=os.environ.get("BUILDER_IMAGE_TAG") or str(raw_imgs.get("builder", "pa-container-agent-builder:local")),
     )
 
     build_cfg = BuildGlobalConfig(
         images=images_cfg,
         dns=os.environ.get("BUILD_DNS") or str(raw_bld.get("dns", "1.1.1.1")),
         python_optimize=_parse_bool(os.environ.get("PYTHON_OPTIMIZE", raw_bld.get("python_optimize", True))),
-        memory_preflight=_parse_bool(os.environ.get("PI_MEMORY_PREFLIGHT", raw_bld.get("memory_preflight", True))),
+        memory_preflight=_parse_bool(
+            os.environ.get("PA_MEMORY_PREFLIGHT") or os.environ.get("PA_MEMORY_PREFLIGHT", raw_bld.get("memory_preflight", True))
+        ),
         node_source=os.environ.get("NODE_SOURCE") or str(raw_bld.get("node_source", "prebuilt")),
-        prune_dangling=_parse_bool(os.environ.get("PI_PRUNE_DANGLING", raw_bld.get("prune_dangling", True))),
-        purge_build_cache=_parse_bool(os.environ.get("PI_PURGE_BUILD_CACHE", raw_bld.get("purge_build_cache", False))),
+        prune_dangling=_parse_bool(
+            os.environ.get("PA_PRUNE_DANGLING") or os.environ.get("PI_PRUNE_DANGLING", raw_bld.get("prune_dangling", True))
+        ),
+        purge_build_cache=_parse_bool(
+            os.environ.get("PA_PURGE_BUILD_CACHE") or os.environ.get("PI_PURGE_BUILD_CACHE", raw_bld.get("purge_build_cache", False))
+        ),
     )
 
     # Logging section

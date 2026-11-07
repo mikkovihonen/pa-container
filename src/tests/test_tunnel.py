@@ -80,7 +80,7 @@ class TestErrorBoxFormatting:
 class TestKeyringTokenResolution:
     def test_resolves_from_keyring(self):
         with patch("tunnel.get_keyring_secret", return_value="test_cf_token_123"):
-            token = resolve_tunnel_token(account="MY_TUNNEL_TOKEN", service="pi-container")
+            token = resolve_tunnel_token(account="MY_TUNNEL_TOKEN", service="pa-container")
             assert token == "test_cf_token_123"
 
     def test_returns_none_if_missing(self):

@@ -8,7 +8,7 @@
 # actually targets (requires-python >=3.14) and keeps a single interpreter on PATH.
 #
 # WHY HERE AND NOT PER PROJECT
-# This used to live in each workspace's .pi-container/dependencies/root/commands.sh,
+# This used to live in each workspace's .pa-container/dependencies/root/commands.sh,
 # which meant a workspace whose root/commands.sh was the default no-op got no Python
 # at all (while pi/commands.sh's own template tells people to run `python -m venv`),
 # and every project-specific image rebuild recompiled CPython — a PGO build, so
@@ -110,14 +110,14 @@ fi
 # Installed twice, on purpose:
 #   * into the builder's own /usr/local, because pip has to run on a working
 #     interpreter to stage the packages below, and
-#   * into $PI_STAGE, which is what the agent image copies.
+#   * into $PA_STAGE, which is what the agent image copies.
 # DESTDIR only relocates where files are written; the interpreter still believes
 # its prefix is /usr/local, so the staged tree is correct in the agent image and
 # every ensurepip-generated shebang points at /usr/local/bin/python3.14.
 run_logged "Installing Python ${PYTHON_VERSION}" /tmp/python-make-install.log \
     make install
 run_logged "Staging Python ${PYTHON_VERSION}" /tmp/python-make-stage.log \
-    make install DESTDIR="${PI_STAGE}"
+    make install DESTDIR="${PA_STAGE}"
 
 # `make install` (ensurepip) provides python3/python3.14 and pip3/pip3.14 only;
 # the unversioned aliases below are what project scripts expect on PATH.
@@ -125,7 +125,7 @@ run_logged "Staging Python ${PYTHON_VERSION}" /tmp/python-make-stage.log \
 # symlink that reads as "command not found"), so verify afterwards rather than
 # trusting the symlinks.
 py_minor="${PYTHON_VERSION%.*}"
-for prefix in /usr/local "${PI_STAGE}/usr/local"; do
+for prefix in /usr/local "${PA_STAGE}/usr/local"; do
     ln -sf "python${py_minor}" "${prefix}/bin/python"
     ln -sf "pip${py_minor}" "${prefix}/bin/pip"
     ln -sf "idle${py_minor}" "${prefix}/bin/idle"
@@ -151,13 +151,13 @@ rm -rf "${BUILD_DIR}"
 
 export PIP_ROOT_USER_ACTION=ignore
 
-# `--root ${PI_STAGE}` writes into the staged tree while keeping paths and script
+# `--root ${PA_STAGE}` writes into the staged tree while keeping paths and script
 # shebangs rooted at /usr/local. `--ignore-installed` is required with it: pip
 # checks satisfaction against the *running* environment, where these are already
 # present after the install above, and would otherwise report "Requirement already
 # satisfied" and stage nothing at all.
 stage_pip() {
-    pip install --root-user-action=ignore --root "${PI_STAGE}" --ignore-installed "$@"
+    pip install --root-user-action=ignore --root "${PA_STAGE}" --ignore-installed "$@"
 }
 
 # Emit one hash-pinned requirement line from a name, a version and a space-separated
@@ -203,13 +203,13 @@ stage_pip -r /tmp/req-uv.txt
 } > /tmp/req-compose.txt
 stage_pip -r /tmp/req-compose.txt
 
-stage_bin="${PI_STAGE}/usr/local/bin"
-stage_lib="${PI_STAGE}/usr/local/lib/python${py_minor}"
+stage_bin="${PA_STAGE}/usr/local/bin"
+stage_lib="${PA_STAGE}/usr/local/lib/python${py_minor}"
 stage_site="${stage_lib}/site-packages"
 
 # ─── Trim the staged tree ────────────────────────────────────────────────────
 # Runs last, after everything that stages into the tree, so nothing can put back what
-# it removes. Only $PI_STAGE is touched — the builder's own /usr/local has to keep
+# it removes. Only $PA_STAGE is touched — the builder's own /usr/local has to keep
 # working for the pip calls above, and nothing from it ships.
 #
 # Worth doing because BOTH shipped images carry this tree: the agent, and the proxy
@@ -255,7 +255,7 @@ stage_site="${stage_lib}/site-packages"
 # test directories and libpython*.a) — minus their `*.pyc` deletion, deliberately.
 # /usr/local is not writable by the agent's `pi` user, so a removed .pyc would never be
 # regenerated and every import would re-parse source, for the life of the image.
-trim_before_mib="$(du -sm "${PI_STAGE}" | awk '{print $1}')"
+trim_before_mib="$(du -sm "${PA_STAGE}" | awk '{print $1}')"
 
 rm -rf \
     "${stage_lib}/test" \
@@ -263,9 +263,9 @@ rm -rf \
     "${stage_lib}/tkinter" \
     "${stage_lib}/turtledemo"
 rm -f "${stage_bin}"/idle*
-find "${PI_STAGE}/usr/local/lib" -name 'libpython*.a' -delete
+find "${PA_STAGE}/usr/local/lib" -name 'libpython*.a' -delete
 
-trim_after_mib="$(du -sm "${PI_STAGE}" | awk '{print $1}')"
+trim_after_mib="$(du -sm "${PA_STAGE}" | awk '{print $1}')"
 echo "Trimmed staged Python tree: ${trim_before_mib} MiB -> ${trim_after_mib} MiB"
 
 # `rm -rf` on a path that does not exist succeeds silently, so a renamed or mistyped
@@ -277,14 +277,14 @@ for trimmed in "${stage_lib}/test" "${stage_lib}/idlelib" "${stage_lib}/tkinter"
         exit 1
     fi
 done
-if find "${PI_STAGE}/usr/local/lib" -name 'libpython*.a' | grep -q .; then
+if find "${PA_STAGE}/usr/local/lib" -name 'libpython*.a' | grep -q .; then
     echo "ERROR: a static libpython survived the trim:" >&2
-    find "${PI_STAGE}/usr/local/lib" -name 'libpython*.a' >&2
+    find "${PA_STAGE}/usr/local/lib" -name 'libpython*.a' >&2
     exit 1
 fi
 
 # ─── Verify the STAGED tree, not the builder's own ───────────────────────────
-# Only $PI_STAGE reaches the shipped images, and the two can disagree: a missing
+# Only $PA_STAGE reaches the shipped images, and the two can disagree: a missing
 # --ignore-installed silently stages nothing, and a wrong --root stages files
 # under paths that will never exist. So check the staged copy end to end.
 
@@ -296,7 +296,7 @@ for tool in python python"${py_minor}" pip uv podman-compose; do
     fi
 done
 
-# A staged script whose shebang points into $PI_STAGE would be broken the moment
+# A staged script whose shebang points into $PA_STAGE would be broken the moment
 # it is copied. This is the one failure mode --root exists to prevent, so assert it.
 compose_shebang="$(head -n 1 "${stage_bin}/podman-compose")"
 if [ "${compose_shebang}" != "#!/usr/local/bin/python${py_minor}" ]; then
@@ -306,7 +306,7 @@ if [ "${compose_shebang}" != "#!/usr/local/bin/python${py_minor}" ]; then
 fi
 
 # The staged interpreter derives its prefix from its own location, so running it
-# from $PI_STAGE exercises the staged stdlib rather than the builder's.
+# from $PA_STAGE exercises the staged stdlib rather than the builder's.
 "${stage_bin}/python${py_minor}" --version
 "${stage_bin}/uv" --version
 "${stage_bin}/python${py_minor}" \
@@ -334,7 +334,7 @@ static PyMethodDef methods[] = {
 static struct PyModuleDef module = {PyModuleDef_HEAD_INIT, "pi_probe", NULL, -1, methods};
 PyMODINIT_FUNC PyInit_pi_probe(void) { return PyModule_Create(&module); }
 EOF
-gcc -shared -fPIC -I"${PI_STAGE}/usr/local/include/python${py_minor}" \
+gcc -shared -fPIC -I"${PA_STAGE}/usr/local/include/python${py_minor}" \
     /tmp/extension-check/pi_probe.c -o /tmp/extension-check/pi_probe.so
 PYTHONPATH=/tmp/extension-check "${stage_bin}/python${py_minor}" \
     -c 'import pi_probe; assert pi_probe.answer() == 42; print("native extension: builds and imports")'

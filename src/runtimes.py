@@ -166,7 +166,7 @@ class PodmanRuntime:
             "--env",
             "XDG_RUNTIME_DIR=/run/user/1000",
             "--env",
-            "PI_CONTAINER_NESTED=true",
+            "PA_CONTAINER_NESTED=true",
         ]
 
     def port_publish_args(self, ports: PortPublishConfig) -> list[str]:
@@ -212,7 +212,7 @@ class PodmanRuntime:
             "-p",
             f"{vnc_bind}{vnc_port}:5900",
             "--env",
-            "PI_CONTAINER_DESKTOP=true",
+            "PA_CONTAINER_DESKTOP=true",
             "--env",
             "DISPLAY=:0",
             "--env",
@@ -220,7 +220,7 @@ class PodmanRuntime:
             "--env",
             "XDG_RUNTIME_DIR=/run/user/1000",
             "--env",
-            f"PI_DESKTOP_RESOLUTION={resolution}",
+            f"PA_DESKTOP_RESOLUTION={resolution}",
         ]
 
     @staticmethod

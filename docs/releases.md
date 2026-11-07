@@ -31,7 +31,7 @@ branch. Hotfixes follow the same PR flow from `main`.
 Use the conventional-commit prefix pattern for clarity. A hook does not enforce it:
 
 ```
-feat: seed entrypoint.sh into .pi-container/agent
+feat: seed entrypoint.sh into .pa-container/agent
 fix: handle missing proxy IPv6 address gracefully
 chore: bump pyyaml to 6.0.2
 ```
@@ -55,12 +55,12 @@ The latest git tag (e.g., `git tag -l | head -1`) determines the authoritative v
 
 ## Schema version: config compatibility
 
-Every pi-container release ships templates for global and per-project configurations
+Every pa-container release ships templates for global and per-project configurations
 under `coding-agent/default/` (`global/` and `project/`). The system seeds these templates into
-`~/.config/pi-container/` and each workspace's `.pi-container/` on first run.
+`~/.config/pa-container/` and each workspace's `.pa-container/` on first run.
 
 The template `config.yaml` files include a `schema_version` field that matches the
-pi-container version (e.g., `"0.1.0"`). At launch, the system checks the schema version in the
+pa-container version (e.g., `"0.1.0"`). At launch, the system checks the schema version in the
 seeded config against the app version (from the latest git tag). A mismatch makes
 the launch fail with a clear error message.
 
@@ -73,14 +73,14 @@ Bump the `schema_version` in `coding-agent/default/project/config.yaml` and `cod
 - Remove a field that users might still have in their configs
 - Add a new file to `coding-agent/default/project/` or `coding-agent/default/global/` (e.g., a new addon config)
 
-The schema version is separate from the pi-container version. Keep them
+The schema version is separate from the pa-container version. Keep them
 in sync. The schema version triggers the compatibility check.
 
 ### User-facing behavior
 
 When a user has an outdated config:
 
-1. The launch fails with: "Configuration incompatible with this version of pi-container"
+1. The launch fails with: "Configuration incompatible with this version of pa-container"
 2. The error message lists the specific issues (missing fields, type mismatches, version mismatch)
 3. The error message gives the remedy **for that specific failure**. The two kinds
    are not interchangeable
@@ -98,13 +98,13 @@ immediately after, one line further down. The file has to be re-seeded.
 Re-seeding is **one file, not the directory**:
 
 ```
-rm .pi-container/config.yaml && <re-run>
+rm .pa-container/config.yaml && <re-run>
 ```
 
 `_ensure_project_config()` only writes files that are absent. Deleting the one
 file whose shape changed leaves `allowlist.yaml`, `token_replacer.yaml`,
 `models.yaml`, and `dependencies/` exactly as they were. Reach
-for `rm -rf .pi-container` only when several of those are out of date at once.
+for `rm -rf .pa-container` only when several of those are out of date at once.
 it takes every hand-edited file in the workspace with it.
 
 The user's own edits to `config.yaml` are not merged. The error tells them to
@@ -115,7 +115,7 @@ note their settings before deleting it.
 > *shipped* version. A workspace seeded at that same version therefore **passes**
 > the version check and fails only on the field. This is why the remedy must
 > never assume a version mismatch is what went wrong. This is the ordinary case for
-> anyone developing pi-container in a workspace seeded before the field was added.
+> anyone developing pa-container in a workspace seeded before the field was added.
 
 ### Example: adding a new field
 
@@ -132,12 +132,12 @@ custom:
 
 Users with `schema_version: "0.1.0"` in their local config see an error on
 next launch. A *field* was added, so bumping their version string is not
-enough. They must `rm .pi-container/config.yaml` and re-run to get the new field.
-Everything else in `.pi-container/` is preserved.
+enough. They must `rm .pa-container/config.yaml` and re-run to get the new field.
+Everything else in `.pa-container/` is preserved.
 
 ## Release skill
 
-The [release skill](https://github.com/mikkovihonen/pi-container/blob/main/.pi/skills/release/SKILL.md)
+The [release skill](https://github.com/mikkovihonen/pa-container/blob/main/.pi/skills/release/SKILL.md)
 automates the version bump, changelog update, validation, and git tag steps
 described in the next section. It is designed for use by pi, the coding agent:
 
@@ -184,12 +184,12 @@ stay in sync:
 | Git tag | `v<version>` (e.g. `v0.2.0`) |
 | Python package version | `pyproject.toml` → `[project].version` |
 | Config schema versions | `coding-agent/default/{project,global}/config.yaml` → `schema_version` |
-| Runtime config version | `.pi-container/config.yaml` → `schema_version` |
+| Runtime config version | `.pa-container/config.yaml` → `schema_version` |
 
 The `validate_versions.py` script runs in CI (not pre-commit). git has
 no `pre-tag` hook. The version cross-check can only pass once the tag exists.
 That happens after the commit. The runtime config
-(`.pi-container/config.yaml`) is checked at launch time by `src/config_schema.py`. If it does not match the latest git tag, the container refuses to start.
+(`.pa-container/config.yaml`) is checked at launch time by `src/config_schema.py`. If it does not match the latest git tag, the container refuses to start.
 
 ### Steps
 
@@ -202,7 +202,7 @@ That happens after the commit. The runtime config
    version).
 5. **Bump `schema_version` in the seed templates** (`coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml`). This is what new workspaces get on
    first run.
-6. **Bump `schema_version` in the runtime config** (`.pi-container/config.yaml`). This is what the currently running container
+6. **Bump `schema_version` in the runtime config** (`.pa-container/config.yaml`). This is what the currently running container
    uses. Seeding is copy-once (missing-only), so updating the template alone
    will not update the runtime config.
 7. **Validate locally** before pushing:
@@ -219,7 +219,7 @@ That happens after the commit. The runtime config
        uv.lock \
        coding-agent/default/project/config.yaml \
        coding-agent/default/global/config.yaml \
-       .pi-container/config.yaml
+       .pa-container/config.yaml
    git commit -m "chore: release v0.2.0"
    git push origin main
    git tag -a v0.2.0 -m "Release v0.2.0"
@@ -243,14 +243,14 @@ The `ci.yml` workflow triggers on `push` to `refs/tags/v*`:
 # 1. Update CHANGELOG.md: move [Unreleased] → [0.2.0] - 2026-07-04
 # 2. Bump pyproject.toml version to "0.2.0"
 # 3. Bump schema_version in coding-agent/default/project/config.yaml and global/config.yaml to "0.2.0"
-# 4. Bump schema_version in .pi-container/config.yaml to "0.2.0"
+# 4. Bump schema_version in .pa-container/config.yaml to "0.2.0"
 # 5. Regenerate uv.lock: uv lock
 # 6. Validate and commit:
 git add CHANGELOG.md pyproject.toml \
     uv.lock \
     coding-agent/default/project/config.yaml \
     coding-agent/default/global/config.yaml \
-    .pi-container/config.yaml
+    .pa-container/config.yaml
 git commit -m "chore: release v0.2.0"
 git tag -a v0.2.0 -m "Release v0.2.0"
 git push origin main
@@ -262,16 +262,16 @@ git push origin v0.2.0
 Users clone the repo, check out the tag, and run `build.sh` to build the container
 images for their local runtime (`podman`).
 
-If a workspace's `.pi-container/config.yaml` is outdated (e.g. a user skipped
+If a workspace's `.pa-container/config.yaml` is outdated (e.g. a user skipped
 step 5 above), the launch fails with:
 
-> schema_version mismatch: config has '0.1.1', the latest pi-container
+> schema_version mismatch: config has '0.1.1', the latest pa-container
 > version is '0.2.0'.
 
 If that is the **only** error, the shape still validates. Editing
 `schema_version` fixes it without losing any settings. If the release also added
 or changed a field, the error list says so. The fix is
-`rm .pi-container/config.yaml` plus a re-run (see
+`rm .pa-container/config.yaml` plus a re-run (see
 [User-facing behavior](#user-facing-behavior) for why the two are not
 interchangeable).
 

@@ -26,15 +26,15 @@ fetch_verified \
 tar -C /usr/src -xzf "/tmp/${rust_pkg}.tar.gz"
 rm -f "/tmp/${rust_pkg}.tar.gz"
 
-mkdir -p "${PI_STAGE}/usr/local"
+mkdir -p "${PA_STAGE}/usr/local"
 run_logged "Installing Rust ${RUST_VERSION}" /tmp/rust-install.log \
     "/usr/src/${rust_pkg}/install.sh" \
-    --prefix="${PI_STAGE}/usr/local" --without=rust-docs --disable-ldconfig
+    --prefix="${PA_STAGE}/usr/local" --without=rust-docs --disable-ldconfig
 rm -rf "/usr/src/${rust_pkg}"
 
 # Verify using the staged binaries
-"${PI_STAGE}/usr/local/bin/rustc" --version
-"${PI_STAGE}/usr/local/bin/cargo" --version
+"${PA_STAGE}/usr/local/bin/rustc" --version
+"${PA_STAGE}/usr/local/bin/cargo" --version
 
 stage_record "rust" "${RUST_VERSION}"
 

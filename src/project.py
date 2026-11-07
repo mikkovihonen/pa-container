@@ -24,12 +24,12 @@ def project_key(project_dir: Path) -> str:
 
 
 def get_project_state_dir(project_dir: Path) -> Path:
-    """Return ~/.local/state/pi-container/projects/{name}-{key} or $XDG_STATE_HOME override."""
+    """Return ~/.local/state/pa-container/projects/{name}-{key} or $XDG_STATE_HOME override."""
     state_home = os.environ.get("XDG_STATE_HOME")
     base_dir = Path(state_home) if state_home else Path.home() / ".local" / "state"
     key = project_key(project_dir)
     slug = f"{project_dir.resolve().name}-{key}"
-    return base_dir / "pi-container" / "projects" / slug
+    return base_dir / "pa-container" / "projects" / slug
 
 
 def get_project_logs_dir(project_dir: Path) -> Path:
@@ -46,14 +46,14 @@ def project_scope(project_dir: Path) -> tuple[str, str]:
 
 
 def ensure_project_config(project_dir: Path | None = None, repo_root: Path | None = None) -> Path:
-    """Seed the per-project ``.pi-container`` config from the repo template if absent.
+    """Seed the per-project ``.pa-container`` config from the repo template if absent.
 
-    Seeds ``{project_dir}/.pi-container`` from ``{repo_root}/coding-agent/default/project``:
+    Seeds ``{project_dir}/.pa-container`` from ``{repo_root}/coding-agent/default/project``:
     the ``agents/`` subtree plus ``config.yaml``, ``models.yaml``, and the proxy
     addon configs ``allowlist.yaml``/``token_replacer.yaml``. Also seeds dependency command
     templates if present.
 
-    Returns the project configuration directory (``{project_dir}/.pi-container``).
+    Returns the project configuration directory (``{project_dir}/.pa-container``).
     """
     p_dir = project_dir if project_dir is not None else PROJECT_DIR
     r_root = repo_root if repo_root is not None else REPO_ROOT
@@ -61,7 +61,7 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
     if not template_root.is_dir():
         raise FileNotFoundError(f"Project config template not found: {template_root}")
 
-    project_root = p_dir / ".pi-container"
+    project_root = p_dir / ".pa-container"
 
     agents_template_root = template_root / "agents"
     agents_project_root = project_root / "agents"

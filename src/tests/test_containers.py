@@ -252,18 +252,18 @@ class TestPortHolders:
         assert containers.port_holders("podman", []) == {}
 
     def test_names_the_container_publishing_the_port(self, monkeypatch):
-        self._ps(json.dumps([self._container("pi-coding-agent-abc123", 18080)]), monkeypatch)
-        assert containers.port_holders("podman", [18080]) == {18080: "pi-coding-agent-abc123 (Up 2 minutes)"}
+        self._ps(json.dumps([self._container("pa-container-agent-abc123", 18080)]), monkeypatch)
+        assert containers.port_holders("podman", [18080]) == {18080: "pa-container-agent-abc123 (Up 2 minutes)"}
 
     def test_marks_a_holder_belonging_to_this_workspace(self, monkeypatch):
-        image = "localhost/pi-container-project-f155d7064f-60e201e6.local:latest"
-        self._ps(json.dumps([self._container("pi-coding-agent-abc123", 18080, image=image)]), monkeypatch)
+        image = "localhost/pa-container-project-f155d7064f-60e201e6.local:latest"
+        self._ps(json.dumps([self._container("pa-container-agent-abc123", 18080, image=image)]), monkeypatch)
         holders = containers.port_holders("podman", [18080], "f155d7064f")
         assert "this workspace" in holders[18080]
 
     def test_other_workspace_is_not_marked_as_this_one(self, monkeypatch):
-        image = "localhost/pi-container-project-aaaaaaaaaa-60e201e6.local:latest"
-        self._ps(json.dumps([self._container("pi-coding-agent-abc123", 18080, image=image)]), monkeypatch)
+        image = "localhost/pa-container-project-aaaaaaaaaa-60e201e6.local:latest"
+        self._ps(json.dumps([self._container("pa-container-agent-abc123", 18080, image=image)]), monkeypatch)
         holders = containers.port_holders("podman", [18080], "f155d7064f")
         assert "this workspace" not in holders[18080]
 
@@ -301,12 +301,12 @@ class TestCleanupOrphanedAgentContainers:
         container_json = json.dumps(
             [
                 {
-                    "Names": ["pi-coding-agent-1234567890ab"],
-                    "Image": "localhost/pi-container-project-f155d7064f-60e201e6.local:latest",
+                    "Names": ["pa-container-agent-1234567890ab"],
+                    "Image": "localhost/pa-container-project-f155d7064f-60e201e6.local:latest",
                     "Labels": {
-                        "pi-container.project.hash": "f155d7064f",
-                        "pi-container.launcher_pid": "88888",
-                        "pi-container.type": "agent",
+                        "pa-container.project.hash": "f155d7064f",
+                        "pa-container.launcher_pid": "88888",
+                        "pa-container.type": "agent",
                     },
                     "Status": "Up 10 minutes",
                 }
@@ -326,9 +326,9 @@ class TestCleanupOrphanedAgentContainers:
         )
 
         removed = containers.cleanup_orphaned_agent_containers("podman")
-        assert removed == ["pi-coding-agent-1234567890ab"]
+        assert removed == ["pa-container-agent-1234567890ab"]
         assert len(removed_calls) == 1
-        assert removed_calls[0][:4] == ["podman", "rm", "-f", "pi-coding-agent-1234567890ab"]
+        assert removed_calls[0][:4] == ["podman", "rm", "-f", "pa-container-agent-1234567890ab"]
 
     def test_skips_container_with_live_launcher_pid(self, monkeypatch):
         import os
@@ -336,12 +336,12 @@ class TestCleanupOrphanedAgentContainers:
         container_json = json.dumps(
             [
                 {
-                    "Names": ["pi-coding-agent-1234567890ab"],
-                    "Image": "localhost/pi-container-project-f155d7064f-60e201e6.local:latest",
+                    "Names": ["pa-container-agent-1234567890ab"],
+                    "Image": "localhost/pa-container-project-f155d7064f-60e201e6.local:latest",
                     "Labels": {
-                        "pi-container.project.hash": "f155d7064f",
-                        "pi-container.launcher_pid": str(os.getpid()),
-                        "pi-container.type": "agent",
+                        "pa-container.project.hash": "f155d7064f",
+                        "pa-container.launcher_pid": str(os.getpid()),
+                        "pa-container.type": "agent",
                     },
                     "Status": "Up 10 minutes",
                 }
@@ -368,11 +368,11 @@ class TestCleanupOrphanedAgentContainers:
         container_json = json.dumps(
             [
                 {
-                    "Names": ["pi-coding-agent-other-project"],
-                    "Image": "localhost/pi-container-project-other123-60e201e6.local:latest",
+                    "Names": ["pa-container-agent-other-project"],
+                    "Image": "localhost/pa-container-project-other123-60e201e6.local:latest",
                     "Labels": {
-                        "pi-container.project.hash": "other123",
-                        "pi-container.launcher_pid": "88888",
+                        "pa-container.project.hash": "other123",
+                        "pa-container.launcher_pid": "88888",
                     },
                     "Status": "Up 10 minutes",
                 }
@@ -390,16 +390,16 @@ class TestCleanupOrphanedAgentContainers:
             lambda cmd, **kw: MagicMock(returncode=0),
         )
         removed = containers.cleanup_orphaned_agent_containers("podman")
-        assert removed == ["pi-coding-agent-other-project"]
+        assert removed == ["pa-container-agent-other-project"]
 
     def test_removes_exited_container_without_launcher_label(self, monkeypatch):
         container_json = json.dumps(
             [
                 {
-                    "Names": ["pi-coding-agent-old"],
-                    "Image": "localhost/pi-container-project-f155d7064f-60e201e6.local:latest",
+                    "Names": ["pa-container-agent-old"],
+                    "Image": "localhost/pa-container-project-f155d7064f-60e201e6.local:latest",
                     "Labels": {
-                        "pi-container.project.hash": "f155d7064f",
+                        "pa-container.project.hash": "f155d7064f",
                     },
                     "Status": "Exited (137) 5 minutes ago",
                 }
@@ -416,7 +416,7 @@ class TestCleanupOrphanedAgentContainers:
             lambda cmd, **kw: MagicMock(returncode=0),
         )
         removed = containers.cleanup_orphaned_agent_containers("podman")
-        assert removed == ["pi-coding-agent-old"]
+        assert removed == ["pa-container-agent-old"]
 
 
 class TestSweepOrphanedServers:

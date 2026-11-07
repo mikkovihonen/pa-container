@@ -66,11 +66,11 @@ def cleanup_orphaned_agent_containers(runtime: str) -> list[str]:
         else:
             name = str(container.get("Id") or "")[:12]
         name = str(name).lstrip("/")
-        if not name or not name.startswith(("pi-coding-agent-", "coding-agent-")):
+        if not name or not name.startswith(("pa-container-agent-", "coding-agent-")):
             continue
 
         labels = container.get("Labels") or {}
-        launcher_pid_str = labels.get("pi-container.launcher_pid")
+        launcher_pid_str = labels.get("pa-container.launcher_pid")
         is_orphan = False
         if launcher_pid_str:
             try:

@@ -16,10 +16,10 @@ clone_verified "https://github.com/rust-lang/rust-analyzer.git" "${RUST_ANALYZER
 
 cd "${src}"
 cargo build --release -p rust-analyzer
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 target/release/rust-analyzer "${PI_STAGE}/usr/local/bin/rust-analyzer"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 target/release/rust-analyzer "${PA_STAGE}/usr/local/bin/rust-analyzer"
 rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
 
-"${PI_STAGE}/usr/local/bin/rust-analyzer" --version
+"${PA_STAGE}/usr/local/bin/rust-analyzer" --version
 stage_record "rust-analyzer" "${RUST_ANALYZER_VERSION}"
 

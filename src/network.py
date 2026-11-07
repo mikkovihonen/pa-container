@@ -49,7 +49,7 @@ from logging_driver import LogCategory, get_category_logger
 logger = get_category_logger(__name__, LogCategory.NETWORK)
 
 
-# ─── Project config (.pi-container/config.yaml) ───────────────────────────
+# ─── Project config (.pa-container/config.yaml) ───────────────────────────
 
 # Container resource limits applied when values are present (a falsy/null value
 # omits the flag → unlimited). Defaults preserve the agent's historical 16g/8.
@@ -73,7 +73,7 @@ _PROXY_FORWARD_PORTS = {
 
 
 def load_project_config(config_dir: Path | None = None) -> dict[str, Any]:
-    """Load and parse `.pi-container/config.yaml`, returning an empty dict if missing or invalid."""
+    """Load and parse `.pa-container/config.yaml`, returning an empty dict if missing or invalid."""
     import yaml as _yaml
 
     from yaml_strict import load_yaml_file
@@ -374,14 +374,14 @@ def read_agent_extras(config_dir: Path | None = None) -> AgentExtrasConfig:
     }
 
 
-def read_read_only_pi_container(config_dir: Path | None = None) -> bool:
-    """Check whether the agent container's /workspace/.pi-container directory is read-only.
+def read_read_only_PA_CONTAINER(config_dir: Path | None = None) -> bool:
+    """Check whether the agent container's /workspace/.pa-container directory is read-only.
 
     Defaults to True (read-only) when absent or unrecognized, preventing untrusted
     agent processes from modifying orchestration files, allowlists, or scripts.
     """
     section = load_project_config(config_dir).get("agent") or {}
-    val = section.get("read_only_pi_container")
+    val = section.get("read_only_PA_CONTAINER")
     if val is None:
         return True
     return _egress_truthy(val)
@@ -465,7 +465,7 @@ def read_git_config(config_dir: Path | None = None) -> dict[str, bool]:
 
 
 def read_logging_config(config_dir: Path | None = None) -> LoggingProjectConfig:
-    """Read the logging section from .pi-container/config.yaml."""
+    """Read the logging section from .pa-container/config.yaml."""
     sec = load_project_config(config_dir).get("logging")
     if not isinstance(sec, dict):
         return {}
@@ -545,7 +545,7 @@ class ContainerNetworkManager:
         self.proxy_name: str = proxy_name
         self.config_dir: Path = config_dir or CONFIG_DIR
         self.project_dir: Path = (
-            project_dir or (self.config_dir.parent if self.config_dir.name == ".pi-container" else PROJECT_DIR)
+            project_dir or (self.config_dir.parent if self.config_dir.name == ".pa-container" else PROJECT_DIR)
         ).resolve()
         self.project_hash: str = self.proxy_name.removeprefix("pi-proxy-")
         self.llama_ports: str | None = llama_ports
@@ -607,7 +607,7 @@ class ContainerNetworkManager:
                     f"Required secret '{var}' (referenced by token replacer config) "
                     f"is not set in the host environment or user keyring. The container will use "
                     f"the config's fallback default, if any. "
-                    f"To store in keyring: uv run keyring set pi-container {var}"
+                    f"To store in keyring: uv run keyring set pa-container {var}"
                 )
         return secrets
 
@@ -639,7 +639,7 @@ class ContainerNetworkManager:
                 f"network.ipv6=true but runtime '{self.container_runtime}' provides no "
                 f"IPv6 egress on the upstream network (it NATs IPv4 only); the proxy will "
                 f"have no IPv6 route out, so agent IPv6 connections will fail. Set "
-                f"network.ipv6=false in .pi-container/config.yaml unless you are on a "
+                f"network.ipv6=false in .pa-container/config.yaml unless you are on a "
                 f"runtime/host with working IPv6 egress."
             )
             return
@@ -692,7 +692,7 @@ class ContainerNetworkManager:
                 f"network.ipv6=true but the proxy has no working IPv6 egress on {upstream_iface} "
                 f"(global address: {has_global}, default route: {has_default}); this runtime/host "
                 f"does not route IPv6 to the internet, so agent IPv6 connections will fail. "
-                f"Set network.ipv6=false in .pi-container/config.yaml to silence this."
+                f"Set network.ipv6=false in .pa-container/config.yaml to silence this."
             )
         else:
             logger.info(f"Proxy has IPv6 egress on {upstream_iface} (global address + default route present).")
@@ -901,13 +901,13 @@ class ContainerNetworkManager:
             "--name",
             self.proxy_name,
             "--label",
-            "pi-container.type=proxy",
+            "pa-container.type=proxy",
             "--label",
-            f"pi-container.project.hash={self.project_hash}",
+            f"pa-container.project.hash={self.project_hash}",
             "--label",
-            f"pi-container.project.path={str(self.project_dir)}",
+            f"pa-container.project.path={str(self.project_dir)}",
             "--label",
-            f"pi-container.project.name={self.project_dir.name}",
+            f"pa-container.project.name={self.project_dir.name}",
             "--security-opt",
             "no-new-privileges",
             *self.runtime.proxy_network_args(self.network_name),
@@ -1251,9 +1251,9 @@ def list_active_proxies(
                 if not isinstance(labels, dict):
                     labels = {}
 
-                proj_hash = labels.get("pi-container.project.hash") or name.removeprefix("pi-proxy-")
-                proj_name = labels.get("pi-container.project.name") or proj_hash
-                proj_path_raw = labels.get("pi-container.project.path")
+                proj_hash = labels.get("pa-container.project.hash") or name.removeprefix("pi-proxy-")
+                proj_name = labels.get("pa-container.project.name") or proj_hash
+                proj_path_raw = labels.get("pa-container.project.path")
                 proj_path = Path(proj_path_raw) if proj_path_raw else None
 
                 port = query_container_port(runtime_bin, name, 8081)

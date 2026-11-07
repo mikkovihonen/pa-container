@@ -35,9 +35,9 @@ class TestEnsureNestedVolume:
         assert cmd[:3] == ["podman", "volume", "create"]
         assert cmd[-1] == "pi-nested-abc"
         # Labelled like project images, so the same orphan rule reclaims it.
-        assert "pi-container.type=nested-storage" in cmd
-        assert "pi-container.project.hash=pi-proxy-abc" in cmd
-        assert "pi-container.project.path=/tmp/proj" in cmd
+        assert "pa-container.type=nested-storage" in cmd
+        assert "pa-container.project.hash=pi-proxy-abc" in cmd
+        assert "pa-container.project.path=/tmp/proj" in cmd
 
     def test_returns_false_when_create_fails(self, monkeypatch):
         monkeypatch.setattr(volumes, "volume_exists", lambda rt, name: False)
@@ -205,15 +205,15 @@ class TestEnsureProjectVolume:
             "pi-proxy-test",
             "/host/path",
             subpaths=["workspace/node_modules"],
-            image="pi-coding-agent:local",
+            image="pa-container-agent:local",
         )
         assert success is True
         assert len(recorded) == 2
         create_cmd = recorded[0]
         assert "volume" in create_cmd and "create" in create_cmd
-        assert "pi-container.type=project-shadow" in create_cmd
-        assert "pi-container.project.hash=pi-proxy-test" in create_cmd
-        assert "pi-container.project.path=/host/path" in create_cmd
+        assert "pa-container.type=project-shadow" in create_cmd
+        assert "pa-container.project.hash=pi-proxy-test" in create_cmd
+        assert "pa-container.project.path=/host/path" in create_cmd
         assert "pi-shadow-test" in create_cmd
 
         mkdir_cmd = recorded[1]
@@ -280,7 +280,7 @@ class TestVolumeHelpers:
 
     def test_get_volume_label_reads_value(self, monkeypatch):
         monkeypatch.setattr(volumes.subprocess, "run", lambda cmd, **kw: MagicMock(returncode=0, stdout="/tmp/proj\n"))
-        assert volumes.get_volume_label("podman", "v", "pi-container.project.path") == "/tmp/proj"
+        assert volumes.get_volume_label("podman", "v", "pa-container.project.path") == "/tmp/proj"
 
     def test_get_volume_label_treats_no_value_as_absent(self, monkeypatch):
         """podman renders a missing label key as `<no value>`, not an error."""

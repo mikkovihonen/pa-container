@@ -174,7 +174,7 @@ class DesktopConfig(TypedDict, total=False):
 
 
 class ProjectConfig(TypedDict, total=False):
-    """Top-level parsed representation of .pi-container/config.yaml."""
+    """Top-level parsed representation of .pa-container/config.yaml."""
 
     schema_version: str
     resources: dict[str, ResourceLimits]
@@ -196,7 +196,7 @@ class ProjectConfig(TypedDict, total=False):
     desktop: DesktopConfig
 
 
-# ─── Global Configuration (~/.config/pi-container/config.yaml) ────────────────
+# ─── Global Configuration (~/.config/pa-container/config.yaml) ────────────────
 
 
 @dataclass(frozen=True)
@@ -209,7 +209,7 @@ class LogRetentionGlobalConfig:
 
 @dataclass(frozen=True)
 class LoggingGlobalConfig:
-    """Logging settings in ~/.config/pi-container/config.yaml."""
+    """Logging settings in ~/.config/pa-container/config.yaml."""
 
     log_level: str = "INFO"
     retention: LogRetentionGlobalConfig = field(default_factory=LogRetentionGlobalConfig)
@@ -246,11 +246,11 @@ class LlamaGlobalConfig:
 
 @dataclass(frozen=True)
 class BuildImagesGlobalConfig:
-    """Container image tags for local pi-container images."""
+    """Container image tags for local pa-container images."""
 
-    agent: str = "pi-coding-agent:local"
-    proxy: str = "pi-coding-agent-proxy:local"
-    builder: str = "pi-coding-agent-builder:local"
+    agent: str = "pa-container-agent:local"
+    proxy: str = "pa-container-agent-proxy:local"
+    builder: str = "pa-container-agent-builder:local"
 
 
 @dataclass(frozen=True)
@@ -268,7 +268,7 @@ class BuildGlobalConfig:
 
 @dataclass(frozen=True)
 class GlobalConfig:
-    """Top-level parsed representation of ~/.config/pi-container/config.yaml."""
+    """Top-level parsed representation of ~/.config/pa-container/config.yaml."""
 
     schema_version: str = "0.6.6"
     runtime: RuntimeGlobalConfig = field(default_factory=RuntimeGlobalConfig)

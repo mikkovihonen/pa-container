@@ -28,22 +28,22 @@ cafe_tarball="cli-${CAFE_VERSION}.tgz"
 cafe_url="https://registry.npmjs.org/@gitcafe/cli/-/cli-${CAFE_VERSION}.tgz"
 fetch_verified "${cafe_url}" "${CAFE_SHA256}" "/tmp/${cafe_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local/lib/cafe/bin"
-unzip -q -j "/tmp/${bun_zip}" "bun-linux-${bun_arch}/bun" -d "${PI_STAGE}/usr/local/lib/cafe/bin"
-chmod 0755 "${PI_STAGE}/usr/local/lib/cafe/bin/bun"
+mkdir -p "${PA_STAGE}/usr/local/lib/cafe/bin"
+unzip -q -j "/tmp/${bun_zip}" "bun-linux-${bun_arch}/bun" -d "${PA_STAGE}/usr/local/lib/cafe/bin"
+chmod 0755 "${PA_STAGE}/usr/local/lib/cafe/bin/bun"
 rm -f "/tmp/${bun_zip}"
 
-tar -C "${PI_STAGE}/usr/local/lib/cafe" --strip-components=1 -xzf "/tmp/${cafe_tarball}"
-chmod 0755 "${PI_STAGE}/usr/local/lib/cafe/cafe.js"
+tar -C "${PA_STAGE}/usr/local/lib/cafe" --strip-components=1 -xzf "/tmp/${cafe_tarball}"
+chmod 0755 "${PA_STAGE}/usr/local/lib/cafe/cafe.js"
 rm -f "/tmp/${cafe_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local/bin"
-cat << 'EOF' > "${PI_STAGE}/usr/local/bin/cafe"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+cat << 'EOF' > "${PA_STAGE}/usr/local/bin/cafe"
 #!/bin/sh
 exec /usr/local/lib/cafe/bin/bun /usr/local/lib/cafe/cafe.js "$@"
 EOF
-chmod 0755 "${PI_STAGE}/usr/local/bin/cafe"
+chmod 0755 "${PA_STAGE}/usr/local/bin/cafe"
 
-"${PI_STAGE}/usr/local/bin/cafe" --version || true
+"${PA_STAGE}/usr/local/bin/cafe" --version || true
 stage_record "cafe" "${CAFE_VERSION}"
 

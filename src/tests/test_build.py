@@ -46,7 +46,7 @@ class TestBuildProxy:
             assert cmd[1] == "build"
             assert "--force-rm" in cmd
             assert "--tag" in cmd
-            assert "pi-coding-agent-proxy:local" in cmd
+            assert "pa-container-agent-proxy:local" in cmd
             # Should include the Containerfile path
             assert any("Containerfile" in str(c) for c in cmd)
             # Should include the repo root as build context
@@ -60,30 +60,30 @@ class TestBuildProxy:
             assert cmd[tag_idx + 1] == PROXY_IMAGE_TAG
 
     def test_includes_build_time_label(self):
-        """build_proxy should set pi-container.build.time label."""
+        """build_proxy should set pa-container.build.time label."""
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
             build_proxy("podman")
             cmd = mock_popen.call_args[0][0]
             assert "--label" in cmd
             labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
-            assert any(lbl.startswith("pi-container.build.time=") for lbl in labels)
-            assert any(lbl == "pi-container.type=shared" for lbl in labels)
+            assert any(lbl.startswith("pa-container.build.time=") for lbl in labels)
+            assert any(lbl == "pa-container.type=shared" for lbl in labels)
 
     def test_includes_shared_type_label(self):
-        """build_proxy should set pi-container.type=shared label."""
+        """build_proxy should set pa-container.type=shared label."""
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
             build_proxy("podman")
             cmd = mock_popen.call_args[0][0]
             labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
-            assert "pi-container.type=shared" in labels
+            assert "pa-container.type=shared" in labels
 
     def test_includes_hash_label(self):
-        """build_proxy should set pi-container.hash label with content hash."""
+        """build_proxy should set pa-container.hash label with content hash."""
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
             build_proxy("podman")
             cmd = mock_popen.call_args[0][0]
             labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
-            assert any(lbl.startswith("pi-container.hash=") for lbl in labels)
+            assert any(lbl.startswith("pa-container.hash=") for lbl in labels)
 
     def test_build_agent_calls_runtime(self):
         """build_agent should invoke the container runtime with correct args."""
@@ -93,7 +93,7 @@ class TestBuildProxy:
             cmd = mock_popen.call_args[0][0]
             assert cmd[0] == "podman"
             assert cmd[1] == "build"
-            assert "pi-coding-agent:local" in cmd
+            assert "pa-container-agent:local" in cmd
             assert any("Containerfile" in str(c) for c in cmd)
 
     def test_build_agent_labels_image_as_shared(self):
@@ -106,11 +106,11 @@ class TestBuildProxy:
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
             build_agent("podman")
             cmd = mock_popen.call_args[0][0]
-            assert "pi-container.type=shared" in cmd
-            assert "pi-container.type=project" not in cmd
+            assert "pa-container.type=shared" in cmd
+            assert "pa-container.type=project" not in cmd
 
     def test_containerfile_does_not_hardcode_type_label(self):
-        """`pi-container.type` must come from the CLI, not the Containerfile.
+        """`pa-container.type` must come from the CLI, not the Containerfile.
 
         The agent Containerfile builds both the shared base and the per-project
         images, so it cannot know which type it is producing. Setting the label per
@@ -120,7 +120,7 @@ class TestBuildProxy:
         from build import REPO_ROOT
 
         containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
-        assert "LABEL pi-container.type" not in containerfile
+        assert "LABEL pa-container.type" not in containerfile
 
     def test_build_agent_does_not_forward_python_args(self, monkeypatch):
         """PYTHON_OPTIMIZE belongs to the builder image, which is where Python is compiled.
@@ -167,8 +167,8 @@ class TestBuildBuilder:
             build_mod.build_builder("podman")
             cmd = mock_popen.call_args[0][0]
             labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
-            assert any(lbl.startswith("pi-container.build.time=") for lbl in labels)
-            assert "pi-container.type=shared" in labels
+            assert any(lbl.startswith("pa-container.build.time=") for lbl in labels)
+            assert "pa-container.type=shared" in labels
 
     def test_forwards_python_optimize(self, monkeypatch):
         """This is the image that compiles CPython, so PYTHON_OPTIMIZE applies here."""
@@ -422,7 +422,7 @@ class TestBuildProjectImage:
             build_project_image(
                 "podman",
                 "/path/to/root/commands.sh",
-                "pi-coding-agent-test.local",
+                "pa-container-agent-test.local",
                 "abc123",
             )
             mock_popen.assert_called_once()
@@ -431,7 +431,7 @@ class TestBuildProjectImage:
             assert cmd[1] == "build"
             assert "--force-rm" in cmd
             assert "--tag" in cmd
-            assert "pi-coding-agent-test.local" in cmd
+            assert "pa-container-agent-test.local" in cmd
             assert "LABEL_HASH=abc123" in cmd
             # Should include the Containerfile path
             assert any("Containerfile" in str(c) for c in cmd)
@@ -442,7 +442,7 @@ class TestBuildProjectImage:
             build_project_image(
                 "podman",
                 "/path/to/root/commands.sh",
-                "pi-container-project-a1b2c-d4e5f.local",
+                "pa-container-project-a1b2c-d4e5f.local",
                 "abc123",
                 project_hash="a1b2c",
                 build_timestamp="2025-01-01T00:00:00Z",
@@ -461,7 +461,7 @@ class TestBuildProjectImage:
             build_project_image(
                 "podman",
                 "/path/to/root/commands.sh",
-                "pi-container-project-a1b2c-d4e5f.local",
+                "pa-container-project-a1b2c-d4e5f.local",
                 "abc123",
                 project_hash="a1b2c",
                 build_timestamp="2025-01-01T00:00:00Z",
@@ -470,7 +470,7 @@ class TestBuildProjectImage:
             assert "BUILD_TIMESTAMP=2025-01-01T00:00:00Z" in cmd
 
     def test_build_project_image_includes_type_label(self):
-        """build_project_image should always set pi-container.type=project label."""
+        """build_project_image should always set pa-container.type=project label."""
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
             build_project_image(
                 "podman",
@@ -481,7 +481,7 @@ class TestBuildProjectImage:
             cmd = mock_popen.call_args[0][0]
             assert "--label" in cmd
             label_idx = cmd.index("--label")
-            assert cmd[label_idx + 1] == "pi-container.type=project"
+            assert cmd[label_idx + 1] == "pa-container.type=project"
 
     def test_build_project_image_without_optional_args(self):
         """build_project_image should work without project_hash or build_timestamp."""
@@ -516,8 +516,8 @@ class TestBuildProjectImage:
             assert "WITH_RIPGREP=true" in cmd
             assert "--build-context" in cmd
             contexts = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--build-context"]
-            assert "tool_mold=docker-image://localhost/pi-coding-agent-tool-mold:local" in contexts
-            assert "tool_ripgrep=docker-image://localhost/pi-coding-agent-tool-ripgrep:local" in contexts
+            assert "tool_mold=docker-image://localhost/pa-container-agent-tool-mold:local" in contexts
+            assert "tool_ripgrep=docker-image://localhost/pa-container-agent-tool-ripgrep:local" in contexts
 
     def test_build_project_image_with_desktop(self):
         """When with_desktop is True, WITH_DESKTOP=true should be passed as a build arg."""
@@ -564,11 +564,11 @@ class TestBuildTool:
             assert "--target" in cmd
             assert cmd[cmd.index("--target") + 1] == "stage-mold"
             assert "--tag" in cmd
-            assert cmd[cmd.index("--tag") + 1] == "pi-coding-agent-tool-mold:local"
+            assert cmd[cmd.index("--tag") + 1] == "pa-container-agent-tool-mold:local"
             labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
-            assert "pi-container.type=tool" in labels
-            assert "pi-container.tool=mold" in labels
-            assert any(lbl.startswith("pi-container.hash=") for lbl in labels)
+            assert "pa-container.type=tool" in labels
+            assert "pa-container.tool=mold" in labels
+            assert any(lbl.startswith("pa-container.hash=") for lbl in labels)
 
     def test_build_tool_invalid(self):
         import pytest
@@ -685,7 +685,7 @@ class TestCheckBuildMemory:
         import build
 
         monkeypatch.delenv("PYTHON_OPTIMIZE", raising=False)
-        monkeypatch.delenv("PI_MEMORY_PREFLIGHT", raising=False)
+        monkeypatch.delenv("PA_MEMORY_PREFLIGHT", raising=False)
         monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 4096)
         assert build.check_build_memory("podman") is True
 
@@ -694,7 +694,7 @@ class TestCheckBuildMemory:
         import build
 
         monkeypatch.delenv("PYTHON_OPTIMIZE", raising=False)
-        monkeypatch.delenv("PI_MEMORY_PREFLIGHT", raising=False)
+        monkeypatch.delenv("PA_MEMORY_PREFLIGHT", raising=False)
         monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 276)
         assert build.check_build_memory("podman") is False
 
@@ -704,14 +704,14 @@ class TestCheckBuildMemory:
         import build
 
         monkeypatch.delenv("PYTHON_OPTIMIZE", raising=False)
-        monkeypatch.delenv("PI_MEMORY_PREFLIGHT", raising=False)
+        monkeypatch.delenv("PA_MEMORY_PREFLIGHT", raising=False)
         monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 276)
         assert build.check_build_memory("podman", fatal=False) is True
 
     def test_non_pgo_lowers_the_requirement(self, monkeypatch):
         import build
 
-        monkeypatch.delenv("PI_MEMORY_PREFLIGHT", raising=False)
+        monkeypatch.delenv("PA_MEMORY_PREFLIGHT", raising=False)
         monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 500)
         monkeypatch.setenv("PYTHON_OPTIMIZE", "1")
         assert build.check_build_memory("podman") is False
@@ -721,7 +721,7 @@ class TestCheckBuildMemory:
     def test_escape_hatch_skips_the_check(self, monkeypatch):
         import build
 
-        monkeypatch.setenv("PI_MEMORY_PREFLIGHT", "0")
+        monkeypatch.setenv("PA_MEMORY_PREFLIGHT", "0")
 
         def unexpected(rt):
             raise AssertionError("memory must not be read when the preflight is disabled")
@@ -733,7 +733,7 @@ class TestCheckBuildMemory:
         """A reading we cannot take must never stop a build that might be fine."""
         import build
 
-        monkeypatch.delenv("PI_MEMORY_PREFLIGHT", raising=False)
+        monkeypatch.delenv("PA_MEMORY_PREFLIGHT", raising=False)
         monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: None)
         assert build.check_build_memory("podman") is True
 

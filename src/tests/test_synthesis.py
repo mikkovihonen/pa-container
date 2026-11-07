@@ -11,20 +11,20 @@ from config_schema import validate_models
 
 
 def test_resolve_models_file(tmp_path):
-    pi_dir = tmp_path / ".pi-container"
-    pi_dir.mkdir()
-    assert resolve_models_file(pi_dir) is None
+    pa_dir = tmp_path / ".pa-container"
+    pa_dir.mkdir()
+    assert resolve_models_file(pa_dir) is None
 
     # models.yaml
-    yaml_path = pi_dir / "models.yaml"
+    yaml_path = pa_dir / "models.yaml"
     yaml_path.write_text("allow: []")
-    assert resolve_models_file(pi_dir) == yaml_path
+    assert resolve_models_file(pa_dir) == yaml_path
 
     yaml_path.unlink()
     # models.yml also supported
-    yml_path = pi_dir / "models.yml"
+    yml_path = pa_dir / "models.yml"
     yml_path.write_text("allow: []")
-    assert resolve_models_file(pi_dir) == yml_path
+    assert resolve_models_file(pa_dir) == yml_path
 
 
 def test_extract_models_from_yaml_with_registries(tmp_path):
@@ -80,17 +80,17 @@ def test_extract_models_from_yaml_with_registries(tmp_path):
 
 
 def test_load_project_models_yaml(tmp_path):
-    pi_dir = tmp_path / ".pi-container"
-    pi_dir.mkdir()
+    pa_dir = tmp_path / ".pa-container"
+    pa_dir.mkdir()
     gateways_dir = tmp_path / "gateways"
     gateways_dir.mkdir()
     (gateways_dir / "my-gw.yaml").write_text("id: my-gw\nbaseUrl: https://api.mygw.com\n")
 
-    yaml_file = pi_dir / "models.yaml"
+    yaml_file = pa_dir / "models.yaml"
     yaml_file.write_text("default: my-gw\nallow:\n  - my-gw\n")
 
     synthetic, servers, hostnames, gateways, default_m, resolved = load_project_models(
-        pi_dir, gateways_dir=gateways_dir
+        pa_dir, gateways_dir=gateways_dir
     )
     assert resolved == yaml_file
     assert default_m == "my-gw"
@@ -99,10 +99,10 @@ def test_load_project_models_yaml(tmp_path):
 
 
 def test_load_project_models_missing(tmp_path):
-    pi_dir = tmp_path / ".pi-container"
-    pi_dir.mkdir()
+    pa_dir = tmp_path / ".pa-container"
+    pa_dir.mkdir()
     with pytest.raises(FileNotFoundError, match="No models configuration found"):
-        load_project_models(pi_dir)
+        load_project_models(pa_dir)
 
 
 def test_validate_models_yaml(tmp_path):

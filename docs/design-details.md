@@ -3,10 +3,10 @@
 <a name="proxy-egress-policy"></a>
 ## Proxy egress policy
 
-mitmproxy intercepts only **HTTP, HTTPS, and DNS** (and applies the allowlist and token redaction). The system denies every other protocol by default. The proxy's `iptables` `FORWARD` chain policy is `DROP`. The system permits the `llama-server` API explicitly. The egress policy is **per-project**. To let the agent use another protocol (uninspected, plain NAT), opt it in under `egress.allow` in this workspace's `.pi-container/config.yaml`. The system seeds this file with deny-all on first run:
+mitmproxy intercepts only **HTTP, HTTPS, and DNS** (and applies the allowlist and token redaction). The system denies every other protocol by default. The proxy's `iptables` `FORWARD` chain policy is `DROP`. The system permits the `llama-server` API explicitly. The egress policy is **per-project**. To let the agent use another protocol (uninspected, plain NAT), opt it in under `egress.allow` in this workspace's `.pa-container/config.yaml`. The system seeds this file with deny-all on first run:
 
 ```yaml
-# .pi-container/config.yaml
+# .pa-container/config.yaml
 egress:
   allow:
     ssh: false            # TCP 22 (e.g. git over SSH)
@@ -29,12 +29,12 @@ that project's proxy container. The container's entrypoint opens the matching FO
 The agent container is deliberately a dead end. None of the tooling to
 start a container is normally present. Any task needing one (run Postgres for a
 test, build and smoke-test an image, bring up a dev stack) fails outright.
-Setting `nested_containers.enabled: true` in `.pi-container/config.yaml` gives the
+Setting `nested_containers.enabled: true` in `.pa-container/config.yaml` gives the
 agent its own **rootless podman inside its own container**.
 
 ```mermaid
 flowchart TB
-    subgraph agent["<b>pi-coding-agent</b> (user pi, rootless)"]
+    subgraph agent["<b>pa-container-agent</b> (user pi, rootless)"]
         direction TB
         pi["pi agent process"]
         pod["podman (rootless, uid 1000)<br/>subuid 1:999 + 1001:64535"]
@@ -49,7 +49,7 @@ flowchart TB
     style inner fill:none,text-align:left
 
     eth0["agent eth0<br/>isolated-net (no gateway)"]
-    proxy["<b>pi-coding-agent-proxy</b><br/>REDIRECT 80/443 → mitmproxy :8080<br/>REDIRECT 53 → DNS :5353<br/>FORWARD policy DROP"]
+    proxy["<b>pa-container-agent-proxy</b><br/>REDIRECT 80/443 → mitmproxy :8080<br/>REDIRECT 53 → DNS :5353<br/>FORWARD policy DROP"]
     host["host browser<br/>127.0.0.1:3000"]
 
     pi --> pod
@@ -92,7 +92,7 @@ design and its verification log.
 ## Toolchain builder image
 
 The system compiles three of the agent image's components from source in a separate image,
-`pi-coding-agent-builder:local`. It then copies them into the prebuilt image files:
+`pa-container-agent-builder:local`. It then copies them into the prebuilt image files:
 
 | Component | Otherwise | Built here | Why |
 | --- | --- | --- | --- |
@@ -144,10 +144,10 @@ lands in. A consumer copies the trees it wants straight onto `/`. The agent imag
 takes all four:
 
 ```dockerfile
-COPY --from=pi-coding-agent-builder:local /python/ /
-COPY --from=pi-coding-agent-builder:local /node/ /
-COPY --from=pi-coding-agent-builder:local /podman/ /
-COPY --from=pi-coding-agent-builder:local /network/ /
+COPY --from=pa-container-agent-builder:local /python/ /
+COPY --from=pa-container-agent-builder:local /node/ /
+COPY --from=pa-container-agent-builder:local /podman/ /
+COPY --from=pa-container-agent-builder:local /network/ /
 ```
 
 Keep separate roots instead of one merged `/out`. `COPY --from=<image>` can address
@@ -163,7 +163,7 @@ Two further consequences worth knowing:
   cache miss on the Python layer turned a workspace's rebuild into a ~10-minute PGO
   compile. Now it is a file copy.
 - **A rebuilt builder invalidates project images**, the same way a rebuilt proxy
-  does. `run.py` compares each project image's `pi-container.build.time` against
+  does. `run.py` compares each project image's `pa-container.build.time` against
   both (see `_newest_shared_image_time()`).
 
 ### Uniform Python across both images

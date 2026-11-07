@@ -10,13 +10,13 @@ from upstreams.github_git import get_git_tags_and_commits
 
 
 def _fetch_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": "pi-container-upgrade-tools"})
+    req = urllib.request.Request(url, headers={"User-Agent": "pa-container-upgrade-tools"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
 
 
 def _fetch_text(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "pi-container-upgrade-tools"})
+    req = urllib.request.Request(url, headers={"User-Agent": "pa-container-upgrade-tools"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return resp.read().decode()
 

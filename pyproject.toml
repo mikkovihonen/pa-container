@@ -1,5 +1,5 @@
 [project]
-name = "pi-container"
+name = "pa-container"
 version = "0.6.6"
 description = "Containerized environment for running the pi-coding-agent with local LLM inference"
 requires-python = ">=3.14"

@@ -99,8 +99,8 @@ echo "Using ${go_jobs} compile job(s) (cpus=$(nproc), available memory=$(mem_ava
 run_logged "Building podman ${PODMAN_VERSION}" /tmp/podman-build.log \
     make BUILDTAGS="${BUILDTAGS}" GOFLAGS="${GOFLAGS} -p=${go_jobs}" bin/podman bin/rootlessport
 
-install -D -m 0755 bin/podman "${PI_STAGE}/usr/local/bin/podman"
-install -D -m 0755 bin/rootlessport "${PI_STAGE}/usr/local/libexec/podman/rootlessport"
+install -D -m 0755 bin/podman "${PA_STAGE}/usr/local/bin/podman"
+install -D -m 0755 bin/rootlessport "${PA_STAGE}/usr/local/libexec/podman/rootlessport"
 
 # ─── Verify ──────────────────────────────────────────────────────────────────
 

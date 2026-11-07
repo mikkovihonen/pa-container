@@ -224,9 +224,9 @@ def get_project_desktop(
                 runtime_bin,
                 "ps",
                 "--filter",
-                f"label=pi-container.project.hash={proj_hash}",
+                f"label=pa-container.project.hash={proj_hash}",
                 "--filter",
-                "label=pi-container.type=agent",
+                "label=pa-container.type=agent",
                 "--format",
                 "json",
             ],
@@ -289,7 +289,7 @@ def list_active_desktops(runtime: str | None = None) -> list[ActiveDesktopInfo]:
                 runtime_bin,
                 "ps",
                 "--filter",
-                "label=pi-container.type=agent",
+                "label=pa-container.type=agent",
                 "--format",
                 "json",
             ],
@@ -325,9 +325,10 @@ def list_active_desktops(runtime: str | None = None) -> list[ActiveDesktopInfo]:
             if not novnc_port and not vnc_port:
                 continue
 
-            proj_hash = labels.get("pi-container.project.hash") or name.removeprefix("pi-coding-agent-")
-            proj_name = labels.get("pi-container.project.name") or proj_hash
-            proj_path_raw = labels.get("pi-container.project.path")
+            proj_hash = labels.get("pa-container.project.hash") or name.removeprefix("pa-container-agent-")
+            proj_name = labels.get("pa-container.project.name") or proj_hash
+            
+            proj_path_raw = labels.get("pa-container.project.path")
             proj_path = Path(proj_path_raw) if proj_path_raw else None
 
             novnc_url = f"http://127.0.0.1:{novnc_port}/vnc.html?autoconnect=true&resize=scale" if novnc_port else None

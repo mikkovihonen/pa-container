@@ -66,7 +66,7 @@ def tool_to_context_name(tool: str) -> str:
 
 def tool_to_image_tag(tool: str) -> str:
     """Return the local container image tag for an on-demand tool."""
-    return f"pi-coding-agent-tool-{tool}:local"
+    return f"pa-container-agent-tool-{tool}:local"
 
 
 def tool_to_stage_target(tool: str) -> str:

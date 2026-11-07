@@ -103,9 +103,9 @@ Local CLI agents increasingly use lightweight, in-process host-level sandboxing:
 
 ---
 
-## 4. Why `pi-container` Uses Containers as Its Sandboxing Technology
+## 4. Why `pa-container` Uses Containers as Its Sandboxing Technology
 
-While cloud systems trend toward MicroVMs and lightweight CLI agents trend toward host-level filtering, **`pi-container` uses container-based sandboxing specifically for two fundamental architectural advantages**:
+While cloud systems trend toward MicroVMs and lightweight CLI agents trend toward host-level filtering, **`pa-container` uses container-based sandboxing specifically for two fundamental architectural advantages**:
 
 1. **Ease of Orchestrating the Traffic-Intercepting Auditing Proxy**:
    Transparent network auditing and domain allowlisting require isolating the agent's network stack so that traffic cannot escape uninspected. OCI container networks provide this out-of-the-box:
@@ -137,8 +137,8 @@ flowchart TB
         subgraph VM["Linux Container VM (applehv / Hyper-V / WSL2)"]
             direction TB
             subgraph Isolated["Isolated Container Network"]
-                agent["pi-coding-agent<br/>(Sandboxed Code Execution)"]
-                proxy["pi-coding-agent-proxy<br/>(mitmproxy Traffic Auditing)"]
+                agent["pa-container-agent<br/>(Sandboxed Code Execution)"]
+                proxy["pa-container-agent-proxy<br/>(mitmproxy Traffic Auditing)"]
                 agent -->|L3 Routed| proxy
             end
         end
@@ -159,7 +159,7 @@ Understanding where the sandbox boundary ends and where the human operator becom
 
 ```mermaid
 flowchart LR
-    subgraph Sandbox["pi-container Sandbox (Isolated)"]
+    subgraph Sandbox["pa-container Sandbox (Isolated)"]
         agent["AI Agent<br/>(Prompt Injection / Malicious Code)"]
         proxy["Transparent Proxy<br/>(mitmproxy)"]
         agent -->|Intercepted & Filtered| proxy
@@ -176,11 +176,11 @@ flowchart LR
 
 ### The Primary Attack Vectors
 
-From a threat-modeling perspective, the most realistic attack vectors against `pi-container`, the host computer, and the developer include:
+From a threat-modeling perspective, the most realistic attack vectors against `pa-container`, the host computer, and the developer include:
 
 #### 1. The "Delayed Execution" Trojan Workspace (Host Infiltration)
 * **The Attack**: Malicious instructions (introduced via prompt injection in a repository issue, a poisoned web page scraped by the agent, or a malicious dependency) instruct the agent to plant obfuscated payloads into local project files. These might take the form of malicious `Makefile` targets, `package.json` `postinstall` scripts, Python `setup.py` / `pyproject.toml` entry points, or hidden pre-commit git hooks.
-* **The Danger**: While inside `pi-container`, the malicious code is confined by user namespaces and network proxying. However, once the developer exits the sandbox and runs `npm test`, `make build`, or pushes the code to CI/CD on their native host, the payload executes with **full host privileges**, completely bypassing the container sandbox.
+* **The Danger**: While inside `pa-container`, the malicious code is confined by user namespaces and network proxying. However, once the developer exits the sandbox and runs `npm test`, `make build`, or pushes the code to CI/CD on their native host, the payload executes with **full host privileges**, completely bypassing the container sandbox.
 
 #### 2. Allowlist Dilution & Confirmation Fatigue (Social Engineering the User)
 * **The Attack**: When the proxy blocks unauthorized network requests with a `403 Forbidden`, the agent is halted from fetching remote resources. A compromised or misbehaving agent can prompt the operator: *"Please add `*.jsdelivr.net`, `raw.githubusercontent.com`, or `api.third-party-service.com` to `allowlist.yaml` to continue."*
@@ -188,10 +188,10 @@ From a threat-modeling perspective, the most realistic attack vectors against `p
 
 #### 3. Covert Data Exfiltration over Legitimate Channels
 * **The Attack**: The agent is legitimately permitted to communicate with LLM providers (e.g., Anthropic, OpenAI, OpenRouter) or remote Git repositories. Prompt injection can instruct the agent to stealthily encode private source code, internal system information, or unredacted credentials into prompt queries, telemetry headers, or commit metadata.
-* **The Danger**: While `pi-container`'s `token_replacer` addon automatically redacts known secrets registered in `token_replacer.yaml`, it cannot detect arbitrary proprietary text or unconfigured credentials. If sensitive data is embedded within normal natural-language prompt flows, it passes through the proxy to allowed endpoints.
+* **The Danger**: While `pa-container`'s `token_replacer` addon automatically redacts known secrets registered in `token_replacer.yaml`, it cannot detect arbitrary proprietary text or unconfigured credentials. If sensitive data is embedded within normal natural-language prompt flows, it passes through the proxy to allowed endpoints.
 
 #### 4. Persistent Cache & Shadow Volume Poisoning
-* **The Attack**: `pi-container` supports persistent shadow volumes (`.venv`, `node_modules`, `target/`) to accelerate build and dependency resolution across sessions without RAM overhead.
+* **The Attack**: `pa-container` supports persistent shadow volumes (`.venv`, `node_modules`, `target/`) to accelerate build and dependency resolution across sessions without RAM overhead.
 * **The Danger**: If malicious code installs a poisoned package or compromises a shared binary within a shadow volume, that artifact persists across subsequent container runs. Future sessions in the same workspace remain compromised until the shadow volume is explicitly pruned or deleted.
 
 ---
@@ -201,12 +201,12 @@ From a threat-modeling perspective, the most realistic attack vectors against `p
 To maintain security, operators should treat the sandbox as one layer in a defense-in-depth model:
 
 1. **Relentlessly Review Diffs**: Never execute, test, or commit agent-generated code natively on the host without thoroughly reviewing `git diff`.
-2. **Lock Project Configuration & Git Hooks**: Keep `agent.read_only_pi_container: true` and `security.read_only_git_hooks: true` enabled (both defaults). This locks configuration, dependency scripts, and `/workspace/.git/hooks` as read-only inside the container so the agent cannot plant backdoor hooks that trigger on the host.
+2. **Lock Project Configuration & Git Hooks**: Keep `agent.read_only_PA_CONTAINER: true` and `security.read_only_git_hooks: true` enabled (both defaults). This locks configuration, dependency scripts, and `/workspace/.git/hooks` as read-only inside the container so the agent cannot plant backdoor hooks that trigger on the host.
 3. **Guard Host Mounts & Git Config**: Rely on `security.blocked_mount_paths` to prevent sensitive credentials (`~/.ssh`, `~/.aws`, Docker sockets) from being mounted, and `security.git_config_allowlist` to ensure only safe Git identity keys are shared into the container without execution hooks (`core.sshCommand`, `core.fsmonitor`).
 4. **Scrutinize Allowlist Additions & SSRF Protections**: Never add broad domain wildcards (`*`) to `allowlist.yaml`. `security.blocked_ip_ranges` strictly blocks connections to internal RFC 1918 subnets, loopback interfaces, and cloud metadata services (`169.254.169.254`).
 5. **Register All Secrets in `token_replacer.yaml`**: Ensure any sensitive API tokens, database passwords, or private keys used in the workspace are explicitly defined so the proxy can redact them before traffic leaves the container.
-6. **Audit Flow Exports**: Use the `mitmweb` UI or inspect export flow logs (`.pi-container/exports/flows-*.jsonl`) to periodically verify the volume and destination of outbound agent traffic.
-7. **Privilege Hardening**: `pi-container` automatically enforces `--security-opt no-new-privileges` and mounts persistent shadow volumes and `tmpfs` RAM disks with `nodev,nosuid` to prevent setuid privilege escalation.
+6. **Audit Flow Exports**: Use the `mitmweb` UI or inspect export flow logs (`.pa-container/exports/flows-*.jsonl`) to periodically verify the volume and destination of outbound agent traffic.
+7. **Privilege Hardening**: `pa-container` automatically enforces `--security-opt no-new-privileges` and mounts persistent shadow volumes and `tmpfs` RAM disks with `nodev,nosuid` to prevent setuid privilege escalation.
 
 ---
 
@@ -216,5 +216,5 @@ The architecture of AI coding sandboxes is defined by the trust model and operat
 
 * **Cloud multi-tenant platforms** require **MicroVMs** (Firecracker, Kata) for hardware-level kernel isolation against untrusted tenant workloads.
 * **Local CLI coding assistants** often use **host-level kernel filtering** (Landlock, bubblewrap, Seatbelt) for lightweight, zero-latency execution against existing host tools.
-* **Auditable, isolated development sandboxes** (like `pi-container`) use **rootless OCI containers and network proxying**. On macOS and Windows, this architecture naturally benefits from **underlying hypervisor VM boundaries** while providing **seamless proxy auditing**, **standardized workspaces**, and **native host GPU inference**.
+* **Auditable, isolated development sandboxes** (like `pa-container`) use **rootless OCI containers and network proxying**. On macOS and Windows, this architecture naturally benefits from **underlying hypervisor VM boundaries** while providing **seamless proxy auditing**, **standardized workspaces**, and **native host GPU inference**.
 * **Human Vigilance is the Final Boundary**: Sandboxes isolate active processes, but human code review and strict egress management remain indispensable for protecting the host and supply chain from poisoned workspace artifacts.

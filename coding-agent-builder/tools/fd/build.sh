@@ -16,10 +16,10 @@ clone_verified "https://github.com/sharkdp/fd.git" "${FD_VERSION}" "${FD_COMMIT}
 
 cd "${src}"
 cargo build --release
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 target/release/fd "${PI_STAGE}/usr/local/bin/fd"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 target/release/fd "${PA_STAGE}/usr/local/bin/fd"
 rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
 
-"${PI_STAGE}/usr/local/bin/fd" --version
+"${PA_STAGE}/usr/local/bin/fd" --version
 stage_record "fd" "${FD_VERSION}"
 

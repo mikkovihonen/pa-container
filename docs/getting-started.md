@@ -27,13 +27,13 @@ Install the following tools on your host machine before running:
   `build.sh` checks this before it starts building and tells you if there is not
   enough room, so a short machine fails in a second rather than several minutes in.
 
-  Docker is **not** supported. pi-container's isolation model (and nested containers in
+  Docker is **not** supported. pa-container's isolation model (and nested containers in
   particular) depends on the agent container running inside a user namespace where
   container uid 0 maps to an unprivileged host user. Stock Docker does not provide this.
   See [Configuration](configuration.md#nested-containers).
 
 - **llama.cpp**: Specifically `llama-server`.
-    - Build with pi-container (recommended): `./build.sh --llama` (or `./build.sh --llama-latest` to build latest release)
+    - Build with pa-container (recommended): `./build.sh --llama` (or `./build.sh --llama-latest` to build latest release)
     - On macOS: `brew install llama.cpp`
     - On Linux (Debian/Ubuntu): `sudo apt install llama.cpp`
     - On Linux (other): [build from source](https://github.com/ggml-org/llama.cpp)
@@ -62,7 +62,7 @@ Use the following hardware to run this environment comfortably, especially with 
 ### Linux / WSL2
 
 - **Container runtime**: podman (auto-detected).
-- **Network**: The default bridge interface is `podman0` and the proxy upstream network defaults to `podman`. Override via `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` in `~/.config/pi-container/config.yaml` or environment variables if needed.
+- **Network**: The default bridge interface is `podman0` and the proxy upstream network defaults to `podman`. Override via `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` in `~/.config/pa-container/config.yaml` or environment variables if needed.
 - **LLaMA backend**: The `llama-server` binary runs natively on Linux/WSL2. For GPU acceleration on Linux, build llama.cpp with CUDA or ROCm support.
 - **WSL2**: Ensure WSL2 is properly configured with a Linux distro. podman runs inside it.
 
@@ -71,19 +71,19 @@ Use the following hardware to run this environment comfortably, especially with 
 - **Container runtime**: podman.
 - **Network**: The defaults apply automatically. You need `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` only to override them.
 - **LLaMA backend**: Runs natively using Apple's Metal GPU acceleration.
-- **podman on macOS**: containers run inside a Linux VM (no `podman0` bridge exists on the host). The system does not use `socat`. The proxy reaches host `llama-server` via `host.containers.internal` (gvproxy). The isolated network is created `--internal --disable-dns`. The proxy's interfaces are pinned (`interface_name=eth0` / `interface_name=eth1`) so the isolated network is deterministically `eth1`. See [`src/runtimes.py`](https://github.com/mikkovihonen/pi-container/blob/main/src/runtimes.py).
+- **podman on macOS**: containers run inside a Linux VM (no `podman0` bridge exists on the host). The system does not use `socat`. The proxy reaches host `llama-server` via `host.containers.internal` (gvproxy). The isolated network is created `--internal --disable-dns`. The proxy's interfaces are pinned (`interface_name=eth0` / `interface_name=eth1`) so the isolated network is deterministically `eth1`. See [`src/runtimes.py`](https://github.com/mikkovihonen/pa-container/blob/main/src/runtimes.py).
 - **Machine sizing**: **4 GB is the minimum** (`podman machine set --memory 4096`). The 2 GiB default cannot build the toolchain image. `resources.agent.memory` defaults to `16g`, which the VM can never actually provide. Raise the machine further before enabling [nested containers](configuration.md#nested-containers). Do this especially before `storage: tmpfs`.
 
 ## Build and Run
 
 ### 1. Configure Environment
 
-pi-container automatically seeds its global configuration at `~/.config/pi-container/config.yaml` on first launch.
+pa-container automatically seeds its global configuration at `~/.config/pa-container/config.yaml` on first launch.
 
 Set **`ADMIN_PASSWORD`** in your OS keyring before running — the proxy's mitmweb UI requires a password:
 
 ```bash
-uv run keyring set pi-container ADMIN_PASSWORD
+uv run keyring set pa-container ADMIN_PASSWORD
 ```
 
 Optionally, build an optimized minimal `llama-server` binary for your host hardware:
@@ -104,15 +104,15 @@ See [Configuration](configuration.md) for the full list of configuration options
 
 This builds three images, in this order:
 
-1. `pi-coding-agent-builder:local` — the [toolchain image](design-details.md#toolchain-builder-image). Compiles CPython 3.14 (PGO), podman and netavark/aardvark-dns from source, and stages Node from the official nodejs.org tarball. **A few minutes** on a 9-core/8 GB machine.
+1. `pa-container-agent-builder:local` — the [toolchain image](design-details.md#toolchain-builder-image). Compiles CPython 3.14 (PGO), podman and netavark/aardvark-dns from source, and stages Node from the official nodejs.org tarball. **A few minutes** on a 9-core/8 GB machine.
 
     `NODE_SOURCE=build ./build.sh` compiles Node from source instead, which takes **about an hour** (measured: ~65 min at 3 compile jobs). It buys a trixie-native build rather than the generic-glibc official one. Node has no build tags worth choosing, so unlike podman there is no correctness argument for it. The default `prebuilt` mode stages byte-for-byte the same Node the old `node:` base image shipped, since that image is this same tarball extracted into `/usr/local`.
 
     Compile parallelism is capped by available memory rather than core count, so a bigger machine directly shortens this step (`MAKE_JOBS=<n>` overrides the cap). Later builds skip the image entirely unless one of its pinned versions changes, and each component is a separate stage, so bumping podman does not rebuild Node.
 
-    Every version, git commit and SHA-256 it builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-builder/Containerfile). That one file is where you bump a component.
-2. `pi-coding-agent-proxy:local` — the transparent proxy, which copies its CPython and `uv` out of the builder image so that it runs [the same Python as the agent](design-details.md#uniform-python-across-both-images).
-3. `pi-coding-agent:local` — the main agent, which copies the mitmproxy CA certificate out of the proxy image and its whole toolchain out of the builder image.
+    Every version, git commit and SHA-256 it builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-builder/Containerfile). That one file is where you bump a component.
+2. `pa-container-agent-proxy:local` — the transparent proxy, which copies its CPython and `uv` out of the builder image so that it runs [the same Python as the agent](design-details.md#uniform-python-across-both-images).
+3. `pa-container-agent:local` — the main agent, which copies the mitmproxy CA certificate out of the proxy image and its whole toolchain out of the builder image.
 
 The order is not optional: the proxy image `COPY --from`s the builder, and the agent image `COPY --from`s both of the others.
 
@@ -122,13 +122,13 @@ The `run.sh` script manages the entire lifecycle. The script validates the envir
 
 ```sh
 # Recommended: alias for convenience
-alias pi="~/workspace/pi-container/run.sh"
+alias pa="~/workspace/pa-container/run.sh"
 
 # Run with an optional session ID
 pi --session 1234abcd-ef56-78ab-cd90-1234abcd56ef
 ```
 
-The script reads `<project>/.pi-container/models.yaml` (seeded from the `coding-agent/default/project/` template on first run) to determine which LLM providers and gateways are allowed. Global definitions under `~/.config/pi-container/models/` and `~/.config/pi-container/gateways/` supply model weights, server flags, and gateway endpoints. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent invocations **from the same workspace** share that workspace's proxy via a refcount.
+The script reads `<project>/.pa-container/models.yaml` (seeded from the `coding-agent/default/project/` template on first run) to determine which LLM providers and gateways are allowed. Global definitions under `~/.config/pa-container/models/` and `~/.config/pa-container/gateways/` supply model weights, server flags, and gateway endpoints. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent invocations **from the same workspace** share that workspace's proxy via a refcount.
 
 ### 4. Using the Agent
 

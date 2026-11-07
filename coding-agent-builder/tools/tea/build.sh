@@ -23,11 +23,11 @@ esac
 tea_binary="tea-${TEA_VERSION}-linux-${tea_arch}"
 tea_url="https://gitea.com/gitea/tea/releases/download/v${TEA_VERSION}/${tea_binary}"
 
-mkdir -p "${PI_STAGE}/usr/local/bin"
-fetch_verified "${tea_url}" "${tea_sha}" "${PI_STAGE}/usr/local/bin/tea"
-chmod 0755 "${PI_STAGE}/usr/local/bin/tea"
-ln -sf tea "${PI_STAGE}/usr/local/bin/fj"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+fetch_verified "${tea_url}" "${tea_sha}" "${PA_STAGE}/usr/local/bin/tea"
+chmod 0755 "${PA_STAGE}/usr/local/bin/tea"
+ln -sf tea "${PA_STAGE}/usr/local/bin/fj"
 
-"${PI_STAGE}/usr/local/bin/tea" --version
+"${PA_STAGE}/usr/local/bin/tea" --version
 stage_record "tea" "${TEA_VERSION}"
 

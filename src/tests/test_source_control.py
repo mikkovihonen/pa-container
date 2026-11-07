@@ -109,7 +109,7 @@ class TestResolveSourceControlTokens:
     def test_resolves_from_os_keyring(self, tmp_path: Path):
         (tmp_path / "config.yaml").write_text(yaml.dump({"source_control": {"enabled": True}}))
 
-        def mock_get_keyring(account, service="pi-container"):
+        def mock_get_keyring(account, service="pa-container"):
             if account == "GH_TOKEN":
                 return "gho_keyring_secret_token"
             if account == "GITLAB_TOKEN":
@@ -147,7 +147,7 @@ class TestResolveSourceControlTokens:
                         "enabled": True,
                         "providers": {
                             "github": {
-                                "keyring_var": "PI_CONTAINER_T3_GH_TOKEN",
+                                "keyring_var": "PA_CONTAINER_T3_GH_TOKEN",
                             }
                         },
                     }
@@ -155,8 +155,8 @@ class TestResolveSourceControlTokens:
             )
         )
 
-        def mock_get_keyring(account, service="pi-container"):
-            if account == "PI_CONTAINER_T3_GH_TOKEN":
+        def mock_get_keyring(account, service="pa-container"):
+            if account == "PA_CONTAINER_T3_GH_TOKEN":
                 return "gho_custom_keyring_token"
             return None
 
@@ -182,7 +182,7 @@ class TestResolveSourceControlTokens:
             )
         )
 
-        def mock_get_keyring(account, service="pi-container"):
+        def mock_get_keyring(account, service="pa-container"):
             if account == "BACKUP_GH_TOKEN":
                 return "gho_backup_token"
             return None
@@ -208,7 +208,7 @@ class TestResolveSourceControlTokens:
             )
         )
 
-        def mock_get_keyring(account, service="pi-container"):
+        def mock_get_keyring(account, service="pa-container"):
             # Global token exists, but project-scoped token does NOT exist
             if account in ("GH_TOKEN", "GITHUB_TOKEN"):
                 return "gho_global_token_that_must_not_leak"

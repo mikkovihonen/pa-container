@@ -142,7 +142,7 @@ When automating or testing a graphical application, follow this verification loo
 
 ## Running Chromium & Browser Tools
 
-When `chromium` is included under `tools.include` in `.pi-container/config.yaml`:
+When `chromium` is included under `tools.include` in `.pa-container/config.yaml`:
 - The binary is available on PATH as `chromium` and `google-chrome`.
 - It automatically connects to the Wayland compositor (`wayland-0`) with Ozone platform auto-detection.
 - All HTTP/HTTPS traffic is automatically routed through the project's mitmproxy container and trusts the mitmproxy CA certificate through its initialized NSS database.

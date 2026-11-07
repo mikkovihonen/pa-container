@@ -141,7 +141,7 @@ def _parse_duration(duration_str: str) -> float:
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Construct the unified pi-container CLI argument parser."""
+    """Construct the unified pa-container CLI argument parser."""
     version = get_git_tag_version(REPO_ROOT) or "0.6.6"
 
     # Shared global flags inherited across root and subcommands
@@ -180,7 +180,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parser = argparse.ArgumentParser(
-        prog="pi-container",
+        prog="pa-container",
         parents=[common_parser],
         description="Containerized development environment with local LLM inference and traffic isolation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -396,7 +396,7 @@ def create_parser() -> argparse.ArgumentParser:
     clean_logs_parser.add_argument(
         "--all-projects",
         action="store_true",
-        help="Purge historical logs across all workspaces in ~/.local/state/pi-container/projects/.",
+        help="Purge historical logs across all workspaces in ~/.local/state/pa-container/projects/.",
     )
     clean_logs_parser.add_argument(
         "--older-than",
@@ -655,7 +655,7 @@ def handle_proxy_command(options: ProxyOptions) -> int:
     from network import get_project_proxy, list_active_proxies
 
     console = Console(no_color=options.no_color)
-    is_in_project = (PROJECT_DIR / ".pi-container").exists() or (PROJECT_DIR / "config.yaml").exists()
+    is_in_project = (PROJECT_DIR / ".pa-container").exists() or (PROJECT_DIR / "config.yaml").exists()
 
     # If --all is requested, or if executed outside of any project workspace, list all active proxies
     if options.all or not is_in_project:
@@ -686,10 +686,10 @@ def handle_proxy_command(options: ProxyOptions) -> int:
             return 0
 
         if not proxies:
-            console.print("[dim]No active pi-container proxies found on this system.[/dim]")
+            console.print("[dim]No active pa-container proxies found on this system.[/dim]")
             return 0
 
-        table = Table(title="Active pi-container Proxies", box=None)
+        table = Table(title="Active pa-container Proxies", box=None)
         table.add_column("Project", style="bold cyan")
         table.add_column("Proxy Container")
         table.add_column("Status")
@@ -745,7 +745,7 @@ def handle_proxy_command(options: ProxyOptions) -> int:
         console.print(
             f"[yellow]No active proxy container running for project '{PROJECT_DIR.name}' (pi-proxy-{key}).[/yellow]"
         )
-        console.print("[dim]Run 'pi-container run' to start this project or use '--all' to view all proxies.[/dim]")
+        console.print("[dim]Run 'pa-container run' to start this project or use '--all' to view all proxies.[/dim]")
         return 1
 
     if options.url:
@@ -782,7 +782,7 @@ def handle_desktop_command(options: DesktopOptions) -> int:
     from desktop import get_project_desktop, list_active_desktops
 
     console = Console(no_color=options.no_color)
-    is_in_project = (PROJECT_DIR / ".pi-container").exists() or (PROJECT_DIR / "config.yaml").exists()
+    is_in_project = (PROJECT_DIR / ".pa-container").exists() or (PROJECT_DIR / "config.yaml").exists()
 
     # If --all is requested, or if executed outside of any project workspace, list all active desktops
     if options.all or not is_in_project:
@@ -821,10 +821,10 @@ def handle_desktop_command(options: DesktopOptions) -> int:
             return 0
 
         if not desktops:
-            console.print("[dim]No active pi-container virtual desktops found on this system.[/dim]")
+            console.print("[dim]No active pa-container virtual desktops found on this system.[/dim]")
             return 0
 
-        table = Table(title="Active pi-container Desktops", box=None)
+        table = Table(title="Active pa-container Desktops", box=None)
         table.add_column("Project", style="bold cyan")
         table.add_column("Container")
         table.add_column("Status")
@@ -891,7 +891,7 @@ def handle_desktop_command(options: DesktopOptions) -> int:
     if not desktop_info:
         console.print(f"[yellow]No active virtual desktop running for project '{PROJECT_DIR.name}'.[/yellow]")
         console.print(
-            "[dim]Ensure 'desktop.enabled: true' in .pi-container/config.yaml and run 'pi-container run' to start.[/dim]"
+            "[dim]Ensure 'desktop.enabled: true' in .pa-container/config.yaml and run 'pa-container run' to start.[/dim]"
         )
         return 1
 
@@ -958,7 +958,7 @@ def handle_logs_command(options: LogsOptions) -> int:
         if options.all_projects:
             if not options.force:
                 console.print(
-                    "[bold yellow]Warning:[/bold yellow] Purging logs across ALL projects in ~/.local/state/pi-container/projects/."
+                    "[bold yellow]Warning:[/bold yellow] Purging logs across ALL projects in ~/.local/state/pa-container/projects/."
                 )
             deleted = clean_all_projects_logs(older_than_seconds=seconds)
             console.print(f"Purged {len(deleted)} log file(s) across all projects.")

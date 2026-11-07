@@ -31,10 +31,10 @@ antigravity_url="https://storage.googleapis.com/antigravity-public/antigravity-c
 
 fetch_verified "${antigravity_url}" "${antigravity_sha}" "/tmp/${antigravity_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local/bin"
-tar -xzf "/tmp/${antigravity_tarball}" -C "${PI_STAGE}/usr/local/bin"
-chmod 755 "${PI_STAGE}/usr/local/bin/antigravity"
-ln -sf antigravity "${PI_STAGE}/usr/local/bin/agy"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+tar -xzf "/tmp/${antigravity_tarball}" -C "${PA_STAGE}/usr/local/bin"
+chmod 755 "${PA_STAGE}/usr/local/bin/antigravity"
+ln -sf antigravity "${PA_STAGE}/usr/local/bin/agy"
 rm -f "/tmp/${antigravity_tarball}"
 
 stage_record "antigravity" "${ANTIGRAVITY_VERSION}"

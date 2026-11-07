@@ -1,13 +1,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# pi-container — .gitignore entries for a workspace that runs coding agents
+# pa-container — .gitignore entries for a workspace that runs coding agents
 #
 # Copy the lines below into your project's .gitignore.
-# .pi-container/ holds workspace configuration, credentials, models, and
+# .pa-container/ holds workspace configuration, credentials, models, and
 # runtime state and should not be committed into the repository.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # REQUIRED — workspace configuration and runtime state. Never commit.
-.pi-container/
+.pa-container/
 
 # OPTIONAL — scratch directories you mount as tmpfs via config.yaml (tmpfs.paths).
 # Their contents live in RAM and never persist across runs, but the (empty)

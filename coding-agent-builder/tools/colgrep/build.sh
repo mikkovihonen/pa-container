@@ -22,10 +22,10 @@ fi
 
 cd "${src}"
 cargo build --release -p colgrep
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 target/release/colgrep "${PI_STAGE}/usr/local/bin/colgrep"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 target/release/colgrep "${PA_STAGE}/usr/local/bin/colgrep"
 rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
 
-"${PI_STAGE}/usr/local/bin/colgrep" --version
+"${PA_STAGE}/usr/local/bin/colgrep" --version
 stage_record "colgrep" "${COLGREP_VERSION}"
 

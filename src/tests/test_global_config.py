@@ -17,7 +17,7 @@ from global_config import ensure_global_config, load_global_config
 class TestGlobalConfigSeeding:
     def test_ensure_global_config_seeds_template(self, tmp_path: Path):
         repo_root = Path(__file__).resolve().parent.parent.parent
-        target_dir = tmp_path / ".config" / "pi-container"
+        target_dir = tmp_path / ".config" / "pa-container"
         target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
 
         assert target_file.exists()
@@ -33,7 +33,7 @@ class TestGlobalConfigSeeding:
     def test_ensure_global_config_missing_template_raises(self, tmp_path: Path):
         fake_repo = tmp_path / "fake_repo"
         fake_repo.mkdir()
-        target_dir = tmp_path / ".config" / "pi-container"
+        target_dir = tmp_path / ".config" / "pa-container"
         with pytest.raises(FileNotFoundError, match="Global configuration template not found"):
             ensure_global_config(config_dir=target_dir, repo_root=fake_repo)
 
@@ -41,7 +41,7 @@ class TestGlobalConfigSeeding:
 class TestLoadGlobalConfig:
     def test_load_seeded_config(self, tmp_path: Path):
         repo_root = Path(__file__).resolve().parent.parent.parent
-        target_dir = tmp_path / ".config" / "pi-container"
+        target_dir = tmp_path / ".config" / "pa-container"
         target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
 
         cfg = load_global_config(config_file=target_file, repo_root=repo_root)
@@ -52,7 +52,7 @@ class TestLoadGlobalConfig:
         assert cfg.llama.build.repo == "https://github.com/ggml-org/llama.cpp.git"
         assert cfg.llama.build.tag == "v0.9.0"
         assert cfg.llama.build.minimal is True
-        assert cfg.build.images.agent == "pi-coding-agent:local"
+        assert cfg.build.images.agent == "pa-container-agent:local"
         assert cfg.build.dns == "1.1.1.1"
         assert cfg.build.prune_dangling is True
         assert cfg.build.purge_build_cache is False
@@ -62,7 +62,7 @@ class TestLoadGlobalConfig:
 
     def test_canonical_env_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         repo_root = Path(__file__).resolve().parent.parent.parent
-        target_dir = tmp_path / ".config" / "pi-container"
+        target_dir = tmp_path / ".config" / "pa-container"
         target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
 
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
@@ -73,12 +73,12 @@ class TestLoadGlobalConfig:
         monkeypatch.setenv("LLAMA_BUILD_TAG", "b9999")
         monkeypatch.setenv("LLAMA_BUILD_BACKEND", "cuda")
         monkeypatch.setenv("LLAMA_BUILD_MINIMAL", "false")
-        monkeypatch.setenv("PI_IMAGE_TAG", "custom-agent:latest")
+        monkeypatch.setenv("PA_IMAGE_TAG", "custom-agent:latest")
         monkeypatch.setenv("PROXY_IMAGE_TAG", "custom-proxy:latest")
         monkeypatch.setenv("BUILDER_IMAGE_TAG", "custom-builder:latest")
         monkeypatch.setenv("BUILD_DNS", "8.8.8.8")
         monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
-        monkeypatch.setenv("PI_MEMORY_PREFLIGHT", "0")
+        monkeypatch.setenv("PA_MEMORY_PREFLIGHT", "0")
         monkeypatch.setenv("NODE_SOURCE", "build")
         monkeypatch.setenv("PI_PRUNE_DANGLING", "false")
         monkeypatch.setenv("PI_PURGE_BUILD_CACHE", "true")
@@ -106,7 +106,7 @@ class TestLoadGlobalConfig:
 class TestValidateGlobalConfig:
     def test_valid_config(self, tmp_path: Path):
         repo_root = Path(__file__).resolve().parent.parent.parent
-        target_dir = tmp_path / ".config" / "pi-container"
+        target_dir = tmp_path / ".config" / "pa-container"
         target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
 
         is_valid, errors, version = validate_global_config(target_file, repo_root=repo_root)

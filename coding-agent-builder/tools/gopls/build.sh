@@ -15,10 +15,10 @@ src="/usr/src/tools"
 clone_verified "https://github.com/golang/tools.git" "${GOPLS_VERSION}" "${GOPLS_COMMIT}" "${src}"
 
 cd "${src}/gopls"
-mkdir -p "${PI_STAGE}/usr/local/bin"
-go build -o "${PI_STAGE}/usr/local/bin/gopls"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+go build -o "${PA_STAGE}/usr/local/bin/gopls"
 rm -rf "${src}" /root/go
 
-"${PI_STAGE}/usr/local/bin/gopls" version
+"${PA_STAGE}/usr/local/bin/gopls" version
 stage_record "gopls" "${GOPLS_VERSION}"
 

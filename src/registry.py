@@ -6,8 +6,8 @@ sys.dont_write_bytecode = True
 
 """Global model and gateway registry loader.
 
-- Gateways: ~/.config/pi-container/gateways/<gateway_id>.yaml (provider-level external gateways)
-- Models:   ~/.config/pi-container/models/<model_id>.yaml     (model-level local llama-server definitions)
+- Gateways: ~/.config/pa-container/gateways/<gateway_id>.yaml (provider-level external gateways)
+- Models:   ~/.config/pa-container/models/<model_id>.yaml     (model-level local llama-server definitions)
 """
 
 import shutil
@@ -201,7 +201,7 @@ def _find_definition_file(name: str, target_dir: Path) -> tuple[Path, dict[str, 
 
 
 def load_gateway_def(gateway_id: str, registry_dir: Path | None = None) -> GatewayDef | None:
-    """Load an external gateway definition by ID from ~/.config/pi-container/gateways/."""
+    """Load an external gateway definition by ID from ~/.config/pa-container/gateways/."""
     target_dir = get_gateways_dir(registry_dir)
     found = _find_definition_file(gateway_id, target_dir)
     if not found:
@@ -211,7 +211,7 @@ def load_gateway_def(gateway_id: str, registry_dir: Path | None = None) -> Gatew
 
 
 def load_model_def(model_id: str, registry_dir: Path | None = None) -> LlamaServerModelDef | None:
-    """Load a local llama-server model definition by ID from ~/.config/pi-container/models/."""
+    """Load a local llama-server model definition by ID from ~/.config/pa-container/models/."""
     target_dir = get_models_dir(registry_dir)
     found = _find_definition_file(model_id, target_dir)
     if not found:

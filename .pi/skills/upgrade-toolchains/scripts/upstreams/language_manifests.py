@@ -10,7 +10,7 @@ from upstreams.base import ToolReleaseInfo, parse_version_tuple
 
 
 def _fetch_url(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "pi-container-upgrade-tools"})
+    req = urllib.request.Request(url, headers={"User-Agent": "pa-container-upgrade-tools"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return resp.read()
 

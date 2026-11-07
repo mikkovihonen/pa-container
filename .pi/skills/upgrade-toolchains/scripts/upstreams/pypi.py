@@ -10,7 +10,7 @@ from upstreams.base import ToolReleaseInfo
 def _fetch_pypi_package(pkg_name: str) -> dict:
     req = urllib.request.Request(
         f"https://pypi.org/pypi/{pkg_name}/json",
-        headers={"User-Agent": "pi-container-upgrade-tools"},
+        headers={"User-Agent": "pa-container-upgrade-tools"},
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
@@ -111,7 +111,7 @@ def resolve_az() -> ToolReleaseInfo:
     # Fetch latest azure-devops extension release metadata
     req = urllib.request.Request(
         "https://raw.githubusercontent.com/Azure/azure-cli-extensions/main/src/index.json",
-        headers={"User-Agent": "pi-container-upgrade-tools"},
+        headers={"User-Agent": "pa-container-upgrade-tools"},
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         ext_index = json.loads(resp.read().decode())

@@ -16,10 +16,10 @@ clone_verified "https://github.com/BurntSushi/ripgrep.git" "${RIPGREP_VERSION}" 
 
 cd "${src}"
 cargo build --release --features 'pcre2'
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 target/release/rg "${PI_STAGE}/usr/local/bin/rg"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 target/release/rg "${PA_STAGE}/usr/local/bin/rg"
 rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
 
-"${PI_STAGE}/usr/local/bin/rg" --version
+"${PA_STAGE}/usr/local/bin/rg" --version
 stage_record "ripgrep" "${RIPGREP_VERSION}"
 

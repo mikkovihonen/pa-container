@@ -61,7 +61,7 @@ from network import (
     read_nested_containers_config,
     read_network_config,
     read_proxy_config,
-    read_read_only_pi_container,
+    read_read_only_PA_CONTAINER,
     read_resource_limits,
     resource_limit_args,
     scan_tmpfs_paths,
@@ -101,7 +101,7 @@ def _init_runtime() -> None:
     if not ADMIN_PASSWORD or ADMIN_PASSWORD == "CHANGEME":
         logger.error(
             "ERROR: ADMIN_PASSWORD must be set to a non-default value in the OS keyring "
-            "(uv run keyring set pi-container ADMIN_PASSWORD). "
+            "(uv run keyring set pa-container ADMIN_PASSWORD). "
             "Host environment variables are not accepted."
         )
         sys.exit(1)
@@ -120,7 +120,7 @@ def _init_runtime() -> None:
     PROXY_UPSTREAM_NETWORK = RUNTIME.upstream_network
 
 
-def process_gateway_configs(gateway_configs: list[GatewayConfigItem], pi_container_dir: Path) -> None:
+def process_gateway_configs(gateway_configs: list[GatewayConfigItem], PA_CONTAINER_dir: Path) -> None:
     """Preflight, authenticate, and validate allowlist egress for external model gateways."""
     for gw in gateway_configs:
         gw_def = gw["gatewayDef"]
@@ -150,7 +150,7 @@ def process_gateway_configs(gateway_configs: list[GatewayConfigItem], pi_contain
 
             os.environ[var_name] = token_val
 
-    containers.warn_about_gateway_allowlist(pi_container_dir, gateway_configs)
+    containers.warn_about_gateway_allowlist(PA_CONTAINER_dir, gateway_configs)
 
 
 def ensure_proxy_image(runtime: str, repo_root: Path = REPO_ROOT) -> bool:
@@ -173,27 +173,27 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     _init_runtime()
 
     log_drv.step(LogCategory.PREFLIGHT, "Validating configuration & security")
-    pi_container_dir = project.ensure_project_config()
+    PA_CONTAINER_dir = project.ensure_project_config()
     warn_missing_gitignore(PROJECT_DIR, logger)
-    models_path: Path | None = resolve_models_file(pi_container_dir)
+    models_path: Path | None = resolve_models_file(PA_CONTAINER_dir)
     if models_path is None or not models_path.exists():
-        err = f"Config file not found: expected {pi_container_dir / 'models.yaml'}"
+        err = f"Config file not found: expected {PA_CONTAINER_dir / 'models.yaml'}"
         logger.error(err)
         log_drv.render_hard_error(LogCategory.PREFLIGHT, "Missing Models Configuration", err)
         return 1
 
     # Validate per-project config schema and version compatibility.
-    config_yaml_path = pi_container_dir / "config.yaml"
+    config_yaml_path = PA_CONTAINER_dir / "config.yaml"
     is_valid, errors, schema_version = validate_config(config_yaml_path)
     if not is_valid:
-        logger.error("Configuration incompatible with this version of pi-container:")
+        logger.error("Configuration incompatible with this version of pa-container:")
         for error in errors:
             logger.error(error)
         hints = project.config_fix_hint(errors, config_yaml_path)
         log_drv.render_hard_error(LogCategory.PREFLIGHT, "Configuration Incompatible", "\n".join(errors), hints=hints)
         return 1
 
-    yaml_errors = validate_project_yaml(pi_container_dir)
+    yaml_errors = validate_project_yaml(PA_CONTAINER_dir)
     if yaml_errors:
         logger.error("Configuration has duplicate YAML keys:")
         for error in yaml_errors:
@@ -220,15 +220,15 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         )
         return 1
 
-    flow_export_enabled = read_flow_export_enabled(pi_container_dir)
-    ipv6_enabled = read_network_config(pi_container_dir)["ipv6"]
-    llama_cfg = read_llama_config(pi_container_dir)
-    agent_extras = read_agent_extras(pi_container_dir)
-    read_only_pi_container = read_read_only_pi_container(pi_container_dir)
-    security_cfg = read_security_config(pi_container_dir)
-    git_cfg = read_git_config(pi_container_dir)
-    sc_cfg = read_source_control_config(pi_container_dir)
-    sc_tokens = resolve_source_control_tokens(pi_container_dir, log=logger)
+    flow_export_enabled = read_flow_export_enabled(PA_CONTAINER_dir)
+    ipv6_enabled = read_network_config(PA_CONTAINER_dir)["ipv6"]
+    llama_cfg = read_llama_config(PA_CONTAINER_dir)
+    agent_extras = read_agent_extras(PA_CONTAINER_dir)
+    read_only_PA_CONTAINER = read_read_only_PA_CONTAINER(PA_CONTAINER_dir)
+    security_cfg = read_security_config(PA_CONTAINER_dir)
+    git_cfg = read_git_config(PA_CONTAINER_dir)
+    sc_cfg = read_source_control_config(PA_CONTAINER_dir)
+    sc_tokens = resolve_source_control_tokens(PA_CONTAINER_dir, log=logger)
 
     mount_errors = validate_mount_paths(agent_extras["mounts"], security_cfg["blocked_mount_paths"])
     if mount_errors:
@@ -275,8 +275,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             log_drv.render_hard_error(LogCategory.PREFLIGHT, "Tunnel Prerequisites Failed", str(tunnel_err))
             return 1
 
-    enabled_agents = read_enabled_agents(pi_container_dir)
-    agent_type = cli_agent or read_agent_type(pi_container_dir)
+    enabled_agents = read_enabled_agents(PA_CONTAINER_dir)
+    agent_type = cli_agent or read_agent_type(PA_CONTAINER_dir)
     if cli_agent and cli_agent.lower() not in enabled_agents:
         disabled_msg = (
             f"Agent '{cli_agent}' is not enabled in this workspace's config.yaml. "
@@ -302,11 +302,11 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     containers.cleanup_orphaned_agent_containers(CONTAINER_RUNTIME)
     if flow_export_enabled:
         recover_dangling_flows(
-            exports_dir=pi_container_dir / "exports",
+            exports_dir=PA_CONTAINER_dir / "exports",
             sessions_dir=sessions_dir,
         )
 
-    nested_cfg = read_nested_containers_config(pi_container_dir)
+    nested_cfg = read_nested_containers_config(PA_CONTAINER_dir)
     nested_ports = nested_cfg["ports"]
     if nested_cfg["enabled"]:
         logger.info(
@@ -314,7 +314,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             f"the agent can run its own rootless podman. Its traffic still egresses through the proxy, "
             f"but the agent container's SELinux confinement is relaxed."
         )
-        containers.warn_about_registry_allowlist(pi_container_dir)
+        containers.warn_about_registry_allowlist(PA_CONTAINER_dir)
         if nested_ports["publish"]:
             taken = containers.unavailable_host_ports(nested_ports["publish"], nested_ports["expose"])
             if taken:
@@ -343,18 +343,18 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             f"nested_containers.enabled is false; nothing is published."
         )
 
-    is_t3_mode = cli_t3 or (read_agent_mode(pi_container_dir) == "t3")
+    is_t3_mode = cli_t3 or (read_agent_mode(PA_CONTAINER_dir) == "t3")
     raw_adv_host = cli_t3_advertise_host or os.environ.get("T3_ADVERTISE_HOST") or "localhost"
     if raw_adv_host.strip().lower() in ("external", "external_ip", "auto"):
         t3_advertise_host = get_host_external_ip()
     else:
         t3_advertise_host = raw_adv_host.strip()
 
-    agent_ports = read_agent_ports(pi_container_dir)
+    agent_ports = read_agent_ports(PA_CONTAINER_dir)
     if cli_lan:
         agent_ports["expose"] = "lan"
 
-    desktop_cfg = read_desktop_config(pi_container_dir)
+    desktop_cfg = read_desktop_config(PA_CONTAINER_dir)
     desktop_novnc_port: int | None = None
     desktop_vnc_port: int | None = None
     desktop_args: list[str] = []
@@ -434,7 +434,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         gateway_configs,
         default_model,
         _,
-    ) = load_project_models(pi_container_dir, models_dir=MODELS_DIR)
+    ) = load_project_models(PA_CONTAINER_dir)
 
     agent_driver.synthesize_config(
         server_configs=server_configs,
@@ -443,7 +443,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         project_dir=PROJECT_DIR,
     )
 
-    process_gateway_configs(gateway_configs, pi_container_dir)
+    process_gateway_configs(gateway_configs, PA_CONTAINER_dir)
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, handle_signal)
@@ -472,7 +472,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 servers.append(server)
 
             run_id = uuid.uuid4().hex[:12]
-            agent_container_name = f"pi-coding-agent-{run_id}"
+            agent_container_name = f"pa-container-agent-{run_id}"
             proxy_name, network_name = project.project_scope(PROJECT_DIR)
 
             t3_public_url = cli_t3_public_url
@@ -524,7 +524,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     network_name,
                     PROXY_IMAGE_TAG,
                     proxy_name=proxy_name,
-                    config_dir=pi_container_dir,
+                    config_dir=PA_CONTAINER_dir,
                     llama_ports=portconfig,
                     llama_hostnames=" ".join(sorted(llama_hostnames)),
                     ipv6=ipv6_enabled,
@@ -541,13 +541,13 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     log_drv.console.print(
                         f"  [dim cyan][{LogCategory.NETWORK}][/dim cyan] mitmweb UI for this project: [link={mitmweb_url}]{mitmweb_url}[/link] [dim]🔗 (click to open)[/dim]"
                     )
-                proxy_cfg = read_proxy_config(pi_container_dir)
+                proxy_cfg = read_proxy_config(PA_CONTAINER_dir)
                 eff_open_browser = (
                     options.open_browser
                     if getattr(options, "open_browser", None) is not None
                     else (
-                        (os.environ.get("PI_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                        if "PI_CONTAINER_OPEN_BROWSER" in os.environ
+                        (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
+                        if "PA_CONTAINER_OPEN_BROWSER" in os.environ
                         else (
                             proxy_cfg.get("open_browser", False)
                             or getattr(global_config.runtime, "open_browser", False)
@@ -634,7 +634,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 )
                 if reason is not None:
                     logger.info(f"Building project-specific agent image: {agent_image_tag} ({reason})")
-                    root_commands_file = PROJECT_DIR / ".pi-container" / "dependencies" / "root" / "commands.sh"
+                    root_commands_file = PROJECT_DIR / ".pa-container" / "dependencies" / "root" / "commands.sh"
                     if root_commands_file.exists() and root_commands_file.stat().st_size > 0:
                         root_commands_path = str(root_commands_file)
                     else:
@@ -693,10 +693,10 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 nested_args = RUNTIME.nested_container_args(nested_cfg, project_key)
 
             # Transient tmpfs paths (config.yaml tmpfs.paths)
-            tmpfs_paths = scan_tmpfs_paths(pi_container_dir)
+            tmpfs_paths = scan_tmpfs_paths(PA_CONTAINER_dir)
 
             # Persistent unified project shadow volume (config.yaml volumes.paths + agent shadow paths)
-            volume_paths = scan_volume_paths(pi_container_dir)
+            volume_paths = scan_volume_paths(PA_CONTAINER_dir)
             shadow_destinations = sorted(set(volume_paths + agent_driver.get_shadow_paths()))
             shadow_vol_name = volumes.project_shadow_volume_name(project.project_key(PROJECT_DIR))
             project_path_str = str(PROJECT_DIR.resolve())
@@ -770,17 +770,17 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             t3_mounts: list[str] = []
             t3_chown: list[str] = []
             if is_t3_mode:
-                t3_dir = pi_container_dir / "t3"
+                t3_dir = PA_CONTAINER_dir / "t3"
                 t3_dir.mkdir(parents=True, exist_ok=True)
                 t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
                 t3_chown = ["/home/agent/.t3"]
 
             chown_paths = sorted(
-                set(tmpfs_paths + shadow_destinations + ["/workspace/.pi-container/exports"] + t3_chown)
+                set(tmpfs_paths + shadow_destinations + ["/workspace/.pa-container/exports"] + t3_chown)
             )
             final_container_argv = agent_driver.get_command(container_argv)
 
-            pi_container_cmd = [
+            PA_CONTAINER_cmd = [
                 CONTAINER_RUNTIME,
                 "run",
                 "--rm",
@@ -788,18 +788,18 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 agent_container_name,
                 *(["--security-opt", "no-new-privileges"] if not nested_cfg["enabled"] else []),
                 "--label",
-                "pi-container.type=agent",
+                "pa-container.type=agent",
                 "--label",
-                f"pi-container.project.hash={project.project_key(PROJECT_DIR)}",
+                f"pa-container.project.hash={project.project_key(PROJECT_DIR)}",
                 "--label",
-                f"pi-container.project.name={PROJECT_DIR.name}",
+                f"pa-container.project.name={PROJECT_DIR.name}",
                 "--label",
-                f"pi-container.project.path={PROJECT_DIR.resolve()}",
-                *(["--label", "pi-container.desktop.enabled=true"] if desktop_cfg["enabled"] else []),
+                f"pa-container.project.path={PROJECT_DIR.resolve()}",
+                *(["--label", "pa-container.desktop.enabled=true"] if desktop_cfg["enabled"] else []),
                 "--label",
-                f"pi-container.launcher_pid={os.getpid()}",
+                f"pa-container.launcher_pid={os.getpid()}",
                 "--label",
-                f"pi-container.run_id={run_id}",
+                f"pa-container.run_id={run_id}",
                 "--interactive",
                 "--tty",
                 *RUNTIME.agent_network_args(network_name, proxy_isolated_ip),
@@ -810,7 +810,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 *(
                     [
                         "--env",
-                        "PI_CONTAINER_MODE=t3",
+                        "PA_CONTAINER_MODE=t3",
                         "--env",
                         f"T3_ADVERTISE_HOST={t3_advertise_host}",
                         *(["--env", f"T3_PUBLIC_URL={t3_public_url}"] if t3_public_url else []),
@@ -824,9 +824,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 *t3_mounts,
                 "--volume",
                 f"{PROJECT_DIR}:/workspace",
-                *(["--volume", f"{pi_container_dir}:/workspace/.pi-container:ro"] if read_only_pi_container else []),
+                *(["--volume", f"{PA_CONTAINER_dir}:/workspace/.pa-container:ro"] if read_only_PA_CONTAINER else []),
                 *git_hooks_mount,
-                *RUNTIME.tmpfs_args("/workspace/.pi-container/exports"),
+                *RUNTIME.tmpfs_args("/workspace/.pa-container/exports"),
                 *volume_args,
                 *nested_args,
                 *RUNTIME.nested_port_args(nested_cfg),
@@ -839,9 +839,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 "--env",
                 f"CONTAINER_CHOWN_PATHS={':'.join(chown_paths)}",
                 "--env",
-                f"PI_CONTAINER_AGENT={agent_driver.name}",
+                f"PA_CONTAINER_AGENT={agent_driver.name}",
                 "--env",
-                f"PI_CONTAINER_ENABLED_AGENTS={','.join(enabled_agents)}",
+                f"PA_CONTAINER_ENABLED_AGENTS={','.join(enabled_agents)}",
                 *driver_env,
                 "--env",
                 f"LLAMA_PORTS={portconfig}",
@@ -853,12 +853,12 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 f"GIT_REWRITE_SSH={'true' if git_cfg['rewrite_ssh_to_https'] else 'false'}",
                 "--env",
                 f"SETUP_GIT_CREDENTIALS={'true' if sc_cfg['setup_git_credentials'] else 'false'}",
-                *(["--env", f"PI_CONTAINER_VERSION={schema_version}"] if schema_version else []),
+                *(["--env", f"PA_CONTAINER_VERSION={schema_version}"] if schema_version else []),
                 *[flag for k, v in {**sc_tokens, **agent_extras["env"]}.items() for flag in ("--env", f"{k}={v}")],
                 *[flag for m in agent_extras["mounts"] for flag in ("--volume", m)],
                 *[flag for c in agent_extras["capabilities"] for flag in ("--cap-add", c)],
                 *[flag for d in agent_extras["devices"] for flag in ("--device", d)],
-                *resource_limit_args(read_resource_limits(pi_container_dir, "agent")),
+                *resource_limit_args(read_resource_limits(PA_CONTAINER_dir, "agent")),
                 agent_image_tag,
                 *final_container_argv,
             ]
@@ -881,8 +881,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     options.open_browser
                     if getattr(options, "open_browser", None) is not None
                     else (
-                        (os.environ.get("PI_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                        if "PI_CONTAINER_OPEN_BROWSER" in os.environ
+                        (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
+                        if "PA_CONTAINER_OPEN_BROWSER" in os.environ
                         else (
                             desktop_cfg.get("open_browser", False)
                             or getattr(global_config.runtime, "open_browser", False)
@@ -903,7 +903,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
             try:
                 log_drv.pause_for_interactive()
-                result = subprocess.run(pi_container_cmd)
+                result = subprocess.run(PA_CONTAINER_cmd)
             finally:
                 log_drv.resume_after_interactive()
                 run_quiet(
@@ -920,7 +920,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 export_mitmweb_flows(
                     sessions_dir=sessions_dir,
                     client_ips=ip_holder.get("ips"),
-                    exports_dir=pi_container_dir / "exports",
+                    exports_dir=PA_CONTAINER_dir / "exports",
                 )
 
             return result.returncode

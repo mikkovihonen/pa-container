@@ -1,4 +1,4 @@
-# Per-project pi-container configuration (seeded on first run; edit per workspace).
+# Per-project pa-container configuration (seeded on first run; edit per workspace).
 #
 # This is the single source of truth for orchestration settings. The proxy addon
 # configs (allowlist.yaml, token_replacer.yaml) and chat templates live in their
@@ -6,7 +6,7 @@
 #
 # schema_version: Bumped whenever the template changes (new fields, changed types,
 # removed fields, new files in default/). The launch fails if this does not match
-# the pi-container version (the latest git tag). Delete .pi-container to re-seed.
+# the pa-container version (the latest git tag). Delete .pa-container to re-seed.
 schema_version: "0.6.6"
 
 # Container resource limits. A null/omitted value means "no limit" (the flag is
@@ -49,7 +49,7 @@ proxy:
   stream_large_bodies: 10m
 
 # Headless Wayland Desktop & GUI Application Support.
-# When enabled, pi-container installs the desktop stack, starts a headless
+# When enabled, pa-container installs the desktop stack, starts a headless
 # wlroots compositor (labwc), Xwayland, wayvnc (5900), and noVNC (6080).
 # Acceleration is automatically enabled for applehv and Linux hosts.
 # Disabled by default.
@@ -114,11 +114,11 @@ agent:
   #     - /dev/video0:/dev/video0
   #     - /dev/bus/usb:/dev/bus/usb
   devices: []
-  # Lock the project's .pi-container directory inside /workspace as read-only.
+  # Lock the project's .pa-container directory inside /workspace as read-only.
   # When enabled, the agent cannot modify config.yaml, allowlist.yaml,
   # token_replacer.yaml, dependency scripts, or chat templates from inside the container.
   # Subdirectories mounted under separate paths (e.g. ~/.pi/agent for sessions) remain writable.
-  read_only_pi_container: true
+  read_only_PA_CONTAINER: true
   # Execution mode: "cli" (interactive terminal pi) or "t3" (headless T3 Code server).
   # Can also be selected on the command line via `./run.sh --t3`.
   mode: cli
@@ -156,7 +156,7 @@ nested_containers:
   # host cannot reach — the agent container must publish the same port onward.
   #
   # Ports must be declared here because a container's published ports are fixed
-  # at start: pi-container cannot add one to a running agent. Each entry is a
+  # at start: pa-container cannot add one to a running agent. Each entry is a
   # port the nested container publishes inside the agent, mapped to the same
   # host port, or "HOSTPORT:AGENTPORT" to remap. The launch fails fast if a host
   # port is already taken.
@@ -200,7 +200,7 @@ volumes:
   paths: []
 
 # mitmweb flow export. When enabled, the proxy's captured HTTP/HTTPS flow history
-# is exported (bucketed by UTC date) under .pi-container/exports/ after the agent
+# is exported (bucketed by UTC date) under .pa-container/exports/ after the agent
 # shuts down. The export contains full request/response bodies — treat exports/ as
 # sensitive and keep it out of version control. Default: disabled.
 flow_export:
@@ -249,16 +249,16 @@ source_control:
   # can use different scoped tokens instead of a single global token:
   #   providers:
   #     github:
-  #       keyring_var: PI_CONTAINER_T3_GH_TOKEN   # or list: [MY_TOKEN, GH_TOKEN]
+  #       keyring_var: PA_CONTAINER_T3_GH_TOKEN   # or list: [MY_TOKEN, GH_TOKEN]
   #
-  # Save tokens in the OS keyring under service "pi-container":
-  #   uv run keyring set pi-container GH_TOKEN
-  #   uv run keyring set pi-container PI_CONTAINER_T3_GH_TOKEN
-  #   uv run keyring set pi-container GITLAB_TOKEN
-  #   uv run keyring set pi-container GITEA_TOKEN
-  #   uv run keyring set pi-container AZURE_DEVOPS_EXT_PAT
-  #   uv run keyring set pi-container BITBUCKET_TOKEN
-  #   uv run keyring set pi-container GITCAFE_TOKEN
+  # Save tokens in the OS keyring under service "pa-container":
+  #   uv run keyring set pa-container GH_TOKEN
+  #   uv run keyring set pa-container PA_CONTAINER_T3_GH_TOKEN
+  #   uv run keyring set pa-container GITLAB_TOKEN
+  #   uv run keyring set pa-container GITEA_TOKEN
+  #   uv run keyring set pa-container AZURE_DEVOPS_EXT_PAT
+  #   uv run keyring set pa-container BITBUCKET_TOKEN
+  #   uv run keyring set pa-container GITCAFE_TOKEN
   providers: {}
 
 # Security hardening configuration.
@@ -270,7 +270,7 @@ security:
 
   # Dangerous host directories that should NEVER be mounted into the agent container.
   # If any of these paths (or their subdirectories) appear in agent.mounts,
-  # pi-container will reject launching the container to prevent host credential theft.
+  # pa-container will reject launching the container to prevent host credential theft.
   blocked_mount_paths:
     - "~/.ssh"
     - "~/.gnupg"

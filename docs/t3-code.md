@@ -4,7 +4,7 @@
 
 T3 Code features first-class native support for the **Pi coding agent** (`@earendil-works/pi-coding-agent`), driving Pi via its structured JSONL RPC interface.
 
-`pi-container` supports running T3 Code directly inside the isolated agent container, allowing you to use the **https://t3.codes** web interface (or the desktop/mobile apps) while retaining complete network egress inspection, token substitution, and sandbox isolation.
+`pa-container` supports running T3 Code directly inside the isolated agent container, allowing you to use the **https://t3.codes** web interface (or the desktop/mobile apps) while retaining complete network egress inspection, token substitution, and sandbox isolation.
 
 ---
 
@@ -17,7 +17,7 @@ flowchart LR
         Llama["llama-server<br/>(local models)"]
     end
 
-    subgraph ContainerStack["pi-container Sandbox"]
+    subgraph ContainerStack["pa-container Sandbox"]
         subgraph Proxy["mitmproxy Container"]
             ProxyFilter["Proxy Filtering<br/>- allowlist.yaml<br/>- token_replacer.yaml"]
         end
@@ -43,7 +43,7 @@ flowchart LR
 
 - **In-Container Execution**: The T3 Code server process (`t3 serve`) runs inside the agent container alongside Pi. It directly spawns `/usr/local/bin/pi` inside `/workspace`.
 - **Inbound Host Forwarding**: Host port `3773` is published to the agent container (`127.0.0.1:3773`), allowing your host browser at `https://t3.codes` to establish a local WebSocket connection (`ws://127.0.0.1:3773`).
-- **Proxy Egress & Token Replacement**: All outbound API calls from Pi or T3 Code traverse the `pi-coding-agent-proxy`. Unapproved network traffic is blocked, and dummy provider tokens are swapped with real credentials on the wire.
+- **Proxy Egress & Token Replacement**: All outbound API calls from Pi or T3 Code traverse the `pa-container-agent-proxy`. Unapproved network traffic is blocked, and dummy provider tokens are swapped with real credentials on the wire.
 - **Dynamic Model Discovery**: T3 Code queries Pi's RPC endpoint, which dynamically loads model definitions from `/home/agent/.pi/agent/models.json` (including local `llama-server` endpoints).
 
 ---
@@ -52,7 +52,7 @@ flowchart LR
 
 ### 1. Enable the T3 Toolchain
 
-Add `"t3"` to your `tools.include` list in `.pi-container/config.yaml`:
+Add `"t3"` to your `tools.include` list in `.pa-container/config.yaml`:
 
 ```yaml
 tools:
@@ -60,7 +60,7 @@ tools:
     - "t3"
 ```
 
-*(Alternatively, you can install the CLI dynamically in `.pi-container/dependencies/root/commands.sh` via `npm install -g t3` or `curl -fsSL https://t3.codes/install.sh | sh`).*
+*(Alternatively, you can install the CLI dynamically in `.pa-container/dependencies/root/commands.sh` via `npm install -g t3` or `curl -fsSL https://t3.codes/install.sh | sh`).*
 
 ### 2. Launch in T3 Mode
 
@@ -76,7 +76,7 @@ The launcher will:
 3. Output the T3 pairing URL:
     ```text
     ==================================================================
-      Starting T3 Code server for Pi inside pi-container...
+      Starting T3 Code server for Pi inside pa-container...
       Web UI: https://t3.codes
     ==================================================================
     Listening on http://0.0.0.0:3773
@@ -95,7 +95,7 @@ The launcher will:
 
 ### Agent Configuration (`config.yaml`)
 
-You can set T3 mode as the default or configure custom port mappings in `.pi-container/config.yaml`:
+You can set T3 mode as the default or configure custom port mappings in `.pa-container/config.yaml`:
 
 ```yaml
 agent:
@@ -115,7 +115,7 @@ agent:
 
 When T3 Code runs inside a container, `t3 serve` must bind to `--host 0.0.0.0` so forwarded traffic from the host (`-p 127.0.0.1:3773:3773` or `0.0.0.0:3773:3773`) is accepted. By default, T3 Code inspects container network interfaces and would advertise the internal bridge IP (e.g. `10.89.0.2`), which is unreachable from host browsers.
 
-`pi-container` includes an automated network shim (`t3-advertise-host.cjs`) along with explicit CLI configuration knobs for advertised addresses and network exposure:
+`pa-container` includes an automated network shim (`t3-advertise-host.cjs`) along with explicit CLI configuration knobs for advertised addresses and network exposure:
 
 - **Advertised Host / Pairing URL**:
     - **Default (`localhost`)**: The pairing link and connection URL display `http://localhost:3773/pair#token=...` for local host browser use.
@@ -142,7 +142,7 @@ T3 Code integrates with the agent architecture through provider isolation and po
     - On server startup, `entrypoint.sh` seeds `/home/agent/.t3/userdata/settings.json`.
     - Provider instances (`pi`, `claudeAgent`, `codex`) are marked enabled or disabled based on `agents.enabled`, and the default model instance is set to the active agent.
 3. **Persistent Base Directory (`--base-dir /home/agent/.t3`)**:
-    - When running in T3 mode, `.pi-container/t3` is mounted to `/home/agent/.t3`, so all projects, threads, and diff reviews persist across container restarts.
+    - When running in T3 mode, `.pa-container/t3` is mounted to `/home/agent/.t3`, so all projects, threads, and diff reviews persist across container restarts.
 
 
 ### Source Control Provider Toolchains
@@ -158,7 +158,7 @@ T3 Code includes integrated PR review, issue tracking, and repository operations
 | **GitCafe** | CLI (`cafe`) | `cafe` | Official GitCafe CLI bundled with standalone Bun runtime. |
 | **Bitbucket** | Direct API | *(none needed)* | T3 Code calls `api.bitbucket.org/2.0` natively via API token. |
 
-To enable specific source control CLIs in your workspace, declare them in `.pi-container/config.yaml`:
+To enable specific source control CLIs in your workspace, declare them in `.pa-container/config.yaml`:
 
 ```yaml
 tools:
@@ -174,7 +174,7 @@ tools:
 
 ### Git Operations & Remote Rewriting
 
-T3 Code periodically inspects local git branches and checks upstream remotes in the background (`branchPullRequest.remotes`, `fetchRemoteForStatus`). By default, `pi-container` automatically optimizes Git operations inside `/workspace`:
+T3 Code periodically inspects local git branches and checks upstream remotes in the background (`branchPullRequest.remotes`, `fetchRemoteForStatus`). By default, `pa-container` automatically optimizes Git operations inside `/workspace`:
 
 - **Safe Directory (`git.safe_directory: true`)**: Permitted by default to ensure Git commands run cleanly despite UID differences between the host filesystem and the container unprivileged user.
 - **SSH-to-HTTPS Rewrites (`git.rewrite_ssh_to_https: true`)**: Transparently redirects `git@github.com:...` and other SSH remotes to `https://github.com/...`, allowing background status fetches to egress through the proxy without copying host SSH keys into the sandbox.
@@ -184,7 +184,7 @@ T3 Code periodically inspects local git branches and checks upstream remotes in 
 
 T3 Code background PR inspection and Git operations across all 6 providers require authentication tokens to query PR lists (`gh pr list`, etc.) and authenticate private HTTPS remotes.
 
-`pi-container` resolves tokens securely and exclusively from the host OS keyring (or host CLI sessions), strictly rejecting `.env` files and host environment variables to prevent credential leakage:
+`pa-container` resolves tokens securely and exclusively from the host OS keyring (or host CLI sessions), strictly rejecting `.env` files and host environment variables to prevent credential leakage:
 
 ```yaml
 source_control:
@@ -203,22 +203,22 @@ source_control:
 
 #### Saving Provider Tokens in OS Keyring
 
-The recommended method to supply tokens is the secure OS keyring via `uv run keyring set pi-container <VAR>`:
-- **GitHub**: `uv run keyring set pi-container GH_TOKEN`
-- **GitLab**: `uv run keyring set pi-container GITLAB_TOKEN`
-- **Forgejo / Gitea**: `uv run keyring set pi-container GITEA_TOKEN`
-- **Azure DevOps**: `uv run keyring set pi-container AZURE_DEVOPS_EXT_PAT`
-- **Bitbucket**: `uv run keyring set pi-container BITBUCKET_TOKEN`
-- **GitCafe**: `uv run keyring set pi-container GITCAFE_TOKEN`
+The recommended method to supply tokens is the secure OS keyring via `uv run keyring set pa-container <VAR>`:
+- **GitHub**: `uv run keyring set pa-container GH_TOKEN`
+- **GitLab**: `uv run keyring set pa-container GITLAB_TOKEN`
+- **Forgejo / Gitea**: `uv run keyring set pa-container GITEA_TOKEN`
+- **Azure DevOps**: `uv run keyring set pa-container AZURE_DEVOPS_EXT_PAT`
+- **Bitbucket**: `uv run keyring set pa-container BITBUCKET_TOKEN`
+- **GitCafe**: `uv run keyring set pa-container GITCAFE_TOKEN`
 
-You can also configure custom keyring variable names per workspace (e.g. `keyring_var: PI_CONTAINER_T3_GH_TOKEN`), allowing multiple distinct tokens per provider across projects instead of a single global token:
+You can also configure custom keyring variable names per workspace (e.g. `keyring_var: PA_CONTAINER_T3_GH_TOKEN`), allowing multiple distinct tokens per provider across projects instead of a single global token:
 
 ```yaml
 source_control:
     enabled: true
     providers:
         github:
-            keyring_var: PI_CONTAINER_T3_GH_TOKEN
+            keyring_var: PA_CONTAINER_T3_GH_TOKEN
 ```
 
 When tokens are present and `setup_git_credentials: true`, `entrypoint.sh` automatically runs `gh auth setup-git` and `glab auth setup-git` inside the container so Git HTTPS operations succeed without password prompts.
@@ -226,7 +226,7 @@ When tokens are present and `setup_git_credentials: true`, `entrypoint.sh` autom
 
 ### Network Allowlist (`allowlist.yaml`)
 
-Ensure upstream rules for T3 Code and your desired source control hosts are present in `.pi-container/allowlist.yaml`:
+Ensure upstream rules for T3 Code and your desired source control hosts are present in `.pa-container/allowlist.yaml`:
 
 ```yaml
     # T3 Code (t3.codes) web app and release endpoints
@@ -292,15 +292,15 @@ Ensure upstream rules for T3 Code and your desired source control hosts are pres
 
 ## Remote & Mobile Access over Secure Tunnels
 
-You can securely access T3 Code from a mobile device (iOS/Android) over the public internet using automated tunneling solutions. `pi-container` includes native support for both **Tailscale** (Zero-Trust private WireGuard mesh) and **Cloudflare Zero Trust** (user-owned domain tunnels).
+You can securely access T3 Code from a mobile device (iOS/Android) over the public internet using automated tunneling solutions. `pa-container` includes native support for both **Tailscale** (Zero-Trust private WireGuard mesh) and **Cloudflare Zero Trust** (user-owned domain tunnels).
 
 ### Core Principles
 
 - **Pristine `config.yaml`**: Remote access and tunneling options are configured strictly via **command-line arguments** at runtime. `config.yaml` contains no tunnel configurations or personal domains, preventing accidental commits of private infrastructure to version control.
-- **OS User Keyring Credential Storage**: All sensitive credentials (such as Cloudflare Tunnel tokens) are stored exclusively in the OS user keyring under service `pi-container`. Tokens are never passed via CLI flags or `.env` files.
+- **OS User Keyring Credential Storage**: All sensitive credentials (such as Cloudflare Tunnel tokens) are stored exclusively in the OS user keyring under service `pa-container`. Tokens are never passed via CLI flags or `.env` files.
 - **Zero Host Application Stack**: Cloudflare tunnels can run as an ephemeral container (`cloudflare/cloudflared:latest`) via `podman`, requiring no host daemon installation.
-- **Fail-Fast Hard Startup Validation**: If a required application, daemon, user-owned domain, or keyring token is missing, `pi-container` immediately halts with exit code 1 and outputs an actionable diagnostic box.
-- **Strict Loopback Binding**: Container port `3773` remains bound to `127.0.0.1:3773` on the host. Inbound tunnel traffic connects via loopback, and all outbound agent traffic remains confined to `pi-coding-agent-proxy`.
+- **Fail-Fast Hard Startup Validation**: If a required application, daemon, user-owned domain, or keyring token is missing, `pa-container` immediately halts with exit code 1 and outputs an actionable diagnostic box.
+- **Strict Loopback Binding**: Container port `3773` remains bound to `127.0.0.1:3773` on the host. Inbound tunnel traffic connects via loopback, and all outbound agent traffic remains confined to `pa-container-agent-proxy`.
 - **Strict Zero-Port HTTPS**: All tunnel URLs (Tailscale Serve, Cloudflare named domains, and Quick Tunnels) strictly enforce `https://` on standard port 443 with no explicit port in the URL. Pairing links, launcher banners, and terminal QR codes omit `:3773` and `:443` entirely, ensuring instant mobile browser pairing without mixed-content or port blocking.
 
 ---
@@ -316,7 +316,7 @@ Tailscale connects your mobile device and development workstation over an encryp
     ```
 2. Install the Tailscale app on your mobile device (iOS App Store or Google Play Store) and connect to the same Tailnet.
 
-#### Launching pi-container
+#### Launching pa-container
 Run the launcher with `--t3-tunnel tailscale`:
 
 ```bash
@@ -327,7 +327,7 @@ The launcher will:
 1. Verify the host Tailscale daemon is running and authenticated (halting with a hard error if inactive).
 2. Configure **Tailscale Serve** on the host (`tailscale serve --bg 3773`), provisioning an automatic Let's Encrypt TLS certificate for your MagicDNS hostname (e.g. `https://workstation.tailnet-xyz.ts.net`).
 3. Output the secure HTTPS pairing link and render a terminal QR code.
-4. Automatically clean up Tailscale Serve when `pi-container` exits.
+4. Automatically clean up Tailscale Serve when `pa-container` exits.
 
 #### Mobile Connection Flow
 1. Ensure the Tailscale VPN toggle is connected on your mobile device.
@@ -348,7 +348,7 @@ Expose T3 Code under a user-owned custom domain on Cloudflare (e.g. `t3.yourdoma
 3. **Save Token in OS Keyring**:
     - Run the keyring command on your host:
         ```bash
-        uv run keyring set pi-container CLOUDFLARE_TUNNEL_TOKEN
+        uv run keyring set pa-container CLOUDFLARE_TUNNEL_TOKEN
         # Paste your token when prompted
         ```
 4. **Configure Public Hostname**:
@@ -362,18 +362,18 @@ Expose T3 Code under a user-owned custom domain on Cloudflare (e.g. `t3.yourdoma
     - Domain: `t3.yourdomain.com`.
     - Create a policy allowing only your email address (via Google SSO, GitHub login, or email OTP).
 
-#### Launching pi-container
+#### Launching pa-container
 Run the launcher specifying your user-owned domain:
 
 ```bash
 ./run.sh --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com
 ```
 
-- If `cloudflared` is not installed on your host, `pi-container` runs it automatically as an isolated ephemeral container via `podman`.
+- If `cloudflared` is not installed on your host, `pa-container` runs it automatically as an isolated ephemeral container via `podman`.
 - The terminal displays your user-owned domain pairing link and QR code:
     ```text
     ==================================================================
-      Starting T3 Code server for Pi inside pi-container...
+      Starting T3 Code server for Pi inside pa-container...
       Web UI: https://t3.codes
       Tunnel URL: https://t3.yourdomain.com
     ==================================================================
@@ -419,5 +419,5 @@ This provisions an ephemeral tunnel on `https://<random>.trycloudflare.com` and 
 
 1. **Loopback Binding by Default**: Host port `3773` binds strictly to `127.0.0.1`. Remote machines on your local network cannot connect unless you explicitly set `agent.ports.expose: lan`.
 2. **Unchanged Sandbox Isolation**: Running T3 Code does not require relaxing SELinux confinement or enabling `nested_containers`. The server runs as the unprivileged `agent` user.
-3. **Session Persistence**: Pi session trees are saved in `/home/agent/.pi/agent/sessions/`, which is mounted from your host project's `.pi-container/agents/pi/sessions/` directory. All thread history persists across container restarts.
+3. **Session Persistence**: Pi session trees are saved in `/home/agent/.pi/agent/sessions/`, which is mounted from your host project's `.pa-container/agents/pi/sessions/` directory. All thread history persists across container restarts.
 

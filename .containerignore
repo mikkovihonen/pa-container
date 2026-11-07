@@ -23,4 +23,4 @@ llama-server/logs
 # Pi
 coding-agent/logs
 coding-agent/setups
-.pi-container/
+.pa-container/

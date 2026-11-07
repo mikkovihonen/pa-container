@@ -77,9 +77,9 @@ def validate_environment(llama_bin: str | None) -> str:
     """Validate host prerequisites (llama-server, hf CLI, podman) and return the runtime name."""
     if llama_bin is None or not Path(llama_bin).exists():
         raise EnvironmentError(
-            "llama-server not found. Build an optimized minimal server for pi-container with:\n"
+            "llama-server not found. Build an optimized minimal server for pa-container with:\n"
             "    ./build.sh --llama\n"
-            "Or configure the binary path in ~/.config/pi-container/config.yaml under llama.bin."
+            "Or configure the binary path in ~/.config/pa-container/config.yaml under llama.bin."
         )
 
     if shutil.which("hf") is None:
@@ -479,11 +479,11 @@ def get_sanitized_git_config_json(logger: AnyLogger, allowlist: list[str] | None
     return json.dumps(sanitized_dict)
 
 
-REQUIRED_GITIGNORE_ENTRIES: tuple[str, ...] = (".pi-container/",)
+REQUIRED_GITIGNORE_ENTRIES: tuple[str, ...] = (".pa-container/",)
 
 
 def check_repo_gitignore(project_dir: Path) -> list[str]:
-    """Check if the git repository containing project_dir ignores required pi-container paths.
+    """Check if the git repository containing project_dir ignores required pa-container paths.
 
     Returns a list of missing required gitignore entries, or an empty list if
     all are present or if project_dir is not in a git repository.
@@ -531,11 +531,11 @@ def check_repo_gitignore(project_dir: Path) -> list[str]:
     return missing
 
 
-def check_repo_tracked_pi_container(project_dir: Path) -> list[str]:
-    """Return a list of tracked files under .pi-container in project_dir, if any."""
+def check_repo_tracked_PA_CONTAINER(project_dir: Path) -> list[str]:
+    """Return a list of tracked files under .pa-container in project_dir, if any."""
     try:
         res = subprocess.run(
-            ["git", "-C", str(project_dir), "ls-files", ".pi-container"],
+            ["git", "-C", str(project_dir), "ls-files", ".pa-container"],
             capture_output=True,
             text=True,
             check=False,
@@ -548,7 +548,7 @@ def check_repo_tracked_pi_container(project_dir: Path) -> list[str]:
 
 
 def warn_missing_gitignore(project_dir: Path, logger: AnyLogger) -> None:
-    """Log warnings if .pi-container entries are missing from .gitignore or actively tracked in git."""
+    """Log warnings if .pa-container entries are missing from .gitignore or actively tracked in git."""
     missing = check_repo_gitignore(project_dir)
     if missing:
         formatted = "\n".join(f"  {entry}" for entry in missing)
@@ -558,9 +558,9 @@ def warn_missing_gitignore(project_dir: Path, logger: AnyLogger) -> None:
             "Add them to .gitignore to prevent committing workspace configuration, credentials, or session history."
         )
 
-    tracked = check_repo_tracked_pi_container(project_dir)
+    tracked = check_repo_tracked_PA_CONTAINER(project_dir)
     if tracked:
         logger.warning(
-            f".pi-container files are currently tracked in this git repository ({len(tracked)} files found, e.g. {tracked[0]}).\n"
-            "Run 'git rm -r --cached .pi-container' to untrack them so local changes and credentials are not committed."
+            f".pa-container files are currently tracked in this git repository ({len(tracked)} files found, e.g. {tracked[0]}).\n"
+            "Run 'git rm -r --cached .pa-container' to untrack them so local changes and credentials are not committed."
         )

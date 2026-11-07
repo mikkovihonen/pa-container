@@ -25,9 +25,9 @@ opencode_url="https://registry.npmjs.org/@opencode/cli-linux-${opencode_arch}/-/
 
 fetch_verified "${opencode_url}" "${opencode_sha}" "/tmp/${opencode_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local/bin"
-tar -xzf "/tmp/${opencode_tarball}" --strip-components=2 -C "${PI_STAGE}/usr/local/bin" "package/bin/opencode"
-chmod 755 "${PI_STAGE}/usr/local/bin/opencode"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+tar -xzf "/tmp/${opencode_tarball}" --strip-components=2 -C "${PA_STAGE}/usr/local/bin" "package/bin/opencode"
+chmod 755 "${PA_STAGE}/usr/local/bin/opencode"
 rm -f "/tmp/${opencode_tarball}"
 
 stage_record "opencode" "${OPENCODE_VERSION}"

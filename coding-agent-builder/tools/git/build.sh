@@ -20,15 +20,15 @@ rm -f "/tmp/${tarball}"
 
 cd "${src}"
 make -j "$(mem_capped_jobs 300)" \
-    prefix="${PI_STAGE}/usr/local" \
+    prefix="${PA_STAGE}/usr/local" \
     USE_LIBDEFLATE=YesPlease \
     USE_LIBPCRE2=YesPlease \
     NO_TCLTK=YesPlease \
     INSTALL_SYMLINKS=1 \
     all
-make prefix="${PI_STAGE}/usr/local" NO_TCLTK=YesPlease install
+make prefix="${PA_STAGE}/usr/local" NO_TCLTK=YesPlease install
 rm -rf "${src}"
 
-"${PI_STAGE}/usr/local/bin/git" --version
+"${PA_STAGE}/usr/local/bin/git" --version
 stage_record "git" "${GIT_VERSION}"
 

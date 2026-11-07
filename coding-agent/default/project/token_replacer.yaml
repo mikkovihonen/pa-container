@@ -12,7 +12,7 @@ rules:
     content_patterns:
       - field: "headers"
         header_name: "Authorization"
-        regex: "Bearer pi-container-.*"
+        regex: "Bearer pa-container-.*"
     replace_with:
       strategy: "static"
       value: "Bearer ${ENV:OPENAI_API_KEY}"
@@ -25,7 +25,7 @@ rules:
     content_patterns:
       - field: "headers"
         header_name: "x-goog-api-key"
-        regex: "pi-container-.*"
+        regex: "pa-container-.*"
     replace_with:
       strategy: "static"
       value: "${ENV:GEMINI_API_KEY}"
@@ -38,7 +38,7 @@ rules:
     content_patterns:
       - field: "headers"
         header_name: "x-api-key"
-        regex: "pi-container-.*"
+        regex: "pa-container-.*"
     replace_with:
       strategy: "static"
       value: "${ENV:ANTHROPIC_API_KEY}"

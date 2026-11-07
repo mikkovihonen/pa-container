@@ -45,7 +45,7 @@ def test_pi_driver_contracts(tmp_path):
     assert driver.get_t3_driver() == "pi"
 
     project_dir = tmp_path / "project"
-    agent_dir = project_dir / ".pi-container" / "agents" / "pi"
+    agent_dir = project_dir / ".pa-container" / "agents" / "pi"
     mounts = driver.get_mounts(project_dir)
     assert len(mounts) == 1
     assert mounts[0].source == agent_dir
@@ -67,7 +67,7 @@ def test_pi_driver_contracts(tmp_path):
     assert "opper" in data["providers"]
 
     # When models.yaml exists, synthesize_config updates models.json
-    (project_dir / ".pi-container" / "models.yaml").write_text("allow:\n  - new-model\n")
+    (project_dir / ".pa-container" / "models.yaml").write_text("allow:\n  - new-model\n")
     new_servers = [{"name": "new-model", "baseUrl": "http://llama:8888/v1"}]
     driver.synthesize_config(new_servers, [], "new-model", project_dir)
     updated_data = json.loads(models_file.read_text())
@@ -80,7 +80,7 @@ def test_opencode_driver_contracts(tmp_path):
     assert driver.name == "opencode"
     assert driver.required_tools == ["opencode"]
     assert driver.get_command(["run", "main.py"]) == ["run", "main.py"]
-    assert driver.get_environment()["OPENAI_API_KEY"] == "pi-container-token-placeholder"
+    assert driver.get_environment()["OPENAI_API_KEY"] == "pa-container-token-placeholder"
     assert driver.get_t3_driver() is None
 
     project_dir = tmp_path / "project"
@@ -92,7 +92,7 @@ def test_opencode_driver_contracts(tmp_path):
     gateway_configs = [{"name": "opper", "baseUrl": "https://api.opper.ai"}]
     driver.synthesize_config(server_configs, gateway_configs, "qwen", project_dir)
 
-    cfg_file = project_dir / ".pi-container" / "agents" / "opencode" / "config.json"
+    cfg_file = project_dir / ".pa-container" / "agents" / "opencode" / "config.json"
     assert cfg_file.is_file()
     cfg_data = json.loads(cfg_file.read_text())
     assert cfg_data["default_model"] == "qwen"
@@ -106,7 +106,7 @@ def test_antigravity_driver_contracts(tmp_path):
     assert driver.name == "antigravity"
     assert driver.required_tools == ["antigravity"]
     assert driver.get_command(["--goal", "audit"]) == ["--goal", "audit"]
-    assert driver.get_environment()["GEMINI_API_KEY"] == "pi-container-token-placeholder"
+    assert driver.get_environment()["GEMINI_API_KEY"] == "pa-container-token-placeholder"
     assert driver.get_t3_driver() is None
 
     project_dir = tmp_path / "project"
@@ -117,7 +117,7 @@ def test_antigravity_driver_contracts(tmp_path):
     server_configs = [{"name": "local-model", "baseUrl": "http://llama:9999/v1"}]
     driver.synthesize_config(server_configs, [], "local-model", project_dir)
 
-    cfg_file = project_dir / ".pi-container" / "agents" / "antigravity" / "config.json"
+    cfg_file = project_dir / ".pa-container" / "agents" / "antigravity" / "config.json"
     assert cfg_file.is_file()
     cfg_data = json.loads(cfg_file.read_text())
     assert cfg_data["defaultModel"] == "local-model"
@@ -131,7 +131,7 @@ def test_claude_driver_contracts(tmp_path):
     assert driver.required_tools == ["claude-code"]
     assert driver.get_command(["-p", "hello"]) == ["-p", "hello"]
     env = driver.get_environment()
-    assert env["ANTHROPIC_API_KEY"] == "pi-container-token-placeholder"
+    assert env["ANTHROPIC_API_KEY"] == "pa-container-token-placeholder"
     assert env["CLAUDE_CONFIG_DIR"] == "/home/agent/.claude"
     assert driver.get_t3_driver() == "claudeAgent"
 
@@ -143,13 +143,13 @@ def test_claude_driver_contracts(tmp_path):
     server_configs = [{"name": "local-claude", "baseUrl": "http://llama:9999/v1"}]
     driver.synthesize_config(server_configs, [], "claude-3-7-sonnet", project_dir)
 
-    cfg_file = project_dir / ".pi-container" / "agents" / "claude" / "claude.json"
+    cfg_file = project_dir / ".pa-container" / "agents" / "claude" / "claude.json"
     assert cfg_file.is_file()
     cfg_data = json.loads(cfg_file.read_text())
     assert cfg_data["model"] == "claude-3-7-sonnet"
     assert cfg_data["baseUrl"] == "http://llama:9999/v1"
 
-    settings_file = project_dir / ".pi-container" / "agents" / "claude" / "settings.json"
+    settings_file = project_dir / ".pa-container" / "agents" / "claude" / "settings.json"
     assert settings_file.is_file()
     settings_data = json.loads(settings_file.read_text())
     assert settings_data["model"] == "claude-3-7-sonnet"

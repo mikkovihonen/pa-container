@@ -12,8 +12,7 @@ from logging_driver import LogCategory, get_category_logger
 
 logger = get_category_logger(__name__, LogCategory.SECURITY)
 
-DEFAULT_KEYRING_SERVICE = "pi-container"
-
+DEFAULT_KEYRING_SERVICE = "pa-container"
 
 def get_keyring_secret(
     account: str,
@@ -27,6 +26,7 @@ def get_keyring_secret(
         if secret:
             logger.debug(f"Resolved secret from keyring (service='{service}', account='{account}')")
             return secret
+
     except Exception as e:
         logger.debug(f"Keyring lookup failed for service='{service}', account='{account}': {e}")
 

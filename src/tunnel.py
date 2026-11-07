@@ -144,7 +144,7 @@ def _validate_tailscale_prerequisites(tailscale_mode: str = "serve") -> None:
                     "     - Linux:   curl -fsSL https://tailscale.com/install.sh | sh",
                     "  2. Authenticate and connect:",
                     "     - Run: tailscale up",
-                    "  3. Re-run pi-container:",
+                    "  3. Re-run pa-container:",
                     "     - ./run.sh --t3 --t3-tunnel tailscale",
                 ],
             )
@@ -174,7 +174,7 @@ def _validate_tailscale_prerequisites(tailscale_mode: str = "serve") -> None:
                         "     - Run: tailscale up",
                         "  2. Verify connection:",
                         "     - Run: tailscale status",
-                        "  3. Re-run pi-container.",
+                        "  3. Re-run pa-container.",
                     ],
                 )
             )
@@ -249,7 +249,7 @@ def _validate_cloudflare_prerequisites(
                         "     (Networks -> Tunnels -> Select Tunnel -> Copy token)",
                         "  2. Save it securely in your OS keyring:",
                         f"     - Run: uv run keyring set {DEFAULT_KEYRING_SERVICE} {keyring_account}",
-                        "  3. Re-run pi-container.",
+                        "  3. Re-run pa-container.",
                     ],
                 )
             )

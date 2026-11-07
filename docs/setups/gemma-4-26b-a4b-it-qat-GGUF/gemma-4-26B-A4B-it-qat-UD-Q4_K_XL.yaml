@@ -1,4 +1,4 @@
-# Place in ~/.config/pi-container/models/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.yaml
+# Place in ~/.config/pa-container/models/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.yaml
 id: gemma-4-26B-A4B-it-qat-UD-Q4_K_XL
 kind: llama-server
 description: "Gemma 4 26B with draft MTP"
@@ -54,7 +54,7 @@ flags:
   - 8192
   - "--jinja"
   - "--chat-template-file"
-  - "~/.config/pi-container/chat-templates/gemma-4-26B-A4B-it/chat_template.jinja"
+  - "~/.config/pa-container/chat-templates/gemma-4-26B-A4B-it/chat_template.jinja"
   - "--reasoning"
   - "on"
   - "--n-gpu-layers"

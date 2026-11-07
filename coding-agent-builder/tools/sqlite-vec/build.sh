@@ -43,10 +43,10 @@ elif [ "${arch}" = "aarch64" ]; then
 fi
 
 gcc -O3 -fPIC -shared -Wall -Wextra -Ivendor/ -I. -lm ${simd_flags} sqlite-vec.c -o vec0.so
-mkdir -p "${PI_STAGE}/usr/local/lib/sqlite" "${PI_STAGE}/usr/local/include"
-install -m755 vec0.so "${PI_STAGE}/usr/local/lib/sqlite/vec0.so"
-install -m644 sqlite-vec.h "${PI_STAGE}/usr/local/include/sqlite-vec.h"
+mkdir -p "${PA_STAGE}/usr/local/lib/sqlite" "${PA_STAGE}/usr/local/include"
+install -m755 vec0.so "${PA_STAGE}/usr/local/lib/sqlite/vec0.so"
+install -m644 sqlite-vec.h "${PA_STAGE}/usr/local/include/sqlite-vec.h"
 rm -rf "${src}"
 
-test -f "${PI_STAGE}/usr/local/lib/sqlite/vec0.so"
+test -f "${PA_STAGE}/usr/local/lib/sqlite/vec0.so"
 stage_record "sqlite-vec" "${SQLITE_VEC_VERSION}"

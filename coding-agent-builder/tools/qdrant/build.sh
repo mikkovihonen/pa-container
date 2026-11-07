@@ -16,10 +16,10 @@ clone_verified "https://github.com/qdrant/qdrant.git" "${QDRANT_VERSION}" "${QDR
 
 cd "${src}"
 cargo build --release --bin qdrant --no-default-features --features service
-mkdir -p "${PI_STAGE}/usr/local/bin"
-install -m755 target/release/qdrant "${PI_STAGE}/usr/local/bin/qdrant"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+install -m755 target/release/qdrant "${PA_STAGE}/usr/local/bin/qdrant"
 rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
 
-"${PI_STAGE}/usr/local/bin/qdrant" --version
+"${PA_STAGE}/usr/local/bin/qdrant" --version
 stage_record "qdrant" "${QDRANT_VERSION}"
 

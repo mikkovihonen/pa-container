@@ -269,7 +269,7 @@ def _replace_header_value(self, value: str, regex: re.Pattern, strategy: str) ->
 mitmweb --set scripts=/path/to/your_addon.py
 ```
 
-### In the Docker container (pi-coding-agent-proxy):
+### In the Docker container (pa-container-agent-proxy):
 
 ```dockerfile
 COPY addons/your_addon/your_addon.py /home/mitmproxy/scripts/your_addon.py
@@ -436,6 +436,6 @@ This writes `index.html`, `static/`, `flows.json`, and flow content to the speci
 
 | Addon | Path | Description |
 |-------|------|-------------|
-| Token Replacer | [`token_replacer/`](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/addons/token_replacer/) | Replaces sensitive tokens in HTTP bodies/headers based on hostname + content patterns |
-| Allowlist | [`allowlist/`](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/addons/allowlist/) | Filters HTTP traffic by domain/IP allowlist or blocklist; supports glob, regex, CIDR ranges |
-| Flow Export | [`flow_export/`](https://github.com/mikkovihonen/pi-container/blob/main/coding-agent-proxy/addons/flow_export/) | Appends all flows (including blocked/killed) to a JSON Lines audit trail as they complete |
+| Token Replacer | [`token_replacer/`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/addons/token_replacer/) | Replaces sensitive tokens in HTTP bodies/headers based on hostname + content patterns |
+| Allowlist | [`allowlist/`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/addons/allowlist/) | Filters HTTP traffic by domain/IP allowlist or blocklist; supports glob, regex, CIDR ranges |
+| Flow Export | [`flow_export/`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/addons/flow_export/) | Appends all flows (including blocked/killed) to a JSON Lines audit trail as they complete |

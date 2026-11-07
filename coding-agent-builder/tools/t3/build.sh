@@ -25,13 +25,13 @@ t3_url="https://github.com/pingdotgg/t3code/releases/download/v${T3_VERSION}/${t
 
 fetch_verified "${t3_url}" "${t3_sha}" "/tmp/${t3_tarball}"
 
-mkdir -p "${PI_STAGE}/usr/local/lib/t3"
-tar -C "${PI_STAGE}/usr/local/lib/t3" --strip-components=1 -xzf "/tmp/${t3_tarball}"
+mkdir -p "${PA_STAGE}/usr/local/lib/t3"
+tar -C "${PA_STAGE}/usr/local/lib/t3" --strip-components=1 -xzf "/tmp/${t3_tarball}"
 rm -f "/tmp/${t3_tarball}"
 
 
-mkdir -p "${PI_STAGE}/usr/local/bin"
-ln -sf ../lib/t3/t3 "${PI_STAGE}/usr/local/bin/t3"
+mkdir -p "${PA_STAGE}/usr/local/bin"
+ln -sf ../lib/t3/t3 "${PA_STAGE}/usr/local/bin/t3"
 
 stage_record "t3" "${T3_VERSION}"
 

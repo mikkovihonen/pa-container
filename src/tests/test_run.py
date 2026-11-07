@@ -26,7 +26,7 @@ class TestInitRuntime:
         with caplog.at_level(logging.ERROR):
             run._init_runtime()
         assert exited == [1]
-        assert "uv run keyring set pi-container ADMIN_PASSWORD" in caplog.text
+        assert "uv run keyring set pa-container ADMIN_PASSWORD" in caplog.text
         assert "Host environment variables are not accepted" in caplog.text
 
     def test_admin_password_ignores_host_environment_variables(self, monkeypatch, caplog):
@@ -72,16 +72,16 @@ class TestInitRuntime:
 
 
 class TestAgentLaunchReadOnlyPiContainerMount:
-    def test_read_only_pi_container_mount_flag_included_when_enabled(self):
-        pi_container_dir = run.PROJECT_DIR / ".pi-container"
-        read_only_pi_container = True
-        flags = ["--volume", f"{pi_container_dir}:/workspace/.pi-container:ro"] if read_only_pi_container else []
-        assert flags == ["--volume", f"{pi_container_dir}:/workspace/.pi-container:ro"]
+    def test_read_only_PA_CONTAINER_mount_flag_included_when_enabled(self):
+        PA_CONTAINER_dir = run.PROJECT_DIR / ".pa-container"
+        read_only_PA_CONTAINER = True
+        flags = ["--volume", f"{PA_CONTAINER_dir}:/workspace/.pa-container:ro"] if read_only_PA_CONTAINER else []
+        assert flags == ["--volume", f"{PA_CONTAINER_dir}:/workspace/.pa-container:ro"]
 
-    def test_read_only_pi_container_mount_flag_omitted_when_disabled(self):
-        pi_container_dir = run.PROJECT_DIR / ".pi-container"
-        read_only_pi_container = False
-        flags = ["--volume", f"{pi_container_dir}:/workspace/.pi-container:ro"] if read_only_pi_container else []
+    def test_read_only_PA_CONTAINER_mount_flag_omitted_when_disabled(self):
+        PA_CONTAINER_dir = run.PROJECT_DIR / ".pa-container"
+        read_only_PA_CONTAINER = False
+        flags = ["--volume", f"{PA_CONTAINER_dir}:/workspace/.pa-container:ro"] if read_only_PA_CONTAINER else []
         assert flags == []
 
 
@@ -479,16 +479,16 @@ class TestT3AdvertiseHostResolution:
         assert "/home/agent/.t3/userdata/settings.json" in content
 
     def test_t3_mounts_configured_in_t3_mode(self, tmp_path):
-        pi_container_dir = tmp_path / ".pi-container"
+        PA_CONTAINER_dir = tmp_path / ".pa-container"
         is_t3_mode = True
         t3_mounts: list[str] = []
         t3_chown: list[str] = []
         if is_t3_mode:
-            t3_dir = pi_container_dir / "t3"
+            t3_dir = PA_CONTAINER_dir / "t3"
             t3_dir.mkdir(parents=True, exist_ok=True)
             t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
             t3_chown = ["/home/agent/.t3"]
-        assert t3_mounts == ["--volume", f"{pi_container_dir / 't3'}:/home/agent/.t3"]
+        assert t3_mounts == ["--volume", f"{PA_CONTAINER_dir / 't3'}:/home/agent/.t3"]
         assert t3_chown == ["/home/agent/.t3"]
 
     def test_t3_tunnel_cli_parsing(self):
@@ -588,7 +588,7 @@ class TestT3AdvertiseHostResolution:
 
         env_args = [
             "--env",
-            "PI_CONTAINER_MODE=t3",
+            "PA_CONTAINER_MODE=t3",
             "--env",
             f"T3_ADVERTISE_HOST={t3_advertise_host}",
             *(["--env", f"T3_PUBLIC_URL={t3_public_url}"] if t3_public_url else []),
@@ -611,10 +611,10 @@ class TestT3AdvertiseHostResolution:
 
         from network import read_enabled_agents
 
-        pi_dir = tmp_path / ".pi-container"
-        pi_dir.mkdir(parents=True)
-        (pi_dir / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["claude"]}}))
-        enabled = read_enabled_agents(pi_dir)
+        pa_dir = tmp_path / ".pa-container"
+        pa_dir.mkdir(parents=True)
+        (pa_dir / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["claude"]}}))
+        enabled = read_enabled_agents(pa_dir)
         assert enabled == ["claude"]
         assert "pi" not in enabled
 
@@ -646,7 +646,7 @@ class TestOpenBrowserResolution:
         import run
         from cli import RunOptions
 
-        monkeypatch.delenv("PI_CONTAINER_OPEN_BROWSER", raising=False)
+        monkeypatch.delenv("PA_CONTAINER_OPEN_BROWSER", raising=False)
         (tmp_path / "config.yaml").write_text("proxy:\n  open_browser: false\n")
 
         options = RunOptions(open_browser=True)
@@ -655,8 +655,8 @@ class TestOpenBrowserResolution:
             options.open_browser
             if options.open_browser is not None
             else (
-                (os.environ.get("PI_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                if "PI_CONTAINER_OPEN_BROWSER" in os.environ
+                (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
+                if "PA_CONTAINER_OPEN_BROWSER" in os.environ
                 else (proxy_cfg.get("open_browser", False) or getattr(run.global_config.runtime, "open_browser", False))
             )
         )
@@ -666,7 +666,7 @@ class TestOpenBrowserResolution:
         import run
         from cli import RunOptions
 
-        monkeypatch.setenv("PI_CONTAINER_OPEN_BROWSER", "true")
+        monkeypatch.setenv("PA_CONTAINER_OPEN_BROWSER", "true")
         (tmp_path / "config.yaml").write_text("proxy:\n  open_browser: false\n")
 
         options = RunOptions(open_browser=None)
@@ -675,8 +675,8 @@ class TestOpenBrowserResolution:
             options.open_browser
             if options.open_browser is not None
             else (
-                (os.environ.get("PI_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                if "PI_CONTAINER_OPEN_BROWSER" in os.environ
+                (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
+                if "PA_CONTAINER_OPEN_BROWSER" in os.environ
                 else (proxy_cfg.get("open_browser", False) or getattr(run.global_config.runtime, "open_browser", False))
             )
         )
@@ -686,7 +686,7 @@ class TestOpenBrowserResolution:
         import run
         from cli import RunOptions
 
-        monkeypatch.delenv("PI_CONTAINER_OPEN_BROWSER", raising=False)
+        monkeypatch.delenv("PA_CONTAINER_OPEN_BROWSER", raising=False)
         (tmp_path / "config.yaml").write_text("proxy:\n  open_browser: true\n")
 
         options = RunOptions(open_browser=None)
@@ -695,8 +695,8 @@ class TestOpenBrowserResolution:
             options.open_browser
             if options.open_browser is not None
             else (
-                (os.environ.get("PI_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                if "PI_CONTAINER_OPEN_BROWSER" in os.environ
+                (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
+                if "PA_CONTAINER_OPEN_BROWSER" in os.environ
                 else (proxy_cfg.get("open_browser", False) or getattr(run.global_config.runtime, "open_browser", False))
             )
         )
