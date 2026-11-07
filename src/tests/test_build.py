@@ -44,6 +44,7 @@ class TestBuildProxy:
             cmd = mock_popen.call_args[0][0]
             assert cmd[0] == "podman"
             assert cmd[1] == "build"
+            assert "--force-rm" in cmd
             assert "--tag" in cmd
             assert "pi-coding-agent-proxy:local" in cmd
             # Should include the Containerfile path
@@ -279,10 +280,38 @@ class TestMain:
             patch("build.build_proxy", side_effect=lambda r: calls.append("proxy")),
             patch("build.build_builder", side_effect=lambda r: calls.append("builder")),
             patch("build.build_agent", side_effect=lambda r: calls.append("agent")),
+            patch("images.prune_dangling_images") as mock_prune,
             patch("sys.exit"),
         ):
-            main()
+            main([])
         assert calls == ["builder", "proxy", "agent"]
+        mock_prune.assert_called_once_with("podman", purge_cache=False)
+
+    def test_main_clean_runs_all_cleanups(self):
+        with (
+            patch("build.validate_environment", return_value="podman"),
+            patch("containers.cleanup_orphaned_agent_containers", return_value=["agent-1"]) as mock_ctr,
+            patch("images.cleanup_orphaned_project_images", return_value=["proj-1"]) as mock_img,
+            patch("images.prune_dangling_images", return_value=["layer-1"]) as mock_prune,
+            patch("build.build_builder") as mock_bld,
+        ):
+            main(["--clean"])
+            mock_ctr.assert_called_once_with("podman")
+            mock_img.assert_called_once_with("podman")
+            mock_prune.assert_called_once_with("podman", purge_cache=True)
+            mock_bld.assert_not_called()
+
+    def test_main_no_prune_skips_pruning(self):
+        with (
+            patch("build.validate_environment", return_value="podman"),
+            patch("build.check_build_memory", return_value=True),
+            patch("build.build_proxy"),
+            patch("build.build_builder"),
+            patch("build.build_agent"),
+            patch("images.prune_dangling_images") as mock_prune,
+        ):
+            main(["--no-prune"])
+            mock_prune.assert_not_called()
 
     def test_main_rejects_bad_node_source_before_building_anything(self, monkeypatch):
         """An invalid NODE_SOURCE must cost nothing at all.
@@ -400,6 +429,7 @@ class TestBuildProjectImage:
             cmd = mock_popen.call_args[0][0]
             assert cmd[0] == "podman"
             assert cmd[1] == "build"
+            assert "--force-rm" in cmd
             assert "--tag" in cmd
             assert "pi-coding-agent-test.local" in cmd
             assert "LABEL_HASH=abc123" in cmd

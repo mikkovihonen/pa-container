@@ -617,3 +617,25 @@ class TestT3AdvertiseHostResolution:
         enabled = read_enabled_agents(pi_dir)
         assert enabled == ["claude"]
         assert "pi" not in enabled
+
+    def test_run_cleanup_orphaned_agent_containers_called(self, monkeypatch):
+        import run
+
+        called = []
+        monkeypatch.setattr(run.containers, "cleanup_orphaned_agent_containers", lambda r: called.append(r) or ["c1"])
+        result = run.containers.cleanup_orphaned_agent_containers("podman")
+        assert result == ["c1"]
+        assert called == ["podman"]
+
+    def test_run_post_build_pruning_enabled(self, monkeypatch):
+        import run
+
+        pruned_calls = []
+        monkeypatch.setattr(
+            run.images,
+            "prune_dangling_images",
+            lambda r, purge_cache=False: pruned_calls.append((r, purge_cache)) or ["p1"],
+        )
+        if run.global_config.build.prune_dangling:
+            run.images.prune_dangling_images("podman", purge_cache=False)
+        assert pruned_calls == [("podman", False)]

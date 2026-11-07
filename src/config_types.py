@@ -202,6 +202,8 @@ class BuildGlobalConfig:
     python_optimize: bool = True
     memory_preflight: bool = True
     node_source: str = "prebuilt"
+    prune_dangling: bool = True
+    purge_build_cache: bool = False
 
 
 @dataclass(frozen=True)

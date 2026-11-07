@@ -1050,3 +1050,61 @@ class TestProjectImageBuildReason:
             _ts("2025-01-01T00:00:00Z"),
         )
         assert reason == "content hash mismatch"
+
+
+class TestPruneDanglingImages:
+    def test_prune_dangling_without_cache(self, monkeypatch):
+        called_cmd = []
+
+        def mock_run(cmd, **kwargs):
+            called_cmd.append(cmd)
+            mock_res = MagicMock()
+            mock_res.returncode = 0
+            mock_res.stdout = "a1b2c3d4e5f6\nDeleted: sha256:123456\nb2c3d4e5f6a7\n"
+            mock_res.stderr = ""
+            return mock_res
+
+        monkeypatch.setattr(images.subprocess, "run", mock_run)
+        pruned = images.prune_dangling_images("podman", purge_cache=False)
+        assert called_cmd == [["podman", "image", "prune", "-f"]]
+        assert pruned == ["a1b2c3d4e5f6", "b2c3d4e5f6a7"]
+
+    def test_prune_dangling_with_cache(self, monkeypatch):
+        called_cmd = []
+
+        def mock_run(cmd, **kwargs):
+            called_cmd.append(cmd)
+            mock_res = MagicMock()
+            mock_res.returncode = 0
+            mock_res.stdout = "c3d4e5f6a7b8\n"
+            mock_res.stderr = ""
+            return mock_res
+
+        monkeypatch.setattr(images.subprocess, "run", mock_run)
+        pruned = images.prune_dangling_images("podman", purge_cache=True)
+        assert called_cmd == [["podman", "image", "prune", "-f", "--build-cache"]]
+        assert pruned == ["c3d4e5f6a7b8"]
+
+    def test_prune_dangling_handles_error(self, monkeypatch, caplog):
+        def mock_run(cmd, **kwargs):
+            mock_res = MagicMock()
+            mock_res.returncode = 1
+            mock_res.stdout = ""
+            mock_res.stderr = "error pruning images"
+            return mock_res
+
+        monkeypatch.setattr(images.subprocess, "run", mock_run)
+        with caplog.at_level("WARNING"):
+            pruned = images.prune_dangling_images("podman")
+        assert pruned == []
+        assert "Dangling image prune warning" in caplog.text
+
+    def test_prune_dangling_handles_exception(self, monkeypatch, caplog):
+        def mock_run(cmd, **kwargs):
+            raise RuntimeError("daemon down")
+
+        monkeypatch.setattr(images.subprocess, "run", mock_run)
+        with caplog.at_level("WARNING"):
+            pruned = images.prune_dangling_images("podman")
+        assert pruned == []
+        assert "Could not prune dangling images" in caplog.text

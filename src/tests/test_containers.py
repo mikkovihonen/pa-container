@@ -325,7 +325,7 @@ class TestCleanupOrphanedAgentContainers:
             lambda cmd, **kw: removed_calls.append(cmd) or MagicMock(returncode=0),
         )
 
-        removed = containers.cleanup_orphaned_agent_containers("podman", "f155d7064f")
+        removed = containers.cleanup_orphaned_agent_containers("podman")
         assert removed == ["pi-coding-agent-1234567890ab"]
         assert len(removed_calls) == 1
         assert removed_calls[0][:4] == ["podman", "rm", "-f", "pi-coding-agent-1234567890ab"]
@@ -360,11 +360,11 @@ class TestCleanupOrphanedAgentContainers:
             lambda cmd, **kw: removed_calls.append(cmd) or MagicMock(returncode=0),
         )
 
-        removed = containers.cleanup_orphaned_agent_containers("podman", "f155d7064f")
+        removed = containers.cleanup_orphaned_agent_containers("podman")
         assert removed == []
         assert len(removed_calls) == 0
 
-    def test_skips_containers_from_other_projects(self, monkeypatch):
+    def test_removes_dead_containers_from_any_project(self, monkeypatch):
         container_json = json.dumps(
             [
                 {
@@ -384,8 +384,13 @@ class TestCleanupOrphanedAgentContainers:
             lambda cmd, **kw: MagicMock(returncode=0, stdout=container_json, stderr=""),
         )
         monkeypatch.setattr(containers, "is_pid_alive", lambda pid: False)
-        removed = containers.cleanup_orphaned_agent_containers("podman", "f155d7064f")
-        assert removed == []
+        monkeypatch.setattr(
+            containers,
+            "run_quiet",
+            lambda cmd, **kw: MagicMock(returncode=0),
+        )
+        removed = containers.cleanup_orphaned_agent_containers("podman")
+        assert removed == ["pi-coding-agent-other-project"]
 
     def test_removes_exited_container_without_launcher_label(self, monkeypatch):
         container_json = json.dumps(
@@ -410,7 +415,7 @@ class TestCleanupOrphanedAgentContainers:
             "run_quiet",
             lambda cmd, **kw: MagicMock(returncode=0),
         )
-        removed = containers.cleanup_orphaned_agent_containers("podman", "f155d7064f")
+        removed = containers.cleanup_orphaned_agent_containers("podman")
         assert removed == ["pi-coding-agent-old"]
 
 

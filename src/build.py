@@ -225,6 +225,7 @@ def build_builder(runtime: str) -> None:
         [
             runtime,
             "build",
+            "--force-rm",
             *_build_dns_args(),
             *_python_build_args(),
             *_node_build_args(),
@@ -267,6 +268,7 @@ def build_tool(runtime: str, tool: str) -> None:
         [
             runtime,
             "build",
+            "--force-rm",
             *_build_dns_args(),
             "--target",
             target,
@@ -300,6 +302,7 @@ def build_proxy(runtime: str) -> None:
         [
             runtime,
             "build",
+            "--force-rm",
             *_build_dns_args(),
             "--label",
             f"pi-container.build.time={build_ts}",
@@ -326,6 +329,7 @@ def build_agent(runtime: str) -> None:
         [
             runtime,
             "build",
+            "--force-rm",
             *_build_dns_args(),
             "--build-context",
             f"root_commands_path={DEFAULT_ROOT_COMMANDS.parent}",
@@ -371,6 +375,7 @@ def build_project_image(
     cmd = [
         runtime,
         "build",
+        "--force-rm",
         *_build_dns_args(),
         "--build-context",
         f"root_commands_path={Path(root_commands_path).parent}",
@@ -449,6 +454,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Skip cleaning build directory before compiling llama.cpp.",
     )
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Clean orphaned containers, images, and build cache without building.",
+    )
+    parser.add_argument(
+        "--no-prune",
+        action="store_true",
+        help="Skip automatic post-build dangling image pruning.",
+    )
+    parser.add_argument(
         "--cmake-arg",
         action="append",
         dest="cmake_args",
@@ -460,6 +475,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+
+    if args.clean:
+        try:
+            runtime = validate_environment(LLAMA_BIN)
+        except EnvironmentError as e:
+            logger.error(f"Environment Error: {e}")
+            sys.exit(1)
+
+        from containers import cleanup_orphaned_agent_containers
+        from images import cleanup_orphaned_project_images, prune_dangling_images
+
+        removed_containers = cleanup_orphaned_agent_containers(runtime)
+        if removed_containers:
+            logger.info(f"Removed {len(removed_containers)} orphaned container(s): {', '.join(removed_containers)}")
+
+        orphaned_images = cleanup_orphaned_project_images(runtime)
+        if orphaned_images:
+            logger.info(f"Removed {len(orphaned_images)} orphaned project image(s): {', '.join(orphaned_images)}")
+
+        prune_dangling_images(runtime, purge_cache=True)
+        logger.info("Clean pass completed.")
+        return
 
     if args.llama or args.llama_latest:
         from llama_build import LlamaBuildError, build_llama_server
@@ -517,6 +554,10 @@ def main(argv: list[str] | None = None) -> None:
                 elif t in CORE_TOOLS:
                     logger.info(f"Tool '{t}' is already included in builder baseline ({BUILDER_IMAGE_TAG}).")
             logger.info("All requested toolchains built successfully.")
+            if not args.no_prune and global_config.build.prune_dangling:
+                from images import prune_dangling_images
+
+                prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
             return
 
         # Strict dependency order, not a preference: the proxy image COPYs its CPython
@@ -527,6 +568,10 @@ def main(argv: list[str] | None = None) -> None:
         build_builder(runtime)
         build_proxy(runtime)
         build_agent(runtime)
+        if not args.no_prune and global_config.build.prune_dangling:
+            from images import prune_dangling_images
+
+            prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
     except subprocess.CalledProcessError as e:
         logger.error(f"Build failed: {e}")
         sys.exit(1)

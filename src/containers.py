@@ -39,8 +39,8 @@ _REGISTRY_BLOB_HOSTS: dict[str, tuple[tuple[str, str], ...]] = {
 _REGEX_METACHARS = r"^$+{}[]()|"
 
 
-def cleanup_orphaned_agent_containers(runtime: str, project_key: str) -> list[str]:
-    """Discover and remove dead or exited agent containers associated with this project."""
+def cleanup_orphaned_agent_containers(runtime: str) -> list[str]:
+    """Discover and remove dead or exited agent containers across all projects."""
     removed: list[str] = []
     try:
         result = subprocess.run(
@@ -69,13 +69,7 @@ def cleanup_orphaned_agent_containers(runtime: str, project_key: str) -> list[st
         if not name or not name.startswith(("pi-coding-agent-", "coding-agent-")):
             continue
 
-        image = str(container.get("Image") or "")
         labels = container.get("Labels") or {}
-        project_label = labels.get("pi-container.project.hash")
-        is_my_project = (project_label == project_key) or (project_key in image)
-        if not is_my_project:
-            continue
-
         launcher_pid_str = labels.get("pi-container.launcher_pid")
         is_orphan = False
         if launcher_pid_str:

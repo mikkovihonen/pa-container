@@ -33,3 +33,5 @@ build:
   python_optimize: true
   memory_preflight: true
   node_source: prebuilt
+  prune_dangling: true
+  purge_build_cache: false

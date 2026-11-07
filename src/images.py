@@ -505,3 +505,52 @@ def cleanup_orphaned_project_images(runtime: str) -> list[str]:
             removed.append(name)
 
     return removed
+
+
+def prune_dangling_images(runtime: str | None = None, purge_cache: bool = False) -> list[str]:
+    """Prune unreferenced untagged (<none>:<none>) images and optionally build cache.
+
+    Runs 'podman image prune -f [--build-cache]' which removes dangling images
+    not referenced by any tag or active container.
+
+    Args:
+        runtime: Container runtime (podman).
+        purge_cache: When True, passes --build-cache to remove buildah mount cache.
+
+    Returns:
+        List of pruned image IDs or digests.
+    """
+    rt = _get_runtime(runtime)
+    cmd = [rt, "image", "prune", "-f"]
+    if purge_cache:
+        cmd.append("--build-cache")
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            logger.warning(f"Dangling image prune warning: {result.stderr.strip()}")
+            return []
+
+        pruned_ids = [
+            line.strip()
+            for line in result.stdout.splitlines()
+            if line.strip() and not line.strip().lower().startswith("deleted:")
+        ]
+        if pruned_ids:
+            logger.info(
+                f"Pruned {len(pruned_ids)} untagged/dangling image layer(s)"
+                + (" and persistent build cache." if purge_cache else ".")
+            )
+        else:
+            logger.info(
+                "Dangling image prune completed" + (" (including persistent build cache)." if purge_cache else ".")
+            )
+        return pruned_ids
+    except Exception as e:
+        logger.warning(f"Could not prune dangling images: {e}")
+        return []

@@ -136,6 +136,8 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
         python_optimize=_parse_bool(os.environ.get("PYTHON_OPTIMIZE", raw_bld.get("python_optimize", True))),
         memory_preflight=_parse_bool(os.environ.get("PI_MEMORY_PREFLIGHT", raw_bld.get("memory_preflight", True))),
         node_source=os.environ.get("NODE_SOURCE") or str(raw_bld.get("node_source", "prebuilt")),
+        prune_dangling=_parse_bool(os.environ.get("PI_PRUNE_DANGLING", raw_bld.get("prune_dangling", True))),
+        purge_build_cache=_parse_bool(os.environ.get("PI_PURGE_BUILD_CACHE", raw_bld.get("purge_build_cache", False))),
     )
 
     return GlobalConfig(

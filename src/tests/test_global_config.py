@@ -54,6 +54,8 @@ class TestLoadGlobalConfig:
         assert cfg.llama.build.minimal is True
         assert cfg.build.images.agent == "pi-coding-agent:local"
         assert cfg.build.dns == "1.1.1.1"
+        assert cfg.build.prune_dangling is True
+        assert cfg.build.purge_build_cache is False
 
     def test_canonical_env_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         repo_root = Path(__file__).resolve().parent.parent.parent
@@ -75,6 +77,8 @@ class TestLoadGlobalConfig:
         monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
         monkeypatch.setenv("PI_MEMORY_PREFLIGHT", "0")
         monkeypatch.setenv("NODE_SOURCE", "build")
+        monkeypatch.setenv("PI_PRUNE_DANGLING", "false")
+        monkeypatch.setenv("PI_PURGE_BUILD_CACHE", "true")
 
         cfg = load_global_config(config_file=target_file, repo_root=repo_root)
         assert cfg.runtime.log_level == "DEBUG"
@@ -92,6 +96,8 @@ class TestLoadGlobalConfig:
         assert cfg.build.python_optimize is False
         assert cfg.build.memory_preflight is False
         assert cfg.build.node_source == "build"
+        assert cfg.build.prune_dangling is False
+        assert cfg.build.purge_build_cache is True
 
 
 class TestValidateGlobalConfig:

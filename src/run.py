@@ -35,6 +35,7 @@ from config import (
     PROXY_LOCK_DIR,
     PROXY_UPSTREAM_NETWORK_ENV,
     REPO_ROOT,
+    global_config,
 )
 from config_schema import validate_config, validate_models, validate_project_yaml
 from flow_export import export_mitmweb_flows, poll_agent_container_ips, recover_dangling_flows
@@ -363,7 +364,7 @@ def main() -> None:
     # Crash recovery: reap orphaned servers, proxies, and agent containers from prior crashed runs
     containers.sweep_orphaned_servers(LLAMA_SERVER_LOCK_DIR)
     containers.sweep_orphaned_proxies(CONTAINER_RUNTIME, PROXY_LOCK_DIR)
-    containers.cleanup_orphaned_agent_containers(CONTAINER_RUNTIME, project.project_key(PROJECT_DIR))
+    containers.cleanup_orphaned_agent_containers(CONTAINER_RUNTIME)
     if flow_export_enabled:
         recover_dangling_flows(
             exports_dir=pi_container_dir / "exports",
@@ -664,6 +665,8 @@ def main() -> None:
                         build_timestamp=images.now_iso(),
                         tools=project_tools,
                     )
+                    if global_config.build.prune_dangling:
+                        images.prune_dangling_images(CONTAINER_RUNTIME, purge_cache=False)
                 else:
                     logger.info(f"Using cached project-specific image: {agent_image_tag}")
             else:
@@ -677,6 +680,8 @@ def main() -> None:
                             "rebuilding shared agent image..."
                         )
                         build_agent(CONTAINER_RUNTIME)
+                        if global_config.build.prune_dangling:
+                            images.prune_dangling_images(CONTAINER_RUNTIME, purge_cache=False)
                 logger.info(f"Using shared image: {agent_image_tag}")
 
             # ─── Nested-container image store ───────────────────────────

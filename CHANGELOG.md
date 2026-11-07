@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- **Automated container build management & dangling image pruning.** Added `images.prune_dangling_images()` to automatically prune untagged `<none>:<none>` images and intermediate build layers on build completion in `build.py` and project rebuilds in `run.py`. Added `--clean` CLI flag to `./build.sh` for standalone maintenance (pruning dead containers, orphaned images, and build cache with `--build-cache`) and `--no-prune` to opt out of post-build pruning.
+- **Persistent build cache purging.** Added `purge_build_cache` option to `build` section of global configuration and support for `--build-cache` in `prune_dangling_images()`.
+- **Global orphaned container sweeping.** Refactored `containers.cleanup_orphaned_agent_containers(runtime)` to discover and remove exited and dead `pi-coding-agent-*` and `coding-agent-*` containers across all projects globally on startup.
+- **Enforced `--force-rm` on image builds.** Added `--force-rm` to all `podman build` command invocations in `src/build.py` to prevent intermediate containers from lingering after failed builds.
 - **Separated global and project seed configurations.** Restructured `coding-agent/default/` into `coding-agent/default/global/` (for host-wide settings, bundled chat templates, seed models, and gateways) and `coding-agent/default/project/` (for per-workspace configuration, allowlists, token replacers, agents, and dependencies).
 - **Consolidated configuration seeds and chat templates.** Relocated root `chat-templates/` to `coding-agent/default/global/chat-templates/`. Extracted hardcoded Python string seed constants into `coding-agent/default/global/models/Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml`. Added seed directory `coding-agent/default/global/gateways/`.
 - **Minimal headless `llama.cpp` builder.** Added `src/llama_build.py` and `./build.sh --llama` to compile a minimal, optimized `llama-server` binary on the host (Apple Silicon Metal, Linux CUDA/ROCm, native CPU vectorization). Strips out WebUI assets, libcurl, SSL, and example binaries to reduce build time and binary size. Default repository pinned to `https://github.com/ggml-org/llama.cpp.git` at tag `v0.9.0`.
@@ -14,6 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Preflight diagnostics and auto-discovery.** Updated `src/util.py:validate_environment()` to discover `~/.cache/pi-container/bin/llama-server` and provide one-step remediation instructions (`./build.sh --llama`).
 
 ### Removed
+- **Removed project-key scoping from agent container cleanup.** Dropped `project_key` parameter from `containers.cleanup_orphaned_agent_containers()`, eliminating workspace-scoped leakages of dead containers without backwards compatibility shims.
 - **Removed `.env` and `.env.example`.** Completely removed repository-level `.env` and `.env.example` files, deleted `util.load_dotenv()`, and eliminated dual-name variable aliasing (e.g. `IMAGE_TAG` vs `PI_IMAGE_TAG`) in favor of canonical global configuration properties.
 - **Removed hardcoded model seed constants.** Removed hardcoded `DEFAULT_QWEN_MODEL_DEF` constant in `src/registry.py` in favor of declarative file seeds under `coding-agent/default/global/models/`.
 - **Removed root `chat-templates/`.** Removed top-level repository `chat-templates/` directory, moving bundled templates under `coding-agent/default/global/chat-templates/`.
