@@ -814,3 +814,65 @@ class TestToolchainPinsAreDeclared:
                 f"stage '{stage_name}' declares ARG {sorted(unused)} that no script "
                 f"it runs requires — remove it, or pass it to require_env"
             )
+
+
+class TestLlamaBuildArgs:
+    def test_parse_args_llama_flag(self):
+        import build
+
+        args = build.parse_args(["--llama"])
+        assert args.llama is True
+        assert args.llama_backend is None
+        assert args.llama_tag is None
+        assert args.no_clean is False
+
+    def test_parse_args_llama_options(self):
+        import build
+
+        args = build.parse_args(
+            [
+                "--llama",
+                "--llama-backend",
+                "cuda",
+                "--llama-tag",
+                "v0.9.0",
+                "--no-clean",
+                "--cmake-arg=-DTEST_1=ON",
+                "--cmake-arg=-DTEST_2=OFF",
+            ]
+        )
+        assert args.llama is True
+        assert args.llama_backend == "cuda"
+        assert args.llama_tag == "v0.9.0"
+        assert args.no_clean is True
+        assert args.cmake_args == ["-DTEST_1=ON", "-DTEST_2=OFF"]
+
+    def test_main_invokes_llama_build(self):
+        import build
+
+        with patch("llama_build.build_llama_server", return_value=Path("/tmp/llama-server")) as mock_build:
+            build.main(["--llama", "--llama-backend", "metal", "--llama-tag", "v0.9.0"])
+            mock_build.assert_called_once()
+            kwargs = mock_build.call_args[1]
+            assert kwargs["backend"] == "metal"
+            assert kwargs["tag"] == "v0.9.0"
+            assert kwargs["clean"] is True
+
+    def test_main_invokes_llama_latest(self):
+        import build
+
+        with patch("llama_build.build_llama_server", return_value=Path("/tmp/llama-server")) as mock_build:
+            build.main(["--llama-latest"])
+            mock_build.assert_called_once()
+            kwargs = mock_build.call_args[1]
+            assert kwargs["tag"] == "latest"
+            assert kwargs["clean"] is True
+
+    def test_main_no_clean_flag(self):
+        import build
+
+        with patch("llama_build.build_llama_server", return_value=Path("/tmp/llama-server")) as mock_build:
+            build.main(["--llama", "--no-clean"])
+            mock_build.assert_called_once()
+            kwargs = mock_build.call_args[1]
+            assert kwargs["clean"] is False

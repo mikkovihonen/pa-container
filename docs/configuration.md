@@ -1,9 +1,9 @@
 # Configuration
 
 
-## Environment Configuration
+## Global Configuration (~/.config/pi-container/config.yaml)
 
-The application uses a `.env` file to store environment-specific settings. See `.env.example` for all available options.
+pi-container automatically seeds a global configuration file at `~/.config/pi-container/config.yaml` on first launch. This file holds host-wide defaults for container runtime settings, local LLaMA builds, and image tags.
 
 ### Security
 
@@ -15,22 +15,34 @@ The application uses a `.env` file to store environment-specific settings. See `
 - **Model integrity**: Set `sha256` in model definitions (`~/.config/pi-container/models/<id>.yaml`) to verify downloaded model files.
     The download skips integrity checks without a checksum.
 
-### Run Configuration
+### Host & Run Configuration
 
-The following environment variables are used by `build.sh` and `run.sh` to configure the container runtime, proxy, and `llama-server`:
+Global configuration properties can be edited in `~/.config/pi-container/config.yaml` or overridden on the command line via direct environment variables:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PI_IMAGE_TAG` | The tag of the pi container image to run | `pi-coding-agent:local` |
-| `PROXY_IMAGE_TAG` | The tag of the proxy container image to run | `pi-coding-agent-proxy:local` |
-| `LLAMA_BIN` | Path to the `llama-server` executable | `llama-server` or `/opt/homebrew/bin/llama-server` |
-| `BRIDGE_INTERFACE` | Host bridge interface for container networking | `podman0` |
-| `PROXY_UPSTREAM_NETWORK` | The upstream network the proxy connects to for internet access | `podman` |
-| `LOG_LEVEL` | Log level | `INFO` |
-| `BUILDER_IMAGE_TAG` | The tag of the toolchain image that the agent image copies node/python/podman from | `pi-coding-agent-builder:local` |
-| `NODE_SOURCE` | `build` compiles Node from source in the toolchain image (~1 hour) instead of staging the official tarball | `prebuilt` |
-| `PYTHON_OPTIMIZE` | `0` skips the PGO CPython build in the toolchain image: a fraction of the memory and time, ~10-20% slower Python | `1` (PGO on) |
-| `PI_MEMORY_PREFLIGHT` | `0` skips the pre-build memory check (see below) | `1` (check on) |
+| Global Config YAML Property | Canonical Environment Variable | Description | Default |
+|-----------------------------|--------------------------------|-------------|---------|
+| `build.images.agent` | `PI_IMAGE_TAG` | The tag of the pi container image to run | `pi-coding-agent:local` |
+| `build.images.proxy` | `PROXY_IMAGE_TAG` | The tag of the proxy container image to run | `pi-coding-agent-proxy:local` |
+| `build.images.builder` | `BUILDER_IMAGE_TAG` | Toolchain image that the agent image copies from | `pi-coding-agent-builder:local` |
+| `llama.bin` | `LLAMA_BIN` | Path to the `llama-server` executable | `~/.cache/pi-container/bin/llama-server` or `llama-server` |
+| `runtime.bridge_interface` | `BRIDGE_INTERFACE` | Host bridge interface for container networking | `null` (`podman0` on Linux, none on macOS) |
+| `runtime.proxy_upstream_network` | `PROXY_UPSTREAM_NETWORK` | Upstream network the proxy connects to for internet access | `podman` |
+| `runtime.log_level` | `LOG_LEVEL` | Log level | `INFO` |
+| `build.dns` | `BUILD_DNS` | Upstream DNS resolver for container builds | `1.1.1.1` |
+| `build.node_source` | `NODE_SOURCE` | `build` compiles Node from source (~1 hour); `prebuilt` stages official tarball | `prebuilt` |
+| `build.python_optimize` | `PYTHON_OPTIMIZE` | `0` skips PGO CPython build: faster build, ~10-20% slower Python | `1` (PGO on) |
+| `build.memory_preflight` | `PI_MEMORY_PREFLIGHT` | `0` skips pre-build memory validation | `1` (check on) |
+
+### Minimal llama.cpp Build
+
+pi-container provides an integrated command to compile a minimal, optimized version of `llama-server` natively for host hardware:
+
+```bash
+./build.sh --llama         # build minimal, optimized llama-server (default release)
+./build.sh --llama-latest  # query remote repository and build the latest release (e.g. v0.9.0)
+```
+
+This build strips out irrelevant features (WebUI assets, libcurl, SSL, and example tools) to minimize build time and binary size while targeting hardware acceleration (Apple Silicon Metal, Linux CUDA/ROCm, or native CPU vectorization).
 
 `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` have per-runtime defaults. They rarely need setting. Provide them only to override the default for your host.
 
@@ -51,7 +63,7 @@ A version and its hashes must move together. The build refuses to start if any p
 
 ### Introduction
 
-When you launch pi-container, it looks for workspace-specific overrides in `./.pi-container` and package dependencies in the directory you launched it from. Each workspace gets its own agent config, proxy, isolated network, and chat templates. They all live under that workspace's `.pi-container/` (seeded from the `coding-agent/default/` template on first run).
+When you launch pi-container, it looks for workspace-specific overrides in `./.pi-container` and package dependencies in the directory you launched it from. Each workspace gets its own agent config, proxy, and isolated network. They all live under that workspace's `.pi-container/` (seeded from the `coding-agent/default/project/` template on first run).
 
 Orchestration settings live in a single **`config.yaml`**. The proxy addon configs (`allowlist.yaml`, `token_replacer.yaml`) stay in their own files. The proxy container mounts and parses them.
 
@@ -495,7 +507,7 @@ source_control:
 
 #### Credential Storage
 
-For security, `.env` files and host process environment variables are strictly rejected as credential stores. Tokens are resolved exclusively from:
+For security, host process environment variables and unencrypted files are strictly rejected as credential stores. Tokens are resolved exclusively from:
 1. **OS Keyring** (service `"pi-container"` looking up configured `keyring_var`, falling back to default provider account names).
 2. **Host CLI active sessions** (only if `auto_detect_host_cli: true`).
 
@@ -587,7 +599,7 @@ Bumping the version string is not a general remedy. When a field is missing, no 
 
 Re-seeding is **one file, not the directory**. Because the seeder only fills in what is missing, deleting `config.yaml` alone regenerates it from the current template and leaves `allowlist.yaml`, `token_replacer.yaml`, `models.yaml`, and `dependencies/` untouched. `rm -rf .pi-container` also works but takes every hand-edited file in the workspace with it — reach for it only when several are out of date at once.
 
-Your own edits to `config.yaml` are not merged into the fresh copy, so note your settings before deleting it. A `diff` against `coding-agent/default/config.yaml` beforehand shows exactly what you changed.
+Your own edits to `config.yaml` are not merged into the fresh copy, so note your settings before deleting it. A `diff` against `coding-agent/default/project/config.yaml` beforehand shows exactly what you changed.
 
 <a name="pi-container-environment"></a>
 ### The `PI_CONTAINER_*` environment contract
@@ -953,7 +965,7 @@ git clone https://github.com/example/repo.git
 
 **How it works:**
 
-1. On first run, pi-container seeds both files from templates in `coding-agent/default/dependencies/`.
+1. On first run, pi-container seeds both files from templates in `coding-agent/default/project/dependencies/`.
 2. When definition files exist and are non-empty, pi-container computes a content hash and builds a **project-specific image** with the scripts baked in. The image is tagged `pi-container-project-<project-hash>-<image-hash>.local` and carries labels (`pi-container.hash`, `pi-container.project.hash`, `pi-container.build.time`, `pi-container.type`) for cache invalidation and discovery.
 3. At **build time**, `root/commands.sh` executes (system-wide setup: apt, npm globals). At **runtime**, `agent/commands.sh` executes via the entrypoint (workspace-local setup: venvs, cloned repos).
 4. If definition files are empty or absent, the workspace uses the shared base image (no project-specific build).
@@ -1060,7 +1072,7 @@ Add new rules for any additional hostnames the agent needs to reach (e.g. intern
 
 The `token_replacer.yaml` config in `.pi-container/` may reference `${ENV:VAR}` values. At startup, `run.py` resolves these variables with automatic fallback to your **OS user keyring** (macOS Keychain, Linux GNOME Keyring / Secret Service, or Windows Credential Manager under the `pi-container` service).
 
-To store secrets in the OS keyring without putting them in `.env` or shell rc files:
+To store secrets in the OS keyring without putting them in shell rc files:
 ```bash
 uv run keyring set pi-container OPPER_API_KEY
 ```

@@ -58,7 +58,7 @@ def fix_links(content: str) -> str:
     # Convert root-level file links to GitHub URLs (LICENSE, etc.)
     # Handles both [text](LICENSE) and [![img](...)](LICENSE) patterns
     content = re.sub(
-        r"\]\((?P<file>LICENSE|\.env\.example|build\.sh|run\.sh)\)",
+        r"\]\((?P<file>LICENSE|build\.sh|run\.sh)\)",
         lambda m: f"]({REPO_URL}/{m.group('file')})",
         content,
     )

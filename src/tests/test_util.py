@@ -23,67 +23,10 @@ from util import (
     get_free_port,
     get_sanitized_git_config_json,
     handle_signal,
-    load_dotenv,
     run_quiet,
     stop_process_group,
     validate_environment,
 )
-
-# ---------------------------------------------------------------------------
-# load_dotenv
-# ---------------------------------------------------------------------------
-
-
-class TestLoadDotenv:
-    def test_loads_from_file(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("KEY_ONE=value_one\nKEY_TWO=value_two\n")
-        load_dotenv(env_file)
-        assert os.environ["KEY_ONE"] == "value_one"
-        assert os.environ["KEY_TWO"] == "value_two"
-        os.environ.pop("KEY_ONE", None)
-        os.environ.pop("KEY_TWO", None)
-
-    def test_ignores_comments(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("# This is a comment\nKEY=value\n")
-        load_dotenv(env_file)
-        assert os.environ.get("KEY") == "value"
-        os.environ.pop("KEY", None)
-
-    def test_ignores_empty_lines(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("\n\nKEY=value\n\n")
-        load_dotenv(env_file)
-        assert os.environ.get("KEY") == "value"
-        os.environ.pop("KEY", None)
-
-    def test_splits_on_first_equals_only(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("KEY=value=with=equals\n")
-        load_dotenv(env_file)
-        assert os.environ["KEY"] == "value=with=equals"
-        os.environ.pop("KEY", None)
-
-    def test_strips_whitespace(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("  KEY  =  value  \n")
-        load_dotenv(env_file)
-        assert os.environ["KEY"] == "value"
-        os.environ.pop("KEY", None)
-
-    def test_nonexistent_file_no_op(self, tmp_path):
-        nonexistent = tmp_path / "nonexistent.env"
-        load_dotenv(nonexistent)  # should not raise
-
-    def test_skips_lines_without_equals(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("NOT_A_KEY_VALUE\nVALID_KEY=valid\n")
-        load_dotenv(env_file)
-        assert os.environ.get("VALID_KEY") == "valid"
-        assert "NOT_A_KEY_VALUE" not in os.environ
-        os.environ.pop("VALID_KEY", None)
-
 
 # ---------------------------------------------------------------------------
 # validate_environment
@@ -124,7 +67,7 @@ class TestValidateEnvironment:
                 validate_environment("/nonexistent/llama-server")
 
     def test_llama_bin_none_raises(self):
-        with pytest.raises(EnvironmentError, match="llama-server not found"):
+        with pytest.raises(EnvironmentError, match=r"\./build\.sh --llama"):
             validate_environment(None)
 
     def test_hf_not_found_raises(self):

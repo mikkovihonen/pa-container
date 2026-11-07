@@ -13,6 +13,7 @@ __pycache__/
 env/
 venv/
 .pytest_cache
+.mypy_cache
 
 # llama.cpp
 llama-server/.locks

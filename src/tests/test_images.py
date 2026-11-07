@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import images
-from config import IMAGE_TAG
+from config import PI_IMAGE_TAG
 
 sys.dont_write_bytecode = True
 
@@ -344,7 +344,7 @@ class TestResolveAgentImage:
         repo = tmp_path / "repo"
         repo.mkdir()
         tag, is_project = images.resolve_agent_image(repo)
-        assert tag == IMAGE_TAG
+        assert tag == PI_IMAGE_TAG
         assert is_project is False
 
     def test_returns_project_when_deps_exist(self, tmp_path):

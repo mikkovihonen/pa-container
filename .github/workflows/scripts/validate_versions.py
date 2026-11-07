@@ -4,8 +4,8 @@
 Checks:
   1. Latest git tag on HEAD (v* format) matches pyproject.toml [project] version
   2. pyproject.toml [project] version matches schema_version in
-     coding-agent/default/config.yaml
-  3. coding-agent/default/config.yaml is valid against the expected schema
+     coding-agent/default/{project,global}/config.yaml
+  3. Seed configs are valid against the expected schema
      (required fields present, correct types)
 
 This script runs in CI as a consistency gate before a release is published.
@@ -36,7 +36,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import yaml  # noqa: E402  (must import after sys.path insertion)
 
-from registry import DEFAULT_QWEN_MODEL_DEF
+from config_schema import validate_global_config
 from schema_common import (
     SCHEMA,
     _validate_schema,
@@ -87,8 +87,21 @@ def get_pyproject_version() -> str | None:
 
 
 def get_seed_schema_version() -> str | None:
-    """Read the schema_version from coding-agent/default/config.yaml."""
-    config_path = REPO_ROOT / "coding-agent" / "default" / "config.yaml"
+    """Read the schema_version from coding-agent/default/project/config.yaml."""
+    config_path = REPO_ROOT / "coding-agent" / "default" / "project" / "config.yaml"
+    if not config_path.exists():
+        return None
+    try:
+        data = yaml.safe_load(config_path.read_text())
+        val = data.get("schema_version") if isinstance(data, dict) else None
+        return str(val) if val else None
+    except Exception:
+        return None
+
+
+def get_global_seed_schema_version() -> str | None:
+    """Read the schema_version from coding-agent/default/global/config.yaml."""
+    config_path = REPO_ROOT / "coding-agent" / "default" / "global" / "config.yaml"
     if not config_path.exists():
         return None
     try:
@@ -174,92 +187,106 @@ def main() -> int:
         else:
             _info(f"pyproject.toml matches target version: {new_version}")
 
-    # ── Check 3: schema_version in seed config ───────────────────────────
-    seed_config_path = REPO_ROOT / "coding-agent" / "default" / "config.yaml"
+    # ── Check 3: schema_version in seed configs ───────────────────────────
+    project_config_path = REPO_ROOT / "coding-agent" / "default" / "project" / "config.yaml"
+    global_config_path = REPO_ROOT / "coding-agent" / "default" / "global" / "config.yaml"
     seed_data: dict[str, Any] | None = None
-    if not seed_config_path.exists():
-        _error(f"Seed config not found: {seed_config_path}")
-        all_pass = False
-    else:
-        try:
-            # Strict: a duplicate key in the seed template would be copied into
-            # every new workspace, silently discarding whichever value lost.
-            raw_seed = load_yaml_strict(seed_config_path.read_text())
-            seed_data = raw_seed if isinstance(raw_seed, dict) else {}
-        except yaml.YAMLError as e:
-            _error(f"Seed config is not valid YAML: {e}")
+
+    for label, cfg_path in [
+        ("Project seed config", project_config_path),
+        ("Global seed config", global_config_path),
+    ]:
+        if not cfg_path.exists():
+            _error(f"{label} not found: {cfg_path}")
             all_pass = False
+            continue
 
-        if seed_data is not None:
-            schema_version = seed_data.get("schema_version")
-            if schema_version is None:
-                _error("schema_version: missing from coding-agent/default/config.yaml")
-                all_pass = False
-            else:
-                schema_version_str = str(schema_version)
-                _info(f"Schema version: {schema_version_str}")
+        try:
+            raw_cfg = load_yaml_strict(cfg_path.read_text())
+            cfg_dict = raw_cfg if isinstance(raw_cfg, dict) else {}
+        except yaml.YAMLError as e:
+            _error(f"{label} is not valid YAML: {e}")
+            all_pass = False
+            continue
 
-                # Check pyproject.toml matches schema_version
-                if pyproject_version is not None:
-                    if pyproject_version != schema_version_str:
-                        _error(
-                            f"pyproject.toml vs schema_version: pyproject.toml is "
-                            f"'{pyproject_version}', config.yaml has '{schema_version_str}'"
-                        )
-                        all_pass = False
-                    else:
-                        _info(
-                            f"pyproject.toml matches schema_version: {pyproject_version}"
-                        )
+        if cfg_path == project_config_path:
+            seed_data = cfg_dict
 
-                # Check git tag matches schema_version (skipped in release path)
-                if git_version is not None:
-                    if git_version != schema_version_str:
-                        _error(
-                            f"Git tag vs schema_version: tag is '{TAG_PREFIX}{git_version}', "
-                            f"config.yaml has '{schema_version_str}'"
-                        )
-                        all_pass = False
-                    else:
-                        _info(
-                            f"Git tag matches schema_version: {TAG_PREFIX}{git_version}"
-                        )
-                elif new_version is not None:
-                    if new_version != schema_version_str:
-                        _error(
-                            f"Target version vs schema_version: target is "
-                            f"'{new_version}', config.yaml has '{schema_version_str}'"
-                        )
-                        all_pass = False
-                    else:
-                        _info(
-                            f"Target version matches schema_version: {new_version}"
-                        )
+        schema_version = cfg_dict.get("schema_version")
+        if schema_version is None:
+            _error(f"schema_version: missing from {cfg_path.relative_to(REPO_ROOT)}")
+            all_pass = False
+        else:
+            schema_version_str = str(schema_version)
+            _info(f"{label} schema version: {schema_version_str}")
+
+            if pyproject_version is not None:
+                if pyproject_version != schema_version_str:
+                    _error(
+                        f"pyproject.toml vs {cfg_path.name}: pyproject.toml is "
+                        f"'{pyproject_version}', config has '{schema_version_str}'"
+                    )
+                    all_pass = False
+                else:
+                    _info(f"pyproject.toml matches {label} schema_version: {pyproject_version}")
+
+            if git_version is not None:
+                if git_version != schema_version_str:
+                    _error(
+                        f"Git tag vs {label}: tag is '{TAG_PREFIX}{git_version}', "
+                        f"config has '{schema_version_str}'"
+                    )
+                    all_pass = False
+                else:
+                    _info(f"Git tag matches {label} schema_version: {TAG_PREFIX}{git_version}")
+            elif new_version is not None:
+                if new_version != schema_version_str:
+                    _error(
+                        f"Target version vs {label}: target is "
+                        f"'{new_version}', config has '{schema_version_str}'"
+                    )
+                    all_pass = False
+                else:
+                    _info(f"Target version matches {label} schema_version: {new_version}")
 
     # ── Check 4: Seed config schema validation ───────────────────────────
     if seed_data is not None:
         print()
-        print("Validating seed config schema...")
+        print("Validating project seed config schema...")
         schema_errors = _validate_schema(seed_data, SCHEMA)
         if schema_errors:
-            _error(f"Seed config schema has {len(schema_errors)} error(s):")
+            _error(f"Project seed config schema has {len(schema_errors)} error(s):")
             for err in schema_errors:
                 print(f"    {err}")
             all_pass = False
         else:
-            _info("Seed config schema: all required fields present with correct types")
+            _info("Project seed config schema: all required fields present with correct types")
+
+    if global_config_path.exists():
+        print()
+        print("Validating global seed config schema...")
+        is_global_valid, global_errors, _ = validate_global_config(global_config_path, repo_root=REPO_ROOT)
+        if not is_global_valid:
+            _error(f"Global seed config schema has {len(global_errors)} error(s):")
+            for err in global_errors:
+                print(f"    {err}")
+            all_pass = False
+        else:
+            _info("Global seed config schema: valid")
 
     # ── Check 5: Seed directory completeness ─────────────────────────────
-    seed_dir = REPO_ROOT / "coding-agent" / "default"
-    if not seed_dir.exists():
-        _error(f"Seed directory not found: {seed_dir}")
+    seed_root = REPO_ROOT / "coding-agent" / "default"
+    project_dir = seed_root / "project"
+    global_dir = seed_root / "global"
+    if not seed_root.exists():
+        _error(f"Seed root directory not found: {seed_root}")
         all_pass = False
     else:
         print()
         print("Validating seed directory completeness...")
 
-        _EXPECTED_DIRS = ("agents", "dependencies")
-        _EXPECTED_FILES = (
+        _PROJECT_DIRS = ("agents", "dependencies")
+        _PROJECT_FILES = (
             "config.yaml",
             "allowlist.yaml",
             "token_replacer.yaml",
@@ -267,46 +294,65 @@ def main() -> int:
             "dependencies/root/commands.sh",
             "dependencies/agent/commands.sh",
         )
+        _GLOBAL_DIRS = ("chat-templates", "models", "gateways")
+        _GLOBAL_FILES = (
+            "config.yaml",
+            "models/Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml",
+            "chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja",
+        )
 
         missing: list[str] = []
-        for name in _EXPECTED_DIRS:
-            if not (seed_dir / name).is_dir():
-                missing.append(f"{name}/ (directory)")
+        for name in _PROJECT_DIRS:
+            if not (project_dir / name).is_dir():
+                missing.append(f"project/{name}/ (directory)")
 
-        for name in _EXPECTED_FILES:
-            if not (seed_dir / name).is_file():
-                missing.append(name)
+        for name in _PROJECT_FILES:
+            if not (project_dir / name).is_file():
+                missing.append(f"project/{name}")
+
+        for name in _GLOBAL_DIRS:
+            if not (global_dir / name).is_dir():
+                missing.append(f"global/{name}/ (directory)")
+
+        for name in _GLOBAL_FILES:
+            if not (global_dir / name).is_file():
+                missing.append(f"global/{name}")
 
         if missing:
-            _error(f"Seed directory is missing {len(missing)} expected item(s):")
+            _error(f"Seed directories are missing {len(missing)} expected item(s):")
             for item in missing:
                 print(f"    - {item}")
             all_pass = False
         else:
             _info(
-                f"Seed directory complete: {_EXPECTED_DIRS} dirs + "
-                f"{len(_EXPECTED_FILES)} files all present"
+                f"Seed directories complete: global/ ({len(_GLOBAL_FILES)} files, {len(_GLOBAL_DIRS)} dirs) "
+                f"and project/ ({len(_PROJECT_FILES)} files, {len(_PROJECT_DIRS)} dirs) all present"
             )
 
     # ── Check 6: chat-template-file path existence ───────────────────────
     print()
     print("Validating chat-template-file references...")
-    qwen_def = yaml.safe_load(DEFAULT_QWEN_MODEL_DEF)
-    raw_flags = qwen_def.get("flags", [])
-    template_path_errors = check_chat_template_paths(raw_flags, REPO_ROOT)
-
-    if template_path_errors:
-        _error(f"Found {len(template_path_errors)} invalid chat-template-file reference(s):")
-        for err in template_path_errors:
-            print(f"    - {err}")
+    qwen_model_file = global_dir / "models" / "Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml"
+    if not qwen_model_file.exists():
+        _error(f"Default model file not found: {qwen_model_file}")
         all_pass = False
     else:
-        _info("All --chat-template-file paths exist")
+        qwen_def = yaml.safe_load(qwen_model_file.read_text())
+        raw_flags = qwen_def.get("flags", []) if isinstance(qwen_def, dict) else []
+        template_path_errors = check_chat_template_paths(raw_flags, REPO_ROOT)
+
+        if template_path_errors:
+            _error(f"Found {len(template_path_errors)} invalid chat-template-file reference(s):")
+            for err in template_path_errors:
+                print(f"    - {err}")
+            all_pass = False
+        else:
+            _info("All --chat-template-file paths exist")
 
     # ── Check 7: Seed models.yaml schema validation ─────────────────────
     print()
     print("Validating seed models.yaml schema...")
-    models_path = seed_dir / "models.yaml"
+    models_path = project_dir / "models.yaml"
     from config_schema import validate_models
 
     is_valid, models_schema_errors = validate_models(models_path)

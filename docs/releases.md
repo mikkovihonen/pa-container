@@ -55,23 +55,23 @@ The latest git tag (e.g., `git tag -l | head -1`) determines the authoritative v
 
 ## Schema version: config compatibility
 
-Every pi-container release ships a template for the per-project configuration
-at `coding-agent/default/`. The system seeds this template into each workspace's
-`.pi-container/` on first run.
+Every pi-container release ships templates for global and per-project configurations
+under `coding-agent/default/` (`global/` and `project/`). The system seeds these templates into
+`~/.config/pi-container/` and each workspace's `.pi-container/` on first run.
 
-The template `config.yaml` includes a `schema_version` field that matches the
+The template `config.yaml` files include a `schema_version` field that matches the
 pi-container version (e.g., `"0.1.0"`). At launch, the system checks the schema version in the
 seeded config against the app version (from the latest git tag). A mismatch makes
 the launch fail with a clear error message.
 
 ### When to bump the schema version
 
-Bump the `schema_version` in `coding-agent/default/config.yaml` whenever you:
+Bump the `schema_version` in `coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml` whenever you:
 
 - Add a new required field to the template
 - Change the type of an existing field
 - Remove a field that users might still have in their configs
-- Add a new file to `coding-agent/default/` (e.g., a new addon config)
+- Add a new file to `coding-agent/default/project/` or `coding-agent/default/global/` (e.g., a new addon config)
 
 The schema version is separate from the pi-container version. Keep them
 in sync. The schema version triggers the compatibility check.
@@ -120,7 +120,7 @@ note their settings before deleting it.
 ### Example: adding a new field
 
 ```yaml
-# coding-agent/default/config.yaml
+# coding-agent/default/project/config.yaml
 schema_version: "0.2.0"  # Bumped from "0.1.0"
 
 # ... existing fields ...
@@ -183,7 +183,7 @@ stay in sync:
 |--------|----------|
 | Git tag | `v<version>` (e.g. `v0.2.0`) |
 | Python package version | `pyproject.toml` → `[project].version` |
-| Config schema version | `coding-agent/default/config.yaml` → `schema_version` |
+| Config schema versions | `coding-agent/default/{project,global}/config.yaml` → `schema_version` |
 | Runtime config version | `.pi-container/config.yaml` → `schema_version` |
 
 The `validate_versions.py` script runs in CI (not pre-commit). git has
@@ -200,7 +200,7 @@ That happens after the commit. The runtime config
 3. **Bump the version** in `pyproject.toml` (`[project] version`).
 4. **Regenerate `uv.lock`** with `uv lock` (the lockfile embeds the project
    version).
-5. **Bump `schema_version` in the seed template** (`coding-agent/default/config.yaml`). This is what new workspaces get on
+5. **Bump `schema_version` in the seed templates** (`coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml`). This is what new workspaces get on
    first run.
 6. **Bump `schema_version` in the runtime config** (`.pi-container/config.yaml`). This is what the currently running container
    uses. Seeding is copy-once (missing-only), so updating the template alone
@@ -217,7 +217,8 @@ That happens after the commit. The runtime config
    ```bash
    git add CHANGELOG.md pyproject.toml \
        uv.lock \
-       coding-agent/default/config.yaml \
+       coding-agent/default/project/config.yaml \
+       coding-agent/default/global/config.yaml \
        .pi-container/config.yaml
    git commit -m "chore: release v0.2.0"
    git push origin main
@@ -241,13 +242,14 @@ The `ci.yml` workflow triggers on `push` to `refs/tags/v*`:
 ```bash
 # 1. Update CHANGELOG.md: move [Unreleased] → [0.2.0] - 2026-07-04
 # 2. Bump pyproject.toml version to "0.2.0"
-# 3. Bump schema_version in coding-agent/default/config.yaml to "0.2.0"
+# 3. Bump schema_version in coding-agent/default/project/config.yaml and global/config.yaml to "0.2.0"
 # 4. Bump schema_version in .pi-container/config.yaml to "0.2.0"
 # 5. Regenerate uv.lock: uv lock
 # 6. Validate and commit:
 git add CHANGELOG.md pyproject.toml \
     uv.lock \
-    coding-agent/default/config.yaml \
+    coding-agent/default/project/config.yaml \
+    coding-agent/default/global/config.yaml \
     .pi-container/config.yaml
 git commit -m "chore: release v0.2.0"
 git tag -a v0.2.0 -m "Release v0.2.0"

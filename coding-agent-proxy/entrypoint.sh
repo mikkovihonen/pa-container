@@ -124,7 +124,7 @@ fi
 # chain and stay inspected. Any OTHER protocol the agent emits would otherwise be
 # forwarded straight to the internet UNINSPECTED, bypassing mitmproxy and the
 # allowlist. So the FORWARD chain defaults to DROP and operators opt specific
-# protocols in via PROXY_ALLOW_* env vars (see .env). Traffic allowed this way is
+# protocols in via PROXY_ALLOW_* env vars. Traffic allowed this way is
 # NOT inspected by mitmproxy — it is plain NAT forwarding.
 ipt -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 ipt -P FORWARD DROP

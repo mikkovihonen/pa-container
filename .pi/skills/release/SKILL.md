@@ -43,7 +43,7 @@ The script will:
 - Preflight: semver format, on `main`, clean working tree, tag not already
   taken, CHANGELOG already in order. It refuses before touching any file.
 - Bump `pyproject.toml` version
-- Bump `schema_version` in `coding-agent/default/config.yaml`
+- Bump `schema_version` in `coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml`
 - Bump `schema_version` in `.pi-container/config.yaml`
 - Run `uv lock` to regenerate the lockfile
 - Commit the bumps as `chore: bump to <version>`

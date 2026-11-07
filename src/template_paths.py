@@ -27,7 +27,7 @@ def resolve_chat_template_path(
         # check if it exists in the bundled repository chat-templates
         try:
             rel = p.relative_to(g_dir)
-            bundled = r_root / "chat-templates" / rel
+            bundled = r_root / "coding-agent" / "default" / "global" / "chat-templates" / rel
             if bundled.exists():
                 return bundled.resolve()
         except ValueError:
@@ -53,8 +53,9 @@ def resolve_chat_template_path(
     # 4. Check relative to repo_root or current working directory
     if (r_root / p).exists():
         return (r_root / p).resolve()
-    if (r_root / "chat-templates" / p).exists():
-        return (r_root / "chat-templates" / p).resolve()
+    bundled_tpl = r_root / "coding-agent" / "default" / "global" / "chat-templates" / p
+    if bundled_tpl.exists():
+        return bundled_tpl.resolve()
     if (Path.cwd() / p).exists():
         return (Path.cwd() / p).resolve()
 

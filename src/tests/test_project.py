@@ -47,8 +47,8 @@ class TestProjectKey:
 
 class TestEnsureProjectConfig:
     def _make_template(self, root):
-        """Build a minimal coding-agent/default template under root."""
-        template = root / "coding-agent" / "default"
+        """Build a minimal coding-agent/default/project template under root."""
+        template = root / "coding-agent" / "default" / "project"
         (template / "agents" / "pi").mkdir(parents=True)
         (template / "agents" / "pi" / "config.json").write_text("{}")
         (template / "config.yaml").write_text("tmpfs:\n  paths: []\n")

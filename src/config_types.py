@@ -10,6 +10,7 @@ Dedicated type module to provide pure data structures across the runtime without
 introducing circular import dependencies.
 """
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
@@ -150,3 +151,64 @@ class ProjectConfig(TypedDict, total=False):
     flow_export: dict[str, object]
     git: dict[str, object]
     agents: dict[str, object]
+
+
+# ─── Global Configuration (~/.config/pi-container/config.yaml) ────────────────
+
+
+@dataclass(frozen=True)
+class RuntimeGlobalConfig:
+    """Runtime container engine and host networking parameters."""
+
+    log_level: str = "INFO"
+    bridge_interface: str | None = None
+    proxy_upstream_network: str = "podman"
+
+
+@dataclass(frozen=True)
+class LlamaBuildGlobalConfig:
+    """Source build settings for host-native llama-server."""
+
+    repo: str = "https://github.com/ggml-org/llama.cpp.git"
+    tag: str = "v0.9.0"
+    backend: str = "auto"
+    minimal: bool = True
+    cmake_flags: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class LlamaGlobalConfig:
+    """Local host llama-server binary and build configurations."""
+
+    bin: str | None = None
+    build: LlamaBuildGlobalConfig = field(default_factory=LlamaBuildGlobalConfig)
+
+
+@dataclass(frozen=True)
+class BuildImagesGlobalConfig:
+    """Container image tags for local pi-container images."""
+
+    agent: str = "pi-coding-agent:local"
+    proxy: str = "pi-coding-agent-proxy:local"
+    builder: str = "pi-coding-agent-builder:local"
+
+
+@dataclass(frozen=True)
+class BuildGlobalConfig:
+    """Container image build settings and flags."""
+
+    images: BuildImagesGlobalConfig = field(default_factory=BuildImagesGlobalConfig)
+    dns: str = "1.1.1.1"
+    python_optimize: bool = True
+    memory_preflight: bool = True
+    node_source: str = "prebuilt"
+
+
+@dataclass(frozen=True)
+class GlobalConfig:
+    """Top-level parsed representation of ~/.config/pi-container/config.yaml."""
+
+    schema_version: str = "0.6.6"
+    runtime: RuntimeGlobalConfig = field(default_factory=RuntimeGlobalConfig)
+    llama: LlamaGlobalConfig = field(default_factory=LlamaGlobalConfig)
+    build: BuildGlobalConfig = field(default_factory=BuildGlobalConfig)

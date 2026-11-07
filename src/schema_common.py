@@ -207,6 +207,52 @@ MODELS_YAML_SCHEMA: dict[str, Any] = {
 }
 
 
+GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
+    "schema_version": {"type": str},
+    "runtime": {
+        "type": dict,
+        "keys": {
+            "log_level": {"type": str},
+            "bridge_interface": {"type": (str, type(None)), "required": False},
+            "proxy_upstream_network": {"type": str},
+        },
+    },
+    "llama": {
+        "type": dict,
+        "keys": {
+            "bin": {"type": (str, type(None)), "required": False},
+            "build": {
+                "type": dict,
+                "keys": {
+                    "repo": {"type": str},
+                    "tag": {"type": str},
+                    "backend": {"type": str},
+                    "minimal": {"type": (bool, str, int)},
+                    "cmake_flags": {"type": list},
+                },
+            },
+        },
+    },
+    "build": {
+        "type": dict,
+        "keys": {
+            "images": {
+                "type": dict,
+                "keys": {
+                    "agent": {"type": str},
+                    "proxy": {"type": str},
+                    "builder": {"type": str},
+                },
+            },
+            "dns": {"type": str},
+            "python_optimize": {"type": (bool, str, int)},
+            "memory_preflight": {"type": (bool, str, int)},
+            "node_source": {"type": str},
+        },
+    },
+}
+
+
 # ─── Models schema validation ──────────────────────────────────────────────
 
 

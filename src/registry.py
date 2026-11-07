@@ -11,6 +11,7 @@ sys.dont_write_bytecode = True
 """
 
 import logging
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -108,68 +109,10 @@ class LlamaServerModelDef:
         )
 
 
-# ─── Default Seed Definitions ────────────────────────────────────────────────
+# ─── Bundled Seed Template Directories ───────────────────────────────────────
 
-DEFAULT_QWEN_MODEL_DEF = """id: Qwen3.6-35B-A3B-UD-Q6_K_XL
-kind: llama-server
-description: "Qwen 3.6 35B with speculative decoding"
-
-hfModels:
-  main:
-    fileFlag: "--model"
-    repo: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF"
-    file: "Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
-    additionalServerFlags:
-      - "--spec-type"
-      - "draft-mtp"
-      - "--spec-draft-n-max"
-      - 2
-    sha256: ""
-
-flags:
-  - "--load-mode"
-  - "mlock"
-  - "--kv-offload"
-  - "--threads"
-  - 8
-  - "--threads-batch"
-  - 8
-  - "--parallel"
-  - 1
-  - "--batch-size"
-  - 4096
-  - "--ubatch-size"
-  - 512
-  - "--flash-attn"
-  - "on"
-  - "--cache-type-k"
-  - "q8_0"
-  - "--cache-type-v"
-  - "q8_0"
-  - "--ctx-size"
-  - 131072
-  - "--ctx-checkpoints"
-  - 32
-  - "--checkpoint-min-step"
-  - 256
-  - "--repeat-penalty"
-  - 1.0
-  - "--top-p"
-  - 0.95
-  - "--top-k"
-  - 64
-  - "--prio"
-  - 2
-  - "--cache-ram"
-  - 8192
-  - "--jinja"
-  - "--chat-template-file"
-  - "~/.config/pi-container/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
-  - "--reasoning"
-  - "on"
-  - "--n-gpu-layers"
-  - 999
-"""
+BUNDLED_MODELS_DIR: Path = REPO_ROOT / "coding-agent" / "default" / "global" / "models"
+BUNDLED_CHAT_TEMPLATES_DIR: Path = REPO_ROOT / "coding-agent" / "default" / "global" / "chat-templates"
 
 
 # ─── Registry Loader Functions ───────────────────────────────────────────────
@@ -191,26 +134,29 @@ def get_chat_templates_dir(override_dir: Path | None = None) -> Path:
 
 
 def seed_default_chat_templates(templates_dir: Path | None = None) -> list[str]:
-    """Seed default chat template (Qwen3.6) if the chat templates directory is missing the file."""
+    """Seed bundled chat templates if missing in the destination chat templates directory."""
     target_dir = get_chat_templates_dir(templates_dir)
-    qwen_dir = target_dir / "Qwen3.6-35B-A3B-UD-Q6_K-XL"
-    qwen_file = qwen_dir / "chat_template.jinja"
-
+    target_dir.mkdir(parents=True, exist_ok=True)
     seeded: list[str] = []
-    if not qwen_file.exists():
-        qwen_dir.mkdir(parents=True, exist_ok=True)
-        bundled_template = REPO_ROOT / "chat-templates" / "Qwen3.6-35B-A3B-UD-Q6_K-XL" / "chat_template.jinja"
-        if bundled_template.is_file():
-            content = bundled_template.read_text(encoding="utf-8")
-            qwen_file.write_text(content, encoding="utf-8")
-            seeded.append(str(qwen_file.relative_to(target_dir)))
-            logger.info(f"Seeded default chat template: {qwen_file}")
+
+    bundled_dir = BUNDLED_CHAT_TEMPLATES_DIR
+    if bundled_dir.is_dir():
+        for item in sorted(bundled_dir.iterdir()):
+            if item.is_dir():
+                target_sub = target_dir / item.name
+                jinja_src = item / "chat_template.jinja"
+                jinja_dst = target_sub / "chat_template.jinja"
+                if not jinja_dst.exists() and jinja_src.is_file():
+                    target_sub.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(jinja_src, jinja_dst)
+                    seeded.append(str(jinja_dst.relative_to(target_dir)))
+                    logger.info(f"Seeded default chat template: {jinja_dst}")
 
     return seeded
 
 
 def seed_default_models(registry_dir: Path | None = None) -> list[str]:
-    """Seed default model definitions (Qwen3.6) if the models registry directory is empty or missing."""
+    """Seed default model definitions if the models registry directory is empty or missing."""
     target_dir = get_models_dir(registry_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -220,10 +166,13 @@ def seed_default_models(registry_dir: Path | None = None) -> list[str]:
     seeded: list[str] = []
     existing = list(target_dir.glob("*.yaml"))
     if not existing:
-        qwen_file = target_dir / "Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml"
-        qwen_file.write_text(DEFAULT_QWEN_MODEL_DEF, encoding="utf-8")
-        seeded.append(qwen_file.name)
-        logger.info(f"Seeded default model definition: {qwen_file}")
+        bundled_dir = BUNDLED_MODELS_DIR
+        if bundled_dir.is_dir():
+            for model_file in sorted(bundled_dir.glob("*.yaml")):
+                dst = target_dir / model_file.name
+                shutil.copy2(model_file, dst)
+                seeded.append(dst.name)
+                logger.info(f"Seeded default model definition: {dst}")
 
     return seeded
 

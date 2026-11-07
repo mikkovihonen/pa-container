@@ -27,8 +27,8 @@ A containerized environment for running the [`pi-coding-agent`](https://pi.dev) 
 ## Quick start
 
 ```bash
-cp .env.example .env
 uv run keyring set pi-container ADMIN_PASSWORD  # set mitmweb UI password
+./build.sh --llama                             # build minimal, optimized llama-server (optional)
 ./build.sh                                     # build the proxy, toolchain and agent images
 alias pi="$PWD/run.sh"                         # useful alias
 cd /path/to/your/project                       # any workspace

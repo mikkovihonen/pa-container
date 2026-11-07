@@ -77,7 +77,7 @@ the token_replacer config references). Edit the host files to change policy. See
 
 ## Installing the mitmproxy CA certificate to Pi Coding Agent
 
-The mitmproxy CA cert is located in `/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem` in a local container image tagged with the `PROXY_IMAGE_TAG` .env variable (default: `pi-coding-agent-proxy:local`).
+The mitmproxy CA cert is located in `/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem` in a local container image tagged with the `PROXY_IMAGE_TAG` setting (default: `pi-coding-agent-proxy:local`).
 
 Copy `mitmproxy-ca-cert.crt` from the transparent proxy container to install it into the pi-coding-agent container during build:
 

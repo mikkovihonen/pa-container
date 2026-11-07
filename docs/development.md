@@ -42,8 +42,8 @@ The system validates per-project configuration (`.pi-container/config.yaml`) at 
 against the pi-container version and the expected schema. The validation checks:
 
 1. **Schema version** — The `schema_version` field in the config matches the
-   app version (from the latest git tag). Bump this field in the template
-   (`coding-agent/default/config.yaml`) whenever you change the schema.
+   app version (from the latest git tag). Bump this field in the templates
+   (`coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml`) whenever you change the schema.
 2. **Required fields** — All fields defined in the schema must be present with
    the correct types.
 

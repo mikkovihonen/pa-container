@@ -1,9 +1,11 @@
 import sys
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import yaml
 
 from schema_common import (
+    GLOBAL_CONFIG_SCHEMA,
     MODELS_YAML_SCHEMA,
     SCHEMA,
     _validate_agents,
@@ -13,9 +15,6 @@ from schema_common import (
 from version import get_git_tag_version
 from yaml_strict import DuplicateKeyError, check_duplicate_keys, load_yaml_strict
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 sys.dont_write_bytecode = True
 
 """Configuration schema validation for `config.yaml` and `models.yaml`."""
@@ -24,11 +23,10 @@ sys.dont_write_bytecode = True
 # ─── Version from git tags ──────────────────────────────────────────────────
 
 
-def get_app_version() -> str | None:
+def get_app_version(repo_root: Path | None = None) -> str | None:
     """Retrieve the current pi-container version from git tags on the repository."""
-    from config import REPO_ROOT
-
-    return get_git_tag_version(REPO_ROOT)
+    r_root = repo_root if repo_root is not None else Path(__file__).resolve().parent.parent
+    return get_git_tag_version(r_root)
 
 
 #: Marker text in the stale-version error.
@@ -123,6 +121,58 @@ def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
     agent_errors = _validate_agents(data)
     if agent_errors:
         errors.extend(agent_errors)
+
+    is_valid = len(errors) == 0
+    return is_valid, errors, schema_version_str
+
+
+def validate_global_config(
+    config_path: Path,
+    repo_root: Path | None = None,
+) -> tuple[bool, list[str], str | None]:
+    """Validate global ~/.config/pi-container/config.yaml structure, required fields, and schema version.
+
+    Returns:
+        tuple of (is_valid, error_list, schema_version_string).
+    """
+    errors: list[str] = []
+
+    if not config_path.exists():
+        errors.append(f"Global config file not found: {config_path}")
+        return False, errors, None
+
+    try:
+        raw_data = load_yaml_strict(config_path.read_text())
+        if not isinstance(raw_data, dict):
+            errors.append("Global config file must be a YAML mapping")
+            return False, errors, None
+        data = raw_data
+    except DuplicateKeyError as e:
+        errors.append(f"Global config file has a duplicate key: {e}")
+        errors.append("  Remove the repeated key — YAML keeps only the last occurrence.")
+        return False, errors, None
+    except yaml.YAMLError as e:
+        errors.append(f"Global config file is not valid YAML: {e}")
+        return False, errors, None
+
+    schema_version = data.get("schema_version")
+    if schema_version is None:
+        errors.append("  schema_version: required field missing")
+        return False, errors, None
+
+    schema_version_str = str(schema_version)
+
+    app_version = get_app_version(repo_root=repo_root)
+    if app_version is not None and schema_version_str != app_version:
+        errors.append(
+            f"  {SCHEMA_VERSION_MISMATCH}: global config has '{schema_version_str}', "
+            f"but pi-container version is '{app_version}' (from git tag). "
+            f"Delete ~/.config/pi-container/config.yaml and re-run to re-seed, or update schema_version."
+        )
+
+    schema_errors = _validate_schema(data, GLOBAL_CONFIG_SCHEMA)
+    if schema_errors:
+        errors.extend(schema_errors)
 
     is_valid = len(errors) == 0
     return is_valid, errors, schema_version_str

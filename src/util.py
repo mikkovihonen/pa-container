@@ -65,20 +65,6 @@ def run_quiet(
     return result
 
 
-def load_dotenv(dotenv_path: Path) -> None:
-    """Load environment variables from a .env file into os.environ."""
-    if not dotenv_path.exists():
-        return
-    with open(dotenv_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" in line:
-                key, value = line.split("=", 1)
-                os.environ[key.strip()] = value.strip()
-
-
 class EnvironmentError(Exception):
     """Raised when the environment does not meet requirements."""
 
@@ -86,17 +72,17 @@ class EnvironmentError(Exception):
 def validate_environment(llama_bin: str | None) -> str:
     """Validate host prerequisites (llama-server, hf CLI, podman) and return the runtime name."""
     if llama_bin is None or not Path(llama_bin).exists():
-        raise EnvironmentError("llama-server not found. Please install it or set LLAMA_BIN.")
+        raise EnvironmentError(
+            "llama-server not found. Build an optimized minimal server for pi-container with:\n"
+            "    ./build.sh --llama\n"
+            "Or configure the binary path in ~/.config/pi-container/config.yaml under llama.bin."
+        )
 
     if shutil.which("hf") is None:
         raise EnvironmentError("hf not found. Install via: pip install huggingface_hub[cli]")
 
-    # Podman is the only supported runtime.
-    runtime: str | None = None
-    if shutil.which("podman") is not None:
-        runtime = "podman"
-
-    if runtime is None:
+    runtime = "podman"
+    if shutil.which("podman") is None:
         raise EnvironmentError("podman not found. Install it (macOS: brew install podman).")
 
     try:

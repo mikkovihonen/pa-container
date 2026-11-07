@@ -1,6 +1,5 @@
 import hashlib
 import logging
-import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -9,7 +8,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 import project
-from config import IMAGE_TAG, PROXY_IMAGE_TAG, REPO_ROOT
+from config import PI_IMAGE_TAG, PROXY_IMAGE_TAG, REPO_ROOT
 from yaml_strict import load_yaml_strict
 
 logger = logging.getLogger(__name__)
@@ -23,15 +22,13 @@ _IMAGE_DEFINITION_FILES = (
 )
 _PROXY_IMAGE_DEFINITION_FILES = ("Containerfile", "entrypoint.sh")
 _SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, "pi-coding-agent-builder:local")
-_PROTECTED_IMAGE_TAGS = frozenset({IMAGE_TAG, *_SHARED_SOURCE_IMAGES})
+_PROTECTED_IMAGE_TAGS = frozenset({PI_IMAGE_TAG, *_SHARED_SOURCE_IMAGES})
 _UNTAGGED_NAME = "<none>:<none>"
 
 
 def _get_runtime(runtime: str | None = None) -> str:
-    """Return the runtime binary name, falling back to environment."""
-    if runtime:
-        return runtime
-    return os.environ.get("CONTAINER_RUNTIME", "podman")
+    """Return the runtime binary name (always podman)."""
+    return runtime or "podman"
 
 
 def now_iso() -> str:
@@ -222,7 +219,7 @@ def resolve_agent_image(
     has_deps = has_dependency_files(project_dir)
     tools = read_project_tools(project_dir, extra_tools=extra_tools)
     if not has_deps and not tools:
-        return IMAGE_TAG, False
+        return PI_IMAGE_TAG, False
 
     project_hash, _ = project.project_scope(project_dir)
     key = project_hash.split("pi-proxy-")[1]

@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+- **Separated global and project seed configurations.** Restructured `coding-agent/default/` into `coding-agent/default/global/` (for host-wide settings, bundled chat templates, seed models, and gateways) and `coding-agent/default/project/` (for per-workspace configuration, allowlists, token replacers, agents, and dependencies).
+- **Consolidated configuration seeds and chat templates.** Relocated root `chat-templates/` to `coding-agent/default/global/chat-templates/`. Extracted hardcoded Python string seed constants into `coding-agent/default/global/models/Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml`. Added seed directory `coding-agent/default/global/gateways/`.
+- **Minimal headless `llama.cpp` builder.** Added `src/llama_build.py` and `./build.sh --llama` to compile a minimal, optimized `llama-server` binary on the host (Apple Silicon Metal, Linux CUDA/ROCm, native CPU vectorization). Strips out WebUI assets, libcurl, SSL, and example binaries to reduce build time and binary size. Default repository pinned to `https://github.com/ggml-org/llama.cpp.git` at tag `v0.9.0`.
+- **Global configuration system.** Added `src/global_config.py` with automatic seeding of `~/.config/pi-container/config.yaml` from `coding-agent/default/global/config.yaml`. Added schema validation in `src/schema_common.py` and `src/config_schema.py`.
+- **Preflight diagnostics and auto-discovery.** Updated `src/util.py:validate_environment()` to discover `~/.cache/pi-container/bin/llama-server` and provide one-step remediation instructions (`./build.sh --llama`).
+
+### Removed
+- **Removed `.env` and `.env.example`.** Completely removed repository-level `.env` and `.env.example` files, deleted `util.load_dotenv()`, and eliminated dual-name variable aliasing (e.g. `IMAGE_TAG` vs `PI_IMAGE_TAG`) in favor of canonical global configuration properties.
+- **Removed hardcoded model seed constants.** Removed hardcoded `DEFAULT_QWEN_MODEL_DEF` constant in `src/registry.py` in favor of declarative file seeds under `coding-agent/default/global/models/`.
+- **Removed root `chat-templates/`.** Removed top-level repository `chat-templates/` directory, moving bundled templates under `coding-agent/default/global/chat-templates/`.
+
 ## [0.6.6] - 2026-11-06
 
 ### Fixed

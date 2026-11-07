@@ -42,3 +42,5 @@ site/
 
 # Generated index (from README.md)
 docs/index.md
+
+.cache

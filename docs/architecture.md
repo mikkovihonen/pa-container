@@ -51,7 +51,7 @@ flowchart TB
 
 The key components of the system are
 
-1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pi-container/models.yaml` and resolved against host model definitions at `~/.config/pi-container/models/<model-id>.yaml` or gateways at `~/.config/pi-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/` template and default model definitions on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
+1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pi-container/models.yaml` and resolved against host model definitions at `~/.config/pi-container/models/<model-id>.yaml` or gateways at `~/.config/pi-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/project/` template and default model definitions from `coding-agent/default/global/models/` on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
 
 2. **`pi-coding-agent-proxy`** (container): A transparent proxy container based on Debian with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that redacts API keys, bearer tokens, cookies, and JWTs. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
 
@@ -122,7 +122,6 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 .
 ├── build.sh                          # Build script (delegates to src/build.py)
 ├── run.sh                            # Run script (delegates to src/run.py)
-├── .env.example                      # Example environment configuration
 ├── pyproject.toml                    # uv project: dependencies, dependency-groups, ruff/mypy/pytest config
 ├── uv.lock                           # Pinned dependency lockfile (committed)
 ├── .gitignore
@@ -175,17 +174,29 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 ├── coding-agent/                  # Main agent container
 │   ├── Containerfile                 # Image definition (apt, toolchain COPY, pi, /etc/containers, CA)
 │   ├── entrypoint.sh                 # Container entrypoint (default route via proxy, git config, uv venv)
-│   └── default/                      # Template for <project>/.pi-container (seeded on first run)
-│       ├── agents/                   # → .pi-container/agents
-│       │   └── pi/                   # Pi coding agent template
-│       │       ├── AGENTS.md         # Agent instructions
-│       │       ├── config.json
-│       │       ├── settings.json
-│       │       └── .pi_ignore
-│       ├── models.yaml               # Allowed models allowlist for the workspace
-│       ├── config.yaml               # Orchestration: resources, tmpfs, flow_export, egress, nested_containers
-│       ├── allowlist.yaml            # Generic hostname allowlist (pypi/npm/github/apt)
-│       └── token_replacer.yaml       # Generic token-redaction config
+│   └── default/                      # Seed templates (global and project configurations)
+│       ├── global/                   # Seed template for ~/.config/pi-container/
+│       │   ├── config.yaml           # Global configuration (runtime, llama, build)
+│       │   ├── models/               # Seed model definitions (~/.config/pi-container/models/)
+│       │   │   └── Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml
+│       │   ├── gateways/             # Seed gateway directory (~/.config/pi-container/gateways/)
+│       │   └── chat-templates/       # Bundled Jinja chat templates (~/.config/pi-container/chat-templates/)
+│       │       └── Qwen3.6-35B-A3B-UD-Q6_K-XL/
+│       │           └── chat_template.jinja
+│       └── project/                  # Seed template for <project>/.pi-container
+│           ├── agents/               # → .pi-container/agents
+│           │   └── pi/               # Pi coding agent template
+│           │       ├── AGENTS.md     # Agent instructions
+│           │       ├── config.json
+│           │       ├── settings.json
+│           │       └── .pi_ignore
+│           ├── models.yaml           # Allowed models allowlist for the workspace
+│           ├── config.yaml           # Orchestration: resources, tmpfs, flow_export, egress, nested_containers
+│           ├── allowlist.yaml        # Generic hostname allowlist (pypi/npm/github/apt)
+│           ├── token_replacer.yaml   # Generic token-redaction config
+│           └── dependencies/         # Dependency command templates
+│               ├── agent/commands.sh
+│               └── root/commands.sh
 │
 ├── coding-agent-proxy/            # Transparent proxy container
 │   ├── Containerfile                 # mitmproxy + addon scripts/configs + pyyaml
@@ -193,9 +204,6 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │   └── addons/
 │       ├── allowlist/                # Hostname/IP allowlist addon (active)
 │       └── token_replacer/           # Token redaction addon (API keys, Bearer tokens, cookies, JWTs) (active)
-│
-├── chat-templates/                   # Bundled Jinja chat templates for models
-│   └── Qwen3.6-35B-A3B-UD-Q6_K-XL/   # Jinja chat templates seeded to ~/.config/pi-container/chat-templates/
 │
 ├── llama-server/                     # LLM server components
 │   ├── models/                       # Downloaded GGUF model files (gitignored)

@@ -11,7 +11,8 @@ from typing import Any
 
 sys.dont_write_bytecode = True
 
-from util import EnvironmentError, load_dotenv, validate_environment
+from global_config import load_global_config
+from util import EnvironmentError, validate_environment
 
 logger = logging.getLogger(__name__)
 
@@ -19,33 +20,31 @@ logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
-DOTENV_PATH = REPO_ROOT / ".env"
 
-load_dotenv(DOTENV_PATH)
+global_config = load_global_config(repo_root=REPO_ROOT)
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
-# build.py is its own entry point (build.sh) and does not import ``config``,
-# where the root logger is normally configured. Without this the per-line build
-# output emitted at INFO is dropped and a failed build surfaces nothing but its
-# exit status.
+# build.py is its own entry point (build.sh) and configures the root logger
+# from global configuration.
 
-log_level_str = os.environ.get("LOG_LEVEL", "INFO").upper()
+log_level_str = global_config.runtime.log_level.upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
 logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
-LLAMA_BIN = os.environ.get("LLAMA_BIN") or shutil.which("llama-server")
-PI_IMAGE_TAG = os.environ.get("PI_IMAGE_TAG", "pi-coding-agent:local")
-PROXY_IMAGE_TAG = os.environ.get("PROXY_IMAGE_TAG", "pi-coding-agent-proxy:local")
-# The toolchain image (CPython, uv, podman-compose, podman, netavark, aardvark-dns).
-# Both the shared agent image and every project-specific image COPY --from this tag,
-# so it is referenced by name inside coding-agent/Containerfile too; changing it
-# here alone is not enough.
-BUILDER_IMAGE_TAG = os.environ.get("BUILDER_IMAGE_TAG", "pi-coding-agent-builder:local")
+_cached_llama = Path.home() / ".cache" / "pi-container" / "bin" / "llama-server"
+LLAMA_BIN = (
+    global_config.llama.bin
+    or (str(_cached_llama) if _cached_llama.exists() and os.access(_cached_llama, os.X_OK) else None)
+    or shutil.which("llama-server")
+)
+PI_IMAGE_TAG = global_config.build.images.agent
+PROXY_IMAGE_TAG = global_config.build.images.proxy
+BUILDER_IMAGE_TAG = global_config.build.images.builder
 
 # The Containerfile unconditionally does `COPY --from=root_commands_path`, so
 # every build must supply that context. Project-specific builds point it at the
 # workspace's own root/commands.sh; the shared image uses this no-op default.
-DEFAULT_ROOT_COMMANDS = REPO_ROOT / "coding-agent" / "default" / "dependencies" / "root" / "commands.sh"
+DEFAULT_ROOT_COMMANDS = REPO_ROOT / "coding-agent" / "default" / "project" / "dependencies" / "root" / "commands.sh"
 
 
 def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -94,8 +93,10 @@ _MIB_PER_JOB_PLAIN = 400
 
 
 def _python_optimize_enabled() -> bool:
-    """Check if Python PGO profile optimization is enabled via PYTHON_OPTIMIZE."""
-    return os.environ.get("PYTHON_OPTIMIZE", "1").strip() not in ("0", "false", "no", "off")
+    """Check if Python PGO profile optimization is enabled via configuration or environment."""
+    if "PYTHON_OPTIMIZE" in os.environ:
+        return os.environ["PYTHON_OPTIMIZE"].strip() not in ("0", "false", "no", "off")
+    return global_config.build.python_optimize
 
 
 def read_available_memory_mib(runtime: str) -> int | None:
@@ -128,8 +129,12 @@ def _parse_mem_available_mib(meminfo: str) -> int | None:
 
 def check_build_memory(runtime: str, fatal: bool = True) -> bool:
     """Verify that sufficient memory is available to compile CPython in the builder container."""
-    if os.environ.get("PI_MEMORY_PREFLIGHT", "1").strip() in ("0", "false", "no", "off"):
-        logger.debug("Build-memory preflight disabled (PI_MEMORY_PREFLIGHT=0).")
+    val = os.environ.get("PI_MEMORY_PREFLIGHT")
+    preflight_enabled = (
+        (val.strip() not in ("0", "false", "no", "off")) if val is not None else global_config.build.memory_preflight
+    )
+    if not preflight_enabled:
+        logger.debug("Build-memory preflight disabled.")
         return True
 
     required = _MIB_PER_JOB_PGO if _python_optimize_enabled() else _MIB_PER_JOB_PLAIN
@@ -173,10 +178,11 @@ def _build_dns_args() -> list[str]:
     In Podman on macOS, container builds default to gvproxy's nameserver,
     which can drop or time out on concurrent AAAA (IPv6) queries. Explicitly
     passing an upstream DNS resolver avoids transient build resolution failures.
-    Configured via BUILD_DNS (defaults to '1.1.1.1'). Disable by setting
-    BUILD_DNS to 'none', 'off', '0', or empty string.
+    Configured via build.dns in ~/.config/pi-container/config.yaml or BUILD_DNS.
+    Disable by setting build.dns to 'none', 'off', '0', or empty string.
     """
-    dns_val = os.environ.get("BUILD_DNS", "1.1.1.1").strip()
+    dns_val = os.environ.get("BUILD_DNS") if "BUILD_DNS" in os.environ else global_config.build.dns
+    dns_val = dns_val.strip() if dns_val else ""
     if not dns_val or dns_val.lower() in ("0", "none", "off", "false"):
         return []
     args: list[str] = []
@@ -189,7 +195,11 @@ def _build_dns_args() -> list[str]:
 
 def _node_build_args() -> list[str]:
     """Generate ``--build-arg`` flags specifying the Node.js installation source."""
-    value = os.environ.get("NODE_SOURCE", "").strip().lower()
+    value = os.environ.get("NODE_SOURCE")
+    if value is None:
+        cfg_val = global_config.build.node_source
+        value = cfg_val if cfg_val and cfg_val != "prebuilt" else ""
+    value = value.strip().lower()
     if not value:
         return []
     if value not in _NODE_SOURCES:
@@ -409,11 +419,67 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="TOOLS",
         help="Comma-separated list of on-demand tools to build (e.g. 'mold,git'), or 'all'.",
     )
+    parser.add_argument(
+        "--llama",
+        action="store_true",
+        help="Build minimal optimized host llama-server specifically for pi-container.",
+    )
+    parser.add_argument(
+        "--llama-latest",
+        "--latest",
+        action="store_true",
+        dest="llama_latest",
+        help="Build the latest release of llama.cpp specifically for pi-container.",
+    )
+    parser.add_argument(
+        "--llama-backend",
+        metavar="BACKEND",
+        default=None,
+        help="Force specific llama acceleration backend ('metal', 'cuda', 'rocm', 'cpu').",
+    )
+    parser.add_argument(
+        "--llama-tag",
+        metavar="TAG",
+        default=None,
+        help="Override git release tag or commit for llama.cpp (e.g. 'v0.9.0', 'latest').",
+    )
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="Skip cleaning build directory before compiling llama.cpp.",
+    )
+    parser.add_argument(
+        "--cmake-arg",
+        action="append",
+        dest="cmake_args",
+        default=[],
+        help="Additional CMake flags to pass to the llama.cpp build.",
+    )
     return parser.parse_known_args(argv)[0]
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+
+    if args.llama or args.llama_latest:
+        from llama_build import LlamaBuildError, build_llama_server
+
+        target_tag = "latest" if args.llama_latest else (args.llama_tag or global_config.llama.build.tag)
+        try:
+            built_path = build_llama_server(
+                repo_url=global_config.llama.build.repo,
+                tag=target_tag,
+                backend=args.llama_backend or global_config.llama.build.backend,
+                minimal=global_config.llama.build.minimal,
+                clean=not args.no_clean,
+                cmake_flags=(global_config.llama.build.cmake_flags or []) + (args.cmake_args or []),
+            )
+            logger.info(f"llama-server build complete: {built_path}")
+            return
+        except LlamaBuildError as e:
+            logger.error(f"Failed to build llama-server: {e}")
+            sys.exit(1)
+
     try:
         runtime = validate_environment(LLAMA_BIN)
         # Reject a bad NODE_SOURCE before any build starts. build_builder() would raise

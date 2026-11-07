@@ -33,9 +33,10 @@ Install the following tools on your host machine before running:
   See [Configuration](configuration.md#nested-containers).
 
 - **llama.cpp**: Specifically `llama-server`.
+    - Build with pi-container (recommended): `./build.sh --llama` (or `./build.sh --llama-latest` to build latest release)
     - On macOS: `brew install llama.cpp`
     - On Linux (Debian/Ubuntu): `sudo apt install llama.cpp`
-    - On Linux (other): [build from source](https://github.com/ggerganov/llama.cpp)
+    - On Linux (other): [build from source](https://github.com/ggml-org/llama.cpp)
     - On WSL2: `sudo apt install llama.cpp`
 
 You declare Python dependencies (`huggingface_hub[cli]`, `pyyaml`) in
@@ -61,7 +62,7 @@ Use the following hardware to run this environment comfortably, especially with 
 ### Linux / WSL2
 
 - **Container runtime**: podman (auto-detected).
-- **Network**: The default bridge interface is `podman0` and the proxy upstream network defaults to `podman`. Override via `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` in `.env` if needed.
+- **Network**: The default bridge interface is `podman0` and the proxy upstream network defaults to `podman`. Override via `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` in `~/.config/pi-container/config.yaml` or environment variables if needed.
 - **LLaMA backend**: The `llama-server` binary runs natively on Linux/WSL2. For GPU acceleration on Linux, build llama.cpp with CUDA or ROCm support.
 - **WSL2**: Ensure WSL2 is properly configured with a Linux distro. podman runs inside it.
 
@@ -77,11 +78,7 @@ Use the following hardware to run this environment comfortably, especially with 
 
 ### 1. Configure Environment
 
-Copy the example environment file, then edit it:
-
-```bash
-cp .env.example .env
-```
+pi-container automatically seeds its global configuration at `~/.config/pi-container/config.yaml` on first launch.
 
 Set **`ADMIN_PASSWORD`** in your OS keyring before running — the proxy's mitmweb UI requires a password:
 
@@ -89,7 +86,13 @@ Set **`ADMIN_PASSWORD`** in your OS keyring before running — the proxy's mitmw
 uv run keyring set pi-container ADMIN_PASSWORD
 ```
 
-See [Configuration](configuration.md) for the full list of environment variables.
+Optionally, build an optimized minimal `llama-server` binary for your host hardware:
+
+```bash
+./build.sh --llama
+```
+
+See [Configuration](configuration.md) for the full list of configuration options.
 
 ### 2. Build the Container Images
 
@@ -125,7 +128,7 @@ alias pi="~/workspace/pi-container/run.sh"
 pi --session 1234abcd-ef56-78ab-cd90-1234abcd56ef
 ```
 
-The script reads `<project>/.pi-container/models.yaml` (seeded from the `coding-agent/default/` template on first run) to determine which LLM providers and gateways are allowed. Global definitions under `~/.config/pi-container/models/` and `~/.config/pi-container/gateways/` supply model weights, server flags, and gateway endpoints. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent invocations **from the same workspace** share that workspace's proxy via a refcount.
+The script reads `<project>/.pi-container/models.yaml` (seeded from the `coding-agent/default/project/` template on first run) to determine which LLM providers and gateways are allowed. Global definitions under `~/.config/pi-container/models/` and `~/.config/pi-container/gateways/` supply model weights, server flags, and gateway endpoints. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent invocations **from the same workspace** share that workspace's proxy via a refcount.
 
 ### 4. Using the Agent
 
