@@ -1,7 +1,7 @@
-# pi-container
+# podman-agent-container
 
 <p align="center">
-  <img src="docs/assets/pi-container-logo.svg" alt="pi-container" width="360">
+  <img src="docs/assets/logo.svg" alt="podman-agent-container" width="360">
 </p>
 
 A containerized environment for running the [`pi-coding-agent`](https://pi.dev) with local large language model (LLM) inference and full auditability. A transparent proxy container based on [`mitmproxy`](https://mitmproxy.org) intercepts all HTTP, HTTPS, and DNS traffic from the agent container. It enforces an allowlist and injects secrets when required. It supports macOS, Linux, and WSL2.
