@@ -1,5 +1,5 @@
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -40,7 +40,7 @@ SCHEMA_VERSION_MISMATCH = "schema_version mismatch"
 from toolchains import AVAILABLE_TOOLS
 
 
-def _validate_tools(data: dict) -> list[str]:
+def _validate_tools(data: dict[str, Any]) -> list[str]:
     """Validate tools.include items against AVAILABLE_TOOLS."""
     errors: list[str] = []
     tools_section = data.get("tools")
@@ -77,7 +77,11 @@ def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
         return False, errors, None
 
     try:
-        data = load_yaml_strict(config_path.read_text()) or {}
+        raw_data = load_yaml_strict(config_path.read_text())
+        if not isinstance(raw_data, dict):
+            errors.append("Config file must be a YAML mapping")
+            return False, errors, None
+        data = raw_data
     except DuplicateKeyError as e:
         # Called out separately from other syntax errors because it is the one
         # YAML mistake that otherwise parses clean and loses a setting silently.

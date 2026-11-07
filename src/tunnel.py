@@ -397,7 +397,7 @@ class CloudflareTunnelManager:
         self.port = port
         self.runtime = runtime
         self.run_id = run_id or "default"
-        self._proc: subprocess.Popen | None = None
+        self._proc: subprocess.Popen[str] | subprocess.Popen[bytes] | None = None
         self._container_name = f"pi-t3-tunnel-cf-{self.run_id}"
 
     def start(self, stack: ExitStack) -> tuple[str, str]:

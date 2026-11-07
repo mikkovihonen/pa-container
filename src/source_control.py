@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from config_types import SourceControlConfig
+
 from network import _egress_truthy, load_project_config
 from secret_store import DEFAULT_KEYRING_SERVICE, get_keyring_secret
 
@@ -108,12 +110,11 @@ def mask_token(token: str) -> str:
     return f"{token[:4]}...{token[-4:]}"
 
 
-def read_source_control_config(config_dir: Path | None = None) -> dict:
+def read_source_control_config(config_dir: Path | None = None) -> SourceControlConfig:
     """Read and normalize the ``source_control`` section from config.yaml."""
     config = load_project_config(config_dir)
-    section = config.get("source_control")
-    if not isinstance(section, dict):
-        section = {}
+    raw_section = config.get("source_control")
+    section: dict[str, object] = raw_section if isinstance(raw_section, dict) else {}
 
     enabled_val = section.get("enabled")
     auto_detect_val = section.get("auto_detect_host_cli")

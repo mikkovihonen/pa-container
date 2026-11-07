@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 
 sys.dont_write_bytecode = True
@@ -16,10 +18,12 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
+
+    from config_types import ClientInfo
 
 _LOG = logging.getLogger(__name__)
 
@@ -30,8 +34,8 @@ def run_quiet(
     check: bool = True,
     label: str | None = None,
     logger: logging.Logger | None = None,
-    **kwargs,
-) -> subprocess.CompletedProcess:
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command, capturing output and logging failures.
 
     Args:
@@ -61,7 +65,7 @@ def run_quiet(
     return result
 
 
-def load_dotenv(dotenv_path: Path):
+def load_dotenv(dotenv_path: Path) -> None:
     """Load environment variables from a .env file into os.environ."""
     if not dotenv_path.exists():
         return
@@ -135,7 +139,7 @@ def get_free_port() -> int:
         for _ in range(50):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(("", 0))
-                port = s.getsockname()[1]
+                port: int = int(s.getsockname()[1])
                 if port not in _allocated_ports:
                     _allocated_ports.add(port)
                     return port
@@ -167,7 +171,7 @@ def file_lock(
     poll_interval: float = 0.05,
     logger: logging.Logger | None = None,
     label: str = "resource",
-):
+) -> Generator[TextIO]:
     """Context manager for acquiring an exclusive file lock with timeout and contention logging."""
     import fcntl
 
@@ -198,7 +202,7 @@ def file_lock(
                 fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def read_live_clients(clients_file: Path) -> list[dict]:
+def read_live_clients(clients_file: Path) -> list[ClientInfo]:
     """Read a JSON client manifest and return only clients whose PIDs are alive.
 
     The manifest is expected to be a JSON array of dicts, each with at least a
@@ -210,18 +214,18 @@ def read_live_clients(clients_file: Path) -> list[dict]:
         data = json.loads(clients_file.read_text())
         if not isinstance(data, list):
             return []
-        live = []
+        live: list[ClientInfo] = []
         for entry in data:
             if isinstance(entry, dict) and "pid" in entry:
                 pid = entry["pid"]
                 if isinstance(pid, int) and is_pid_alive(pid):
-                    live.append(entry)
+                    live.append(cast("ClientInfo", entry))
         return live
     except OSError, json.JSONDecodeError:
         return []
 
 
-def write_clients(clients_file: Path, clients: list[dict]) -> None:
+def write_clients(clients_file: Path, clients: list[ClientInfo]) -> None:
     """Write the client list as JSON to clients_file atomically."""
     clients_file.parent.mkdir(parents=True, exist_ok=True)
     content = json.dumps(clients, indent=2) + "\n"
@@ -234,7 +238,7 @@ def write_clients(clients_file: Path, clients: list[dict]) -> None:
         raise
 
 
-def register_client(clients_file: Path, client_info: dict) -> list[dict]:
+def register_client(clients_file: Path, client_info: ClientInfo) -> list[ClientInfo]:
     """Prune dead clients, add `client_info` to clients_file, and return the live list."""
     live = read_live_clients(clients_file)
     pid = client_info.get("pid")
@@ -245,7 +249,7 @@ def register_client(clients_file: Path, client_info: dict) -> list[dict]:
     return live
 
 
-def deregister_client(clients_file: Path, pid: int, run_id: str | None = None) -> list[dict]:
+def deregister_client(clients_file: Path, pid: int, run_id: str | None = None) -> list[ClientInfo]:
     """Remove client matching pid (and optionally run_id), prune dead clients, and update file."""
     live = read_live_clients(clients_file)
     remaining = [c for c in live if not (c.get("pid") == pid and (run_id is None or c.get("run_id") == run_id))]
@@ -265,16 +269,16 @@ def start_refcounted_resource(
     *,
     lock_file: Path,
     clients_file: Path,
-    client_info: dict,
+    client_info: ClientInfo,
     is_healthy_fn: Callable[[], bool],
-    start_fn: Callable[[], Any],
+    start_fn: Callable[[], None],
     stop_fn: Callable[[], None],
     cleanup_stale_fn: Callable[[], None] | None = None,
     on_attach_fn: Callable[[int], None] | None = None,
     on_adopt_fn: Callable[[], None] | None = None,
     logger: logging.Logger | None = None,
     label: str = "resource",
-) -> Any:
+) -> None:
     """Acquire lock, check resource health, and attach/adopt/restart the refcounted resource."""
     with file_lock(lock_file, logger=logger, label=label):
         live_clients = read_live_clients(clients_file)
@@ -347,18 +351,21 @@ def handle_signal(signum: int, frame: object | None = None, logger: logging.Logg
     Compatible with Python signal handler callbacks ``(signum, frame)`` as well
     as explicit logger injections in tests.
     """
-    log = logger
-    if log is None:
-        log = frame if hasattr(frame, "info") and callable(frame.info) else _LOG
     try:
         signame: str = signal.Signals(signum).name
     except ValueError:
         signame = f"signal {signum}"
-    log.info(f"Received {signame}. Initiating clean shutdown...")
+    msg = f"Received {signame}. Initiating clean shutdown..."
+    if logger is not None:
+        logger.info(msg)
+    elif frame is not None and hasattr(frame, "info") and callable(getattr(frame, "info", None)):
+        frame.info(msg)
+    else:
+        _LOG.info(msg)
     raise SystemExit(128 + signum)
 
 
-def stop_process_group(pid: int, name: str, logger) -> None:
+def stop_process_group(pid: int, name: str, logger: logging.Logger) -> None:
     """Stops a process group to ensure all child processes are killed."""
     logger.info(f"Stopping process group for {name} (pid: {pid})...")
     try:
@@ -406,7 +413,7 @@ def get_host_external_ip() -> str:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             s.connect(("1.1.1.1", 80))
-            ip = s.getsockname()[0]
+            ip: str = str(s.getsockname()[0])
             if ip and not ip.startswith("127."):
                 return ip
         finally:
@@ -424,7 +431,7 @@ def get_host_external_ip() -> str:
     return "127.0.0.1"
 
 
-def get_sanitized_git_config_json(logger, allowlist: list[str] | None = None):
+def get_sanitized_git_config_json(logger: logging.Logger, allowlist: list[str] | None = None) -> str:
     """Extract global host git configuration as JSON, strictly filtering against safe allowlist keys."""
     sanitized_dict = {}
     # Regex to strip 'user:pass@' from URLs

@@ -9,7 +9,7 @@ import json
 import logging
 import subprocess
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from config import PROJECT_DIR
 
@@ -106,13 +106,13 @@ def _extract_session_id(session_file: Path) -> str:
     session_id = data.get("id")
     if not session_id:
         raise ValueError(f"Session file {session_file} has no 'id' in its first line")
-    return session_id
+    return str(session_id)
 
 
 def _load_flows_from_mount(
     exports_dir: Path | None = None,
     flows_filename: str = "flows.jsonl",
-) -> list[dict] | None:
+) -> list[dict[str, Any]] | None:
     """Load flow history from the proxy container's mounted exports directory.
 
     The flow_export addon appends one flow per line (JSON Lines) to
@@ -142,7 +142,7 @@ def _load_flows_from_mount(
         logger.warning(f"Could not read flow export file {flows_file}: {e}")
         return None
 
-    flows: list[dict] = []
+    flows: list[dict[str, Any]] = []
     skipped = 0
     for line in raw.splitlines():
         line = line.strip()

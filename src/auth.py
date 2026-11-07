@@ -17,13 +17,14 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from config import TOKENS_DIR
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from config_types import TokenData
     from registry import GatewayAuth
 
 logger = logging.getLogger(__name__)
@@ -75,18 +76,21 @@ def get_token_cache_path(gateway_id: str, auth: GatewayAuth) -> Path:
     return path
 
 
-def read_cached_token(cache_path: Path) -> dict[str, Any] | None:
+def read_cached_token(cache_path: Path) -> TokenData | None:
     """Read cached token data if the file exists and is valid JSON."""
     if not cache_path.is_file():
         return None
     try:
-        return json.loads(cache_path.read_text(encoding="utf-8"))
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return cast("TokenData", data)
+        return None
     except Exception as e:
         logger.warning(f"Failed to read token cache {cache_path}: {e}")
         return None
 
 
-def write_cached_token(cache_path: Path, data: dict[str, Any]) -> None:
+def write_cached_token(cache_path: Path, data: TokenData) -> None:
     """Write token data securely with 0600 permissions."""
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -99,7 +103,7 @@ def write_cached_token(cache_path: Path, data: dict[str, Any]) -> None:
 # ─── Refresh Token Grant ─────────────────────────────────────────────────────
 
 
-def refresh_access_token(token_endpoint: str, client_id: str, refresh_token: str) -> dict[str, Any] | None:
+def refresh_access_token(token_endpoint: str, client_id: str, refresh_token: str) -> TokenData | None:
     """Attempt to exchange a refresh token for a new access token."""
     payload = urllib.parse.urlencode(
         {
@@ -121,9 +125,11 @@ def refresh_access_token(token_endpoint: str, client_id: str, refresh_token: str
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(data, dict):
+                return None
             if "expires_in" in data:
                 data["expires_at"] = time.time() + float(data["expires_in"])
-            return data
+            return cast("TokenData", data)
     except Exception as e:
         logger.warning(f"Failed to refresh access token: {e}")
         return None
@@ -139,7 +145,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
     auth_state: str | None = None
     auth_error: str | None = None
 
-    def log_message(self, format: str, *args: Any) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         """Suppress standard HTTP server logging."""
         pass
 
@@ -179,7 +185,7 @@ def interactive_browser_login(
     client_id: str,
     scopes: list[str],
     timeout_seconds: int = 120,
-) -> dict[str, Any]:
+) -> TokenData:
     """Execute an OAuth 2.0 PKCE authorization code grant via local browser."""
     code_verifier = generate_code_verifier()
     code_challenge = generate_code_challenge(code_verifier)
@@ -248,9 +254,11 @@ def interactive_browser_login(
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
         data = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Unexpected token response type: {type(data).__name__}")
         if "expires_in" in data:
             data["expires_at"] = time.time() + float(data["expires_in"])
-        return data
+        return cast("TokenData", data)
 
 
 # ─── Public Main Entry Point ─────────────────────────────────────────────────
@@ -269,7 +277,7 @@ def ensure_gateway_auth(gateway_id: str, auth: GatewayAuth) -> str:
     if cached and "access_token" in cached:
         expires_at = cached.get("expires_at", 0)
         if expires_at > time.time() + 60:
-            return cached["access_token"]
+            return str(cached["access_token"])
 
         # 2. Try refresh token if available
         if "refresh_token" in cached:
@@ -282,7 +290,7 @@ def ensure_gateway_auth(gateway_id: str, auth: GatewayAuth) -> str:
                         refreshed["refresh_token"] = cached["refresh_token"]
                     write_cached_token(cache_path, refreshed)
                     logger.info(f"Refreshed access token for gateway '{gateway_id}'")
-                    return refreshed["access_token"]
+                    return str(refreshed["access_token"])
             except Exception as e:
                 logger.warning(f"Could not refresh token for gateway '{gateway_id}': {e}")
 
@@ -297,4 +305,4 @@ def ensure_gateway_auth(gateway_id: str, auth: GatewayAuth) -> str:
     )
     write_cached_token(cache_path, new_tokens)
     logger.info(f"Successfully authenticated gateway '{gateway_id}' via browser")
-    return new_tokens["access_token"]
+    return str(new_tokens["access_token"])

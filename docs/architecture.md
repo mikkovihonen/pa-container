@@ -123,7 +123,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 ├── build.sh                          # Build script (delegates to src/build.py)
 ├── run.sh                            # Run script (delegates to src/run.py)
 ├── .env.example                      # Example environment configuration
-├── pyproject.toml                    # uv project: dependencies, dependency-groups, ruff/pytest config
+├── pyproject.toml                    # uv project: dependencies, dependency-groups, ruff/mypy/pytest config
 ├── uv.lock                           # Pinned dependency lockfile (committed)
 ├── .gitignore
 │
@@ -131,6 +131,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │   ├── build.py                      # Builds proxy and agent container images
 │   ├── run.py                        # Orchestration entrypoint: validation + main() lifecycle
 │   ├── config.py                     # Shared constants (paths, env, logging) — no side effects
+│   ├── config_types.py               # Shared TypedDict declarations (zero circular dependencies)
 │   ├── runtimes.py                   # ContainerRuntime abstraction (PodmanRuntime)
 │   ├── models.py                     # Model + ServerConfig/ModelConfig (download, checksum)
 │   ├── server.py                     # Server: llama-server lifecycle & multi-client refcounting
@@ -146,6 +147,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │       ├── conftest.py
 │       ├── test_build.py
 │       ├── test_config_schema.py
+│       ├── test_config_types.py
 │       ├── test_containers.py
 │       ├── test_flow_export.py
 │       ├── test_images.py

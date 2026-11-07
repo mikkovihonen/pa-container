@@ -15,10 +15,13 @@ import threading
 import time
 import urllib.request
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import types
     from pathlib import Path
+
+    from config_types import ClientInfo
 
 from config import LOGS_DIR
 from models import Model, ServerConfig
@@ -110,7 +113,12 @@ class Server:
         self.start()
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any | None) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         self.stop()
 
     def _ensure_models_downloaded(self) -> None:
@@ -232,7 +240,7 @@ class Server:
 
         self.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
 
-        client_info = {
+        client_info: ClientInfo = {
             "pid": os.getpid(),
             "server_id": self.server_id,
             "registered_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),

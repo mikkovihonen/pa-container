@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from config_types import AgentExtrasConfig, GatewayConfigItem, ServerConfigItem
+
 sys.dont_write_bytecode = True
 
 from agents.base import AgentDriver, AgentMount
@@ -28,13 +30,13 @@ class ClaudeDriver(AgentDriver):
     def get_command(self, cli_args: list[str]) -> list[str]:
         return cli_args
 
-    def get_environment(self, config: dict | None = None) -> dict[str, str]:
+    def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
         env = {
             "ANTHROPIC_API_KEY": "pi-container-token-placeholder",
             "CLAUDE_CONFIG_DIR": "/home/agent/.claude",
         }
-        if config and config.get("baseUrl"):
-            env["ANTHROPIC_BASE_URL"] = str(config["baseUrl"])
+        if config and config.get("env") and "ANTHROPIC_BASE_URL" in config["env"]:
+            env["ANTHROPIC_BASE_URL"] = str(config["env"]["ANTHROPIC_BASE_URL"])
         return env
 
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:
@@ -46,8 +48,8 @@ class ClaudeDriver(AgentDriver):
 
     def synthesize_config(
         self,
-        server_configs: list[dict],
-        gateway_configs: list[dict],
+        server_configs: list[ServerConfigItem],
+        gateway_configs: list[GatewayConfigItem],
         default_model: str | None,
         project_dir: Path,
     ) -> None:

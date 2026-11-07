@@ -9,9 +9,10 @@ uv sync
 # Run the project's test suite (src/tests)
 uv run pytest
 
-# Lint / format
+# Lint / format / type check
 uv run ruff check src
 uv run ruff format src
+uv run mypy
 
 # Run the mitmproxy proxy-addon tests (heavy `mitmproxy` dep — opt-in group)
 uv run --group proxy pytest coding-agent-proxy/addons

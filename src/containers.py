@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import re
@@ -12,6 +14,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import ExitStack
     from pathlib import Path
+
+    from config_types import GatewayConfigItem
 
 sys.dont_write_bytecode = True
 
@@ -208,7 +212,8 @@ def get_allowed_hostnames(config_dir: Path) -> list[str] | None:
     try:
         from yaml_strict import load_yaml_file
 
-        data = load_yaml_file(allowlist_path) or {}
+        loaded = load_yaml_file(allowlist_path)
+        data = loaded if isinstance(loaded, dict) else {}
     except Exception:
         return None
 
@@ -250,7 +255,7 @@ def warn_about_registry_allowlist(config_dir: Path) -> None:
             )
 
 
-def warn_about_gateway_allowlist(config_dir: Path, gateway_configs: list[dict]) -> None:
+def warn_about_gateway_allowlist(config_dir: Path, gateway_configs: list[GatewayConfigItem]) -> None:
     """Warn when gateway baseUrl hostnames are missing from allowlist.yaml."""
     if not gateway_configs:
         return

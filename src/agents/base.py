@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from config_types import AgentExtrasConfig, GatewayConfigItem, ServerConfigItem
+
 sys.dont_write_bytecode = True
 
 """Base classes and data structures for coding agent runtime drivers."""
@@ -45,7 +47,7 @@ class AgentDriver(ABC):
         """Return the command arguments to execute inside the container."""
         return [self.name, *cli_args]
 
-    def get_environment(self, config: dict | None = None) -> dict[str, str]:
+    def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
         """Return dummy/placeholder environment variables needed by this agent."""
         return {}
 
@@ -67,8 +69,8 @@ class AgentDriver(ABC):
 
     def synthesize_config(
         self,
-        server_configs: list[dict],
-        gateway_configs: list[dict],
+        server_configs: list[ServerConfigItem],
+        gateway_configs: list[GatewayConfigItem],
         default_model: str | None,
         project_dir: Path,
     ) -> None:

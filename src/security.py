@@ -1,11 +1,16 @@
+from __future__ import annotations
+
 """Security policy definitions and preflight validations for pi-container."""
 
 import ipaddress
 import logging
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING
 
 from network import _egress_truthy, load_project_config
+
+if TYPE_CHECKING:
+    from config_types import SecurityConfig
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +26,7 @@ FORBIDDEN_CONTAINER_DESTINATION_PREFIXES: tuple[str, ...] = (
     "/root",
 )
 
-DEFAULT_SECURITY_CONFIG: dict[str, Any] = {
+DEFAULT_SECURITY_CONFIG: SecurityConfig = {
     "read_only_git_hooks": True,
     "blocked_mount_paths": [
         "~/.ssh",
@@ -65,7 +70,7 @@ DEFAULT_SECURITY_CONFIG: dict[str, Any] = {
 }
 
 
-def read_security_config(config_dir: Path | None = None) -> dict[str, Any]:
+def read_security_config(config_dir: Path | None = None) -> SecurityConfig:
     """Read the ``security`` section from config.yaml with fail-safe defaults."""
     cfg = load_project_config(config_dir)
     section = cfg.get("security") or {}

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
@@ -8,7 +10,11 @@ import threading
 import uuid
 from contextlib import ExitStack
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from config_types import GatewayConfigItem
 
 sys.dont_write_bytecode = True
 
@@ -69,6 +75,8 @@ from util import (
 logger = logging.getLogger(__name__)
 
 CONTAINER_RUNTIME: str = "podman"
+RUNTIME: PodmanRuntime = PodmanRuntime(upstream_network=PROXY_UPSTREAM_NETWORK_ENV)
+PROXY_UPSTREAM_NETWORK: str = RUNTIME.upstream_network
 
 
 # ─── Startup validation ───────────────────────────────────────────────────────
@@ -102,7 +110,7 @@ def _init_runtime() -> None:
     PROXY_UPSTREAM_NETWORK = RUNTIME.upstream_network
 
 
-def process_gateway_configs(gateway_configs: list[dict], pi_container_dir: Path) -> None:
+def process_gateway_configs(gateway_configs: list[GatewayConfigItem], pi_container_dir: Path) -> None:
     """Preflight, authenticate, and validate allowlist egress for external model gateways."""
     for gw in gateway_configs:
         gw_def = gw["gatewayDef"]
@@ -121,8 +129,8 @@ def process_gateway_configs(gateway_configs: list[dict], pi_container_dir: Path)
             service = gw_def.auth.keyring_service or DEFAULT_KEYRING_SERVICE
             account = gw_def.auth.keyring_account or var_name
 
-            token = get_keyring_secret(account, service=service)
-            if not token:
+            token_val = get_keyring_secret(account, service=service)
+            if not token_val:
                 logger.error(
                     f"Gateway '{gw['name']}' requires secret '{var_name}'.\n"
                     f"Save in OS keyring: uv run keyring set {service} {account}"
@@ -130,7 +138,7 @@ def process_gateway_configs(gateway_configs: list[dict], pi_container_dir: Path)
                 sys.exit(1)
                 return
 
-            os.environ[var_name] = token
+            os.environ[var_name] = token_val
 
     containers.warn_about_gateway_allowlist(pi_container_dir, gateway_configs)
 
@@ -606,6 +614,9 @@ def main() -> None:
             agent_image_tag, is_project_specific = images.resolve_agent_image(PROJECT_DIR, extra_tools=driver_tools)
             if is_project_specific:
                 label_hash = images.compute_image_hash(PROJECT_DIR, extra_tools=driver_tools)
+                if label_hash is None:
+                    logger.error("Failed to compute project image hash")
+                    sys.exit(1)
                 project_hash, _ = project.project_scope(PROJECT_DIR)
                 project_path = str(PROJECT_DIR.resolve())
 

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from config_types import AgentExtrasConfig, GatewayConfigItem, ServerConfigItem
+
 sys.dont_write_bytecode = True
 
 from agents.base import AgentDriver, AgentMount
@@ -28,7 +30,7 @@ class AntigravityDriver(AgentDriver):
     def get_command(self, cli_args: list[str]) -> list[str]:
         return cli_args
 
-    def get_environment(self, config: dict | None = None) -> dict[str, str]:
+    def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
         return {
             "GEMINI_API_KEY": "pi-container-token-placeholder",
         }
@@ -42,8 +44,8 @@ class AntigravityDriver(AgentDriver):
 
     def synthesize_config(
         self,
-        server_configs: list[dict],
-        gateway_configs: list[dict],
+        server_configs: list[ServerConfigItem],
+        gateway_configs: list[GatewayConfigItem],
         default_model: str | None,
         project_dir: Path,
     ) -> None:
@@ -52,7 +54,7 @@ class AntigravityDriver(AgentDriver):
         agy_dir.mkdir(parents=True, exist_ok=True)
         config_file = agy_dir / "config.json"
 
-        endpoints: list[dict] = []
+        endpoints: list[dict[str, object]] = []
         for srv in server_configs:
             name = srv["name"]
             endpoints.append(

@@ -33,13 +33,20 @@ Configuration file (YAML):
     See allowlist_config.yaml.
 """
 
+from __future__ import annotations
+
 import ipaddress
 import logging
 import os
 import re
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from mitmproxy import ctx, http
+
+if TYPE_CHECKING:
+    from mitmproxy.addonmanager import Loader
+    from mitmproxy.http import HTTPFlow
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +110,9 @@ def _is_ip_address(hostname: str) -> bool:
         return False
 
 
-def _parse_ip_patterns(patterns: list[str]) -> list:
+def _parse_ip_patterns(
+    patterns: list[str],
+) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network | ipaddress.IPv4Address | ipaddress.IPv6Address]:
     """Parse IP address / CIDR patterns into ``ipaddress`` objects.
 
     Returns a list where each element is either an
@@ -111,7 +120,7 @@ def _parse_ip_patterns(patterns: list[str]) -> list:
     or an ``ipaddress.IPv4Address`` / ``ipaddress.IPv6Address`` (for single
     IPs).
     """
-    parsed = []
+    parsed: list[ipaddress.IPv4Network | ipaddress.IPv6Network | ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for pattern in patterns:
         pattern = pattern.strip()
         try:
@@ -124,7 +133,12 @@ def _parse_ip_patterns(patterns: list[str]) -> list:
     return parsed
 
 
-def _ip_matches(ip_str: str, parsed_patterns: list) -> bool:
+def _ip_matches(
+    ip_str: str,
+    parsed_patterns: list[
+        ipaddress.IPv4Network | ipaddress.IPv6Network | ipaddress.IPv4Address | ipaddress.IPv6Address
+    ],
+) -> bool:
     """Check if an IP address matches any of the parsed IP patterns.
 
     Args:
@@ -159,14 +173,14 @@ def _ip_matches(ip_str: str, parsed_patterns: list) -> bool:
     return False
 
 
-def _parse_server_address(address) -> str | None:
+def _parse_server_address(address: tuple[str, int] | tuple[str, ...] | None) -> str | None:
     """Extract IP address string from a mitmproxy server address tuple.
 
     Returns the IP string or None if the address is unavailable.
     """
     if not address or len(address) < 1:
         return None
-    ip = address[0]
+    ip = str(address[0])
     # Handle bracketed IPv6: [::1]:port or [::1] → strip brackets
     if ip.startswith("["):
         bracket_end = ip.find("]")
@@ -181,7 +195,7 @@ def _parse_server_address(address) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _get_server_ip(flow) -> str | None:
+def _get_server_ip(flow: HTTPFlow | None) -> str | None:
     """Extract server IP from a flow.
 
     Returns the server IP string or None if unavailable.
@@ -221,14 +235,16 @@ class AllowlistRule:
         OR the request's server IP matches an IP pattern → deny.
     """
 
-    def __init__(self, rule_def: dict):
+    def __init__(self, rule_def: dict[str, Any]):
         self.name: str = rule_def.get("name", "<unnamed>")
         self.mode: str = rule_def.get("mode", "allow")  # "allow" or "block"
         self.hostnames: list[str] = rule_def.get("hostnames", [])
         self.ip_ranges: list[str] = rule_def.get("ip_ranges", [])
 
         # Pre-parse IP patterns for efficiency
-        self._parsed_ips: list = _parse_ip_patterns(self.ip_ranges)
+        self._parsed_ips: list[
+            ipaddress.IPv4Network | ipaddress.IPv6Network | ipaddress.IPv4Address | ipaddress.IPv6Address
+        ] = _parse_ip_patterns(self.ip_ranges)
 
         # Pre-compile hostname regex patterns
         self._hostname_regexes = []
@@ -308,7 +324,7 @@ class AllowlistAddon:
 
     def __init__(self, config_path: str = ""):
         self.rules: list[AllowlistRule] = []
-        self.global_config: dict = {}
+        self.global_config: dict[str, Any] = {}
         self._mode: str = "allow"
         self._default_action: str = "block"
         self._status_code: int = 403
@@ -320,7 +336,7 @@ class AllowlistAddon:
     def __repr__(self) -> str:
         return f"AllowlistAddon(rules={len(self.rules)}, mode={self._mode!r})"
 
-    def load(self, loader):
+    def load(self, loader: Loader) -> None:
         """Register custom mitmproxy options so users can override defaults
         via ``--set`` on the command line without modifying the config file.
         """
@@ -370,7 +386,7 @@ class AllowlistAddon:
             """,
         )
 
-    def configure(self, updated):
+    def configure(self, updated: set[str]) -> None:
         """Rebuild rules and apply option changes."""
         if "allowlist_mode" in updated:
             self._mode = ctx.options.allowlist_mode
@@ -383,7 +399,7 @@ class AllowlistAddon:
         if "allowlist_log_allowed" in updated:
             self._log_allowed = ctx.options.allowlist_log_allowed
 
-    def _load_config(self, config_path: str):
+    def _load_config(self, config_path: str) -> None:
         """Load rules from the YAML config file."""
         self.rules = []
         self.global_config = {}
@@ -579,12 +595,12 @@ class AllowlistAddon:
             flow.comment += f" ({reason})"
 
         if self._status_code == 444:
-            flow.kill()
+            flow.kill()  # type: ignore[no-untyped-call]
         else:
             from mitmproxy.net.http.status_codes import NO_RESPONSE
 
             if self._status_code == NO_RESPONSE:
-                flow.kill()
+                flow.kill()  # type: ignore[no-untyped-call]
             else:
                 flow.response = http.Response.make(
                     self._status_code,

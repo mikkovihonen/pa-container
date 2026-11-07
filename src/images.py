@@ -48,7 +48,8 @@ def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) 
     if not cfg_path.exists():
         return sorted(tools)
     try:
-        data = load_yaml_strict(cfg_path.read_text()) or {}
+        raw = load_yaml_strict(cfg_path.read_text())
+        data = raw if isinstance(raw, dict) else {}
         tools_sec = data.get("tools")
         if isinstance(tools_sec, dict):
             include = tools_sec.get("include")

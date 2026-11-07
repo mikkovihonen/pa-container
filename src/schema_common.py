@@ -1,4 +1,9 @@
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 """Shared schema definitions and validation logic for configuration files."""
 
@@ -17,7 +22,7 @@ def _validate_field(value: Any, expected: type | tuple[type, ...], path: str) ->
 # ─── Generic recursive schema validator ─────────────────────────────────────
 
 
-def _validate_schema(data: dict, schema: dict, path: str = "") -> list[str]:
+def _validate_schema(data: dict[str, Any], schema: dict[str, Any], path: str = "") -> list[str]:
     """Recursively validate a dictionary structure against a schema specification."""
     errors: list[str] = []
     for key, spec in schema.items():
@@ -47,7 +52,7 @@ def _validate_schema(data: dict, schema: dict, path: str = "") -> list[str]:
 # can be any YAML type (used for ``egress.allow`` which has a heterogeneous dict).
 
 
-SCHEMA: dict = {
+SCHEMA: dict[str, Any] = {
     "resources": {
         "type": dict,
         "keys": {
@@ -196,7 +201,7 @@ SCHEMA: dict = {
 }
 
 
-MODELS_YAML_SCHEMA: dict = {
+MODELS_YAML_SCHEMA: dict[str, Any] = {
     "default": {"type": (str, type(None)), "required": False},
     "allow": {"type": list, "required": True},
 }
@@ -206,9 +211,9 @@ MODELS_YAML_SCHEMA: dict = {
 
 
 def _validate_models_yaml(
-    data: dict,
-    models_dir: Any = None,
-    gateways_dir: Any = None,
+    data: dict[str, Any],
+    models_dir: Path | None = None,
+    gateways_dir: Path | None = None,
 ) -> list[str]:
     """Validate project-level models.yaml allowlist structure."""
     errors: list[str] = []
@@ -237,7 +242,7 @@ def _validate_models_yaml(
     return errors
 
 
-def validate_model_def_data(data: dict, model_id: str = "") -> list[str]:
+def validate_model_def_data(data: dict[str, Any], model_id: str = "") -> list[str]:
     """Validate local model definition dictionary (~/.config/pi-container/models/<id>.yaml)."""
     errors: list[str] = []
     hf_models = data.get("hfModels")
@@ -274,7 +279,7 @@ def validate_model_def_data(data: dict, model_id: str = "") -> list[str]:
     return errors
 
 
-def _validate_agents(data: dict) -> list[str]:
+def _validate_agents(data: dict[str, Any]) -> list[str]:
     """Validate agents section: must have at least one enabled agent from AVAILABLE_AGENTS."""
     errors: list[str] = []
     agents_sec = data.get("agents")

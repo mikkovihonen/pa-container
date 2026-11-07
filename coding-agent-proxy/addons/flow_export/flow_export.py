@@ -36,13 +36,17 @@ Example loading (from mitmproxy command line):
     mitmweb --set scripts=flow_export.py
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from mitmproxy import http
+    from mitmproxy.http import HTTPFlow, Headers
 
 log = logging.getLogger(__name__)
 
@@ -57,16 +61,18 @@ def _safe_bytes(content: bytes | None) -> str:
         return repr(content)
 
 
-def _headers_to_dict(headers) -> dict:
+def _headers_to_dict(headers: Headers | Mapping[str, str] | None) -> dict[str, str]:
     """Convert mitmproxy Headers object to a regular dict."""
+    if headers is None:
+        return {}
     # Iterating a mitmproxy Headers object yields keys only; use .items() to get
     # (key, value) pairs. Later duplicate header names collapse to the last value.
-    return {k: v for k, v in headers.items()}
+    return {str(k): str(v) for k, v in headers.items()}
 
 
-def _flow_to_dict(flow) -> dict:
+def _flow_to_dict(flow: HTTPFlow) -> dict[str, object]:
     """Convert a mitmproxy flow object to a JSON-serializable dict."""
-    flow_dict: dict = {
+    flow_dict: dict[str, object] = {
         "id": getattr(flow, "id", ""),
         "type": getattr(flow, "type", "http"),
         "timestamp_start": getattr(flow, "timestamp_start", None),
@@ -74,24 +80,24 @@ def _flow_to_dict(flow) -> dict:
     }
 
     # Request
-    if getattr(flow, "request", None) is not None:
-        req = flow.request
+    req = flow.request
+    if req is not None:
         flow_dict["request"] = {
             "method": getattr(req, "method", ""),
             "url": str(getattr(req, "url", "")),
-            "headers": _headers_to_dict(getattr(req, "headers", {})),
+            "headers": _headers_to_dict(getattr(req, "headers", None)),
             "content": _safe_bytes(getattr(req, "content", None)),
-            "content_type": req.headers.get("Content-Type", "") if hasattr(req, "headers") else "",
+            "content_type": req.headers.get("Content-Type", "") if req.headers else "",
         }
 
     # Response
-    if getattr(flow, "response", None) is not None:
-        resp = flow.response
+    resp = flow.response
+    if resp is not None:
         flow_dict["response"] = {
             "status_code": getattr(resp, "status_code", 0),
-            "headers": _headers_to_dict(getattr(resp, "headers", {})),
+            "headers": _headers_to_dict(getattr(resp, "headers", None)),
             "content": _safe_bytes(getattr(resp, "content", None)),
-            "content_type": resp.headers.get("Content-Type", "") if hasattr(resp, "headers") else "",
+            "content_type": resp.headers.get("Content-Type", "") if resp.headers else "",
         }
 
     # Error
@@ -112,7 +118,7 @@ def _sanitize_ip(ip: str) -> str:
     return ip.strip("[]").replace(":", "-")
 
 
-def _client_ip(flow) -> str:
+def _client_ip(flow: HTTPFlow) -> str:
     """Return the source IP of the flow's client connection, or 'unknown'."""
     conn = getattr(flow, "client_conn", None)
     peername = getattr(conn, "peername", None) if conn is not None else None
@@ -189,7 +195,7 @@ class FlowExporter:
         try:
             from mitmproxy import ctx
 
-            view = ctx.master.addons.get("view") if hasattr(ctx, "master") and ctx.master else None
+            view = getattr(ctx.master.addons, "get")("view") if hasattr(ctx, "master") and ctx.master else None
             if not view or len(view) <= self._max_view_flows:
                 return
 

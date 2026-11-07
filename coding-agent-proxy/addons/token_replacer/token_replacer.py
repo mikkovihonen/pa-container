@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 mitmproxy addon: Token Replacer
 
@@ -21,13 +23,17 @@ import logging
 import os
 import re
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib import parse as urlparse
 
 import yaml
 
 if TYPE_CHECKING:
     from mitmproxy import http
+    from mitmproxy.http import Headers, Request, Response
+
+type TokenReplacerTarget = Request | Response
+type TokenMatcher = JsonBodyMatcher | HeaderMatcher | FormBodyMatcher | QueryStringMatcher | RawBodyMatcher
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +98,7 @@ def _resolve_env_refs(value: str) -> str:
 _ENV_VAR_REQUIRED_PATTERN = re.compile(r"^\$\{ENV:([^,}]+)\}$")
 
 
-def scan_config_env_refs(config: dict) -> list[str]:
+def scan_config_env_refs(config: dict[str, Any]) -> list[str]:
     """Scan a parsed config dict for required env-var references.
 
     Finds all ``${ENV:VAR}`` references (no default value) in
@@ -199,7 +205,9 @@ class JsonBodyMatcher:
         self.strategy = strategy
         self.replacement_value = replacement_value
 
-    def match_and_replace(self, body_data: dict, collect_only: bool = False) -> tuple[dict, list[str]]:
+    def match_and_replace(
+        self, body_data: dict[str, Any], collect_only: bool = False
+    ) -> tuple[dict[str, Any], list[str]]:
         """Walk the JSON data, find matching values, replace them.
 
         Args:
@@ -208,7 +216,7 @@ class JsonBodyMatcher:
 
         Returns (modified_data, list_of_original_tokens found).
         """
-        found_tokens = []
+        found_tokens: list[str] = []
         # Strip only the leading '$' root indicator and one optional '.'.
         # Do NOT use lstrip("$.") — that strips ALL leading '$' and '.'
         # characters, which silently drops the '..' (descendant) operator
@@ -241,7 +249,14 @@ class JsonBodyMatcher:
         self._walk_and_replace(body_data, keys, 0, found_tokens, collect_only)
         return body_data, found_tokens
 
-    def _walk_and_replace(self, obj, keys, depth, found_tokens, collect_only: bool = False):
+    def _walk_and_replace(
+        self,
+        obj: object,
+        keys: list[str],
+        depth: int,
+        found_tokens: list[str],
+        collect_only: bool = False,
+    ) -> None:
         if depth == len(keys):
             # At the target key — but this shouldn't happen if we got here correctly.
             return
@@ -270,7 +285,7 @@ class JsonBodyMatcher:
         else:
             # ``obj`` is not a dict at this level (e.g. a list or primitive) or
             # the key is missing. Warn so operators know the path can't be traversed further.
-            if key in obj:
+            if isinstance(obj, dict) and key in obj:
                 log.warning(
                     f"[token-replacer] JSON path '{self.json_path}' cannot traverse "
                     f"into non-dict value at key '{key}' "
@@ -300,7 +315,7 @@ class HeaderMatcher:
         self.strategy = strategy
         self.replacement_value = replacement_value
 
-    def match_and_replace(self, headers, collect_only: bool = False) -> list[str]:
+    def match_and_replace(self, headers: Headers, collect_only: bool = False) -> list[str]:
         """Find and replace tokens in the header.
 
         Args:
@@ -309,7 +324,7 @@ class HeaderMatcher:
 
         Returns list of original token values found.
         """
-        found_tokens = []
+        found_tokens: list[str] = []
         # Headers in mitmproxy are case-insensitive but stored with original casing.
         # We need to find the actual key.
         actual_key = None
@@ -334,7 +349,7 @@ class HeaderMatcher:
             # When the regex has capture groups (e.g. "(session=)[a-f0-9]{32}"),
             # each group is preserved in the output while the strategy is
             # applied to the non-captured portions (the sensitive values).
-            def _replacement_func(m):
+            def _replacement_func(m: re.Match[str]) -> str:
                 if m.groups():
                     # Preserve all capture groups, apply strategy to
                     # non-captured portions.
@@ -459,7 +474,7 @@ _VALID_STRATEGIES = {"static", "hash", "uuid"}
 _VALID_FIELDS = {"body.json", "body.form", "body.raw", "body.query", "headers"}
 
 
-def _validate_rule(rule: dict) -> None:
+def _validate_rule(rule: dict[str, Any]) -> None:
     """Validate a single rule's schema and raise ValueError on issues.
 
     Catches configuration errors at load time rather than at request time.
@@ -551,7 +566,7 @@ def _strip_port(hostname: str) -> str:
     return hostname
 
 
-def _remove_chunked_encoding_if_present(headers) -> None:
+def _remove_chunked_encoding_if_present(headers: Headers) -> None:
     """Remove `Transfer-Encoding: chunked` if present in headers.
 
     When the addon replaces a body and sets a new `Content-Length`, the original
@@ -572,9 +587,9 @@ def _remove_chunked_encoding_if_present(headers) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_matchers(rule: dict) -> list:
+def _build_matchers(rule: dict[str, Any]) -> list[TokenMatcher]:
     """Build matcher instances from a rule's content_patterns definitions."""
-    matchers = []
+    matchers: list[TokenMatcher] = []
     replace = rule.get("replace_with", {})
     strategy = replace.get("strategy", "static")
     raw_value = replace.get("value", "REDACTED")
@@ -643,18 +658,18 @@ class TokenReplacerAddon:
     """
 
     def __init__(self, config_path: str = ""):
-        self.rules: list[dict] = []
-        self.global_config: dict = {}
+        self.rules: list[dict[str, Any]] = []
+        self.global_config: dict[str, Any] = {}
         self._load_config(config_path)
 
     def __repr__(self) -> str:
         return f"TokenReplacerAddon(rules={len(self.rules)})"
 
-    def _load_config(self, config_path: str):
+    def _load_config(self, config_path: str) -> None:
         """Load rules from the YAML config file."""
         # Always initialize (in case __new__ bypassed __init__)
-        self.rules: list[dict] = []
-        self.global_config: dict = {}
+        self.rules = []
+        self.global_config = {}
 
         if not config_path or not os.path.isfile(config_path):
             log.info("No config file provided or file not found; no replacement rules loaded.")
@@ -682,7 +697,7 @@ class TokenReplacerAddon:
                 f"content_patterns={len(rule['content_patterns'])}"
             )
 
-    def _should_replace(self, hostname: str) -> list[dict]:
+    def _should_replace(self, hostname: str) -> list[dict[str, Any]]:
         """Return rules whose hostname patterns match the given hostname."""
         matching = []
         for rule in self.rules:
@@ -750,6 +765,9 @@ class TokenReplacerAddon:
         and headers, masking sensitive tokens that may have been returned by the
         upstream server (e.g., API keys in error responses, tokens in 401 bodies).
         """
+        if flow.response is None:
+            return
+
         # pretty_host = Host header / SNI hostname; flow.request.host is the
         # destination IP in transparent mode, so match hostnames on pretty_host.
         hostname = _strip_port(flow.request.pretty_host or "")
@@ -791,14 +809,14 @@ class TokenReplacerAddon:
             if total_tokens_found > 0:
                 log.info(f"[token-replacer] {total_tokens_found} token(s) {status} in response to {hostname}")
 
-    def _collect_findings_from_rule(self, target, rule: dict) -> list[str]:
+    def _collect_findings_from_rule(self, target: TokenReplacerTarget, rule: dict[str, Any]) -> list[str]:
         """Collect all token findings from a rule's matchers without modifying the target."""
-        found = []
+        found: list[str] = []
         for matcher in rule.get("_matchers", []):
             found.extend(self._collect_from_matcher(target, matcher))
         return found
 
-    def _collect_from_matcher(self, target, matcher) -> list[str]:
+    def _collect_from_matcher(self, target: TokenReplacerTarget, matcher: TokenMatcher) -> list[str]:
         """Run a matcher against the original data and return found tokens."""
         if isinstance(matcher, JsonBodyMatcher):
             body = target.get_content()
@@ -831,7 +849,12 @@ class TokenReplacerAddon:
             return matcher.match_and_replace(target.headers, collect_only=True)
         return []
 
-    def _apply_all_modifications(self, target, rules: list[dict], is_response: bool = False) -> None:
+    def _apply_all_modifications(
+        self,
+        target: TokenReplacerTarget,
+        rules: list[dict[str, Any]],
+        is_response: bool = False,
+    ) -> None:
         """Apply modifications from all rules' matchers, grouped by content type.
 
         Each content type (JSON / form / raw) is parsed once from the original
@@ -941,7 +964,7 @@ class TokenReplacerAddon:
             pairs = list(target.query)
             for matcher in query_matchers:
                 matcher.match_and_replace_pairs(pairs)
-            if pairs != list(target.query):
+            if pairs != list(target.query) and hasattr(target, "_set_query"):
                 target._set_query(pairs)
 
         # --- Headers: group matchers by header name, apply all replacements
@@ -967,7 +990,7 @@ class TokenReplacerAddon:
             original_value = target.headers[actual_key]
 
             # Collect all replacements from the ORIGINAL value
-            replacements: list[tuple[int, int, str]] = []
+            replacements = []
             for matcher in matchers_for_header:
                 for m in matcher.regex.finditer(original_value):
                     original = m.group(0)
@@ -1007,7 +1030,7 @@ class TokenReplacerAddon:
                 # Resolve overlapping replacements (earlier start wins;
                 # for same start, longer match wins)
                 replacements.sort(key=lambda r: (r[0], -r[1]))
-                filtered: list[tuple[int, int, str]] = []
+                filtered = []
                 end_pos = -1
                 for start, end, new_text in replacements:
                     if start >= end_pos:

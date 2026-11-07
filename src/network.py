@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import time
+import types
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
@@ -29,7 +30,19 @@ from util import (
 )
 
 if TYPE_CHECKING:
+    import types
     from pathlib import Path
+
+    from config_types import (
+        AgentExtrasConfig,
+        ClientInfo,
+        LlamaConfig,
+        NestedContainersConfig,
+        NetworkConfig,
+        PortPublishConfig,
+        ProxyConfig,
+        ResourceLimits,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +70,7 @@ _PROXY_FORWARD_PORTS = {
 }
 
 
-def load_project_config(config_dir: Path | None = None) -> dict:
+def load_project_config(config_dir: Path | None = None) -> dict[str, Any]:
     """Load and parse `.pi-container/config.yaml`, returning an empty dict if missing or invalid."""
     import yaml as _yaml
 
@@ -69,7 +82,8 @@ def load_project_config(config_dir: Path | None = None) -> dict:
         return {}
 
     try:
-        return load_yaml_file(config_path) or {}
+        loaded = load_yaml_file(config_path)
+        return loaded if isinstance(loaded, dict) else {}
     except (OSError, _yaml.YAMLError) as e:
         logger.warning(f"Could not read project config {config_path}: {e}; using defaults.")
         return {}
@@ -115,7 +129,7 @@ def read_proxy_forward_env(config_dir: Path | None = None) -> dict[str, str]:
     return env
 
 
-def read_resource_limits(config_dir: Path | None = None, which: str = "agent") -> dict:
+def read_resource_limits(config_dir: Path | None = None, which: str = "agent") -> ResourceLimits:
     """Resource limits for ``which`` ('agent'|'proxy') from config.yaml ``resources``.
 
     Returns ``{"memory": ..., "cpus": ...}``, filling any missing value from
@@ -130,7 +144,7 @@ def read_resource_limits(config_dir: Path | None = None, which: str = "agent") -
     }
 
 
-def resource_limit_args(limits: dict) -> list[str]:
+def resource_limit_args(limits: ResourceLimits) -> list[str]:
     """Build ``--memory``/``--cpus`` run flags, omitting falsy (null) values."""
     args: list[str] = []
     if limits.get("memory"):
@@ -144,7 +158,7 @@ _DEFAULT_LLAMA = {"startup_timeout": 180, "startup_attempts": 2}
 _DEFAULT_NETWORK = {"ipv6": False, "dns": "1.1.1.1"}
 
 
-def read_llama_config(config_dir: Path | None = None) -> dict:
+def read_llama_config(config_dir: Path | None = None) -> LlamaConfig:
     """llama-server startup tuning from config.yaml ``llama``.
 
     Returns ``{"startup_timeout": <seconds>, "startup_attempts": <int>}`` — how
@@ -158,7 +172,7 @@ def read_llama_config(config_dir: Path | None = None) -> dict:
     }
 
 
-def read_network_config(config_dir: Path | None = None) -> dict:
+def read_network_config(config_dir: Path | None = None) -> NetworkConfig:
     """Network settings from config.yaml ``network``.
 
     Returns ``{"ipv6": <bool>, "dns": <str>}`` — whether to plumb IPv6 through the
@@ -179,7 +193,7 @@ _DEFAULT_PROXY = {
 }
 
 
-def read_proxy_config(config_dir: Path | None = None) -> dict:
+def read_proxy_config(config_dir: Path | None = None) -> ProxyConfig:
     """Proxy settings from config.yaml ``proxy``.
 
     Returns a dict with:
@@ -219,7 +233,7 @@ def read_proxy_ui_expose(config_dir: Path | None = None) -> str:
     ``"lan"`` binds 0.0.0.0 (reachable from other hosts). Unknown values fall back
     to ``"localhost"``.
     """
-    return read_proxy_config(config_dir)["expose_ui"]
+    return str(read_proxy_config(config_dir)["expose_ui"])
 
 
 _DEFAULT_NESTED_CONTAINERS = {"enabled": False, "storage": "volume", "security": "disable"}
@@ -253,7 +267,7 @@ def _parse_port_mapping(entry: object) -> tuple[int, int] | None:
     return host, agent
 
 
-def _read_ports_section(section: dict, section_name: str = "ports") -> dict:
+def _read_ports_section(section: dict[str, Any], section_name: str = "ports") -> PortPublishConfig:
     """Read a ``ports`` sub-section → ``{"expose", "publish"}``.
 
     ``publish`` is normalised to a list of ``(host_port, agent_port)`` pairs with
@@ -292,12 +306,12 @@ def _read_ports_section(section: dict, section_name: str = "ports") -> dict:
     return {"expose": expose or "localhost", "publish": publish}
 
 
-def _read_nested_ports(section: dict) -> dict:
+def _read_nested_ports(section: dict[str, Any]) -> PortPublishConfig:
     """The ``nested_containers.ports`` sub-section → ``{"expose", "publish"}``."""
     return _read_ports_section(section, "nested_containers.ports")
 
 
-def read_nested_containers_config(config_dir: Path | None = None) -> dict:
+def read_nested_containers_config(config_dir: Path | None = None) -> NestedContainersConfig:
     """Nested-container settings from config.yaml ``nested_containers``.
 
     Returns ``{"enabled": <bool>, "storage": "volume"|"tmpfs", "security":
@@ -324,13 +338,13 @@ def read_nested_containers_config(config_dir: Path | None = None) -> dict:
         logger.warning(f"Unknown nested_containers.security '{security}'; using 'disable'.")
     return {
         "enabled": _egress_truthy(section.get("enabled", _DEFAULT_NESTED_CONTAINERS["enabled"])),
-        "storage": storage if storage in _NESTED_STORAGE_MODES else _DEFAULT_NESTED_CONTAINERS["storage"],
-        "security": security if security in _NESTED_SECURITY_MODES else _DEFAULT_NESTED_CONTAINERS["security"],
+        "storage": storage if storage in _NESTED_STORAGE_MODES else str(_DEFAULT_NESTED_CONTAINERS["storage"]),
+        "security": security if security in _NESTED_SECURITY_MODES else str(_DEFAULT_NESTED_CONTAINERS["security"]),
         "ports": _read_nested_ports(section),
     }
 
 
-def read_agent_extras(config_dir: Path | None = None) -> dict:
+def read_agent_extras(config_dir: Path | None = None) -> AgentExtrasConfig:
     """Extra agent-container env vars, bind mounts, capabilities, and devices from config.yaml ``agent``.
 
     Returns ``{"env": {NAME: value, ...}, "mounts": ["host:container[:ro]", ...], "capabilities": ["CAP_NAME", ...], "devices": ["host:container[:mode]", ...]}``
@@ -362,7 +376,7 @@ def read_read_only_pi_container(config_dir: Path | None = None) -> bool:
     return _egress_truthy(val)
 
 
-def read_agent_ports(config_dir: Path | None = None) -> dict:
+def read_agent_ports(config_dir: Path | None = None) -> PortPublishConfig:
     """Inbound host ports published directly from the agent container (config.yaml ``agent.ports``).
 
     Returns ``{"expose": "localhost"|"lan", "publish": [(host, agent), ...]}``.
@@ -452,7 +466,7 @@ def read_git_config(config_dir: Path | None = None) -> dict[str, bool]:
 _TOKEN_REPLACER_ENV_VAR_REQUIRED_PATTERN = re.compile(r"^\$\{ENV:([^,}]+)\}$")
 
 
-def scan_config_env_refs(config: dict) -> list[str]:
+def scan_config_env_refs(config: dict[str, Any]) -> list[str]:
     """Scan a parsed config dict for required env-var references.
 
     Finds all ``${ENV:VAR}`` references (no default value) in
@@ -540,7 +554,8 @@ class ContainerNetworkManager:
         from secret_store import resolve_secret
         from yaml_strict import load_yaml_file
 
-        config = load_yaml_file(config_path) or {}
+        loaded = load_yaml_file(config_path)
+        config = loaded if isinstance(loaded, dict) else {}
 
         required_vars = scan_config_env_refs(config)
         if not required_vars:
@@ -652,13 +667,18 @@ class ContainerNetworkManager:
         self.start()
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any | None) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         self.stop()
 
     def start(self) -> None:
         self.paths["lock_dir"].mkdir(exist_ok=True, parents=True)
 
-        client_info = {
+        client_info: ClientInfo = {
             "pid": os.getpid(),
             "proxy_name": self.proxy_name,
             "registered_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),

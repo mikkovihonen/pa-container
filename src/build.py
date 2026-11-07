@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 sys.dont_write_bytecode = True
 
@@ -47,7 +48,7 @@ BUILDER_IMAGE_TAG = os.environ.get("BUILDER_IMAGE_TAG", "pi-coding-agent-builder
 DEFAULT_ROOT_COMMANDS = REPO_ROOT / "coding-agent" / "default" / "dependencies" / "root" / "commands.sh"
 
 
-def _run_command_with_logging(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
+def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """Run a subprocess, logging each stdout/stderr line via logger.info.
 
     Merges stderr into stdout so both streams appear together in log output.
@@ -70,7 +71,7 @@ def _run_command_with_logging(cmd: list[str], **kwargs) -> subprocess.CompletedP
     returncode = process.wait()
     thread.join()
 
-    result = subprocess.CompletedProcess(cmd, returncode)
+    result: subprocess.CompletedProcess[str] = subprocess.CompletedProcess(cmd, returncode)
     if returncode != 0:
         raise subprocess.CalledProcessError(returncode, cmd)
     return result

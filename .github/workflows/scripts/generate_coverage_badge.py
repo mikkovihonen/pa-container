@@ -74,7 +74,7 @@ def generate_badge(coverage_pct: int) -> str:
     return svg
 
 
-def main():
+def main() -> None:
     c = Coverage()
     c.load()
     try:

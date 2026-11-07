@@ -26,6 +26,7 @@ import argparse
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
 # Inject the repo's src/ so we can import shared helpers.
 # This CI script lives three levels deep inside .github/workflows/scripts/,
@@ -79,7 +80,8 @@ def get_pyproject_version() -> str | None:
     try:
         with pyproject_path.open("rb") as f:
             data = tomllib.load(f)
-        return data.get("project", {}).get("version")
+        val = data.get("project", {}).get("version")
+        return str(val) if val else None
     except Exception:
         return None
 
@@ -91,7 +93,8 @@ def get_seed_schema_version() -> str | None:
         return None
     try:
         data = yaml.safe_load(config_path.read_text())
-        return data.get("schema_version")
+        val = data.get("schema_version") if isinstance(data, dict) else None
+        return str(val) if val else None
     except Exception:
         return None
 
@@ -173,7 +176,7 @@ def main() -> int:
 
     # ── Check 3: schema_version in seed config ───────────────────────────
     seed_config_path = REPO_ROOT / "coding-agent" / "default" / "config.yaml"
-    seed_data: dict | None = None
+    seed_data: dict[str, Any] | None = None
     if not seed_config_path.exists():
         _error(f"Seed config not found: {seed_config_path}")
         all_pass = False
@@ -181,7 +184,8 @@ def main() -> int:
         try:
             # Strict: a duplicate key in the seed template would be copied into
             # every new workspace, silently discarding whichever value lost.
-            seed_data = load_yaml_strict(seed_config_path.read_text()) or {}
+            raw_seed = load_yaml_strict(seed_config_path.read_text())
+            seed_data = raw_seed if isinstance(raw_seed, dict) else {}
         except yaml.YAMLError as e:
             _error(f"Seed config is not valid YAML: {e}")
             all_pass = False

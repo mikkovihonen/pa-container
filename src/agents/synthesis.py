@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from config_types import GatewayConfigItem, ServerConfigItem
+
 sys.dont_write_bytecode = True
 
 from registry import (
@@ -45,14 +47,14 @@ def extract_models_from_yaml(
     data: dict[str, Any],
     models_dir: Path | None = None,
     gateways_dir: Path | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]], set[str], list[dict[str, Any]], str | None]:
+) -> tuple[dict[str, Any], list[ServerConfigItem], set[str], list[GatewayConfigItem], str | None]:
     """Extract server configs, gateways, hostnames, and synthetic providers from models.yaml data.
 
     Returns:
         (synthetic_models_data, server_configs, llama_hostnames, gateway_configs, default_model)
     """
-    server_configs: list[dict[str, Any]] = []
-    gateway_configs: list[dict[str, Any]] = []
+    server_configs: list[ServerConfigItem] = []
+    gateway_configs: list[GatewayConfigItem] = []
     llama_hostnames: set[str] = {"llama"}
     providers: dict[str, dict[str, Any]] = {}
 
@@ -141,7 +143,7 @@ def load_project_models(
     pi_container_dir: Path,
     models_dir: Path | None = None,
     gateways_dir: Path | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]], set[str], list[dict[str, Any]], str | None, Path]:
+) -> tuple[dict[str, Any], list[ServerConfigItem], set[str], list[GatewayConfigItem], str | None, Path]:
     """Load and parse models from `.pi-container/models.yaml`.
 
     Returns:
@@ -152,7 +154,8 @@ def load_project_models(
         expected = pi_container_dir / "models.yaml"
         raise FileNotFoundError(f"No models configuration found in {pi_container_dir}. Expected {expected.name}.")
 
-    data = load_yaml_strict(models_path.read_text()) or {}
+    raw = load_yaml_strict(models_path.read_text())
+    data = raw if isinstance(raw, dict) else {}
     synthetic_data, server_configs, llama_hostnames, gateway_configs, default_model = extract_models_from_yaml(
         data, models_dir=models_dir, gateways_dir=gateways_dir
     )

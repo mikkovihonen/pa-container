@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from config_types import GatewayConfigItem, ServerConfigItem
+
 sys.dont_write_bytecode = True
 
 from agents.base import AgentDriver, AgentMount
@@ -40,8 +42,8 @@ class PiAgentDriver(AgentDriver):
 
     def synthesize_config(
         self,
-        server_configs: list[dict],
-        gateway_configs: list[dict],
+        server_configs: list[ServerConfigItem],
+        gateway_configs: list[GatewayConfigItem],
         default_model: str | None,
         project_dir: Path,
     ) -> None:
@@ -49,7 +51,7 @@ class PiAgentDriver(AgentDriver):
         state_dir = self.get_state_dir(project_dir)
         state_dir.mkdir(parents=True, exist_ok=True)
         models_json_path = state_dir / "models.json"
-        providers: dict[str, dict] = {}
+        providers: dict[str, dict[str, object]] = {}
         for srv in server_configs:
             name = srv["name"]
             base_url = srv.get("baseUrl") or "http://llama:9999/v1"

@@ -65,7 +65,7 @@ def resolve_chat_template_path(
 
 
 def check_chat_template_paths(
-    flags: list,
+    flags: list[str],
     repo_root: Path | None = None,
     global_templates_dir: Path | None = None,
 ) -> list[str]:

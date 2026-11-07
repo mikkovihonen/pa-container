@@ -4,7 +4,10 @@ import json
 import logging
 import subprocess
 import sys
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from config_types import NestedContainersConfig, PortPublishConfig
 
 sys.dont_write_bytecode = True
 
@@ -70,13 +73,15 @@ class PodmanRuntime:
             return None
         return self._network_entry_has_ipv6(entry)
 
-    def _network_entry_has_ipv6(self, entry: dict[str, Any]) -> bool | None:
+    def _network_entry_has_ipv6(self, entry: dict[str, object]) -> bool | None:
         """Parse a ``network inspect`` entry for IPv6 enablement."""
         if entry.get("ipv6_enabled") is True:
             return True
-        for sub in entry.get("subnets", []) or []:
-            if isinstance(sub, dict) and ":" in str(sub.get("subnet", "")):
-                return True
+        subnets = entry.get("subnets")
+        if isinstance(subnets, list):
+            for sub in subnets:
+                if isinstance(sub, dict) and ":" in str(sub.get("subnet", "")):
+                    return True
         return False
 
     # ── Proxy container networking ───────────────────────────────────────
@@ -135,7 +140,7 @@ class PodmanRuntime:
         ]
 
     # ── Nested containers (config.yaml nested_containers) ────────────────
-    def nested_container_args(self, cfg: dict, project_hash: str) -> list[str]:
+    def nested_container_args(self, cfg: NestedContainersConfig, project_hash: str) -> list[str]:
         """Return ``run`` flags enabling rootless podman inside the agent container."""
         if not cfg.get("enabled"):
             return []
@@ -163,16 +168,16 @@ class PodmanRuntime:
             "PI_CONTAINER_NESTED=true",
         ]
 
-    def port_publish_args(self, ports: dict) -> list[str]:
+    def port_publish_args(self, ports: PortPublishConfig) -> list[str]:
         """Return ``-p`` flags publishing container ports to the host."""
         host_bind = "127.0.0.1:" if ports.get("expose", "localhost") != "lan" else ""
         return [flag for host, agent in ports.get("publish") or [] for flag in ("-p", f"{host_bind}{host}:{agent}")]
 
-    def nested_port_args(self, cfg: dict) -> list[str]:
+    def nested_port_args(self, cfg: NestedContainersConfig) -> list[str]:
         """Return ``-p`` flags publishing nested-container service ports to the host."""
         if not cfg.get("enabled"):
             return []
-        return self.port_publish_args(cfg.get("ports") or {})
+        return self.port_publish_args(cfg.get("ports") or {"expose": "localhost", "publish": []})
 
     @staticmethod
     def nested_volume_name(project_hash: str) -> str:

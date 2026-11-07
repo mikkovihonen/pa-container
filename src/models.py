@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 
 sys.dont_write_bytecode = True
@@ -10,6 +12,9 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+type ModelFlag = str | int | float
+
 
 from huggingface_hub import hf_hub_download, try_to_load_from_cache
 from huggingface_hub.constants import HF_HUB_CACHE
@@ -29,7 +34,7 @@ class ModelConfig:
     file_flag: str
     repo: str
     file: str
-    additional_server_flags: list[Any]
+    additional_server_flags: list[ModelFlag]
     sha256: str | None = None
 
     @classmethod
@@ -48,7 +53,7 @@ class ServerConfig:
     """Configuration parameters for a llama-server instance."""
 
     hf_models: dict[str, ModelConfig]
-    flags: list[Any]
+    flags: list[ModelFlag]
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ServerConfig:

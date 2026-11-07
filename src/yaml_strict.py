@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import sys
 
 sys.dont_write_bytecode = True
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import yaml
 
@@ -22,8 +24,8 @@ class StrictLoader(yaml.SafeLoader):
     #: YAML's merge key.
     _MERGE_TAG = "tag:yaml.org,2002:merge"
 
-    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
-        seen: set = set()
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[object, object]:
+        seen: set[object] = set()
         for key_node, _ in node.value:
             if key_node.tag == self._MERGE_TAG:
                 continue
@@ -45,12 +47,12 @@ class StrictLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep=deep)
 
 
-def load_yaml_strict(stream: str | bytes) -> Any:
+def load_yaml_strict(stream: str | bytes) -> object:
     """Parse a YAML string strictly, raising DuplicateKeyError if duplicate mapping keys are present."""
     return yaml.load(stream, Loader=StrictLoader)  # noqa: S506 — StrictLoader derives from SafeLoader
 
 
-def load_yaml_file(path: Path) -> Any:
+def load_yaml_file(path: Path) -> object:
     """Load and strictly parse a YAML file from disk."""
     return load_yaml_strict(path.read_text())
 

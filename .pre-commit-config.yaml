@@ -17,6 +17,13 @@ repos:
         pass_filenames: false
         always_run: false
 
+      - id: mypy
+        name: mypy
+        entry: uv run --project . mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
       - id: pytest
         name: pytest
         entry: uv run --project . --group src --group proxy pytest
