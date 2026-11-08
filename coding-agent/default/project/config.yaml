@@ -118,7 +118,7 @@ agent:
   # When enabled, the agent cannot modify config.yaml, allowlist.yaml,
   # token_replacer.yaml, dependency scripts, or chat templates from inside the container.
   # Subdirectories mounted under separate paths (e.g. ~/.pi/agent for sessions) remain writable.
-  read_only_PA_CONTAINER: true
+  read_only_pa_container: true
   # Execution mode: "cli" (interactive terminal pi) or "t3" (headless T3 Code server).
   # Can also be selected on the command line via `./run.sh --t3`.
   mode: cli

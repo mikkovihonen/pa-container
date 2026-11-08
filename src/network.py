@@ -374,14 +374,14 @@ def read_agent_extras(config_dir: Path | None = None) -> AgentExtrasConfig:
     }
 
 
-def read_read_only_PA_CONTAINER(config_dir: Path | None = None) -> bool:
+def read_read_only_pa_container(config_dir: Path | None = None) -> bool:
     """Check whether the agent container's /workspace/.pa-container directory is read-only.
 
     Defaults to True (read-only) when absent or unrecognized, preventing untrusted
     agent processes from modifying orchestration files, allowlists, or scripts.
     """
     section = load_project_config(config_dir).get("agent") or {}
-    val = section.get("read_only_PA_CONTAINER")
+    val = section.get("read_only_pa_container")
     if val is None:
         return True
     return _egress_truthy(val)

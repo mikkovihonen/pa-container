@@ -339,7 +339,7 @@ agent:
   mounts: []                  # extra bind mounts (absolute host paths)
   capabilities: []            # Linux capabilities to add (e.g., SYS_PTRACE)
   devices: []                 # device passthroughs (e.g., /dev/video0:/dev/video0)
-  read_only_PA_CONTAINER: true # lock .pa-container inside /workspace as read-only
+  read_only_pa_container: true # lock .pa-container inside /workspace as read-only
   mode: cli                   # agent mode: cli | t3
   ports:
     expose: localhost         # agent host bind: localhost | lan
@@ -442,7 +442,7 @@ Device entries support the optional `mode` suffix (`r` for read-only, `w` for wr
 
 ### Read-only `.pa-container` workspace lock
 
-`agent.read_only_PA_CONTAINER` (boolean, default `true`) mounts `/workspace/.pa-container` as a read-only (`:ro`) bind mount inside the agent container.
+`agent.read_only_pa_container` (boolean, default `true`) mounts `/workspace/.pa-container` as a read-only (`:ro`) bind mount inside the agent container.
 
 This provides protection against prompt injection and untrusted scripts by preventing the agent from modifying:
 - `config.yaml` (resource limits, network settings, security policies)
@@ -453,7 +453,7 @@ This provides protection against prompt injection and untrusted scripts by preve
 
 ```yaml
 agent:
-  read_only_PA_CONTAINER: true   # default: true (secure)
+  read_only_pa_container: true   # default: true (secure)
 ```
 
 Subdirectories mounted under separate container paths (such as `/home/agent/.pi/agent` or `/home/agent/.claude` for storing session logs, agent state, and configs) remain fully functional and writable. Set to `false` only if you explicitly want the agent to edit project configuration files directly.

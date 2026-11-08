@@ -531,7 +531,7 @@ def check_repo_gitignore(project_dir: Path) -> list[str]:
     return missing
 
 
-def check_repo_tracked_PA_CONTAINER(project_dir: Path) -> list[str]:
+def check_repo_tracked_pa_container(project_dir: Path) -> list[str]:
     """Return a list of tracked files under .pa-container in project_dir, if any."""
     try:
         res = subprocess.run(
@@ -558,7 +558,7 @@ def warn_missing_gitignore(project_dir: Path, logger: AnyLogger) -> None:
             "Add them to .gitignore to prevent committing workspace configuration, credentials, or session history."
         )
 
-    tracked = check_repo_tracked_PA_CONTAINER(project_dir)
+    tracked = check_repo_tracked_pa_container(project_dir)
     if tracked:
         logger.warning(
             f".pa-container files are currently tracked in this git repository ({len(tracked)} files found, e.g. {tracked[0]}).\n"

@@ -606,12 +606,12 @@ class TestVolumesSchema:
 
 
 class TestAgentReadOnlyPiContainerSchema:
-    def test_valid_read_only_PA_CONTAINER_boolean(self, valid_config: Path):
+    def test_valid_read_only_pa_container_boolean(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["agent"]["read_only_PA_CONTAINER"] = True
+        data["agent"]["read_only_pa_container"] = True
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -619,12 +619,12 @@ class TestAgentReadOnlyPiContainerSchema:
         assert is_valid is True
         assert errors == []
 
-    def test_valid_read_only_PA_CONTAINER_string_and_int(self, valid_config: Path):
+    def test_valid_read_only_pa_container_string_and_int(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["agent"]["read_only_PA_CONTAINER"] = "false"
+        data["agent"]["read_only_pa_container"] = "false"
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -632,7 +632,7 @@ class TestAgentReadOnlyPiContainerSchema:
         assert is_valid is True
         assert errors == []
 
-        data["agent"]["read_only_PA_CONTAINER"] = 0
+        data["agent"]["read_only_pa_container"] = 0
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -640,18 +640,18 @@ class TestAgentReadOnlyPiContainerSchema:
         assert is_valid is True
         assert errors == []
 
-    def test_invalid_read_only_PA_CONTAINER_type(self, valid_config: Path):
+    def test_invalid_read_only_pa_container_type(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["agent"]["read_only_PA_CONTAINER"] = ["not", "a", "bool"]
+        data["agent"]["read_only_pa_container"] = ["not", "a", "bool"]
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("read_only_PA_CONTAINER" in e for e in errors)
+        assert any("read_only_pa_container" in e for e in errors)
 
 
 class TestSecuritySchema:

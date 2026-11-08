@@ -119,7 +119,7 @@ SCHEMA: dict[str, Any] = {
             "mounts": {"type": list},
             "capabilities": {"type": list, "required": False},
             "devices": {"type": list, "required": False},
-            "read_only_PA_CONTAINER": {"type": (bool, str, int), "required": False},
+            "read_only_pa_container": {"type": (bool, str, int), "required": False},
             "mode": {"type": str, "required": False},
             "ports": {
                 "type": dict,

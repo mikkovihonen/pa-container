@@ -72,16 +72,16 @@ class TestInitRuntime:
 
 
 class TestAgentLaunchReadOnlyPiContainerMount:
-    def test_read_only_PA_CONTAINER_mount_flag_included_when_enabled(self):
-        PA_CONTAINER_dir = run.PROJECT_DIR / ".pa-container"
-        read_only_PA_CONTAINER = True
-        flags = ["--volume", f"{PA_CONTAINER_dir}:/workspace/.pa-container:ro"] if read_only_PA_CONTAINER else []
-        assert flags == ["--volume", f"{PA_CONTAINER_dir}:/workspace/.pa-container:ro"]
+    def test_read_only_pa_container_mount_flag_included_when_enabled(self):
+        pi_container_dir = run.PROJECT_DIR / ".pa-container"
+        read_only_pa_container = True
+        flags = ["--volume", f"{pi_container_dir}:/workspace/.pa-container:ro"] if read_only_pa_container else []
+        assert flags == ["--volume", f"{pi_container_dir}:/workspace/.pa-container:ro"]
 
-    def test_read_only_PA_CONTAINER_mount_flag_omitted_when_disabled(self):
-        PA_CONTAINER_dir = run.PROJECT_DIR / ".pa-container"
-        read_only_PA_CONTAINER = False
-        flags = ["--volume", f"{PA_CONTAINER_dir}:/workspace/.pa-container:ro"] if read_only_PA_CONTAINER else []
+    def test_read_only_pa_container_mount_flag_omitted_when_disabled(self):
+        pi_container_dir = run.PROJECT_DIR / ".pa-container"
+        read_only_pa_container = False
+        flags = ["--volume", f"{pi_container_dir}:/workspace/.pa-container:ro"] if read_only_pa_container else []
         assert flags == []
 
 
@@ -479,16 +479,16 @@ class TestT3AdvertiseHostResolution:
         assert "/home/agent/.t3/userdata/settings.json" in content
 
     def test_t3_mounts_configured_in_t3_mode(self, tmp_path):
-        PA_CONTAINER_dir = tmp_path / ".pa-container"
+        pi_container_dir = tmp_path / ".pa-container"
         is_t3_mode = True
         t3_mounts: list[str] = []
         t3_chown: list[str] = []
         if is_t3_mode:
-            t3_dir = PA_CONTAINER_dir / "t3"
+            t3_dir = pi_container_dir / "t3"
             t3_dir.mkdir(parents=True, exist_ok=True)
             t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
             t3_chown = ["/home/agent/.t3"]
-        assert t3_mounts == ["--volume", f"{PA_CONTAINER_dir / 't3'}:/home/agent/.t3"]
+        assert t3_mounts == ["--volume", f"{pi_container_dir / 't3'}:/home/agent/.t3"]
         assert t3_chown == ["/home/agent/.t3"]
 
     def test_t3_tunnel_cli_parsing(self):

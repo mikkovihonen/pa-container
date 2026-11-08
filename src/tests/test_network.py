@@ -739,30 +739,30 @@ class TestReadReadOnlyPiContainer:
         (tmp_path / "config.yaml").write_text(body)
 
     def test_default_is_true(self, tmp_path):
-        from network import read_read_only_PA_CONTAINER
+        from network import read_read_only_pa_container
 
-        assert read_read_only_PA_CONTAINER(tmp_path) is True
+        assert read_read_only_pa_container(tmp_path) is True
 
     def test_explicit_true(self, tmp_path):
-        from network import read_read_only_PA_CONTAINER
+        from network import read_read_only_pa_container
 
-        self._write(tmp_path, "agent:\n  read_only_PA_CONTAINER: true\n")
-        assert read_read_only_PA_CONTAINER(tmp_path) is True
+        self._write(tmp_path, "agent:\n  read_only_pa_container: true\n")
+        assert read_read_only_pa_container(tmp_path) is True
 
     def test_explicit_false(self, tmp_path):
-        from network import read_read_only_PA_CONTAINER
+        from network import read_read_only_pa_container
 
-        self._write(tmp_path, "agent:\n  read_only_PA_CONTAINER: false\n")
-        assert read_read_only_PA_CONTAINER(tmp_path) is False
+        self._write(tmp_path, "agent:\n  read_only_pa_container: false\n")
+        assert read_read_only_pa_container(tmp_path) is False
 
     def test_truthy_strings_and_ints(self, tmp_path):
-        from network import read_read_only_PA_CONTAINER
+        from network import read_read_only_pa_container
 
-        self._write(tmp_path, "agent:\n  read_only_PA_CONTAINER: 'yes'\n")
-        assert read_read_only_PA_CONTAINER(tmp_path) is True
+        self._write(tmp_path, "agent:\n  read_only_pa_container: 'yes'\n")
+        assert read_read_only_pa_container(tmp_path) is True
 
-        self._write(tmp_path, "agent:\n  read_only_PA_CONTAINER: '0'\n")
-        assert read_read_only_PA_CONTAINER(tmp_path) is False
+        self._write(tmp_path, "agent:\n  read_only_pa_container: '0'\n")
+        assert read_read_only_pa_container(tmp_path) is False
 
 
 # ---------------------------------------------------------------------------

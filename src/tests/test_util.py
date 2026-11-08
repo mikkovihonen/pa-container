@@ -897,22 +897,22 @@ class TestCheckRepoGitignore:
             missing = check_repo_gitignore(tmp_path)
             assert missing == [".pa-container/"]
 
-    def test_check_repo_tracked_PA_CONTAINER_finds_tracked_files(self, tmp_path):
-        from util import check_repo_tracked_PA_CONTAINER
+    def test_check_repo_tracked_pa_container_finds_tracked_files(self, tmp_path):
+        from util import check_repo_tracked_pa_container
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 args=[], returncode=0, stdout=".pa-container/config.yaml\n.pa-container/models.yaml\n"
             )
-            tracked = check_repo_tracked_PA_CONTAINER(tmp_path)
+            tracked = check_repo_tracked_pa_container(tmp_path)
             assert tracked == [".pa-container/config.yaml", ".pa-container/models.yaml"]
 
-    def test_check_repo_tracked_PA_CONTAINER_empty_when_no_files_tracked(self, tmp_path):
-        from util import check_repo_tracked_PA_CONTAINER
+    def test_check_repo_tracked_pa_container_empty_when_no_files_tracked(self, tmp_path):
+        from util import check_repo_tracked_pa_container
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="")
-            tracked = check_repo_tracked_PA_CONTAINER(tmp_path)
+            tracked = check_repo_tracked_pa_container(tmp_path)
             assert tracked == []
 
     def test_warn_missing_gitignore_logs_warning_for_missing_entry(self, tmp_path):
@@ -921,7 +921,7 @@ class TestCheckRepoGitignore:
         mock_logger = MagicMock()
         with (
             patch("util.check_repo_gitignore", return_value=[".pa-container/"]),
-            patch("util.check_repo_tracked_PA_CONTAINER", return_value=[]),
+            patch("util.check_repo_tracked_pa_container", return_value=[]),
         ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_called_once()
@@ -933,7 +933,7 @@ class TestCheckRepoGitignore:
         mock_logger = MagicMock()
         with (
             patch("util.check_repo_gitignore", return_value=[]),
-            patch("util.check_repo_tracked_PA_CONTAINER", return_value=[".pa-container/config.yaml"]),
+            patch("util.check_repo_tracked_pa_container", return_value=[".pa-container/config.yaml"]),
         ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_called_once()
@@ -945,7 +945,7 @@ class TestCheckRepoGitignore:
         mock_logger = MagicMock()
         with (
             patch("util.check_repo_gitignore", return_value=[]),
-            patch("util.check_repo_tracked_PA_CONTAINER", return_value=[]),
+            patch("util.check_repo_tracked_pa_container", return_value=[]),
         ):
             warn_missing_gitignore(tmp_path, mock_logger)
             mock_logger.warning.assert_not_called()
