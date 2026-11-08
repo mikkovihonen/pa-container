@@ -52,35 +52,47 @@ class TestLoadGlobalConfig:
         target_dir = tmp_path / ".config" / "pa-container"
         target_file = init_global_config(config_dir=target_dir, repo_root=repo_root)
 
-        cfg = load_global_config(config_file=target_file, repo_root=repo_root)
-        assert isinstance(cfg, GlobalConfig)
-        assert cfg.schema_version == "0.6.6"
-        assert cfg.runtime.log_level == "INFO"
-        assert cfg.runtime.proxy_upstream_network == "podman"
-        assert cfg.llama.build.repo == "https://github.com/ggml-org/llama.cpp.git"
-        assert cfg.llama.build.tag == "v0.9.0"
-        assert cfg.llama.build.minimal is True
-        assert cfg.build.images.agent == "pa-container-agent:local"
-        assert cfg.build.dns == "1.1.1.1"
-        assert cfg.build.prune_dangling is True
-        assert cfg.build.purge_build_cache is False
-        assert cfg.logging.log_level == "INFO"
-        assert cfg.logging.retention.max_days == 14
-        assert cfg.logging.retention.max_launches == 10
+        from yaml_strict import load_yaml_file
+
+        template_cfg = load_yaml_file(repo_root / "coding-agent" / "default" / "global" / "config.yaml")
+        expected_version = str(template_cfg.get("schema_version"))
+
+        with patch("config_schema.get_app_version", return_value=expected_version):
+            cfg = load_global_config(config_file=target_file, repo_root=repo_root)
+            assert isinstance(cfg, GlobalConfig)
+            assert cfg.schema_version == expected_version
+            assert cfg.runtime.log_level == "INFO"
+            assert cfg.runtime.proxy_upstream_network == "podman"
+            assert cfg.llama.build.repo == "https://github.com/ggml-org/llama.cpp.git"
+            assert cfg.llama.build.tag == "v0.9.0"
+            assert cfg.llama.build.minimal is True
+            assert cfg.build.images.agent == "pa-container-agent:local"
+            assert cfg.build.dns == "1.1.1.1"
+            assert cfg.build.prune_dangling is True
+            assert cfg.build.purge_build_cache is False
+            assert cfg.logging.log_level == "INFO"
+            assert cfg.logging.retention.max_days == 14
+            assert cfg.logging.retention.max_launches == 10
 
     def test_load_global_config_ignores_env_vars(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         repo_root = Path(__file__).resolve().parent.parent.parent
         target_dir = tmp_path / ".config" / "pa-container"
         target_file = init_global_config(config_dir=target_dir, repo_root=repo_root)
 
+        from yaml_strict import load_yaml_file
+
+        template_cfg = load_yaml_file(repo_root / "coding-agent" / "default" / "global" / "config.yaml")
+        expected_version = str(template_cfg.get("schema_version"))
+
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
         monkeypatch.setenv("BRIDGE_INTERFACE", "br0")
         monkeypatch.setenv("PROXY_UPSTREAM_NETWORK", "custom_net")
 
-        cfg = load_global_config(config_file=target_file, repo_root=repo_root)
-        # Environment variables do not silently override config file values
-        assert cfg.runtime.log_level == "INFO"
-        assert cfg.runtime.proxy_upstream_network == "podman"
+        with patch("config_schema.get_app_version", return_value=expected_version):
+            cfg = load_global_config(config_file=target_file, repo_root=repo_root)
+            # Environment variables do not silently override config file values
+            assert cfg.runtime.log_level == "INFO"
+            assert cfg.runtime.proxy_upstream_network == "podman"
 
 
 class TestValidateGlobalConfig:
@@ -89,10 +101,16 @@ class TestValidateGlobalConfig:
         target_dir = tmp_path / ".config" / "pa-container"
         target_file = init_global_config(config_dir=target_dir, repo_root=repo_root)
 
-        is_valid, errors, version = validate_global_config(target_file, repo_root=repo_root)
-        assert is_valid is True
-        assert errors == []
-        assert version == "0.6.6"
+        from yaml_strict import load_yaml_file
+
+        template_cfg = load_yaml_file(repo_root / "coding-agent" / "default" / "global" / "config.yaml")
+        expected_version = str(template_cfg.get("schema_version"))
+
+        with patch("config_schema.get_app_version", return_value=expected_version):
+            is_valid, errors, version = validate_global_config(target_file, repo_root=repo_root)
+            assert is_valid is True
+            assert errors == []
+            assert version == expected_version
 
     def test_missing_file(self, tmp_path: Path):
         is_valid, errors, version = validate_global_config(tmp_path / "nonexistent.yaml")
