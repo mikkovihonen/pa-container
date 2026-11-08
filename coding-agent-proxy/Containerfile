@@ -87,7 +87,7 @@ RUN chown mitmproxy:mitmproxy /home/mitmproxy/pyproject.toml /home/mitmproxy/uv.
 
 USER mitmproxy
 WORKDIR /home/mitmproxy
-RUN uv sync --frozen --no-default-groups --group proxy
+RUN uv sync --frozen --no-install-project --no-default-groups --group proxy
 RUN timeout 3s /home/mitmproxy/.venv/bin/mitmweb || [ $? -eq 124 ]
 
 USER root
