@@ -64,8 +64,8 @@ def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) 
                         try:
                             drv = get_agent_driver(ag)
                             tools.update(drv.required_tools)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Could not resolve driver for '{ag}': {e}")
         agent_sec = data.get("agent")
         if isinstance(agent_sec, dict):
             agent_type = str(agent_sec.get("type") or "").strip().lower()
@@ -77,8 +77,8 @@ def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) 
                 tools.add("antigravity")
             elif agent_type == "claude":
                 tools.add("claude-code")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Could not resolve project tools from config: {e}")
     return sorted(tools)
 
 
@@ -267,8 +267,8 @@ def get_image_label(image_tag: str, label_key: str, runtime: str | None = None) 
         value = result.stdout.strip()
         if result.returncode == 0 and value and value != "<no value>":
             return value
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to read image label '{label_key}' on '{image_tag}': {e}")
 
     return None
 
@@ -285,7 +285,8 @@ def image_exists(image_tag: str, runtime: str | None = None) -> bool:
             timeout=5,
         )
         return result.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed image_exists check for '{image_tag}': {e}")
         return False
 
 
@@ -314,7 +315,7 @@ def newest_shared_image_time(runtime: str | None = None) -> tuple[str, datetime]
             logger.error(
                 f"ERROR: Could not read build timestamp from shared image ({tag}). "
                 f"The project image may hold a stale mitmproxy CA certificate or "
-                f"toolchain. Rebuild with: build.sh"
+                f"toolchain. Rebuild with: pa build"
             )
             return None
         if newest is None or ts > newest[1]:

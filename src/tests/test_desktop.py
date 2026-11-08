@@ -294,6 +294,7 @@ def test_in_container_virtual_desktop_skill():
     # Pure in-container abstraction
     assert "agent-desktop" in content
     assert "pa-container desktop" not in content
+    assert "pa desktop" not in content
     assert "mouse-click-left" in content
     assert "mouse-click-right" in content
     assert "drag" in content

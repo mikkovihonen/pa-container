@@ -120,8 +120,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 
 ```
 .
-├── build.sh                          # Build script (delegates to src/build.py)
-├── run.sh                            # Run script (delegates to src/run.py)
+├── pa                                # Unified CLI executable entrypoint
 ├── pyproject.toml                    # uv project: dependencies, dependency-groups, ruff/mypy/pytest config
 ├── uv.lock                           # Pinned dependency lockfile (committed)
 ├── .gitignore

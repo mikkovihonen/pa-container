@@ -8,7 +8,7 @@
 
 ## Building the proxy container image
 
-The system builds the proxy container by running `build.sh` in the project root. The build runs before other containers because other containers refer to it in their own build files.
+The system builds the proxy container by running `pa build` in the project root. The build runs before other containers because other containers refer to it in their own build files.
 
 The transparent proxy container's Containerfile definition at `coding-agent-proxy/Containerfile` runs mitmproxy. mitmproxy generates the keys for its certificate authority (CA) in the config directory (~/.mitmproxy by default).
 

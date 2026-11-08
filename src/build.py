@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 sys.dont_write_bytecode = True
 
 from global_config import load_global_config
-from logging_driver import LogCategory, get_category_logger, get_log_driver
+from logging_driver import LogCategory, fail_and_render, get_category_logger, get_log_driver
 from util import EnvironmentError, validate_environment
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
@@ -28,7 +28,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 global_config = load_global_config(repo_root=REPO_ROOT)
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
-# build.py is its own entry point (build.sh) and configures the root logger
+# build.py implements the 'build' subcommand of pa and configures the root logger
 # from global configuration.
 
 log_level_str = global_config.runtime.log_level.upper()
@@ -161,8 +161,8 @@ def check_build_memory(runtime: str, fatal: bool = True) -> bool:
         "Fix one of:\n"
         "  * give the VM more memory:  podman machine stop && podman machine set --memory 4096 && podman machine start\n"
         "  * free memory in the VM:    stop containers you are not using (podman ps)\n"
-        "  * skip the PGO build:       PYTHON_OPTIMIZE=0 ./build.sh  (~10-20% slower Python)\n"
-        "  * already-cached Python:    PA_MEMORY_PREFLIGHT=0 ./build.sh  (skips this check)"
+        "  * skip the PGO build:       PYTHON_OPTIMIZE=0 pa build  (~10-20% slower Python)\n"
+        "  * already-cached Python:    PA_MEMORY_PREFLIGHT=0 pa build  (skips this check)"
     )
     return not fatal
 
@@ -452,6 +452,7 @@ def run_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int
 
 def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int:
     """Execute image and tool builds based on structured BuildOptions."""
+    log_drv = driver or get_log_driver()
     if options.llama or options.llama_latest:
         from llama_build import LlamaBuildError, build_llama_server
 
@@ -468,14 +469,64 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
             logger.info(f"llama-server build complete: {built_path}")
             return 0
         except LlamaBuildError as e:
-            logger.error(f"Failed to build llama-server: {e}")
+            if log_drv is not None:
+                log_drv.fail_and_render(
+                    LogCategory.BUILD,
+                    "LLaMA Server Build Failed",
+                    str(e),
+                    exc=e,
+                    source_logger=logger,
+                )
+            else:
+                fail_and_render(
+                    LogCategory.BUILD,
+                    "LLaMA Server Build Failed",
+                    str(e),
+                    exc=e,
+                    source_logger=logger,
+                )
+            return 1
+        except Exception as e:
+            if log_drv is not None:
+                log_drv.fail_and_render(
+                    LogCategory.BUILD,
+                    "LLaMA Server Build Error",
+                    str(e),
+                    exc=e,
+                    source_logger=logger,
+                )
+            else:
+                fail_and_render(
+                    LogCategory.BUILD,
+                    "LLaMA Server Build Error",
+                    str(e),
+                    exc=e,
+                    source_logger=logger,
+                )
             return 1
 
     try:
         runtime = validate_environment(LLAMA_BIN)
         _node_build_args()
     except EnvironmentError as e:
-        logger.error(f"Environment Error: {e}")
+        if log_drv is not None:
+            log_drv.fail_and_render(
+                LogCategory.BUILD,
+                "Environment Error",
+                str(e),
+                hints=["Ensure container runtime (podman/docker) is installed and available in PATH."],
+                exc=e,
+                source_logger=logger,
+            )
+        else:
+            fail_and_render(
+                LogCategory.BUILD,
+                "Environment Error",
+                str(e),
+                hints=["Ensure container runtime (podman/docker) is installed and available in PATH."],
+                exc=e,
+                source_logger=logger,
+            )
         return 1
 
     if not check_build_memory(runtime):
@@ -491,7 +542,21 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
                 requested = [t.strip() for t in options.tools.split(",") if t.strip()]
                 for t in requested:
                     if t not in AVAILABLE_TOOLS:
-                        logger.error(f"Unknown tool '{t}'. Available tools: {', '.join(sorted(AVAILABLE_TOOLS))}")
+                        msg = f"Unknown tool '{t}'. Available tools: {', '.join(sorted(AVAILABLE_TOOLS))}"
+                        if log_drv is not None:
+                            log_drv.fail_and_render(
+                                LogCategory.BUILD,
+                                "Unknown Toolchain",
+                                msg,
+                                source_logger=logger,
+                            )
+                        else:
+                            fail_and_render(
+                                LogCategory.BUILD,
+                                "Unknown Toolchain",
+                                msg,
+                                source_logger=logger,
+                            )
                         return 1
 
             build_builder(runtime)
@@ -521,12 +586,59 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
             prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
         return 0
     except subprocess.CalledProcessError as e:
-        logger.error(f"Build failed: {e}")
+        if log_drv is not None:
+            log_drv.fail_and_render(
+                LogCategory.BUILD,
+                "Build Command Failed",
+                f"Command failed with exit code {e.returncode}: {e.cmd}",
+                exc=e,
+                source_logger=logger,
+            )
+        else:
+            fail_and_render(
+                LogCategory.BUILD,
+                "Build Command Failed",
+                f"Command failed with exit code {e.returncode}: {e.cmd}",
+                exc=e,
+                source_logger=logger,
+            )
         return 1
-    except FileNotFoundError:
-        logger.error(
-            f"Error: '{runtime}' command not found. Please ensure the container CLI is installed and in your PATH."
-        )
+    except FileNotFoundError as e:
+        msg = f"Error: '{runtime}' command not found. Please ensure the container CLI is installed and in your PATH."
+        if log_drv is not None:
+            log_drv.fail_and_render(
+                LogCategory.BUILD,
+                "Command Not Found",
+                msg,
+                exc=e,
+                source_logger=logger,
+            )
+        else:
+            fail_and_render(
+                LogCategory.BUILD,
+                "Command Not Found",
+                msg,
+                exc=e,
+                source_logger=logger,
+            )
+        return 1
+    except Exception as e:
+        if log_drv is not None:
+            log_drv.fail_and_render(
+                LogCategory.BUILD,
+                "Build Error",
+                str(e),
+                exc=e,
+                source_logger=logger,
+            )
+        else:
+            fail_and_render(
+                LogCategory.BUILD,
+                "Build Error",
+                str(e),
+                exc=e,
+                source_logger=logger,
+            )
         return 1
 
 

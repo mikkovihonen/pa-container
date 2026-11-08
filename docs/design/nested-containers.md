@@ -362,7 +362,7 @@ off by default**.
 Two separate problems.
 
 **The nested engine itself** talking to registries: podman reads the agent container's
-system trust store. `build.sh` already installs the mitmproxy CA there. It works unmodified.
+system trust store. `pa build` already installs the mitmproxy CA there. It works unmodified.
 
 **Processes inside nested containers**: an arbitrary image (`alpine`, `postgres`) has no
 idea about the mitmproxy CA. Every TLS call from inside it fails. The system fixes this with a
@@ -448,7 +448,7 @@ workload most likely to expose it.
 Since this design landed, **4 GB is the documented minimum** `podman machine` size. This is not for
 nesting. It is for building the images at all. The CPython compile moved into the
 shared base image. It moved into the toolchain image (`coding-agent-builder/`), which also
-compiles podman and netavark. `build.sh` checks available memory
+compiles podman and netavark. `pa build` checks available memory
 in the VM before starting a build. It refuses with the fix rather than OOM-killing the
 compiler minutes later. Enabling nesting warrants more again.
 

@@ -17,14 +17,23 @@ sys.dont_write_bytecode = True
 from rich.console import Console
 from rich.table import Table
 
-from config import PROJECT_DIR, REPO_ROOT
+SCRIPT_DIR: Path = Path(__file__).resolve().parent
+REPO_ROOT: Path = SCRIPT_DIR.parent
+PROJECT_DIR: Path = Path(os.environ.get("PROJECT_DIR", Path.cwd()))
 from logging_driver import (
+    LogCategory,
     clean_all_projects_logs,
     clean_project_logs,
+    fail_and_render,
+    get_category_logger,
+    get_log_driver,
     init_log_driver,
+    render_hard_error,
 )
 from project import get_project_logs_dir
 from version import get_git_tag_version
+
+cli_logger = get_category_logger("cli", LogCategory.PREFLIGHT)
 
 # ─── Options Dataclasses ─────────────────────────────────────────────────────
 
@@ -148,7 +157,7 @@ def _parse_duration(duration_str: str) -> float:
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Construct the unified pa-container CLI argument parser."""
+    """Construct the unified pa CLI argument parser."""
     version = get_git_tag_version(REPO_ROOT) or "0.6.6"
 
     # Shared global flags inherited across root and subcommands
@@ -185,7 +194,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parser = argparse.ArgumentParser(
-        prog="pa-container",
+        prog="pa",
         parents=[common_parser],
         description="Containerized development environment with local LLM inference and traffic isolation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -475,7 +484,7 @@ def create_parser() -> argparse.ArgumentParser:
     init_parser = subparsers.add_parser(
         "init",
         parents=[common_parser],
-        help="Initialize project or global pa-container configuration from templates.",
+        help="Initialize project or global configuration from templates.",
         description="Seed configuration files from templates into the workspace or user config directory.",
     )
     init_parser.add_argument(
@@ -518,6 +527,12 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
     raw_args = normalized_args
 
     parser = create_parser()
+
+    if not raw_args:
+        parser.print_help()
+        sys.exit(0)
+        return ("", None)
+
     args, unknown = parser.parse_known_args(raw_args)
 
     if unknown:
@@ -754,7 +769,7 @@ def handle_proxy_command(options: ProxyOptions) -> int:
         console.print(
             f"[yellow]No active proxy container running for project '{PROJECT_DIR.name}' (pi-proxy-{key}).[/yellow]"
         )
-        console.print("[dim]Run 'pa-container run' to start this project or use '--all' to view all proxies.[/dim]")
+        console.print("[dim]Run 'pa run' to start this project or use '--all' to view all proxies.[/dim]")
         return 1
 
     if options.url:
@@ -900,7 +915,7 @@ def handle_desktop_command(options: DesktopOptions) -> int:
     if not desktop_info:
         console.print(f"[yellow]No active virtual desktop running for project '{PROJECT_DIR.name}'.[/yellow]")
         console.print(
-            "[dim]Ensure 'desktop.enabled: true' in .pa-container/config.yaml and run 'pa-container run' to start.[/dim]"
+            "[dim]Ensure 'desktop.enabled: true' in .pa-container/config.yaml and run 'pa run' to start.[/dim]"
         )
         return 1
 
@@ -1011,6 +1026,7 @@ def handle_logs_command(options: LogsOptions) -> int:
             for line in tail_lines:
                 console.print(line)
         except OSError as e:
+            cli_logger.error(f"Could not read log file: {e}", exc_info=True)
             console.print(f"[red]Could not read log file: {e}[/red]")
             return 1
 
@@ -1020,91 +1036,141 @@ def handle_logs_command(options: LogsOptions) -> int:
 def handle_init_command(options: InitOptions) -> int:
     """Initialize configuration from templates."""
     console = Console(stderr=False)
-    if options.global_config:
-        from global_config import init_global_config
+    try:
+        if options.global_config:
+            from global_config import init_global_config
 
-        target = init_global_config()
-        console.print(f"[green]Initialized global configuration at {target}[/green]")
-    else:
-        from project import init_project_config
+            target = init_global_config()
+            console.print(f"[green]Initialized global configuration at {target}[/green]")
+        else:
+            from project import init_project_config
 
-        target = init_project_config()
-        console.print(f"[green]Initialized project configuration at {target}[/green]")
-    return 0
+            target = init_project_config()
+            console.print(f"[green]Initialized project configuration at {target}[/green]")
+        return 0
+    except Exception as e:
+        cli_logger.error(f"Init command failed: {e}", exc_info=True)
+        console.print(f"[red]Error initializing configuration: {e}[/red]")
+        return 1
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Unified CLI dispatcher."""
-    cmd, options = parse_cli_args(argv)
-
-    if cmd == "init":
-        sys.exit(handle_init_command(options))
-        return
-
-    if cmd == "logs":
-        sys.exit(handle_logs_command(options))
-        return
-
-    if cmd == "proxy":
-        sys.exit(handle_proxy_command(options))
-        return
-
-    if cmd == "desktop":
-        sys.exit(handle_desktop_command(options))
-        return
-
-    # Initialize log driver for 'run' and 'build' commands
-    from global_config import load_global_config
-
-    global_cfg = load_global_config(repo_root=REPO_ROOT)
-
-    eff_log_level = (
-        getattr(options, "log_level", None)
-        or os.environ.get("LOG_LEVEL")
-        or global_cfg.logging.log_level
-        or global_cfg.runtime.log_level
-    )
-    eff_max_days = getattr(options, "log_retention_days", None) or global_cfg.logging.retention.max_days
-    eff_max_launches = getattr(options, "log_retention_launches", None) or global_cfg.logging.retention.max_launches
-
-    driver = init_log_driver(
-        PROJECT_DIR,
-        log_level=eff_log_level,
-        verbose=getattr(options, "verbose", False),
-        quiet=getattr(options, "quiet", False),
-        no_color=getattr(options, "no_color", False),
-        log_file=getattr(options, "log_file", None),
-        max_days=eff_max_days,
-        max_launches=eff_max_launches,
-    )
-
-    if cmd == "clean":
-        if getattr(options, "logs", False):
-            deleted = clean_project_logs(PROJECT_DIR)
-            driver.console.print(f"Purged {len(deleted)} log file(s).")
-        # Forward to build.clean_pass
-        from build import run_clean_pass
-
-        sys.exit(run_clean_pass(purge_cache=getattr(options, "build_cache", False)))
-        return
-
-    if cmd == "build":
-        if getattr(options, "clean", False):
-            from build import run_clean_pass
-
-            sys.exit(run_clean_pass(purge_cache=True))
+    try:
+        cmd, options = parse_cli_args(argv)
+        if not cmd:
             return
 
-        from build import execute_build
+        if cmd == "init":
+            sys.exit(handle_init_command(options))
+            return
 
-        sys.exit(execute_build(options, driver=driver))
-        return
+        if cmd == "logs":
+            sys.exit(handle_logs_command(options))
+            return
 
-    if cmd == "run":
-        from run import execute_run
+        if cmd == "proxy":
+            sys.exit(handle_proxy_command(options))
+            return
 
-        sys.exit(execute_run(options, driver=driver))
-        return
+        if cmd == "desktop":
+            sys.exit(handle_desktop_command(options))
+            return
+
+        # Initialize log driver for 'run' and 'build' commands
+        from global_config import load_global_config
+
+        try:
+            global_cfg = load_global_config(repo_root=REPO_ROOT)
+        except FileNotFoundError as e:
+            cli_logger.error(f"Global configuration missing: {e}", exc_info=True)
+            render_hard_error(
+                LogCategory.PREFLIGHT,
+                "Missing Global Configuration",
+                str(e),
+                hints=[
+                    "Initialize global configuration: pa init --global",
+                    "Or create ~/.config/pa-container/config.yaml manually.",
+                ],
+            )
+            sys.exit(1)
+            return
+        except ValueError as e:
+            cli_logger.error(f"Global configuration invalid: {e}", exc_info=True)
+            render_hard_error(
+                LogCategory.PREFLIGHT,
+                "Invalid Global Configuration",
+                str(e),
+                hints=["Inspect and fix errors in ~/.config/pa-container/config.yaml."],
+            )
+            sys.exit(1)
+            return
+
+        eff_log_level = (
+            getattr(options, "log_level", None)
+            or os.environ.get("LOG_LEVEL")
+            or global_cfg.logging.log_level
+            or global_cfg.runtime.log_level
+        )
+        eff_max_days = getattr(options, "log_retention_days", None) or global_cfg.logging.retention.max_days
+        eff_max_launches = getattr(options, "log_retention_launches", None) or global_cfg.logging.retention.max_launches
+
+        driver = init_log_driver(
+            PROJECT_DIR,
+            log_level=eff_log_level,
+            verbose=getattr(options, "verbose", False),
+            quiet=getattr(options, "quiet", False),
+            no_color=getattr(options, "no_color", False),
+            log_file=getattr(options, "log_file", None),
+            max_days=eff_max_days,
+            max_launches=eff_max_launches,
+        )
+
+        if cmd == "clean":
+            if getattr(options, "logs", False):
+                deleted = clean_project_logs(PROJECT_DIR)
+                driver.console.print(f"Purged {len(deleted)} log file(s).")
+            # Forward to build.clean_pass
+            from build import run_clean_pass
+
+            sys.exit(run_clean_pass(purge_cache=getattr(options, "build_cache", False)))
+            return
+
+        if cmd == "build":
+            if getattr(options, "clean", False):
+                from build import run_clean_pass
+
+                sys.exit(run_clean_pass(purge_cache=True))
+                return
+
+            from build import execute_build
+
+            sys.exit(execute_build(options, driver=driver))
+            return
+
+        if cmd == "run":
+            from run import execute_run
+
+            sys.exit(execute_run(options, driver=driver))
+            return
+
+    except KeyboardInterrupt:
+        active_driver = get_log_driver()
+        if active_driver is not None:
+            active_driver.pause_for_interactive()
+        sys.exit(130)
+    except SystemExit:
+        raise
+    except Exception as fatal_err:
+        cli_logger.error(f"Fatal unhandled CLI exception: {fatal_err}", exc_info=True)
+        fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Fatal CLI Error",
+            str(fatal_err),
+            exc=fatal_err,
+            source_logger=cli_logger,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

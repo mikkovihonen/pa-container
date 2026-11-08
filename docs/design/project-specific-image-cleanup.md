@@ -7,10 +7,10 @@ When a workspace has dependency definition files (`.pa-container/dependencies/ro
 **The system has no mechanism to remove older project-specific images.** The lifecycle is:
 
 ```
-build.sh          →  pa-container-agent:local  (shared, rebuilt via build.sh only)
-run.sh (first)    →  pa-container-agent-a1b2c3d4e5f6g7h8.local  (project-specific)
-run.sh (modify)   →  pa-container-agent-z9y8x7w6v5u4t3s2.local  (new tag, old one orphaned)
-run.sh (modify)   →  pa-container-agent-q1w2e3r4t5y6u7i8.local  (another orphan)
+pa build          →  pa-container-agent:local  (shared, rebuilt via pa build only)
+pa run (first)    →  pa-container-agent-a1b2c3d4e5f6g7h8.local  (project-specific)
+pa run (modify)   →  pa-container-agent-z9y8x7w6v5u4t3s2.local  (new tag, old one orphaned)
+pa run (modify)   →  pa-container-agent-q1w2e3r4t5y6u7i8.local  (another orphan)
 ...
 ```
 
@@ -328,14 +328,8 @@ def _remove_image(runtime: str, image_tag: str) -> bool:
 A future enhancement (not part of v1) would add a `cleanup` subcommand or flag:
 
 ```bash
-# List all pa-container project images
-./run.sh --list-images
-
 # Clean up images for projects that no longer exist
-./run.sh --cleanup
-
-# Force rebuild all project images
-./run.sh --rebuild-images
+pa clean --all
 ```
 
 The `--cleanup` variant would:
@@ -383,11 +377,11 @@ This migration is **out of scope for v1**.
 
 ## Open Questions
 
-1. **Should we also clean up the shared image (`pa-container-agent:local`) when `build.sh` runs?** This is a separate concern. `build.sh` already rebuilds the shared image, but it does not remove the old one. Could add similar cleanup there in v2.
+1. **Should we also clean up the shared image (`pa-container-agent:local`) when `pa build` runs?** This is a separate concern. `pa build` already rebuilds the shared image, but it does not remove the old one. Could add similar cleanup there in v2.
 
 2. **Should `pi/commands.sh` changes trigger a new image?** Currently they do not (they run at runtime, not bake into the image). This is by design. If users expect `pi/commands.sh` changes to affect the image, the hash function would need updating. Out of scope.
 
-3. **What about the `pa-container-agent-proxy:local` image?** Same issue exists there (no cleanup after `build.sh`), but the proxy image is rebuilt every time `build.sh` runs (not per-project). The accumulation rate is much lower. Can address in v2 if needed.
+3. **What about the `pa-container-agent-proxy:local` image?** Same issue exists there (no cleanup after `pa build`), but the proxy image is rebuilt every time `pa build` runs (not per-project). The accumulation rate is much lower. Can address in v2 if needed.
 
 4. **Should we add a `--dry-run` flag to `_cleanup_stale_project_images()` for safety?** Useful for debugging and for the future `--cleanup` command. Could be a parameter on the function.
 

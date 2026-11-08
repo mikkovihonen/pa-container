@@ -14,7 +14,7 @@
 #   netavark + aardvark-dns         podman 6 requires 2.0.0; trixie has 1.14.0
 #
 # WHY A SEPARATE IMAGE AND NOT A STAGE OF coding-agent/Containerfile
-#   1. build.sh builds this once. A project-specific image rebuild (run.py, on a
+#   1. pa build builds this once. A project-specific image rebuild (run.py, on a
 #      change to a workspace's commands.sh) then only replays the COPY, so it can
 #      never recompile anything. Before this split, a cache miss on the Python layer
 #      turned a project rebuild into a ~10 minute PGO compile.

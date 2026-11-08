@@ -4,17 +4,17 @@
 
 Install the following tools on your host machine before running:
 
-- **[uv](https://docs.astral.sh/uv/)**: Manages the Python environment and dependencies for the host-side build/run scripts.
+- **[uv](https://docs.astral.sh/uv/)**: Manages the Python environment and dependencies for the host-side build and run CLI.
     - On macOS: `brew install uv`
     - Other platforms: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-    - `build.sh` and `run.sh` invoke `uv run`. The `uv run` command creates `.venv` and installs the declared dependencies (including the `hf` CLI and `huggingface_hub`) automatically on first use. You do not need a manual `pip install`.
+    - `pa` invokes `uv run`. The `uv run` command creates `.venv` and installs the declared dependencies (including the `hf` CLI and `huggingface_hub`) automatically on first use. You do not need a manual `pip install`.
 
 - **[podman](https://podman.io)**: the only supported container runtime.
     - On macOS: `brew install podman`, then **`podman machine init --memory 4096`** and `podman machine start`
     - On Linux (Debian/Ubuntu): `sudo apt install podman`, or your distro's package manager
 
   **The podman machine needs at least 4 GB of memory** (macOS/Windows, where podman
-  runs in a VM). The default is 2 GiB, which is not enough. `build.sh` compiles CPython,
+  runs in a VM). The default is 2 GiB, which is not enough. `pa build` compiles CPython,
   podman and netavark from source, and one CPython PGO job peaks near 900 MiB. With
   2 GiB total, the build is OOM-killed. More memory buys more parallel compile
   jobs, since the caps are memory-derived rather than core-count-derived. On an existing
@@ -24,7 +24,7 @@ Install the following tools on your host machine before running:
   podman machine stop && podman machine set --memory 4096 && podman machine start
   ```
 
-  `build.sh` checks this before it starts building and tells you if there is not
+  `pa build` checks this before it starts building and tells you if there is not
   enough room, so a short machine fails in a second rather than several minutes in.
 
   Docker is **not** supported. pa-container's isolation model (and nested containers in
@@ -33,7 +33,7 @@ Install the following tools on your host machine before running:
   See [Configuration](configuration.md#nested-containers).
 
 - **llama.cpp**: Specifically `llama-server`.
-    - Build with pa-container (recommended): `./build.sh --llama` (or `./build.sh --llama-latest` to build latest release)
+    - Build with pa-container (recommended): `pa build --llama` (or `pa build --llama-latest` to build latest release)
     - On macOS: `brew install llama.cpp`
     - On Linux (Debian/Ubuntu): `sudo apt install llama.cpp`
     - On Linux (other): [build from source](https://github.com/ggml-org/llama.cpp)
@@ -89,7 +89,7 @@ uv run keyring set pa-container ADMIN_PASSWORD
 Optionally, build an optimized minimal `llama-server` binary for your host hardware:
 
 ```bash
-./build.sh --llama
+pa build --llama
 ```
 
 See [Configuration](configuration.md) for the full list of configuration options.
@@ -97,16 +97,16 @@ See [Configuration](configuration.md) for the full list of configuration options
 ### 2. Build the Container Images
 
 ```zsh
-./build.sh
+pa build
 ```
 
-`build.sh` (and `run.sh`) run through `uv`. `uv` creates the `.venv` and installs dependencies from `uv.lock` on first invocation. You do not need a separate setup step. Run `uv sync` to provision the environment ahead of time.
+`pa` runs through `uv`. `uv` creates the `.venv` and installs dependencies from `uv.lock` on first invocation. You do not need a separate setup step. Run `uv sync` to provision the environment ahead of time.
 
 This builds three images, in this order:
 
 1. `pa-container-agent-builder:local` — the [toolchain image](design-details.md#toolchain-builder-image). Compiles CPython 3.14 (PGO), podman and netavark/aardvark-dns from source, and stages Node from the official nodejs.org tarball. **A few minutes** on a 9-core/8 GB machine.
 
-    `NODE_SOURCE=build ./build.sh` compiles Node from source instead, which takes **about an hour** (measured: ~65 min at 3 compile jobs). It buys a trixie-native build rather than the generic-glibc official one. Node has no build tags worth choosing, so unlike podman there is no correctness argument for it. The default `prebuilt` mode stages byte-for-byte the same Node the old `node:` base image shipped, since that image is this same tarball extracted into `/usr/local`.
+    `NODE_SOURCE=build pa build` compiles Node from source instead, which takes **about an hour** (measured: ~65 min at 3 compile jobs). It buys a trixie-native build rather than the generic-glibc official one. Node has no build tags worth choosing, so unlike podman there is no correctness argument for it. The default `prebuilt` mode stages byte-for-byte the same Node the old `node:` base image shipped, since that image is this same tarball extracted into `/usr/local`.
 
     Compile parallelism is capped by available memory rather than core count, so a bigger machine directly shortens this step (`MAKE_JOBS=<n>` overrides the cap). Later builds skip the image entirely unless one of its pinned versions changes, and each component is a separate stage, so bumping podman does not rebuild Node.
 
@@ -118,14 +118,17 @@ The order is not optional: the proxy image `COPY --from`s the builder, and the a
 
 ### 3. Run the Agent
 
-The `run.sh` script manages the entire lifecycle. The script validates the environment, starts llama-server instances for each local model allowed in `models.yaml`, sets up the proxy container with its transparent proxy rules, and launches the agent container.
+The `pa run` command manages the entire lifecycle. It validates the environment, starts llama-server instances for each local model allowed in `models.yaml`, sets up the proxy container with its transparent proxy rules, and launches the agent container.
 
 ```sh
-# Recommended: alias for convenience
-alias pa="~/workspace/pa-container/run.sh"
+# Add repo root to PATH or symlink ./pa into ~/.local/bin/pa
+cd /path/to/your/project
 
-# Run with an optional session ID
-pi --session 1234abcd-ef56-78ab-cd90-1234abcd56ef
+# Launch the default agent workspace
+pa run
+
+# Or launch with custom arguments (e.g. forward session flags to inner agent)
+pa run -- --session 1234abcd-ef56-78ab-cd90-1234abcd56ef
 ```
 
 The script reads `<project>/.pa-container/models.yaml` (seeded from the `coding-agent/default/project/` template on first run) to determine which LLM providers and gateways are allowed. Global definitions under `~/.config/pa-container/models/` and `~/.config/pa-container/gateways/` supply model weights, server flags, and gateway endpoints. Each workspace gets its own proxy container and isolated network (named by a hash of the project path). Concurrent invocations **from the same workspace** share that workspace's proxy via a refcount.

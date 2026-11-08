@@ -79,7 +79,8 @@ def validate_mount_paths(mounts: list[str], blocked_paths: list[str]) -> list[st
         try:
             expanded = Path(pattern).expanduser().resolve()
             resolved_blocked.append((pattern, expanded))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not resolve blocked path '{pattern}': {e}")
             continue
 
     forbidden_dest_paths = [PurePosixPath(p) for p in FORBIDDEN_CONTAINER_DESTINATION_PREFIXES]
@@ -108,13 +109,14 @@ def validate_mount_paths(mounts: list[str], blocked_paths: list[str]) -> list[st
                                 f"attempts to override protected system or project path '{forbidden}'."
                             )
                             break
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Error checking container path '{container_str}': {e}")
 
         # Check host source path safety
         try:
             host_path = Path(host_str).expanduser().resolve()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not resolve host path '{host_str}': {e}")
             continue
 
         for pattern, blocked in resolved_blocked:
@@ -125,7 +127,8 @@ def validate_mount_paths(mounts: list[str], blocked_paths: list[str]) -> list[st
                         f"Mount '{mount}' is blocked: host path '{host_str}' exposes sensitive path '{pattern}'."
                     )
                     break
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Error evaluating relative path for '{host_path}' vs '{blocked}': {e}")
                 continue
 
     return errors

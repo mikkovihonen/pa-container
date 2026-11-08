@@ -44,7 +44,8 @@ def _get_agent_container_ips(runtime_bin: str, container_name: str) -> list[str]
                 if addr.get("scope") == "global" and addr.get("local"):
                     ips.append(addr["local"])
         return ips
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to inspect agent IPs in {container_name}: {e}")
         return []
 
 

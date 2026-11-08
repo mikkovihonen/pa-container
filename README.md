@@ -30,28 +30,29 @@ A containerized environment for running autonomous coding agents ([Pi](https://p
 
 ```bash
 uv run keyring set pa-container ADMIN_PASSWORD  # set mitmweb UI password
-./build.sh --llama                             # build minimal, optimized llama-server (optional)
-./build.sh                                     # build the proxy, toolchain and agent images
-alias pa="$PWD/run.sh"                         # useful alias
-cd /path/to/your/project                       # any workspace
-pa                                             # launch the default agent for that workspace
-pa --agent claude                              # or launch another enabled agent (pi, opencode, antigravity, claude)
+./pa build --llama                              # build minimal, optimized llama-server (optional)
+./pa build                                      # build the proxy, toolchain and agent images
+# Add repo root to PATH or symlink ./pa into ~/.local/bin/pa
+cd /path/to/your/project                        # any workspace
+pa run                                          # launch the default agent for that workspace
+pa run --agent claude                           # or launch another enabled agent (pi, opencode, antigravity, claude)
 ```
 
 See **[Getting Started](docs/getting-started.md)** for prerequisites, hardware requirements, and platform-specific notes.
 
 ## Command-line interface
 
-The unified CLI (`src/cli.py`, invoked directly via `uv run` or through `./run.sh` / `./build.sh`) manages the full environment lifecycle:
+The unified `pa` CLI manages the full environment lifecycle:
 
 | Subcommand | Description |
 |------------|-------------|
-| `run` | Launch the containerized coding agent workspace (default command). Supports `--agent`, `--t3`, `--open-browser`, and logging flags. |
+| `run` | Launch the containerized coding agent workspace. Supports `--agent`, `--t3`, `--open-browser`, and logging flags. |
 | `build` | Compile container images, on-demand toolchains, or local `llama-server`. |
 | `clean` | Maintenance utility to sweep dead containers, prune dangling images, and purge logs (`--all`, `--logs`, `--build-cache`). |
 | `logs` | Inspect, live-tail (`-f`), filter by subsystem category, or list project session and build logs. |
 | `proxy` (`proxies`) | Query active proxy containers, print endpoints (`-u`), output JSON (`--json`), or auto-open mitmweb in the browser (`-o`). |
 | `desktop` (`gui`) | Query active virtual desktops, print VNC (`--vnc`) or noVNC (`-u`) URLs, or auto-open noVNC in the browser (`-o`). |
+| `init` | Initialize per-project (`pa init`) or global (`pa init --global`) configuration from templates. |
 
 ## Documentation
 

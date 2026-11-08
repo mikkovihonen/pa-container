@@ -18,11 +18,10 @@ uv run mypy
 uv run --group proxy pytest coding-agent-proxy/addons
 ```
 
-The Python sources run directly from `src/`. uv treats the project as a
-*virtual* project via `[tool.uv] package = false`. Dependencies are installed
-into `.venv`. The project itself is not built or installed. `build.sh` and
-`run.sh` wrap `uv run --project <repo>`. They use this environment while
-still operating on the caller's working directory.
+The Python sources run directly from `src/`. The `pa` executable in the repository
+root wraps `uv run --project <repo>`, preserving the caller's working directory
+as the project workspace. In addition, the package provides a standard entry point
+`pa = "cli:main"` in `pyproject.toml`.
 
 <a name="coverage"></a>
 ## Coverage

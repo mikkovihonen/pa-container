@@ -217,7 +217,7 @@ class TestNodeBuildArgs:
         """A typo must fail here, not after the proxy image has been rebuilt.
 
         The build script would reject it too, but only once the toolchain image is
-        already being built — by which point `build.sh` has regenerated the proxy's
+        already being built — by which point `pa build` has regenerated the proxy's
         mitmproxy CA and invalidated every project image.
         """
         import build

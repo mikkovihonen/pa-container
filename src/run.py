@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 import uuid
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -83,6 +83,7 @@ from util import (
 )
 
 logger = get_category_logger(__name__, LogCategory.AGENT)
+preflight_logger = get_category_logger("run.preflight", LogCategory.PREFLIGHT)
 
 CONTAINER_RUNTIME: str = "podman"
 RUNTIME: PodmanRuntime = PodmanRuntime(upstream_network=PROXY_UPSTREAM_NETWORK_ENV)
@@ -170,76 +171,123 @@ def ensure_proxy_image(runtime: str, repo_root: Path = REPO_ROOT) -> bool:
 
 def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     log_drv = driver or get_log_driver() or init_log_driver(PROJECT_DIR)
-    _init_runtime()
+    try:
+        _init_runtime()
+    except EnvironmentError as e:
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Environment Check Failed",
+            str(e),
+            hints=["Ensure podman or docker is installed and in your PATH."],
+            exc=e,
+            source_logger=preflight_logger,
+        )
+        return 1
 
     log_drv.step(LogCategory.PREFLIGHT, "Validating configuration & security")
-    pa_container_dir = project.ensure_project_config()
-    warn_missing_gitignore(PROJECT_DIR, logger)
+    try:
+        pa_container_dir = project.ensure_project_config(PROJECT_DIR)
+    except FileNotFoundError as e:
+        config_path = PROJECT_DIR / ".pa-container" / "config.yaml"
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Missing Project Configuration",
+            f"Project configuration not found at {config_path}.",
+            hints=[
+                "Initialize the project configuration with 'pa init'.",
+                "Or configure .pa-container/config.yaml manually.",
+            ],
+            exc=e,
+            source_logger=preflight_logger,
+        )
+        return 1
+    except Exception as e:
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Project Configuration Error",
+            str(e),
+            exc=e,
+            source_logger=preflight_logger,
+        )
+        return 1
+
+    warn_missing_gitignore(PROJECT_DIR, preflight_logger)
     models_path: Path | None = resolve_models_file(pa_container_dir)
     if models_path is None or not models_path.exists():
         err = f"Config file not found: expected {pa_container_dir / 'models.yaml'}"
-        logger.error(err)
-        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Missing Models Configuration", err)
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Missing Models Configuration",
+            err,
+            source_logger=preflight_logger,
+        )
         return 1
 
     # Validate per-project config schema and version compatibility.
     config_yaml_path = pa_container_dir / "config.yaml"
     is_valid, errors, schema_version = validate_config(config_yaml_path)
     if not is_valid:
-        logger.error("Configuration incompatible with this version of pa-container:")
-        for error in errors:
-            logger.error(error)
         hints = project.config_fix_hint(errors, config_yaml_path)
-        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Configuration Incompatible", "\n".join(errors), hints=hints)
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Configuration Incompatible",
+            "\n".join(errors),
+            hints=hints,
+            source_logger=preflight_logger,
+        )
         return 1
 
     yaml_errors = validate_project_yaml(pa_container_dir)
     if yaml_errors:
-        logger.error("Configuration has duplicate YAML keys:")
-        for error in yaml_errors:
-            logger.error(error)
-        log_drv.render_hard_error(
+        log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
             "Duplicate YAML Keys",
             "\n".join(yaml_errors),
             hints=["Delete the duplicate line from config.yaml and re-run."],
+            source_logger=preflight_logger,
         )
         return 1
 
     # Validate models schema (models.yaml).
     models_valid, models_errors = validate_models(models_path)
     if not models_valid:
-        logger.error(f"Configuration error in {models_path.name}:")
-        for err in models_errors:
-            logger.error(err)
-        log_drv.render_hard_error(
+        log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
             f"Invalid {models_path.name}",
             "\n".join(models_errors),
             hints=[f"Update {models_path} to match the expected schema."],
+            source_logger=preflight_logger,
         )
         return 1
 
-    flow_export_enabled = read_flow_export_enabled(pa_container_dir)
-    ipv6_enabled = read_network_config(pa_container_dir)["ipv6"]
-    llama_cfg = read_llama_config(pa_container_dir)
-    agent_extras = read_agent_extras(pa_container_dir)
-    read_only_pa_container = read_read_only_pa_container(pa_container_dir)
-    security_cfg = read_security_config(pa_container_dir)
-    git_cfg = read_git_config(pa_container_dir)
-    sc_cfg = read_source_control_config(pa_container_dir)
-    sc_tokens = resolve_source_control_tokens(pa_container_dir, log=logger)
+    try:
+        flow_export_enabled = read_flow_export_enabled(pa_container_dir)
+        ipv6_enabled = read_network_config(pa_container_dir)["ipv6"]
+        llama_cfg = read_llama_config(pa_container_dir)
+        agent_extras = read_agent_extras(pa_container_dir)
+        read_only_pa_container = read_read_only_pa_container(pa_container_dir)
+        security_cfg = read_security_config(pa_container_dir)
+        git_cfg = read_git_config(pa_container_dir)
+        sc_cfg = read_source_control_config(pa_container_dir)
+        sc_tokens = resolve_source_control_tokens(pa_container_dir, log=logger)
+    except Exception as e:
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Configuration Error",
+            str(e),
+            exc=e,
+            source_logger=preflight_logger,
+        )
+        return 1
 
     mount_errors = validate_mount_paths(agent_extras["mounts"], security_cfg["blocked_mount_paths"])
     if mount_errors:
-        logger.error("Security policy violation in agent.mounts:")
-        for err in mount_errors:
-            logger.error(f"  ✗ {err}")
-        log_drv.render_hard_error(
+        log_drv.fail_and_render(
             LogCategory.SECURITY,
             "Security Policy Violation in agent.mounts",
             "\n".join(mount_errors),
             hints=["Remove forbidden host mount paths from config.yaml under agent.mounts."],
+            source_logger=get_category_logger("run.security", LogCategory.SECURITY),
         )
         return 1
 
@@ -271,8 +319,13 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 runtime=CONTAINER_RUNTIME,
             )
         except TunnelValidationError as tunnel_err:
-            logger.error(str(tunnel_err))
-            log_drv.render_hard_error(LogCategory.PREFLIGHT, "Tunnel Prerequisites Failed", str(tunnel_err))
+            log_drv.fail_and_render(
+                LogCategory.PREFLIGHT,
+                "Tunnel Prerequisites Failed",
+                str(tunnel_err),
+                exc=tunnel_err,
+                source_logger=preflight_logger,
+            )
             return 1
 
     enabled_agents = read_enabled_agents(pa_container_dir)
@@ -282,29 +335,41 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             f"Agent '{cli_agent}' is not enabled in this workspace's config.yaml. "
             f"Enabled agents: {', '.join(enabled_agents)}"
         )
-        logger.error(disabled_msg)
-        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Agent Disabled", disabled_msg)
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Agent Disabled",
+            disabled_msg,
+            source_logger=preflight_logger,
+        )
         return 1
 
     try:
         agent_driver = get_agent_driver(agent_type)
     except ValueError as e:
-        logger.error(str(e))
-        log_drv.render_hard_error(LogCategory.PREFLIGHT, "Unknown Agent Driver", str(e))
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Unknown Agent Driver",
+            str(e),
+            exc=e,
+            source_logger=preflight_logger,
+        )
         return 1
 
     log_drv.step_done(LogCategory.PREFLIGHT)
     sessions_dir = agent_driver.get_sessions_dir(PROJECT_DIR)
 
     # Crash recovery: reap orphaned servers, proxies, and agent containers from prior crashed runs
-    containers.sweep_orphaned_servers(LLAMA_SERVER_LOCK_DIR)
-    containers.sweep_orphaned_proxies(CONTAINER_RUNTIME, PROXY_LOCK_DIR)
-    containers.cleanup_orphaned_agent_containers(CONTAINER_RUNTIME)
-    if flow_export_enabled:
-        recover_dangling_flows(
-            exports_dir=pa_container_dir / "exports",
-            sessions_dir=sessions_dir,
-        )
+    try:
+        containers.sweep_orphaned_servers(LLAMA_SERVER_LOCK_DIR)
+        containers.sweep_orphaned_proxies(CONTAINER_RUNTIME, PROXY_LOCK_DIR)
+        containers.cleanup_orphaned_agent_containers(CONTAINER_RUNTIME)
+        if flow_export_enabled:
+            recover_dangling_flows(
+                exports_dir=pa_container_dir / "exports",
+                sessions_dir=sessions_dir,
+            )
+    except Exception as e:
+        logger.warning(f"Error during crash recovery cleanup: {e}", exc_info=True)
 
     nested_cfg = read_nested_containers_config(pa_container_dir)
     nested_ports = nested_cfg["ports"]
@@ -318,16 +383,19 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         if nested_ports["publish"]:
             taken = containers.unavailable_host_ports(nested_ports["publish"], nested_ports["expose"])
             if taken:
-                logger.error(f"Host port(s) already in use: {', '.join(str(p) for p in taken)}")
                 holders = containers.port_holders(CONTAINER_RUNTIME, taken, project.project_key(PROJECT_DIR))
+                lines = [f"Host port(s) already in use: {', '.join(str(p) for p in taken)}"]
                 for port in taken:
                     holder = holders.get(port)
-                    logger.error(f"  {port} → {holder}" if holder else f"  {port} → not held by a container")
-                logger.error(
-                    f"Free them, or change nested_containers.ports.publish in "
-                    f"{config_yaml_path} (an entry may be written 'HOSTPORT:AGENTPORT' to remap)."
+                    lines.append(f"  {port} → {holder}" if holder else f"  {port} → not held by a container")
+                log_drv.fail_and_render(
+                    LogCategory.PREFLIGHT,
+                    "Host Port Collision",
+                    "\n".join(lines),
+                    hints=[f"Free them, or change nested_containers.ports.publish in {config_yaml_path}."],
+                    source_logger=preflight_logger,
                 )
-                sys.exit(1)
+                return 1
             bind = "127.0.0.1" if nested_ports["expose"] != "lan" else "all interfaces"
             logger.info(
                 "Publishing nested-container ports on "
@@ -402,13 +470,19 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     if agent_ports["publish"]:
         taken = containers.unavailable_host_ports(agent_ports["publish"], agent_ports["expose"])
         if taken:
-            logger.error(f"Host port(s) already in use: {', '.join(str(p) for p in taken)}")
             holders = containers.port_holders(CONTAINER_RUNTIME, taken, project.project_key(PROJECT_DIR))
+            lines = [f"Host port(s) already in use: {', '.join(str(p) for p in taken)}"]
             for port in taken:
                 holder = holders.get(port)
-                logger.error(f"  {port} → {holder}" if holder else f"  {port} → not held by a container")
-            logger.error(f"Free them, or change agent.ports.publish in {config_yaml_path}.")
-            sys.exit(1)
+                lines.append(f"  {port} → {holder}" if holder else f"  {port} → not held by a container")
+            log_drv.fail_and_render(
+                LogCategory.PREFLIGHT,
+                "Host Port Collision",
+                "\n".join(lines),
+                hints=[f"Free them, or change agent.ports.publish in {config_yaml_path}."],
+                source_logger=preflight_logger,
+            )
+            return 1
         bind = "127.0.0.1" if agent_ports["expose"] != "lan" else "all interfaces"
         logger.info(
             "Publishing agent container port(s) on "
@@ -925,8 +999,19 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
             return result.returncode
     except Exception as e:
-        logger.exception("An error occurred")
-        log_drv.render_hard_error(LogCategory.AGENT, "Fatal Error", str(e))
+        active_cat = LogCategory.AGENT
+        for cat_name, st in log_drv._statuses.items():
+            if not st.completed and not st.failed:
+                with suppress(ValueError):
+                    active_cat = LogCategory(cat_name)
+                break
+        log_drv.fail_and_render(
+            active_cat,
+            "Fatal Error",
+            str(e),
+            exc=e,
+            source_logger=get_category_logger(__name__, active_cat),
+        )
         return 1
     finally:
         Model.cleanup_download_lock_dir(LLAMA_SERVER_LOCK_DIR / "model_download")

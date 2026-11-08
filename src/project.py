@@ -106,7 +106,7 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
     if not project_root.is_dir() or not config_file.is_file():
         raise FileNotFoundError(
             f"Project configuration not found at {config_file}. "
-            "Initialize the project with 'pa-container init' or configure .pa-container/config.yaml."
+            "Initialize the project with 'pa init' or configure .pa-container/config.yaml."
         )
 
     return project_root

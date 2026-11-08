@@ -78,7 +78,7 @@ def validate_environment(llama_bin: str | None) -> str:
     if llama_bin is None or not Path(llama_bin).exists():
         raise EnvironmentError(
             "llama-server not found. Build an optimized minimal server for pa-container with:\n"
-            "    ./build.sh --llama\n"
+            "    pa build --llama\n"
             "Or configure the binary path in ~/.config/pa-container/config.yaml under llama.bin."
         )
 
@@ -408,15 +408,15 @@ def get_host_external_ip() -> str:
                 return ip
         finally:
             s.close()
-    except Exception:
-        pass
+    except Exception as e:
+        _LOG.debug(f"External IP resolution via UDP socket probe failed: {e}")
 
     try:
         ip = socket.gethostbyname(socket.gethostname())
         if ip and not ip.startswith("127."):
             return ip
-    except Exception:
-        pass
+    except Exception as e:
+        _LOG.debug(f"External IP resolution via gethostbyname failed: {e}")
 
     return "127.0.0.1"
 
@@ -498,7 +498,8 @@ def check_repo_gitignore(project_dir: Path) -> list[str]:
         if res.returncode != 0:
             return []
         git_root = Path(res.stdout.strip())
-    except Exception:
+    except Exception as e:
+        _LOG.debug(f"Failed to check git root in missing_gitignore_entries: {e}")
         return []
 
     existing_lines: set[str] = set()
@@ -523,8 +524,8 @@ def check_repo_gitignore(project_dir: Path) -> list[str]:
             )
             if check.returncode == 0:
                 continue
-        except Exception:
-            pass
+        except Exception as e:
+            _LOG.debug(f"Failed git check-ignore for '{entry}': {e}")
         if entry not in missing:
             missing.append(entry)
 
@@ -542,8 +543,8 @@ def check_repo_tracked_pa_container(project_dir: Path) -> list[str]:
         )
         if res.returncode == 0 and res.stdout.strip():
             return [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
-    except Exception:
-        pass
+    except Exception as e:
+        _LOG.debug(f"Failed git ls-files for .pa-container: {e}")
     return []
 
 

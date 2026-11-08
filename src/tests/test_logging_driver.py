@@ -192,6 +192,10 @@ class TestLogDriver:
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
 
         driver = LogDriver(tmp_path, quiet=True)
+        driver.step(LogCategory.PREFLIGHT, "Validating configuration")
+        assert driver._statuses["preflight"].completed is False
+        assert driver._statuses["preflight"].failed is False
+
         with patch.object(driver.console, "print") as mock_print:
             driver.render_hard_error(
                 LogCategory.PREFLIGHT,
@@ -200,6 +204,38 @@ class TestLogDriver:
                 hints=["Fix indentation"],
             )
             assert mock_print.called
+
+        # In-flight step must be marked failed
+        assert driver._statuses["preflight"].failed is True
+        assert driver._statuses["preflight"].detail == "Invalid yaml structure"
+        driver.shutdown()
+
+    def test_fail_and_render(self, tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture) -> None:
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+
+        driver = LogDriver(tmp_path, quiet=True)
+        driver.step(LogCategory.PREFLIGHT, "Checking setup")
+
+        test_logger = get_category_logger("test.source", LogCategory.PREFLIGHT)
+        with patch.object(driver.console, "print") as mock_print, caplog.at_level(logging.ERROR):
+            driver.fail_and_render(
+                LogCategory.PREFLIGHT,
+                "Fatal Setup Error",
+                "Something went wrong",
+                hints=["Check prerequisites"],
+                source_logger=test_logger,
+            )
+            assert mock_print.called
+
+        assert driver._statuses["preflight"].failed is True
+        assert driver._statuses["preflight"].detail == "Something went wrong"
+
+        # Check that error record was emitted with category
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(error_records) >= 1
+        assert any(getattr(r, "category", None) == "preflight" for r in error_records)
+        assert any("Fatal Setup Error: Something went wrong" in r.getMessage() for r in error_records)
 
         driver.shutdown()
 

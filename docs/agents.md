@@ -51,13 +51,13 @@ You can select any enabled agent for a single invocation using the `--agent` com
 
 ```bash
 # Launch OpenCode in interactive mode (must be in agents.enabled)
-./run.sh --agent opencode
+pa run --agent opencode
 
 # Launch Google Antigravity (must be in agents.enabled)
-./run.sh --agent antigravity
+pa run --agent antigravity
 
 # Launch Claude Code (must be in agents.enabled)
-./run.sh --agent claude
+pa run --agent claude
 ```
 
 If an agent is not listed in `agents.enabled`, `pa-container` rejects the invocation with an error.

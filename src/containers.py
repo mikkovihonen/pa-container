@@ -139,6 +139,7 @@ def start_dependencies_parallel(
                 stack.callback(srv.stop)
             srv.start()
         except BaseException as e:
+            logger.error(f"Error starting server {srv.server_id}: {e}", exc_info=True)
             srv.port_ready_event.set()
             server_errors.append(e)
 
@@ -168,6 +169,7 @@ def start_dependencies_parallel(
         try:
             netmgr.start()
         except BaseException as e:
+            logger.error(f"Error starting network manager: {e}", exc_info=True)
             netmgr_errors.append(e)
 
     netmgr_thread = threading.Thread(target=_run_netmgr, daemon=True)
@@ -208,7 +210,8 @@ def get_allowed_hostnames(config_dir: Path) -> list[str] | None:
 
         loaded = load_yaml_file(allowlist_path)
         data = loaded if isinstance(loaded, dict) else {}
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not load allowlist for warning check ({allowlist_path}): {e}")
         return None
 
     return [
@@ -302,7 +305,8 @@ def port_holders(runtime: str, ports: list[int], project_key: str = "") -> dict[
             timeout=5,
         )
         containers = json.loads(result.stdout or "[]")
-    except OSError, subprocess.SubprocessError, json.JSONDecodeError:
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as e:
+        logger.debug(f"Failed to query port holders from container inspect: {e}")
         return {}
 
     wanted = set(ports)

@@ -70,15 +70,15 @@ Properties:
 pa-container provides an integrated command to compile a minimal, optimized version of `llama-server` natively for host hardware:
 
 ```bash
-./build.sh --llama         # build minimal, optimized llama-server (default release)
-./build.sh --llama-latest  # query remote repository and build the latest release (e.g. v0.9.0)
+pa build --llama         # build minimal, optimized llama-server (default release)
+pa build --llama-latest  # query remote repository and build the latest release (e.g. v0.9.0)
 ```
 
 This build strips out irrelevant features (WebUI assets, libcurl, SSL, and example tools) to minimize build time and binary size while targeting hardware acceleration (Apple Silicon Metal, Linux CUDA/ROCm, or native CPU vectorization).
 
 `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` have per-runtime defaults. They rarely need setting. Provide them only to override the default for your host.
 
-`NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `build.sh` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `build.sh` forwards only the two knobs above:
+`NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `pa build` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `pa build` forwards only the two knobs above:
 
 ```bash
 podman build --build-arg PODMAN_VERSION=v6.1.0 --build-arg PODMAN_COMMIT=<peeled-sha> \
@@ -314,7 +314,7 @@ Each setup directory contains setup instructions and model definitions you can d
 >   publish: []          # ← wins; the entry above is silently thrown away
 > ```
 >
-> `run.sh` parses `config.yaml`, `allowlist.yaml` and `token_replacer.yaml` strictly and aborts with the file and line number if any of them repeats a key. Without that check the file parses clean, passes schema validation, and the setting simply never takes effect.
+> `pa run` parses `config.yaml`, `allowlist.yaml` and `token_replacer.yaml` strictly and aborts with the file and line number if any of them repeats a key. Without that check the file parses clean, passes schema validation, and the setting simply never takes effect.
 
 ```yaml
 # .pa-container/config.yaml
@@ -382,7 +382,7 @@ The `proxy` section tunes the `pa-container-agent-proxy` container:
 - `proxy.expose_ui` controls where the proxy's mitmweb UI (on its auto-assigned port) is published:
     - `localhost` (default) — bound to `127.0.0.1` only. Not reachable from other machines.
     - `lan` — bound to `0.0.0.0`. Reachable across the network (still password-gated by `ADMIN_PASSWORD`).
-- `proxy.open_browser` (boolean, default `false`) automatically opens the `mitmweb` UI in the host's default web browser upon session startup. Can be overridden per-run via `pa-container run --open-browser` (or `--no-open-browser`).
+- `proxy.open_browser` (boolean, default `false`) automatically opens the `mitmweb` UI in the host's default web browser upon session startup. Can be overridden per-run via `pa run --open-browser` (or `--no-open-browser`).
 - `proxy.max_view_flows` (integer, default `2000`) sets the maximum number of allowed flows retained in `mitmweb`'s in-memory view to prevent container memory exhaustion and OOM crashes during long sessions. **Blocked/denied flows are always retained** so rejections remain inspectable. Set to `null` or `0` for unlimited in-memory retention.
 - `proxy.stream_large_bodies` (string, default `"10m"`) enables direct body streaming for transfers larger than this threshold, bypassing full RAM buffering in mitmproxy. Set to `null`, `"none"`, or `"off"` to disable.
 
@@ -462,7 +462,7 @@ Subdirectories mounted under separate container paths (such as `/home/agent/.pi/
 
 The `agent` section controls the execution mode (`cli` vs `t3`) and directly published host ports:
 
-- `agent.mode` (string, default `cli`): Mode of operation. `"cli"` launches the standard interactive Pi terminal. `"t3"` starts the headless T3 Code server inside the container. Can also be invoked on demand with `./run.sh --t3`.
+- `agent.mode` (string, default `cli`): Mode of operation. `"cli"` launches the standard interactive Pi terminal. `"t3"` starts the headless T3 Code server inside the container. Can also be invoked on demand with `pa run --t3`.
 - `agent.ports`: Inbound port publishing directly from the agent container (independent of `nested_containers.ports`).
     - `expose`: `"localhost"` (binds `127.0.0.1`, default) or `"lan"` (binds `0.0.0.0`, all interfaces). Can also be elevated on the CLI with `--t3-lan`.
     - `publish`: List of ports to map from the host to the agent container (e.g. `[3773]` or `["13773:3773"]`). When running in `t3` mode, port 3773 is claimed automatically.
@@ -782,8 +782,8 @@ Every agent, including Pi, can be enabled or disabled. The configuration require
 You can select any enabled agent for a single execution using the `--agent` CLI option:
 
 ```bash
-./run.sh --agent opencode
-./run.sh --agent claude
+pa run --agent opencode
+pa run --agent claude
 ```
 
 When agents are enabled, pa-container automatically:
@@ -945,7 +945,7 @@ This is **not** fixable in the image's `containers.conf` drop-in, which is where
 
 **Machine sizing.** A podman machine of **at least 4 GB is required** to build the agent image at all (see [Getting Started](getting-started.md#prerequisites)). Nesting is the workload most likely to expose anything smaller than that. The default `resources.agent.memory` is `16g`, which a 4 GB VM cannot honour. Raise the machine (`podman machine set --memory 8192` or more) before enabling nesting. Do this especially before choosing `storage: tmpfs`, where the first sizeable image pull lands in RAM.
 
-The same limit bites at **image build** time. The [toolchain image](design-details.md#toolchain-builder-image) compiles CPython, podman, and netavark (and Node too, with `NODE_SOURCE=build`). One PGO compile job peaks near 900 MiB. Anything already running in the VM (other containers, a live `pi` session) eats into the total. This is why 2 GiB is not enough and 4 GB is the documented minimum. `build.sh` checks available memory in the builder **before starting the build**. It refuses with the fix options instead of dying minutes later at `gcc: fatal error: Killed signal terminated program cc1`:
+The same limit bites at **image build** time. The [toolchain image](design-details.md#toolchain-builder-image) compiles CPython, podman, and netavark (and Node too, with `NODE_SOURCE=build`). One PGO compile job peaks near 900 MiB. Anything already running in the VM (other containers, a live `pi` session) eats into the total. This is why 2 GiB is not enough and 4 GB is the documented minimum. `pa build` checks available memory in the builder **before starting the build**. It refuses with the fix options instead of dying minutes later at `gcc: fatal error: Killed signal terminated program cc1`:
 
 ```
 ERROR: Only 276 MiB of memory is available where images are built, but compiling
@@ -953,11 +953,11 @@ ERROR: Only 276 MiB of memory is available where images are built, but compiling
 Fix one of:
     * give the VM more memory:  podman machine stop && podman machine set --memory 4096 && podman machine start
     * free memory in the VM:    stop containers you are not using (podman ps)
-    * skip the PGO build:       PYTHON_OPTIMIZE=0 ./build.sh  (~10-20% slower Python)
-    * already-cached Python:    PA_MEMORY_PREFLIGHT=0 ./build.sh  (skips this check)
+    * skip the PGO build:       PYTHON_OPTIMIZE=0 pa build  (~10-20% slower Python)
+    * already-cached Python:    PA_MEMORY_PREFLIGHT=0 pa build  (skips this check)
 ```
 
-The check reads `MemAvailable` (reclaimable page cache counts). On a warm builder it is an order of magnitude above `MemFree`. The check runs inside the podman VM. It applies to `build.sh` only. `run.py`'s project-image build compiles nothing. The toolchain arrives as a `COPY` from a prebuilt image.
+The check reads `MemAvailable` (reclaimable page cache counts). On a warm builder it is an order of magnitude above `MemFree`. The check runs inside the podman VM. It applies to `pa build` only. `run.py`'s project-image build compiles nothing. The toolchain arrives as a `COPY` from a prebuilt image.
 
 The compilers are also capped by *memory* rather than core count. `make -j`, `go build -p`, and `cargo --jobs` each get `MemAvailable / peak-RSS-per-job` jobs. They never get more than `nproc`. Giving the VM more memory automatically raises the cap. `MAKE_JOBS` overrides it for CPython.
 
@@ -1047,7 +1047,7 @@ Each project-specific image stores the absolute path of its source project direc
 - Its `pa-container.project.path` label points to a path that no longer exists (deleted project), OR
 - Its `pa-container.project.path` label is missing or blank (older images from before this feature — unverifiable).
 
-The system keeps only images with a path label pointing to an **existing** directory. The shared images (`pa-container-agent:local`, `pa-container-agent-proxy:local`, `pa-container-agent-builder:local`) are never cleanup candidates whatever their labels say. They belong to no project and are rebuilt only by `build.sh`.
+The system keeps only images with a path label pointing to an **existing** directory. The shared images (`pa-container-agent:local`, `pa-container-agent-proxy:local`, `pa-container-agent-builder:local`) are never cleanup candidates whatever their labels say. They belong to no project and are rebuilt only by `pa build`.
 
 The system enumerates and removes images **by image ID**, not by tag. A rebuild that moves a tag leaves the previous image untagged. An untagged image has no usable name. podman renders it as the literal `<none>:<none>`, which is not a valid image reference. Identifying by ID is what lets those images be reclaimed.
 
@@ -1089,7 +1089,7 @@ The `build_project_image()` function in `src/build.py` accepts the following par
 - The shared base image carries the language runtimes and tooling every workspace needs: **Node 26**, **CPython 3.14 with `uv`**, the nested-container toolchain (**podman**, `netavark`, `aardvark-dns`), and `podman-compose`. All of those are compiled in the [toolchain builder image](design-details.md#toolchain-builder-image) and copied in. Anything beyond that is project-specific and belongs in `root/commands.sh`.
 - None of it is per-project. Building Python in `root/commands.sh` meant a workspace that left the file at its no-op default had no interpreter at all. Every project-image rebuild recompiled CPython (the slowest and most OOM-prone step in the build). A project-image rebuild now compiles nothing. It copies a prebuilt tree.
 - Both files are optional. If absent, the workspace uses the shared image.
-- Changes to definition files trigger a rebuild on the next `run.sh` invocation (detected via image label comparison). Old images are removed automatically.
+- Changes to definition files trigger a rebuild on the next `pa run` invocation (detected via image label comparison). Old images are removed automatically.
 
 ### Allowlist
 
@@ -1188,38 +1188,38 @@ logging:
         max_launches: 5
 ```
 
-### Log Inspection and Management (`pa-container logs`)
+### Log Inspection and Management (`pa logs`)
 
 The `logs` subcommand manages per-project log viewing, live streaming, and cleanup:
 
 ```bash
 # View recent tail of the latest session run
-pa-container logs
+pa logs
 
 # Follow active session log in real time (similar to tail -f)
-pa-container logs -f
+pa logs -f
 
 # Filter log lines by explicit category tag
-pa-container logs --category build
-pa-container logs --category proxy
+pa logs --category build
+pa logs --category proxy
 
 # Target the latest container build log instead of the session run log
-pa-container logs --build
+pa logs --build
 
 # Print the absolute path to this project's logs directory
-pa-container logs --path
+pa logs --path
 
 # List historical log files with sizes and modification times
-pa-container logs --list
+pa logs --list
 
 # Display custom number of lines
-pa-container logs -n 100
+pa logs -n 100
 
 # Purge historical logs for this workspace
-pa-container logs clean
+pa logs clean
 
 # Purge logs across ALL projects in ~/.local/state/pa-container/projects/
-pa-container logs clean --all-projects --older-than 7d
+pa logs clean --all-projects --older-than 7d
 ```
 
 ### Virtual desktop and GUI support (`desktop:`)
@@ -1269,56 +1269,56 @@ Key features:
 - **In-Container Automation (`agent-desktop`)**: The agent can inspect and control the desktop using `/usr/local/bin/agent-desktop` (taking screenshots with `grim`, inspecting windows with `wlrctl`, and sending synthetic mouse clicks, drags, text, and key combinations with `wtype`/`xdotool`). When desktop support is enabled, `agent-desktop` is paired with the in-container `virtual-desktop` skill dynamically loaded into the agent's environment.
 - **Nested Containers**: Wayland (`wayland-0`), X11 (`:0`), `/dev/shm`, and `/dev/dri` are automatically forwarded into nested tool containers via `/etc/containers/containers.conf.d/60-pa-container-desktop.conf`.
 
-### Active Proxies Inspection (`pa-container proxy` / `proxies`)
+### Active Proxies Inspection (`pa proxy`)
 
-The `proxy` (or `proxies`) subcommand queries running mitmproxy instances and their published `mitmweb` endpoints:
+The `proxy` subcommand queries running mitmproxy instances and their published `mitmweb` endpoints:
 
 ```bash
 # Query active proxy for the current project workspace
-pa-container proxy
+pa proxy
 
 # List all active proxies across all workspaces on the host in a table
-pa-container proxies --all
+pa proxy --all
 
 # Open the resolved mitmweb UI in the default web browser immediately
-pa-container proxy --open
+pa proxy --open
 
 # Output only the raw mitmweb URL (for shell scripts or piping)
-pa-container proxy --url
+pa proxy --url
 
 # Output active proxy metadata as structured JSON
-pa-container proxy --json
+pa proxy --json
 ```
 
-### Active Virtual Desktops Inspection (`pa-container desktop` / `desktops` / `vnc` / `gui`)
+### Active Virtual Desktops Inspection (`pa desktop`)
 
 The `desktop` subcommand queries running virtual desktop instances, active endpoints, and health status:
 
 ```bash
 # Query active virtual desktop for the current project workspace
-pa-container desktop
+pa desktop
 
 # List all active virtual desktops across all projects on the host
-pa-container desktop --all
+pa desktop --all
 
 # Open the resolved noVNC web interface in the default web browser immediately
-pa-container desktop --open
+pa desktop --open
 
 # Output only the raw noVNC URL (for shell scripts or browser automation)
-pa-container desktop --url
+pa desktop --url
 
 # Output only the host VNC endpoint (e.g. 127.0.0.1:5900)
-pa-container desktop --vnc
+pa desktop --vnc
 
 # Output active desktop metadata as structured JSON
-pa-container desktop --json
+pa desktop --json
 ```
 
 URLs in terminal output are formatted using ANSI OSC 8 escape sequences, rendering as native clickable hyperlinks in VS Code, macOS Terminal, iTerm2, WezTerm, GNOME Terminal, and Windows Terminal.
 
 ### Command Line Handling and Progress Milestones
 
-The CLI provides unified execution across `run`, `build`, `clean`, `logs`, `proxy` (`proxies`), and `desktop` (`desktops`, `vnc`, `gui`) subcommands:
+The CLI provides unified execution across `run`, `build`, `clean`, `logs`, `proxy`, `desktop`, and `init` subcommands:
 - Global flags:
     - `-v, --verbose`: Stream raw diagnostic events and build output directly to the terminal.
     - `-q, --quiet`: Suppress live progress spinners and non-fatal progress milestones; output errors only.
@@ -1326,12 +1326,12 @@ The CLI provides unified execution across `run`, `build`, `clean`, `logs`, `prox
     - `--log-file`: Explicitly specify destination path for the session log file.
     - `--no-color`: Disable ANSI color and cursor formatting (also respects `NO_COLOR=1`).
 - Browser auto-launch on `run`:
-    - `pa-container run --open-browser`: Automatically open `mitmweb` in the default OS browser once healthy.
-    - `pa-container run --no-open-browser`: Disable browser opening regardless of config defaults.
+    - `pa run --open-browser`: Automatically open `mitmweb` in the default OS browser once healthy.
+    - `pa run --no-open-browser`: Disable browser opening regardless of config defaults.
 - Container argument forwarding:
     - Arguments placed after POSIX `--` separator forward directly to the inner agent binary without CLI parser interpretation:
         ```bash
-        pa-container run --agent pi -- --help
+        pa run --agent pi -- --help
         ```
 - Category progress milestones:
     - Subsystem milestones (`preflight`, `build`, `network`, `proxy`, `server`, `security`, `agent`, `volume`, `cleanup`) update in place via rich terminal spinners and status indicators.

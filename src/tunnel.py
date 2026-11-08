@@ -144,8 +144,8 @@ def _validate_tailscale_prerequisites(tailscale_mode: str = "serve") -> None:
                     "     - Linux:   curl -fsSL https://tailscale.com/install.sh | sh",
                     "  2. Authenticate and connect:",
                     "     - Run: tailscale up",
-                    "  3. Re-run pa-container:",
-                    "     - ./run.sh --t3 --t3-tunnel tailscale",
+                    "  3. Re-run pa:",
+                    "     - pa run --t3 --t3-tunnel tailscale",
                 ],
             )
         )
@@ -174,7 +174,7 @@ def _validate_tailscale_prerequisites(tailscale_mode: str = "serve") -> None:
                         "     - Run: tailscale up",
                         "  2. Verify connection:",
                         "     - Run: tailscale status",
-                        "  3. Re-run pa-container.",
+                        "  3. Re-run pa.",
                     ],
                 )
             )
@@ -213,10 +213,10 @@ def _validate_cloudflare_prerequisites(
                         "",
                         "Required Actions:",
                         "  1. Specify your user-owned domain via --t3-tunnel-domain:",
-                        "     - ./run.sh --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com",
+                        "     - pa run --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com",
                         "",
                         "  2. (Alternatively) Run a zero-setup ephemeral tunnel without a custom domain:",
-                        "     - ./run.sh --t3 --t3-tunnel cloudflare --t3-tunnel-quick",
+                        "     - pa run --t3 --t3-tunnel cloudflare --t3-tunnel-quick",
                     ],
                 )
             )
@@ -249,7 +249,7 @@ def _validate_cloudflare_prerequisites(
                         "     (Networks -> Tunnels -> Select Tunnel -> Copy token)",
                         "  2. Save it securely in your OS keyring:",
                         f"     - Run: uv run keyring set {DEFAULT_KEYRING_SERVICE} {keyring_account}",
-                        "  3. Re-run pa-container.",
+                        "  3. Re-run pa.",
                     ],
                 )
             )
@@ -520,7 +520,8 @@ class CloudflareTunnelManager:
             self._proc.terminate()
             try:
                 self._proc.wait(timeout=3)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Cloudflared terminate wait timed out, killing: {e}")
                 self._proc.kill()
 
     def _cleanup_container(self) -> None:

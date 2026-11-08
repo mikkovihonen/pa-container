@@ -215,8 +215,11 @@ class LogDriver:
         root = logging.getLogger()
         root.setLevel(logging.DEBUG)
 
-        # Clear existing handlers to avoid duplicates
+        # Clear existing handlers to avoid duplicates, preserving test capture handlers (e.g. pytest caplog)
+        preserved = [h for h in root.handlers if "LogCapture" in type(h).__name__]
         root.handlers.clear()
+        for h in preserved:
+            root.addHandler(h)
 
         # Session log handler
         fmt = TaggedFileFormatter(
@@ -428,9 +431,29 @@ class LogDriver:
         log_path: Path | None = None,
     ) -> None:
         """Render a formatted diagnostics card for fatal errors."""
+        cat_str = str(category.value if isinstance(category, LogCategory) else category)
+
+        with self._lock:
+            # Mark the specific category step as failed if in flight
+            if cat_str in self._statuses and not self._statuses[cat_str].completed:
+                self._statuses[cat_str].failed = True
+                if not self._statuses[cat_str].detail:
+                    self._statuses[cat_str].detail = message
+            # Mark any other in-flight steps as failed to clean up spinners
+            for st in self._statuses.values():
+                if not st.completed and not st.failed:
+                    st.failed = True
+
+            # Refresh live view with failed state before pausing
+            if self._live is not None and not self._interactive_paused:
+                text = Text()
+                for status in self._statuses.values():
+                    text.append_text(status.render())
+                    text.append("\n")
+                self._live.update(text)
+
         self.pause_for_interactive()
 
-        cat_str = str(category.value if isinstance(category, LogCategory) else category)
         target_log = log_path or self.session_log_path
 
         body = Text()
@@ -450,6 +473,29 @@ class LogDriver:
             expand=False,
         )
         self.console.print(panel)
+
+    def fail_and_render(
+        self,
+        category: LogCategory | str,
+        title: str,
+        message: str,
+        hints: Sequence[str] = (),
+        log_path: Path | None = None,
+        exc: BaseException | None = None,
+        source_logger: CategoryLogger | logging.Logger | None = None,
+    ) -> None:
+        """Log error at ERROR level with category and source tags, and render diagnostics panel."""
+        cat_str = str(category.value if isinstance(category, LogCategory) else category)
+        logger_to_use = source_logger or get_category_logger("system", category)
+        log_msg = f"{title}: {message}" if title and title not in message else message
+        logger_to_use.error(log_msg, exc_info=exc or True, extra={"category": cat_str})
+        self.render_hard_error(
+            category=category,
+            title=title,
+            message=message,
+            hints=hints,
+            log_path=log_path,
+        )
 
     # ─── Subprocess Command Execution ────────────────────────────────────────
 
@@ -730,3 +776,61 @@ def init_log_driver(
 def get_log_driver() -> LogDriver | None:
     """Return the active LogDriver singleton if initialized."""
     return _DRIVER_INSTANCE
+
+
+def render_hard_error(
+    category: LogCategory | str,
+    title: str,
+    message: str,
+    hints: Sequence[str] = (),
+    log_path: Path | None = None,
+) -> None:
+    """Module-level helper to render a hard error card via active driver or fallback console."""
+    driver = get_log_driver()
+    if driver is not None:
+        driver.render_hard_error(category, title, message, hints=hints, log_path=log_path)
+    else:
+        cat_str = str(category.value if isinstance(category, LogCategory) else category)
+        console = Console(stderr=True, highlight=False)
+        body = Text()
+        body.append(f"{message}\n", style="bold")
+        if hints:
+            body.append("\nSuggested remediation:\n", style="yellow")
+            for hint in hints:
+                body.append(f"  {hint}\n", style="dim yellow")
+        panel = Panel(
+            body,
+            title=f"[bold red]Error: {title} [category: {cat_str}][/bold red]",
+            border_style="red",
+            expand=False,
+        )
+        console.print(panel)
+
+
+def fail_and_render(
+    category: LogCategory | str,
+    title: str,
+    message: str,
+    hints: Sequence[str] = (),
+    log_path: Path | None = None,
+    exc: BaseException | None = None,
+    source_logger: CategoryLogger | logging.Logger | None = None,
+) -> None:
+    """Module-level helper to log an error at ERROR level and render diagnostics card."""
+    driver = get_log_driver()
+    if driver is not None:
+        driver.fail_and_render(
+            category,
+            title,
+            message,
+            hints=hints,
+            log_path=log_path,
+            exc=exc,
+            source_logger=source_logger,
+        )
+    else:
+        cat_str = str(category.value if isinstance(category, LogCategory) else category)
+        logger_to_use = source_logger or get_category_logger("system", category)
+        log_msg = f"{title}: {message}" if title and title not in message else message
+        logger_to_use.error(log_msg, exc_info=exc or True, extra={"category": cat_str})
+        render_hard_error(category, title, message, hints=hints, log_path=log_path)

@@ -1,7 +1,7 @@
 # Releases
 
 This project is installed by cloning. Releases are **git tags** on `main`. The system builds container
-images locally with `build.sh`. The system does not publish images to a registry.
+images locally with `pa build`. The system does not publish images to a registry.
 The latest git tag determines the authoritative version, not `pyproject.toml`.
 
 ## Development model: trunk-based
@@ -259,7 +259,7 @@ git push origin v0.2.0
 
 ### After the release
 
-Users clone the repo, check out the tag, and run `build.sh` to build the container
+Users clone the repo, check out the tag, and run `pa build` to build the container
 images for their local runtime (`podman`).
 
 If a workspace's `.pa-container/config.yaml` is outdated (e.g. a user skipped

@@ -25,6 +25,17 @@ def _noop_exit(*args, **kwargs):
 
 sys.exit = _noop_exit
 
+# Ensure default global configuration exists so test collection and tests
+# that import config modules succeed even in unseeded environments.
+_global_cfg_file = Path.home() / ".config" / "pa-container" / "config.yaml"
+if not _global_cfg_file.is_file():
+    try:
+        from global_config import init_global_config
+
+        init_global_config(repo_root=Path(__file__).resolve().parent.parent.parent)
+    except Exception:
+        pass
+
 # Also patch it on the modules that will be imported.  Some code may hold
 # a direct reference to sys.exit, so we patch both.
 

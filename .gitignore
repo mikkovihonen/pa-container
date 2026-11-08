@@ -39,6 +39,7 @@ docs/assets/coverage.svg
 
 # Build artifacts
 site/
+*.egg-info/
 
 # Generated index (from README.md)
 docs/index.md

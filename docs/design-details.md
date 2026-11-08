@@ -225,7 +225,7 @@ agent `COPY`s from both.
 Sources are pinned by content, not by tag. The build checks each git tag against an
 expected **commit** (tags are mutable; the peeled commit sha is the real pin). The build checks every
 tarball (CPython, Node, Go, Rust, the Rust vendor trees) against a SHA-256.
-`build.sh` builds this image. Nothing else does.
+`pa build` builds this image. Nothing else does.
 
 **Every pin lives in `coding-agent-builder/Containerfile`**, as an `ARG` on the stage
 that consumes it (versions, git commits, tarball SHA-256s, and the pip hash lists alike).

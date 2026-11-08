@@ -20,7 +20,8 @@ def volume_exists(runtime: str, volume_name: str) -> bool:
             timeout=5,
         )
         return result.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed volume_exists check for '{volume_name}': {e}")
         return False
 
 
@@ -37,9 +38,10 @@ def get_volume_label(runtime: str, volume_name: str, label_key: str) -> str | No
         value = result.stdout.strip()
         if result.returncode == 0 and value and value != "<no value>":
             return value
-    except Exception:
-        pass
-    return None
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to get label '{label_key}' on volume '{volume_name}': {e}")
+        return None
 
 
 def remove_volume(runtime: str, volume_name: str, label_type: str = "volume") -> bool:

@@ -69,7 +69,7 @@ def ensure_global_config(config_dir: Path | None = None, repo_root: Path | None 
     if not target_file.is_file():
         raise FileNotFoundError(
             f"Global configuration file not found at {target_file}. "
-            "Initialize with 'pa-container init --global' or create ~/.config/pa-container/config.yaml."
+            "Initialize with 'pa init --global' or create ~/.config/pa-container/config.yaml."
         )
 
     return target_file

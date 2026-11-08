@@ -18,6 +18,7 @@ from cli import (
     ProxyOptions,
     RunOptions,
     _parse_duration,
+    create_parser,
     handle_desktop_command,
     handle_logs_command,
     handle_proxy_command,
@@ -44,8 +45,19 @@ class TestParseDuration:
 
 
 class TestCliParser:
-    def test_missing_subcommand_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args([])
+    def test_parser_prog_name(self) -> None:
+        parser = create_parser()
+        assert parser.prog == "pa"
+
+    def test_zero_arguments_displays_help(self, capsys: pytest.CaptureFixture[str]) -> None:
+        cmd, _ = parse_cli_args([])
+        assert cmd == ""
+        captured = capsys.readouterr()
+        assert "usage: pa" in captured.out
+        assert "positional arguments:" in captured.out
+
+    def test_missing_subcommand_with_flags_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args(["--verbose"])
         captured = capsys.readouterr()
         assert "the following arguments are required: <command>" in captured.err
 
@@ -377,6 +389,60 @@ class TestCliMain:
             main(["run", "--agent", "claude"])
             mock_execute_run.assert_called_once()
             mock_exit.assert_called_once_with(0)
+
+    def test_main_keyboard_interrupt_exits_130(self) -> None:
+        with (
+            patch("cli.parse_cli_args", side_effect=KeyboardInterrupt),
+            patch("sys.exit") as mock_exit,
+        ):
+            main(["run"])
+            mock_exit.assert_called_once_with(130)
+
+    def test_main_unhandled_exception_caught(self, tmp_path: Path, monkeypatch, caplog) -> None:
+        import logging
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        with (
+            patch("cli.init_log_driver"),
+            patch("run.execute_run", side_effect=RuntimeError("Unexpected disaster")),
+            patch("sys.exit") as mock_exit,
+            patch("cli.fail_and_render") as mock_fail,
+            caplog.at_level(logging.ERROR),
+        ):
+            main(["run"])
+            mock_exit.assert_called_once_with(1)
+            assert mock_fail.called
+            assert any("Fatal unhandled CLI exception" in r.getMessage() for r in caplog.records)
+
+    def test_main_missing_global_config(self, tmp_path: Path, monkeypatch, caplog) -> None:
+        import logging
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        with (
+            patch("global_config.load_global_config", side_effect=FileNotFoundError("Global config missing")),
+            patch("sys.exit") as mock_exit,
+            patch("cli.render_hard_error") as mock_render,
+            caplog.at_level(logging.ERROR),
+        ):
+            main(["run"])
+            mock_exit.assert_called_once_with(1)
+            assert mock_render.called
+            assert any("Global configuration missing" in r.getMessage() for r in caplog.records)
+
+    def test_main_invalid_global_config(self, tmp_path: Path, monkeypatch, caplog) -> None:
+        import logging
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        with (
+            patch("global_config.load_global_config", side_effect=ValueError("Invalid YAML")),
+            patch("sys.exit") as mock_exit,
+            patch("cli.render_hard_error") as mock_render,
+            caplog.at_level(logging.ERROR),
+        ):
+            main(["run"])
+            mock_exit.assert_called_once_with(1)
+            assert mock_render.called
+            assert any("Global configuration invalid" in r.getMessage() for r in caplog.records)
 
 
 class TestProxyCli:

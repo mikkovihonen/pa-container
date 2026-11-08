@@ -67,7 +67,7 @@ class TestValidateEnvironment:
                 validate_environment("/nonexistent/llama-server")
 
     def test_llama_bin_none_raises(self):
-        with pytest.raises(EnvironmentError, match=r"\./build\.sh --llama"):
+        with pytest.raises(EnvironmentError, match=r"pa build --llama"):
             validate_environment(None)
 
     def test_hf_not_found_raises(self):

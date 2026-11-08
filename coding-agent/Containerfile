@@ -172,7 +172,7 @@ RUN if [ "${WITH_DESKTOP}" = "true" ]; then \
 # ─── Toolchain from the builder image ────────────────────────────────────────
 # Node, CPython + uv + podman-compose, podman built with our own build tags, and the
 # netavark/aardvark-dns release podman 6 requires. Each is staged at its own root by
-# coding-agent-builder/Containerfile, which build.sh builds first; every tree
+# coding-agent-builder/Containerfile, which `pa build` builds first; every tree
 # already mirrors the layout it lands in, so each COPY is a plain overlay onto /.
 #
 # Four COPYs rather than one because the builder keeps the components separate — that

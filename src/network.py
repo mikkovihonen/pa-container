@@ -954,7 +954,8 @@ class ContainerNetworkManager:
             # server is up but broken — treat as unhealthy.
             if not (400 <= e.code < 500):
                 return False
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Proxy health check URL probe failed ({url}): {e}")
             return False
 
         # Verify that the running proxy's LLAMA_PORTS and LLAMA_HOSTNAMES match
@@ -1032,8 +1033,8 @@ class ContainerNetworkManager:
                 if 400 <= e.code < 500:
                     logger.info(f"Proxy container is healthy (HTTP {e.code})")
                     return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Proxy health polling iteration failed: {e}")
             time.sleep(2)
             elapsed += 2
 
@@ -1070,8 +1071,8 @@ def query_container_port(runtime_bin: str, container_name: str, target_port: int
         if out.returncode == 0 and out.stdout.strip():
             match = re.search(r":(\d+)\s*$", out.stdout.strip().splitlines()[0])
             return int(match.group(1)) if match else None
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to query container port for {container_name}:{target_port}: {e}")
     return None
 
 
@@ -1082,7 +1083,8 @@ def check_proxy_health(url: str, timeout: float = 1.0) -> bool:
         return True
     except urllib.error.HTTPError as e:
         return 200 <= e.code < 500
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Proxy URL health check failed ({url}): {e}")
         return False
 
 
@@ -1125,7 +1127,8 @@ def get_project_proxy(
         )
         if proc.returncode != 0 or proc.stdout.strip().lower() != "true":
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to inspect running state for proxy {container_name}: {e}")
         return None
 
     port = query_container_port(runtime_bin, container_name, 8081)

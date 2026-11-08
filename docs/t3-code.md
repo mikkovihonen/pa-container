@@ -67,7 +67,7 @@ tools:
 Run the container launcher with the `--t3` flag:
 
 ```bash
-./run.sh --t3
+pa run --t3
 ```
 
 The launcher will:
@@ -122,7 +122,7 @@ When T3 Code runs inside a container, `t3 serve` must bind to `--host 0.0.0.0` s
     - **External Host IP (`external`)**: To advertise the host machine's primary outbound IPv4 address (e.g. `192.168.1.100`), pass `--t3-external-ip` (or `--t3-advertise-host external`) on the CLI.
     - **Custom Host / Override**: Pass an explicit IP or hostname via `--t3-advertise-host <host>`:
         ```bash
-        ./run.sh --t3 --t3-advertise-host 192.168.1.100
+        pa run --t3 --t3-advertise-host 192.168.1.100
         ```
     - **Secure Tunnels**: For internet and mobile access, use automated tunnels via `--t3-tunnel <tailscale|cloudflare>` which automatically configure the advertised host and public HTTPS URL without touching `config.yaml`.
 - **LAN Elevation (`agent.ports.expose`)**:
@@ -320,7 +320,7 @@ Tailscale connects your mobile device and development workstation over an encryp
 Run the launcher with `--t3-tunnel tailscale`:
 
 ```bash
-./run.sh --t3 --t3-tunnel tailscale
+pa run --t3 --t3-tunnel tailscale
 ```
 
 The launcher will:
@@ -366,7 +366,7 @@ Expose T3 Code under a user-owned custom domain on Cloudflare (e.g. `t3.yourdoma
 Run the launcher specifying your user-owned domain:
 
 ```bash
-./run.sh --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com
+pa run --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com
 ```
 
 - If `cloudflared` is not installed on your host, `pa-container` runs it automatically as an isolated ephemeral container via `podman`.
@@ -394,7 +394,7 @@ Run the launcher specifying your user-owned domain:
 For quick testing without a custom domain or Cloudflare account:
 
 ```bash
-./run.sh --t3 --t3-tunnel cloudflare --t3-tunnel-quick
+pa run --t3 --t3-tunnel cloudflare --t3-tunnel-quick
 ```
 
 This provisions an ephemeral tunnel on `https://<random>.trycloudflare.com` and renders the corresponding QR code.

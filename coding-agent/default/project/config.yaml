@@ -120,7 +120,7 @@ agent:
   # Subdirectories mounted under separate paths (e.g. ~/.pi/agent for sessions) remain writable.
   read_only_pa_container: true
   # Execution mode: "cli" (interactive terminal pi) or "t3" (headless T3 Code server).
-  # Can also be selected on the command line via `./run.sh --t3`.
+  # Can also be selected on the command line via `pa run --t3`.
   mode: cli
   # Host ports published directly from the agent container (e.g. for T3 Code or dev web UIs).
   # Kept separate from nested_containers.ports.

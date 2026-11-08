@@ -134,7 +134,8 @@ def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, port))
             return True
-    except OSError:
+    except OSError as e:
+        logger.debug(f"Port {port} on {host} is unavailable: {e}")
         return False
 
 
@@ -192,7 +193,8 @@ def check_desktop_health(url: str | None, timeout: float = 1.0) -> bool:
         return True
     except urllib.error.HTTPError as e:
         return 200 <= e.code < 500
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Desktop health check failed for {url}: {e}")
         return False
 
 

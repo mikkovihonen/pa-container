@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pa: Unified CLI entrypoint
+set -euo pipefail
+
+# Resolve symlinks to locate the repository root regardless of where pa is called from
+TARGET="$0"
+while [ -L "$TARGET" ]; do
+    DIR="$(cd "$(dirname "$TARGET")" && pwd)"
+    TARGET="$(readlink "$TARGET")"
+    [[ $TARGET != /* ]] && TARGET="$DIR/$TARGET"
+done
+REPO_DIR="$(cd "$(dirname "$TARGET")" && pwd)"
+
+exec uv run --project "$REPO_DIR" python "$REPO_DIR/src/cli.py" "$@"

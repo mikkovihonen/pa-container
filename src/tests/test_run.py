@@ -667,3 +667,120 @@ class TestOpenBrowserResolution:
         proxy_cfg = run.read_proxy_config(tmp_path)
         eff = options.open_browser if options.open_browser is not None else proxy_cfg["open_browser"]
         assert eff is True
+
+
+class TestExecuteRunFatalErrors:
+    def test_execute_run_missing_project_config(self, tmp_path, monkeypatch, caplog):
+        import logging
+
+        from cli import RunOptions
+        from logging_driver import LogCategory, LogDriver
+
+        empty_proj = tmp_path / "empty_project"
+        empty_proj.mkdir()
+        monkeypatch.setattr(run, "PROJECT_DIR", empty_proj)
+        monkeypatch.setattr(run, "_init_runtime", lambda: None)
+
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+        driver = LogDriver(empty_proj, quiet=True)
+
+        with (
+            caplog.at_level(logging.ERROR),
+            patch.object(driver, "fail_and_render", wraps=driver.fail_and_render) as mock_fail,
+        ):
+            ret = run.execute_run(RunOptions(), driver=driver)
+
+        assert ret == 1
+        assert mock_fail.called
+        call_args = mock_fail.call_args
+        assert call_args[0][0] == LogCategory.PREFLIGHT
+        assert call_args[0][1] == "Missing Project Configuration"
+        assert ".pa-container/config.yaml" in call_args[0][2]
+        assert call_args[1]["hints"][0] == "Initialize the project configuration with 'pa init'."
+
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(error_records) >= 1
+        assert any(getattr(r, "category", None) == "preflight" for r in error_records)
+        assert any("Missing Project Configuration" in r.getMessage() for r in error_records)
+        driver.shutdown()
+
+    def test_execute_run_environment_error(self, tmp_path, monkeypatch):
+        from cli import RunOptions
+        from logging_driver import LogCategory, LogDriver
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        monkeypatch.setattr(run, "PROJECT_DIR", proj)
+        monkeypatch.setattr(run, "_init_runtime", MagicMock(side_effect=run.EnvironmentError("Container CLI missing")))
+
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+        driver = LogDriver(proj, quiet=True)
+
+        with patch.object(driver, "fail_and_render", wraps=driver.fail_and_render) as mock_fail:
+            ret = run.execute_run(RunOptions(), driver=driver)
+
+        assert ret == 1
+        assert mock_fail.called
+        assert mock_fail.call_args[0][0] == LogCategory.PREFLIGHT
+        assert mock_fail.call_args[0][1] == "Environment Check Failed"
+        driver.shutdown()
+
+    def test_execute_run_port_collision(self, tmp_path, monkeypatch):
+        from cli import RunOptions
+        from logging_driver import LogCategory, LogDriver
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        pa_dir = proj / ".pa-container"
+        pa_dir.mkdir()
+        (pa_dir / "config.yaml").write_text("schema_version: '0.6.6'\n")
+        (pa_dir / "models.yaml").write_text("models:\n  - id: test\n")
+
+        monkeypatch.setattr(run, "PROJECT_DIR", proj)
+        monkeypatch.setattr(run, "_init_runtime", lambda: None)
+        monkeypatch.setattr(run.project, "ensure_project_config", lambda *args, **kwargs: pa_dir)
+        monkeypatch.setattr(run, "resolve_models_file", lambda d: pa_dir / "models.yaml")
+        monkeypatch.setattr(run, "validate_config", lambda p: (True, [], "0.6.6"))
+        monkeypatch.setattr(run, "validate_project_yaml", lambda d: [])
+        monkeypatch.setattr(run, "validate_models", lambda p: (True, []))
+        monkeypatch.setattr(run, "read_flow_export_enabled", lambda d: False)
+        monkeypatch.setattr(run, "read_network_config", lambda d: {"ipv6": False})
+        monkeypatch.setattr(run, "read_llama_config", lambda d: {})
+        monkeypatch.setattr(run, "read_agent_extras", lambda d: {"mounts": []})
+        monkeypatch.setattr(run, "read_read_only_pa_container", lambda d: False)
+        monkeypatch.setattr(run, "read_security_config", lambda d: {"blocked_mount_paths": []})
+        monkeypatch.setattr(run, "read_git_config", lambda d: {})
+        monkeypatch.setattr(run, "read_source_control_config", lambda d: {})
+        monkeypatch.setattr(run, "resolve_source_control_tokens", lambda d, log: {})
+        monkeypatch.setattr(run, "validate_mount_paths", lambda m, b: [])
+        monkeypatch.setattr(run, "read_enabled_agents", lambda d: ["pi"])
+        monkeypatch.setattr(run, "read_agent_type", lambda d: "pi")
+        monkeypatch.setattr(run, "read_desktop_config", lambda d: {"enabled": False})
+        mock_driver_obj = MagicMock()
+        mock_driver_obj.get_sessions_dir.return_value = tmp_path / "sessions"
+        monkeypatch.setattr(run, "get_agent_driver", lambda t: mock_driver_obj)
+        monkeypatch.setattr(run.containers, "sweep_orphaned_servers", lambda d: None)
+        monkeypatch.setattr(run.containers, "sweep_orphaned_proxies", lambda r, d: None)
+        monkeypatch.setattr(run.containers, "cleanup_orphaned_agent_containers", lambda r: None)
+        monkeypatch.setattr(
+            run, "read_nested_containers_config", lambda d: {"enabled": False, "ports": {"publish": []}}
+        )
+        monkeypatch.setattr(run, "read_agent_mode", lambda d: "t3")
+        monkeypatch.setattr(run, "read_agent_ports", lambda d: {"publish": [(3773, 3773)], "expose": "localhost"})
+        monkeypatch.setattr(run.containers, "unavailable_host_ports", lambda p, e: [3773])
+        monkeypatch.setattr(run.containers, "port_holders", lambda r, p, k: {3773: "other-container"})
+
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+        driver = LogDriver(proj, quiet=True)
+
+        with patch.object(driver, "fail_and_render", wraps=driver.fail_and_render) as mock_fail:
+            ret = run.execute_run(RunOptions(), driver=driver)
+
+        assert ret == 1
+        assert mock_fail.called
+        assert mock_fail.call_args[0][0] == LogCategory.PREFLIGHT
+        assert mock_fail.call_args[0][1] == "Host Port Collision"
+        driver.shutdown()

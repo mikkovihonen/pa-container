@@ -37,6 +37,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --project . --all-groups
 
+      - name: Seed configurations
+        run: |
+          ./pa init --global
+          ./pa init
+
       - name: Install pre-commit
         run: uv tool install pre-commit
 
@@ -76,6 +81,11 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen --project . --all-groups
+
+      - name: Seed configurations
+        run: |
+          ./pa init --global
+          ./pa init
 
       - name: Run tests with coverage
         run: uv run --group src --group proxy pytest --cov --cov-report=xml --cov-report=term-missing
