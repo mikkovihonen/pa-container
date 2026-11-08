@@ -184,12 +184,10 @@ stay in sync:
 | Git tag | `v<version>` (e.g. `v0.2.0`) |
 | Python package version | `pyproject.toml` → `[project].version` |
 | Config schema versions | `coding-agent/default/{project,global}/config.yaml` → `schema_version` |
-| Runtime config version | `.pa-container/config.yaml` → `schema_version` |
 
 The `validate_versions.py` script runs in CI (not pre-commit). git has
 no `pre-tag` hook. The version cross-check can only pass once the tag exists.
-That happens after the commit. The runtime config
-(`.pa-container/config.yaml`) is checked at launch time by `src/config_schema.py`. If it does not match the latest git tag, the container refuses to start.
+That happens after the commit.
 
 ### Steps
 
@@ -202,24 +200,20 @@ That happens after the commit. The runtime config
    version).
 5. **Bump `schema_version` in the seed templates** (`coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml`). This is what new workspaces get on
    first run.
-6. **Bump `schema_version` in the runtime config** (`.pa-container/config.yaml`). This is what the currently running container
-   uses. Seeding is copy-once (missing-only), so updating the template alone
-   will not update the runtime config.
-7. **Validate locally** before pushing:
+6. **Validate locally** before pushing:
 
    ```bash
    uv run python3 .github/workflows/scripts/validate_versions.py
    pre-commit run --all-files --show-diff-on-failure
    uv run pytest --cov
    ```
-8. **Commit, tag, and push**:
+7. **Commit, tag, and push**:
 
    ```bash
    git add CHANGELOG.md pyproject.toml \
        uv.lock \
        coding-agent/default/project/config.yaml \
-       coding-agent/default/global/config.yaml \
-       .pa-container/config.yaml
+       coding-agent/default/global/config.yaml
    git commit -m "chore: release v0.2.0"
    git push origin main
    git tag -a v0.2.0 -m "Release v0.2.0"
@@ -243,14 +237,12 @@ The `ci.yml` workflow triggers on `push` to `refs/tags/v*`:
 # 1. Update CHANGELOG.md: move [Unreleased] → [0.2.0] - 2026-07-04
 # 2. Bump pyproject.toml version to "0.2.0"
 # 3. Bump schema_version in coding-agent/default/project/config.yaml and global/config.yaml to "0.2.0"
-# 4. Bump schema_version in .pa-container/config.yaml to "0.2.0"
-# 5. Regenerate uv.lock: uv lock
-# 6. Validate and commit:
+# 4. Regenerate uv.lock: uv lock
+# 5. Validate and commit:
 git add CHANGELOG.md pyproject.toml \
     uv.lock \
     coding-agent/default/project/config.yaml \
-    coding-agent/default/global/config.yaml \
-    .pa-container/config.yaml
+    coding-agent/default/global/config.yaml
 git commit -m "chore: release v0.2.0"
 git tag -a v0.2.0 -m "Release v0.2.0"
 git push origin main

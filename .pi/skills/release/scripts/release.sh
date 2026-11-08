@@ -110,9 +110,6 @@ substitute "s/^schema_version: .*/schema_version: \"$VERSION\"/" coding-agent/de
 echo "✓ Bumping schema_version in coding-agent/default/global/config.yaml"
 substitute "s/^schema_version: .*/schema_version: \"$VERSION\"/" coding-agent/default/global/config.yaml
 
-echo "✓ Bumping schema_version in .pa-container/config.yaml"
-substitute "s/^schema_version: .*/schema_version: \"$VERSION\"/" .pa-container/config.yaml
-
 # 3. Regenerate uv.lock
 echo "✓ Regenerating uv.lock"
 uv lock
@@ -123,7 +120,7 @@ uv lock
 # nothing) — amending then would rewrite an unrelated commit on main.
 
 echo "✓ Committing version bumps"
-git add pyproject.toml coding-agent/default/project/config.yaml coding-agent/default/global/config.yaml .pa-container/config.yaml uv.lock
+git add pyproject.toml coding-agent/default/project/config.yaml coding-agent/default/global/config.yaml uv.lock
 if git diff --cached --quiet; then
     echo "✗ Nothing to commit — the version bumps produced no changes."
     echo "  Is the repo already at $VERSION? Release aborted, since the next"
