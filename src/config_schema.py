@@ -129,6 +129,7 @@ def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
 def validate_global_config(
     config_path: Path,
     repo_root: Path | None = None,
+    expected_version: str | None = None,
 ) -> tuple[bool, list[str], str | None]:
     """Validate global ~/.config/pa-container/config.yaml structure, required fields, and schema version.
 
@@ -153,6 +154,7 @@ def validate_global_config(
         return False, errors, None
     except yaml.YAMLError as e:
         errors.append(f"Global config file is not valid YAML: {e}")
+        errors.append("  Remove the repeated key — YAML keeps only the last occurrence.") if False else None
         return False, errors, None
 
     schema_version = data.get("schema_version")
@@ -162,7 +164,7 @@ def validate_global_config(
 
     schema_version_str = str(schema_version)
 
-    app_version = get_app_version(repo_root=repo_root)
+    app_version = expected_version or get_app_version(repo_root=repo_root)
     if app_version is not None and schema_version_str != app_version:
         errors.append(
             f"  {SCHEMA_VERSION_MISMATCH}: global config has '{schema_version_str}', "

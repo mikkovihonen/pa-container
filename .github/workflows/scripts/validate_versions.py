@@ -265,7 +265,11 @@ def main() -> int:
     if global_config_path.exists():
         print()
         print("Validating global seed config schema...")
-        is_global_valid, global_errors, _ = validate_global_config(global_config_path, repo_root=REPO_ROOT)
+        is_global_valid, global_errors, _ = validate_global_config(
+            global_config_path,
+            repo_root=REPO_ROOT,
+            expected_version=new_version,
+        )
         if not is_global_valid:
             _error(f"Global seed config schema has {len(global_errors)} error(s):")
             for err in global_errors:
