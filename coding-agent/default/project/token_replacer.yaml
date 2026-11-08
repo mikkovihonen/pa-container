@@ -12,10 +12,10 @@ rules:
     content_patterns:
       - field: "headers"
         header_name: "Authorization"
-        regex: "Bearer pa-container-.*"
+        regex: "(Bearer )pa-container-.*"
     replace_with:
       strategy: "static"
-      value: "Bearer ${ENV:OPENAI_API_KEY}"
+      value: "${ENV:OPENAI_API_KEY}"
 
   # Replace placeholder Gemini API keys on egress for Antigravity / Gemini API
   - name: "Gemini API Key Injection"
