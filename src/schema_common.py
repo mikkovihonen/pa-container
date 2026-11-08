@@ -329,13 +329,6 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
             },
         },
     },
-    "desktop": {
-        "type": dict,
-        "required": False,
-        "keys": {
-            "open_browser": {"type": bool, "required": False},
-        },
-    },
 }
 
 
