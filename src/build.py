@@ -211,7 +211,7 @@ def _node_build_args() -> list[str]:
     return ["--build-arg", f"NODE_SOURCE={value}"]
 
 
-def build_builder(runtime: str) -> None:
+def build_builder(runtime: str, label: str | None = None) -> None:
     """Build the base builder image containing CPython, Node.js, and container tools."""
     from datetime import UTC, datetime
 
@@ -245,10 +245,11 @@ def build_builder(runtime: str) -> None:
             str(REPO_ROOT / "coding-agent-builder" / "Containerfile"),
             str(REPO_ROOT),
         ],
+        label=label or "Building base toolchain image",
     )
 
 
-def build_tool(runtime: str, tool: str) -> None:
+def build_tool(runtime: str, tool: str, label: str | None = None) -> None:
     """Build a specific on-demand toolchain image from the builder Containerfile."""
     from datetime import UTC, datetime
 
@@ -290,10 +291,11 @@ def build_tool(runtime: str, tool: str) -> None:
             str(REPO_ROOT / "coding-agent-builder" / "Containerfile"),
             str(REPO_ROOT),
         ],
+        label=label or f"Building toolchain image ({tool})",
     )
 
 
-def build_proxy(runtime: str) -> None:
+def build_proxy(runtime: str, label: str | None = None) -> None:
     """Build the mitmproxy container image for network egress inspection and rewriting."""
     from datetime import UTC, datetime
 
@@ -320,10 +322,11 @@ def build_proxy(runtime: str) -> None:
             str(REPO_ROOT / "coding-agent-proxy" / "Containerfile"),
             str(REPO_ROOT),
         ],
+        label=label or "Building proxy image",
     )
 
 
-def build_agent(runtime: str) -> None:
+def build_agent(runtime: str, label: str | None = None) -> None:
     """Build the shared default agent container image."""
     from datetime import UTC, datetime
 
@@ -349,6 +352,7 @@ def build_agent(runtime: str) -> None:
             str(REPO_ROOT / "coding-agent" / "Containerfile"),
             str(REPO_ROOT),
         ],
+        label=label or "Building agent container",
     )
 
 
@@ -362,6 +366,7 @@ def build_project_image(
     build_timestamp: str = "",
     tools: list[str] | None = None,
     with_desktop: bool = False,
+    label: str | None = None,
 ) -> None:
     """Build a project-specific agent image with baked-in command scripts and optional tools.
 
@@ -376,6 +381,7 @@ def build_project_image(
         build_timestamp: ISO 8601 timestamp → set as pa-container.build.time label.
         tools: Optional list of tools to enable (e.g. ["go", "rust"]).
         with_desktop: Whether to install desktop/GUI packages.
+        label: Custom display label for progress reporting.
     """
     logger.info(f"Building project-specific agent image ({runtime}): {image_tag}")
     cmd = [
@@ -421,11 +427,19 @@ def build_project_image(
         str(REPO_ROOT / "coding-agent" / "Containerfile"),
         str(REPO_ROOT),
     ]
-    _run_command_with_logging(cmd)
+    _run_command_with_logging(cmd, label=label or f"Building project agent image: {image_tag}")
 
 
 def run_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int:
     """Execute clean pass removing orphaned containers, images, and optionally build cache."""
+    log_drv = get_log_driver()
+    if log_drv is not None:
+        with log_drv.stage(LogCategory.CLEANUP, "Cleaning orphaned containers & stale images"):
+            return _execute_clean_pass(purge_cache=purge_cache, runtime=runtime)
+    return _execute_clean_pass(purge_cache=purge_cache, runtime=runtime)
+
+
+def _execute_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int:
     rt = runtime
     if rt is None:
         try:
@@ -453,6 +467,8 @@ def run_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int
 def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int:
     """Execute image and tool builds based on structured BuildOptions."""
     log_drv = driver or get_log_driver()
+    if log_drv is not None and not log_drv.quiet and not log_drv.verbose and log_drv.console.is_terminal:
+        log_drv.console.print("[dim]ℹ Following build log: pa logs --build -f[/dim]")
     if options.llama or options.llama_latest:
         from llama_build import LlamaBuildError, build_llama_server
 
@@ -529,7 +545,11 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
             )
         return 1
 
-    if not check_build_memory(runtime):
+    if log_drv is not None:
+        with log_drv.stage(LogCategory.PREFLIGHT, "Verifying build memory & environment"):
+            if not check_build_memory(runtime):
+                return 1
+    elif not check_build_memory(runtime):
         return 1
 
     try:
@@ -559,17 +579,33 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
                             )
                         return 1
 
-            build_builder(runtime)
-            for t in requested:
-                if t in ON_DEMAND_TOOLS:
-                    build_tool(runtime, t)
-                elif t in CORE_TOOLS:
-                    logger.info(f"Tool '{t}' is already included in builder baseline ({BUILDER_IMAGE_TAG}).")
+            total_stages = 1 + len(requested)
+            if log_drv is not None:
+                with log_drv.stage(LogCategory.BUILD, f"[1/{total_stages}] Building base toolchain image"):
+                    build_builder(runtime)
+                for idx, t in enumerate(requested, start=2):
+                    if t in ON_DEMAND_TOOLS:
+                        with log_drv.stage(LogCategory.BUILD, f"[{idx}/{total_stages}] Building toolchain ({t})"):
+                            build_tool(runtime, t)
+                    elif t in CORE_TOOLS:
+                        logger.info(f"Tool '{t}' is already included in builder baseline ({BUILDER_IMAGE_TAG}).")
+            else:
+                build_builder(runtime)
+                for t in requested:
+                    if t in ON_DEMAND_TOOLS:
+                        build_tool(runtime, t)
+                    elif t in CORE_TOOLS:
+                        logger.info(f"Tool '{t}' is already included in builder baseline ({BUILDER_IMAGE_TAG}).")
+
             logger.info("All requested toolchains built successfully.")
             if not options.no_prune and global_config.build.prune_dangling:
                 from images import prune_dangling_images
 
-                prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
+                if log_drv is not None:
+                    with log_drv.stage(LogCategory.CLEANUP, "Pruning dangling container layers"):
+                        prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
+                else:
+                    prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
             return 0
 
         # Strict dependency order, not a preference: the proxy image COPYs its CPython
@@ -577,13 +613,26 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
         # proxy used to be built first (it is the quick one, and a failure there was
         # cheaper), but that stopped being possible once it stopped carrying its own
         # interpreter.
-        build_builder(runtime)
-        build_proxy(runtime)
-        build_agent(runtime)
+        if log_drv is not None:
+            with log_drv.stage(LogCategory.BUILD, "[1/3] Building base toolchain image"):
+                build_builder(runtime)
+            with log_drv.stage(LogCategory.BUILD, "[2/3] Building proxy image"):
+                build_proxy(runtime)
+            with log_drv.stage(LogCategory.BUILD, "[3/3] Building agent container"):
+                build_agent(runtime)
+        else:
+            build_builder(runtime)
+            build_proxy(runtime)
+            build_agent(runtime)
+
         if not options.no_prune and global_config.build.prune_dangling:
             from images import prune_dangling_images
 
-            prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
+            if log_drv is not None:
+                with log_drv.stage(LogCategory.CLEANUP, "Pruning dangling container layers"):
+                    prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
+            else:
+                prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
         return 0
     except subprocess.CalledProcessError as e:
         if log_drv is not None:

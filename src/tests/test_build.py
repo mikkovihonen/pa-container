@@ -32,7 +32,9 @@ class TestBuildProxy:
     def _mock_popen(self):
         """Return a mock Popen that completes successfully with no output."""
         mock_process = MagicMock()
+        mock_process.__enter__.return_value = mock_process
         mock_process.stdout = iter([])
+        mock_process.communicate.return_value = ("", "")
         mock_process.wait.return_value = 0
         return mock_process
 
@@ -412,7 +414,9 @@ class TestBuildProjectImage:
     def _mock_popen(self):
         """Return a mock Popen that completes successfully with no output."""
         mock_process = MagicMock()
+        mock_process.__enter__.return_value = mock_process
         mock_process.stdout = iter([])
+        mock_process.communicate.return_value = ("", "")
         mock_process.wait.return_value = 0
         return mock_process
 

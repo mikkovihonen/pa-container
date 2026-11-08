@@ -445,8 +445,13 @@ def scan_config_env_refs(config: dict[str, Any]) -> list[str]:
         A deduplicated, sorted list of env var names that are required.
     """
     refs: set[str] = set()
-    for rule in config.get("rules", []):
-        replace = rule.get("replace_with", {}) or {}
+    rules = config.get("rules") or []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        replace = rule.get("replace_with") or {}
+        if not isinstance(replace, dict):
+            continue
         value = replace.get("value", "")
         m = _TOKEN_REPLACER_ENV_VAR_REQUIRED_PATTERN.match(str(value))
         if m:

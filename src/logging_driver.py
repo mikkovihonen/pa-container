@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import logging
 import os
 import re
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
 sys.dont_write_bytecode = True
 
@@ -80,51 +81,87 @@ class TaggedFileFormatter(logging.Formatter):
         return super().format(record)
 
 
-# ─── Category Status Item ────────────────────────────────────────────────────
+# ─── Regular Expressions ───────────────────────────────────────────────────
+
+_ANSI_ESCAPE: re.Pattern[str] = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
-class CategoryStatus:
-    """Tracks state and live rendering text for a single category step."""
+# ─── Stage Status & Lifecycle ────────────────────────────────────────────────
+
+
+class StageStatus(StrEnum):
+    """Execution status for a pipeline stage."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class Stage:
+    """Tracks state and rendering text for a single pipeline stage."""
 
     def __init__(self, category: LogCategory | str, label: str) -> None:
         self.category: str = str(category.value if isinstance(category, LogCategory) else category)
         self.label: str = label
         self.detail: str = ""
-        self.start_time: float = time.monotonic()
-        self.completed: bool = False
-        self.failed: bool = False
+        self.status: StageStatus = StageStatus.RUNNING
         self.spinner: Spinner = Spinner("dots")
 
-    def render(self) -> Text:
-        elapsed = time.monotonic() - self.start_time
+    @property
+    def completed(self) -> bool:
+        return self.status == StageStatus.COMPLETED
+
+    @property
+    def failed(self) -> bool:
+        return self.status == StageStatus.FAILED
+
+    def update(self, detail: str) -> None:
+        """Update detail text for this stage."""
+        self.detail = detail
+
+    def complete(self, detail: str | None = None) -> None:
+        """Mark stage as completed with optional final detail."""
+        self.status = StageStatus.COMPLETED
+        self.detail = detail or ""
+
+    def fail(self, message: str) -> None:
+        """Mark stage as failed with an error message."""
+        self.status = StageStatus.FAILED
+        self.detail = message
+
+    def render(self, now: float | None = None) -> Text:
+        """Render a single compact line for this stage."""
+        current_time = time.monotonic() if now is None else now
         text = Text()
-        if self.failed:
+        cat_tag = f"[{self.category}] "
+
+        if self.status == StageStatus.COMPLETED:
+            text.append("  ✔ ", style="bold green")
+            text.append(cat_tag, style="dim")
+            text.append(self.label, style="bold")
+            if self.detail:
+                text.append(f" ({self.detail})", style="dim")
+
+        elif self.status == StageStatus.FAILED:
             text.append("  ✗ ", style="bold red")
-            text.append(f"[{self.category}] ", style="dim")
+            text.append(cat_tag, style="dim")
             text.append(self.label, style="bold red")
             if self.detail:
                 text.append(f" ({self.detail})", style="red")
-        elif self.completed:
-            text.append("  ✔ ", style="bold green")
-            text.append(f"[{self.category}] ", style="dim")
-            text.append(self.label, style="bold")
-            text.append(f" ({elapsed:.1f}s)", style="dim")
-            if self.detail:
-                text.append(f" - {self.detail}", style="dim")
+
         else:
             text.append("  ")
-            spin_render = self.spinner.render(time.monotonic())
+            spin_render = self.spinner.render(current_time)
             if isinstance(spin_render, Text):
                 text.append_text(spin_render)
             else:
                 text.append(str(spin_render))
             text.append(" ")
-            text.append(f"[{self.category}] ", style="dim cyan")
+            text.append(cat_tag, style="dim cyan")
             text.append(self.label, style="bold cyan")
             if self.detail:
                 text.append(f": {self.detail}", style="yellow")
-            else:
-                text.append(f" ({elapsed:.1f}s)", style="dim")
+
         return text
 
 
@@ -198,8 +235,9 @@ class LogDriver:
         self._console_handler: _ConsoleLogHandler | None = None
 
         # Live terminal state
-        self._statuses: dict[str, CategoryStatus] = {}
-        self._lock: threading.Lock = threading.Lock()
+        self.stages: list[Stage] = []
+        self.active_stage: Stage | None = None
+        self._lock: threading.RLock = threading.RLock()
         self._live: Live | None = None
         self._interactive_paused: bool = False
 
@@ -283,10 +321,13 @@ class LogDriver:
                 self.console.print(f"    [dim]{tag} {msg}[/dim]")
             return
 
+        if getattr(record, "subprocess_raw", False):
+            return
+
         # 3. Standard live terminal mode
         if record.levelno >= logging.ERROR:
-            if cat_str and cat_str in self._statuses:
-                self.step_fail(cat_str, msg)
+            if self.active_stage is not None and (cat_str is None or self.active_stage.category == cat_str):
+                self.fail_stage(msg)
             else:
                 tag = f"[{cat_str}]" if cat_str else "[system]"
                 self._print(f"[bold red]✗ {tag} {msg}[/bold red]")
@@ -298,12 +339,10 @@ class LogDriver:
             return
 
         if record.levelno == logging.INFO and cat_str:
-            if cat_str in self._statuses and not self._statuses[cat_str].completed:
-                self.step_update(cat_str, msg)
+            if self.active_stage is not None and self.active_stage.category == cat_str:
+                self.update_stage(msg)
             elif not self.console.is_terminal:
                 self.console.print(f"[{cat_str}] {msg}")
-            else:
-                self.step(cat_str, msg)
 
     def _update_symlinks(self) -> None:
         """Atomically update latest.log and latest-build.log symlinks."""
@@ -320,94 +359,122 @@ class LogDriver:
         except OSError:
             pass
 
-    # ─── Live Progress UI ────────────────────────────────────────────────────
+    # ─── Live Stage Progress UI ──────────────────────────────────────────────
 
-    def _refresh_live(self) -> None:
-        """Update live console rendering from current statuses."""
+    def _render_stages(self) -> Text:
+        """Render all registered stages for the Live display."""
+        with self._lock:
+            now = time.monotonic()
+            text = Text()
+            max_w = max(20, self.console.width - 1) if self.console.width else 100
+            for stage in self.stages:
+                line = stage.render(now)
+                line.truncate(max_w, overflow="ellipsis")
+                text.append_text(line)
+                text.append("\n")
+            return text
+
+    def _ensure_live(self) -> None:
+        """Ensure Live console widget is active on interactive terminals."""
         if self.quiet or self.verbose or not self.console.is_terminal:
             return
 
+        needs_start = False
         with self._lock:
-            if not self._statuses:
-                return
-
-            text = Text()
-            for status in self._statuses.values():
-                text.append_text(status.render())
-                text.append("\n")
-
             if self._live is None and not self._interactive_paused:
                 self._live = Live(
-                    text,
                     console=self.console,
                     refresh_per_second=10,
                     transient=False,
                     auto_refresh=True,
+                    get_renderable=self._render_stages,
                 )
-                self._live.start()
-            elif self._live is not None:
-                self._live.update(text)
+                needs_start = True
 
-    def step(self, category: LogCategory | str, label: str) -> None:
-        """Begin a progress milestone for the given category."""
-        cat_key = str(category.value if isinstance(category, LogCategory) else category)
+        if needs_start and self._live is not None:
+            self._live.start()
+        elif self._live is not None and not self._interactive_paused:
+            self._live.refresh()
 
+    def start_stage(self, category: LogCategory | str, label: str) -> Stage:
+        """Begin a new execution stage. Auto-completes any previous in-flight stage."""
+        cat_str = str(category.value if isinstance(category, LogCategory) else category)
         with self._lock:
-            status = CategoryStatus(cat_key, label)
-            self._statuses[cat_key] = status
+            if self.active_stage is not None and self.active_stage.status == StageStatus.RUNNING:
+                self.active_stage.complete()
+
+            st = Stage(cat_str, label)
+            self.stages.append(st)
+            self.active_stage = st
 
         if self.verbose:
-            self.console.print(f"[dim]⠋ [{cat_key}][/dim] {label}...")
+            self.console.print(f"[dim]⠋ [{cat_str}][/dim] {label}...")
         elif not self.console.is_terminal and not self.quiet:
-            self.console.print(f"[{cat_key}] {label}...")
+            self.console.print(f"[{cat_str}] {label}...")
         else:
-            self._refresh_live()
+            self._ensure_live()
 
-    def step_update(self, category: LogCategory | str, detail: str) -> None:
-        """Update in-place detail text for an active category step."""
-        cat_key = str(category.value if isinstance(category, LogCategory) else category)
+        return st
 
+    def update_stage(self, detail: str) -> None:
+        """Update in-place detail text for the active in-flight stage."""
         with self._lock:
-            if cat_key in self._statuses:
-                self._statuses[cat_key].detail = detail
+            if self.active_stage is not None and self.active_stage.status == StageStatus.RUNNING:
+                self.active_stage.update(detail)
+                cat_str = self.active_stage.category
+            else:
+                return
 
         if self.verbose:
-            self.console.print(f"  [{cat_key}] {detail}")
-        else:
-            self._refresh_live()
+            self.console.print(f"  [{cat_str}] {detail}")
+        elif self._live is not None and not self._interactive_paused:
+            self._live.refresh()
 
-    def step_done(self, category: LogCategory | str, detail: str | None = None) -> None:
-        """Mark a category milestone as successfully completed."""
-        cat_key = str(category.value if isinstance(category, LogCategory) else category)
-
+    def complete_stage(self, detail: str | None = None) -> None:
+        """Mark the active in-flight stage as successfully completed."""
         with self._lock:
-            if cat_key in self._statuses:
-                st = self._statuses[cat_key]
-                st.completed = True
-                if detail:
-                    st.detail = detail
+            if self.active_stage is not None and self.active_stage.status == StageStatus.RUNNING:
+                self.active_stage.complete(detail)
+                cat_str = self.active_stage.category
+                label = self.active_stage.label
+                self.active_stage = None
+            else:
+                return
 
         if self.verbose:
-            self.console.print(f"[bold green]✔ [{cat_key}][/bold green] done")
+            self.console.print(f"[bold green]✔ [{cat_str}][/bold green] done")
         elif not self.console.is_terminal and not self.quiet:
-            self.console.print(f"[{cat_key}] ✔ Done")
-        else:
-            self._refresh_live()
+            det_suffix = f" - {detail}" if detail else ""
+            self.console.print(f"[{cat_str}] ✔ {label}{det_suffix}")
+        elif self._live is not None and not self._interactive_paused:
+            self._live.refresh()
 
-    def step_fail(self, category: LogCategory | str, message: str) -> None:
-        """Mark a category milestone as failed."""
-        cat_key = str(category.value if isinstance(category, LogCategory) else category)
-
+    def fail_stage(self, message: str) -> None:
+        """Mark the active in-flight stage as failed."""
         with self._lock:
-            if cat_key in self._statuses:
-                st = self._statuses[cat_key]
-                st.failed = True
-                st.detail = message
+            if self.active_stage is not None and self.active_stage.status == StageStatus.RUNNING:
+                self.active_stage.fail(message)
+                cat_str = self.active_stage.category
+                self.active_stage = None
+            else:
+                cat_str = "system"
 
         if self.verbose or not self.console.is_terminal:
-            self.console.print(f"[bold red]✗ [{cat_key}][/bold red] {message}")
-        else:
-            self._refresh_live()
+            self.console.print(f"[bold red]✗ [{cat_str}][/bold red] {message}")
+        elif self._live is not None and not self._interactive_paused:
+            self._live.refresh()
+
+    @contextlib.contextmanager
+    def stage(self, category: LogCategory | str, label: str) -> Iterator[Stage]:
+        """Context manager for stage execution."""
+        st = self.start_stage(category, label)
+        try:
+            yield st
+            if st.status == StageStatus.RUNNING:
+                self.complete_stage()
+        except Exception as err:
+            self.fail_stage(str(err))
+            raise
 
     def pause_for_interactive(self) -> None:
         """Clean up live console display immediately prior to interactive container execution."""
@@ -434,23 +501,11 @@ class LogDriver:
         cat_str = str(category.value if isinstance(category, LogCategory) else category)
 
         with self._lock:
-            # Mark the specific category step as failed if in flight
-            if cat_str in self._statuses and not self._statuses[cat_str].completed:
-                self._statuses[cat_str].failed = True
-                if not self._statuses[cat_str].detail:
-                    self._statuses[cat_str].detail = message
-            # Mark any other in-flight steps as failed to clean up spinners
-            for st in self._statuses.values():
-                if not st.completed and not st.failed:
-                    st.failed = True
+            if self.active_stage is not None and self.active_stage.status == StageStatus.RUNNING:
+                self.active_stage.fail(message)
 
-            # Refresh live view with failed state before pausing
             if self._live is not None and not self._interactive_paused:
-                text = Text()
-                for status in self._statuses.values():
-                    text.append_text(status.render())
-                    text.append("\n")
-                self._live.update(text)
+                self._live.update(self._render_stages())
 
         self.pause_for_interactive()
 
@@ -509,12 +564,12 @@ class LogDriver:
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        """Execute a subprocess, streaming lines to disk logs while updating live step status.
+        """Execute a subprocess, streaming lines to disk logs while updating live stage status.
 
         Args:
             cmd: Command line arguments.
-            category: Semantic category tag for logging and step progression.
-            label: Display label for the command in error diagnostics.
+            category: Semantic category tag for logging and stage progression.
+            label: Display label for the command in error diagnostics and stage display.
             check: Raise CalledProcessError on non-zero exit code if True.
             cwd: Working directory.
             env: Process environment overrides.
@@ -527,7 +582,19 @@ class LogDriver:
         logger = get_category_logger("subprocess", category)
 
         logger.info(f"Executing: {' '.join(cmd)}")
-        self.step(category, f"Running {display_label}")
+
+        with self._lock:
+            has_matching_active = (
+                self.active_stage is not None
+                and self.active_stage.status == StageStatus.RUNNING
+                and self.active_stage.category == cat_str
+            )
+
+        if not has_matching_active:
+            self.start_stage(category, f"Running {display_label}")
+
+        sub_env = dict(env or os.environ)
+        sub_env["PYTHONUNBUFFERED"] = "1"
 
         process = subprocess.Popen(
             cmd,
@@ -535,11 +602,10 @@ class LogDriver:
             stderr=subprocess.STDOUT,
             text=True,
             cwd=cwd,
-            env=env,
+            env=sub_env,
         )
 
         captured_lines: list[str] = []
-        step_regex = re.compile(r"^\s*(STEP\s+\d+/\d+.*)", re.IGNORECASE)
 
         def _stream() -> None:
             if process.stdout is None:
@@ -547,11 +613,12 @@ class LogDriver:
             for line in process.stdout:
                 stripped = line.rstrip()
                 captured_lines.append(stripped)
-                logger.info(stripped, extra={"category": cat_str})
+                logger.info(stripped, extra={"category": cat_str, "subprocess_raw": True})
 
-                match = step_regex.match(stripped)
-                if match and not self.verbose:
-                    self.step_update(category, match.group(1))
+                if not self.verbose:
+                    clean_line = _ANSI_ESCAPE.sub("", line.split("\r")[-1]).strip()
+                    if clean_line:
+                        self.update_stage(clean_line)
 
         reader_thread = threading.Thread(target=_stream, daemon=True)
         reader_thread.start()
@@ -566,7 +633,7 @@ class LogDriver:
         if returncode != 0:
             err_msg = f"{display_label} failed with exit code {returncode}"
             logger.error(err_msg)
-            self.step_fail(category, err_msg)
+            self.fail_stage(err_msg)
             if check:
                 recent_tail = "\n".join(captured_lines[-15:])
                 self.render_hard_error(
@@ -577,7 +644,8 @@ class LogDriver:
                 )
                 raise subprocess.CalledProcessError(returncode, cmd, output=full_output)
         else:
-            self.step_done(category)
+            if not has_matching_active:
+                self.complete_stage()
 
         return result
 

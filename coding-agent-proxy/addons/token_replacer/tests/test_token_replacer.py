@@ -2196,6 +2196,9 @@ class TestScanConfigEnvRefs:
         assert scan_config_env_refs({}) == []
         assert scan_config_env_refs({"global": {}}) == []
         assert scan_config_env_refs({"rules": []}) == []
+        assert scan_config_env_refs({"rules": None}) == []
+        assert scan_config_env_refs({"rules": [None, "invalid", 123]}) == []
+        assert scan_config_env_refs({"rules": [{"replace_with": None}]}) == []
 
     def test_missing_replace_with(self):
         config = {

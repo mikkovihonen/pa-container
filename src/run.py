@@ -184,7 +184,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         )
         return 1
 
-    log_drv.step(LogCategory.PREFLIGHT, "Validating configuration & security")
+    log_drv.start_stage(LogCategory.PREFLIGHT, "Validating configuration & security")
     try:
         pa_container_dir = project.ensure_project_config(PROJECT_DIR)
     except FileNotFoundError as e:
@@ -355,7 +355,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         )
         return 1
 
-    log_drv.step_done(LogCategory.PREFLIGHT)
+    log_drv.complete_stage()
     sessions_dir = agent_driver.get_sessions_dir(PROJECT_DIR)
 
     # Crash recovery: reap orphaned servers, proxies, and agent containers from prior crashed runs
@@ -605,7 +605,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     project_dir=PROJECT_DIR,
                 )
 
+            log_drv.start_stage(LogCategory.SERVER, "Starting model server & network proxy")
             netmgr = containers.start_dependencies_parallel(servers, _make_netmgr, stack)
+            log_drv.complete_stage()
             portconfig = netmgr.llama_ports or "[]"
 
             mitmweb_url = netmgr.mitmweb_url()
@@ -671,6 +673,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 netmgr.warn_if_proxy_lacks_ipv6_egress()
 
             # ─── Resolve agent image (shared vs. project-specific) ──────
+            log_drv.start_stage(LogCategory.BUILD, "Resolving agent container image")
             driver_tools = agent_driver.required_tools
             agent_image_tag, is_project_specific = images.resolve_agent_image(PROJECT_DIR, extra_tools=driver_tools)
             if is_project_specific:
@@ -744,6 +747,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         if global_config.build.prune_dangling:
                             images.prune_dangling_images(CONTAINER_RUNTIME, purge_cache=False)
                 logger.info(f"Using shared image: {agent_image_tag}")
+            log_drv.complete_stage()
 
             # ─── Nested-container image store ───────────────────────────
             nested_args: list[str] = []
@@ -783,6 +787,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 )
 
             if shadow_destinations:
+                log_drv.start_stage(LogCategory.VOLUME, "Initializing workspace shadow volumes")
                 volumes.ensure_project_volume(
                     CONTAINER_RUNTIME,
                     shadow_vol_name,
@@ -791,6 +796,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     subpaths=[volumes.destination_to_subpath(p) for p in shadow_destinations],
                     image=agent_image_tag,
                 )
+                log_drv.complete_stage()
 
             volume_args = [
                 arg
@@ -975,6 +981,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
                     threading.Thread(target=_open_desktop, daemon=True).start()
 
+            log_drv.start_stage(LogCategory.AGENT, "Launching container session")
+            log_drv.complete_stage()
+
             try:
                 log_drv.pause_for_interactive()
                 result = subprocess.run(PA_CONTAINER_cmd)
@@ -1000,11 +1009,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             return result.returncode
     except Exception as e:
         active_cat = LogCategory.AGENT
-        for cat_name, st in log_drv._statuses.items():
-            if not st.completed and not st.failed:
-                with suppress(ValueError):
-                    active_cat = LogCategory(cat_name)
-                break
+        if log_drv.active_stage is not None:
+            with suppress(ValueError):
+                active_cat = LogCategory(log_drv.active_stage.category)
         log_drv.fail_and_render(
             active_cat,
             "Fatal Error",

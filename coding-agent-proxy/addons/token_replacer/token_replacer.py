@@ -124,8 +124,13 @@ def scan_config_env_refs(config: dict[str, Any]) -> list[str]:
         ['API_KEY']
     """
     refs: set[str] = set()
-    for rule in config.get("rules", []):
-        replace = rule.get("replace_with", {}) or {}
+    rules = config.get("rules") or []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        replace = rule.get("replace_with") or {}
+        if not isinstance(replace, dict):
+            continue
         value = replace.get("value", "")
         m = _ENV_VAR_REQUIRED_PATTERN.match(str(value))
         if m:
@@ -685,11 +690,13 @@ class TokenReplacerAddon:
             log.warning("Config file is empty.")
             return
 
-        self.global_config = config.get("global", {})
-        self.rules = config.get("rules", [])
+        self.global_config = config.get("global") or {}
+        self.rules = config.get("rules") or []
 
         # Pre-compile hostname patterns and build matchers for each rule
         for rule in self.rules:
+            if not isinstance(rule, dict):
+                continue
             _validate_rule(rule)
             rule.setdefault("hostnames", [])
             rule.setdefault("content_patterns", [])

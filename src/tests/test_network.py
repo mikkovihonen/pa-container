@@ -58,6 +58,9 @@ class TestScanConfigEnvRefs:
 
     def test_empty_rules(self):
         assert scan_config_env_refs({}) == []
+        assert scan_config_env_refs({"rules": None}) == []
+        assert scan_config_env_refs({"rules": [None, "invalid", 123]}) == []
+        assert scan_config_env_refs({"rules": [{"replace_with": None}]}) == []
 
     def test_no_rules_key(self):
         assert scan_config_env_refs({"other_key": "value"}) == []

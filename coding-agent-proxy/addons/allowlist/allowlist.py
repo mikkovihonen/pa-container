@@ -427,7 +427,10 @@ class AllowlistAddon:
         self._dry_run = self.global_config.get("dry_run", False)
 
         # Load rules from config
-        for rule_def in self.global_config.get("rules", []):
+        rules = self.global_config.get("rules") or []
+        for rule_def in rules:
+            if not isinstance(rule_def, dict):
+                continue
             try:
                 rule = AllowlistRule(rule_def)
                 self.rules.append(rule)

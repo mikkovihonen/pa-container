@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -17,9 +18,10 @@ sys.dont_write_bytecode = True
 
 from logging_driver import (
     CategoryLogger,
-    CategoryStatus,
     LogCategory,
     LogDriver,
+    Stage,
+    StageStatus,
     TaggedFileFormatter,
     clean_all_projects_logs,
     clean_project_logs,
@@ -30,10 +32,10 @@ from logging_driver import (
 )
 
 
-class TestCategoryStatus:
+class TestStage:
     def test_render_states(self) -> None:
         # Active without detail
-        st = CategoryStatus(LogCategory.BUILD, "Building image")
+        st = Stage(LogCategory.BUILD, "Building image")
         txt = st.render()
         assert "[build]" in txt.plain
         assert "Building image" in txt.plain
@@ -41,26 +43,27 @@ class TestCategoryStatus:
         # Active with detail
         st.detail = "STEP 1/3"
         txt = st.render()
-        assert "STEP 1/3" in txt.plain
+        assert "[build]" in txt.plain
+        assert "Building image: STEP 1/3" in txt.plain
 
         # Completed with detail
-        st.completed = True
-        st.detail = "cached"
+        st.complete("cached")
         txt = st.render()
         assert "✔" in txt.plain
+        assert "[build]" in txt.plain
         assert "cached" in txt.plain
 
         # Completed without detail
         st.detail = ""
         txt = st.render()
         assert "✔" in txt.plain
+        assert "[build]" in txt.plain
 
         # Failed with detail
-        st.completed = False
-        st.failed = True
-        st.detail = "out of memory"
+        st.fail("out of memory")
         txt = st.render()
         assert "✗" in txt.plain
+        assert "[build]" in txt.plain
         assert "out of memory" in txt.plain
 
 
@@ -147,29 +150,40 @@ class TestLogDriver:
 
         driver.shutdown()
 
-    def test_step_progression(self, tmp_path: Path, monkeypatch) -> None:
+    def test_stage_progression(self, tmp_path: Path, monkeypatch) -> None:
         custom_state = tmp_path / "state"
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
 
         driver = LogDriver(tmp_path, log_level="INFO", quiet=True)
-        driver.step(LogCategory.BUILD, "Compiling toolchain")
-        status = driver._statuses["build"]
-        assert status.label == "Compiling toolchain"
-        assert status.completed is False
-        assert status.failed is False
+        driver.start_stage(LogCategory.BUILD, "Compiling toolchain")
+        assert driver.active_stage is not None
+        assert driver.active_stage.label == "Compiling toolchain"
+        assert driver.active_stage.completed is False
+        assert driver.active_stage.failed is False
 
-        driver.step_update(LogCategory.BUILD, "STEP 2/5")
-        assert status.detail == "STEP 2/5"
+        driver.update_stage("STEP 2/5")
+        assert driver.active_stage.detail == "STEP 2/5"
 
-        driver.step_done(LogCategory.BUILD, "compiled")
-        assert status.completed is True
-        assert status.detail == "compiled"
+        driver.complete_stage("compiled")
+        assert len(driver.stages) == 1
+        assert driver.stages[0].completed is True
+        assert driver.stages[0].detail == "compiled"
+        assert driver.active_stage is None
 
-        driver.step(LogCategory.NETWORK, "Starting proxy")
-        driver.step_fail(LogCategory.NETWORK, "port collision")
-        net_status = driver._statuses["network"]
-        assert net_status.failed is True
-        assert net_status.detail == "port collision"
+        driver.start_stage(LogCategory.NETWORK, "Starting proxy")
+        driver.fail_stage("port collision")
+        assert len(driver.stages) == 2
+        assert driver.stages[1].failed is True
+        assert driver.stages[1].detail == "port collision"
+
+        # Context manager stage
+        with driver.stage(LogCategory.SERVER, "Serving requests") as ctx_st:
+            assert driver.active_stage is ctx_st
+            assert ctx_st.status == StageStatus.RUNNING
+
+        assert len(driver.stages) == 3
+        assert driver.stages[2].completed is True
+        assert driver.active_stage is None
 
         driver.shutdown()
 
@@ -192,9 +206,10 @@ class TestLogDriver:
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
 
         driver = LogDriver(tmp_path, quiet=True)
-        driver.step(LogCategory.PREFLIGHT, "Validating configuration")
-        assert driver._statuses["preflight"].completed is False
-        assert driver._statuses["preflight"].failed is False
+        driver.start_stage(LogCategory.PREFLIGHT, "Validating configuration")
+        assert driver.active_stage is not None
+        assert driver.active_stage.completed is False
+        assert driver.active_stage.failed is False
 
         with patch.object(driver.console, "print") as mock_print:
             driver.render_hard_error(
@@ -206,8 +221,8 @@ class TestLogDriver:
             assert mock_print.called
 
         # In-flight step must be marked failed
-        assert driver._statuses["preflight"].failed is True
-        assert driver._statuses["preflight"].detail == "Invalid yaml structure"
+        assert driver.stages[-1].failed is True
+        assert driver.stages[-1].detail == "Invalid yaml structure"
         driver.shutdown()
 
     def test_fail_and_render(self, tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture) -> None:
@@ -215,7 +230,7 @@ class TestLogDriver:
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
 
         driver = LogDriver(tmp_path, quiet=True)
-        driver.step(LogCategory.PREFLIGHT, "Checking setup")
+        driver.start_stage(LogCategory.PREFLIGHT, "Checking setup")
 
         test_logger = get_category_logger("test.source", LogCategory.PREFLIGHT)
         with patch.object(driver.console, "print") as mock_print, caplog.at_level(logging.ERROR):
@@ -228,8 +243,8 @@ class TestLogDriver:
             )
             assert mock_print.called
 
-        assert driver._statuses["preflight"].failed is True
-        assert driver._statuses["preflight"].detail == "Something went wrong"
+        assert driver.stages[-1].failed is True
+        assert driver.stages[-1].detail == "Something went wrong"
 
         # Check that error record was emitted with category
         error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
@@ -365,7 +380,7 @@ class TestRetentionAndCleaning:
         assert custom_file.exists()
         driver.shutdown()
 
-    def test_verbose_and_non_terminal_steps(self, tmp_path: Path, monkeypatch) -> None:
+    def test_verbose_and_non_terminal_stages(self, tmp_path: Path, monkeypatch) -> None:
         custom_state = tmp_path / "state"
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
 
@@ -374,11 +389,11 @@ class TestRetentionAndCleaning:
         # Verbose
         driver = LogDriver(tmp_path, verbose=True)
         with patch.object(driver.console, "print") as mock_print:
-            driver.step(LogCategory.BUILD, "compiling")
-            driver.step_update(LogCategory.BUILD, "50%")
-            driver.step_done(LogCategory.BUILD, "finished")
-            driver.step(LogCategory.SERVER, "starting")
-            driver.step_fail(LogCategory.SERVER, "failed")
+            driver.start_stage(LogCategory.BUILD, "compiling")
+            driver.update_stage("50%")
+            driver.complete_stage("finished")
+            driver.start_stage(LogCategory.SERVER, "starting")
+            driver.fail_stage("failed")
             assert mock_print.call_count >= 5
         driver.shutdown()
 
@@ -386,10 +401,10 @@ class TestRetentionAndCleaning:
         driver2 = LogDriver(tmp_path, quiet=False, verbose=False)
         driver2.console = Console(force_terminal=False)
         with patch.object(driver2.console, "print") as mock_print2:
-            driver2.step(LogCategory.BUILD, "compiling non-term")
-            driver2.step_done(LogCategory.BUILD)
-            driver2.step(LogCategory.SERVER, "starting non-term")
-            driver2.step_fail(LogCategory.SERVER, "error non-term")
+            driver2.start_stage(LogCategory.BUILD, "compiling non-term")
+            driver2.complete_stage()
+            driver2.start_stage(LogCategory.SERVER, "starting non-term")
+            driver2.fail_stage("error non-term")
             assert mock_print2.call_count >= 4
         driver2.shutdown()
 
@@ -405,19 +420,20 @@ class TestRetentionAndCleaning:
             mock_live_inst = MagicMock()
             mock_live_cls.return_value = mock_live_inst
 
-            driver.step(LogCategory.NETWORK, "configuring")
+            driver.start_stage(LogCategory.NETWORK, "configuring")
             mock_live_cls.assert_called_once()
+            assert "get_renderable" in mock_live_cls.call_args[1]
             mock_live_inst.start.assert_called_once()
 
-            driver.step_update(LogCategory.NETWORK, "subnet ready")
-            mock_live_inst.update.assert_called()
+            driver.update_stage("subnet ready")
+            mock_live_inst.refresh.assert_called()
 
-            driver.step_done(LogCategory.NETWORK)
-            mock_live_inst.update.assert_called()
+            driver.complete_stage()
+            mock_live_inst.refresh.assert_called()
 
-            driver.step(LogCategory.BUILD, "compile")
-            driver.step_fail(LogCategory.BUILD, "error")
-            mock_live_inst.update.assert_called()
+            driver.start_stage(LogCategory.BUILD, "compile")
+            driver.fail_stage("error")
+            mock_live_inst.refresh.assert_called()
 
         driver.shutdown()
 
@@ -435,7 +451,58 @@ class TestRetentionAndCleaning:
         )
         assert res.returncode == 7
         assert "STEP 1/2" in res.stdout
-        assert driver._statuses["build"].failed is True
+        assert driver.stages[-1].failed is True
+        driver.shutdown()
+
+    def test_run_command_logged_output_streaming_updates_detail(self, tmp_path: Path, monkeypatch) -> None:
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+
+        driver = LogDriver(tmp_path, verbose=False)
+        st = driver.start_stage(LogCategory.BUILD, "compile task")
+
+        updates: list[str] = []
+        original_update = driver.update_stage
+
+        def tracking_update(detail: str) -> None:
+            updates.append(detail)
+            original_update(detail)
+
+        monkeypatch.setattr(driver, "update_stage", tracking_update)
+
+        script = (
+            "import sys\n"
+            "print('\\x1b[32mCompiling foo.c\\x1b[0m', flush=True)\n"
+            "print('Progress 50%\\rProgress 100%', flush=True)\n"
+        )
+        res = driver.run_command_logged(
+            [sys.executable, "-c", script],
+            category=LogCategory.BUILD,
+            label="compiler",
+        )
+        assert res.returncode == 0
+        assert "Compiling foo.c" in updates
+        assert "Progress 100%" in updates
+        driver.complete_stage()
+        assert st.completed is True
+        assert st.detail == ""  # detail is cleared on completion
+        driver.shutdown()
+
+    def test_render_stages_line_truncation(self, tmp_path: Path, monkeypatch) -> None:
+        import io
+
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+
+        driver = LogDriver(tmp_path)
+        driver.console = Console(file=io.StringIO(), width=50, no_color=True)
+        st = driver.start_stage(LogCategory.BUILD, "short label")
+        st.update("a" * 100)
+
+        rendered = driver._render_stages().plain
+        line = rendered.splitlines()[0]
+        assert len(line) <= 50
+        assert line.endswith("…")
         driver.shutdown()
 
     def test_prune_and_clean_edge_cases(self, tmp_path: Path, monkeypatch) -> None:
@@ -491,19 +558,20 @@ class TestRetentionAndCleaning:
 
 
 class TestConsoleLogHandlerRouting:
-    def test_logger_events_route_to_active_step_detail(self, tmp_path: Path, monkeypatch) -> None:
+    def test_logger_events_route_to_active_stage_detail(self, tmp_path: Path, monkeypatch) -> None:
         custom_state = tmp_path / "state"
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
 
         driver = LogDriver(tmp_path, quiet=False, verbose=False)
-        driver.step(LogCategory.SERVER, "Starting llama-server")
-        assert driver._statuses["server"].detail == ""
+        driver.start_stage(LogCategory.SERVER, "Starting llama-server")
+        assert driver.active_stage is not None
+        assert driver.active_stage.detail == ""
 
-        # Emitting logger.info on server category logger routes into active step detail
+        # Emitting logger.info on server category logger routes into active stage detail
         srv_logger = get_category_logger("test.server", LogCategory.SERVER)
         srv_logger.info("Allocated port 58210")
 
-        assert driver._statuses["server"].detail == "Allocated port 58210"
+        assert driver.active_stage.detail == "Allocated port 58210"
         driver.shutdown()
 
     def test_logger_warning_and_error_handling(self, tmp_path: Path, monkeypatch) -> None:
@@ -511,7 +579,7 @@ class TestConsoleLogHandlerRouting:
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
 
         driver = LogDriver(tmp_path, quiet=False, verbose=False)
-        driver.step(LogCategory.PROXY, "Starting proxy")
+        driver.start_stage(LogCategory.PROXY, "Starting proxy")
 
         with patch.object(driver, "_print") as mock_print:
             proxy_logger = get_category_logger("test.proxy", LogCategory.PROXY)
@@ -520,8 +588,8 @@ class TestConsoleLogHandlerRouting:
             assert "Certificate expires soon" in str(mock_print.call_args)
 
         proxy_logger.error("Port 8080 collision")
-        assert driver._statuses["proxy"].failed is True
-        assert driver._statuses["proxy"].detail == "Port 8080 collision"
+        assert driver.stages[-1].failed is True
+        assert driver.stages[-1].detail == "Port 8080 collision"
 
         driver.shutdown()
 
