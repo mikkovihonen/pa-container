@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from logging_driver import LogCategory, get_category_logger
-from network import _egress_truthy, load_project_config
+from network import load_project_config
 
 if TYPE_CHECKING:
     from config_types import SecurityConfig
@@ -26,75 +26,36 @@ FORBIDDEN_CONTAINER_DESTINATION_PREFIXES: tuple[str, ...] = (
     "/root",
 )
 
-DEFAULT_SECURITY_CONFIG: SecurityConfig = {
-    "read_only_git_hooks": True,
-    "blocked_mount_paths": [
-        "~/.ssh",
-        "~/.gnupg",
-        "~/.aws",
-        "~/.azure",
-        "~/.config/gcloud",
-        "~/.kube",
-        "~/.docker",
-        "/var/run/docker.sock",
-        "/var/run/podman/podman.sock",
-        "/etc/shadow",
-        "/etc/passwd",
-        "/etc/sudoers",
-        "/root",
-    ],
-    "blocked_ip_ranges": [
-        "127.0.0.0/8",
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "169.254.0.0/16",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10",
-    ],
-    "git_config_allowlist": [
-        "user.name",
-        "user.email",
-        "init.defaultBranch",
-        "pull.rebase",
-        "core.autocrlf",
-        "core.filemode",
-        "core.eol",
-        "commit.gpgSign",
-        "user.signingKey",
-        "gpg.format",
-        "gpg.ssh.program",
-        "tag.gpgSign",
-    ],
-}
-
 
 def read_security_config(config_dir: Path | None = None) -> SecurityConfig:
-    """Read the ``security`` section from config.yaml with fail-safe defaults."""
+    """Read the ``security`` section from config.yaml."""
     cfg = load_project_config(config_dir)
-    section = cfg.get("security") or {}
+    section = cfg.get("security")
+    if not isinstance(section, dict):
+        raise ValueError("Missing required 'security' configuration section in project config")
 
-    read_only_hooks = section.get("read_only_git_hooks")
-    if read_only_hooks is None:
-        read_only_hooks_val = DEFAULT_SECURITY_CONFIG["read_only_git_hooks"]
-    else:
-        read_only_hooks_val = _egress_truthy(read_only_hooks)
+    for key in ("read_only_git_hooks", "blocked_mount_paths", "blocked_ip_ranges", "git_config_allowlist"):
+        if key not in section:
+            raise ValueError(f"Missing required 'security.{key}' configuration in project config")
 
-    blocked_mounts = section.get("blocked_mount_paths")
+    read_only_hooks = section["read_only_git_hooks"]
+    if not isinstance(read_only_hooks, bool):
+        raise ValueError(f"Invalid 'security.read_only_git_hooks': expected bool, got {type(read_only_hooks).__name__}")
+
+    blocked_mounts = section["blocked_mount_paths"]
     if not isinstance(blocked_mounts, list):
-        blocked_mounts = DEFAULT_SECURITY_CONFIG["blocked_mount_paths"]
+        raise ValueError("Invalid 'security.blocked_mount_paths': expected list")
 
-    blocked_ips = section.get("blocked_ip_ranges")
+    blocked_ips = section["blocked_ip_ranges"]
     if not isinstance(blocked_ips, list):
-        blocked_ips = DEFAULT_SECURITY_CONFIG["blocked_ip_ranges"]
+        raise ValueError("Invalid 'security.blocked_ip_ranges': expected list")
 
-    git_allowlist = section.get("git_config_allowlist")
+    git_allowlist = section["git_config_allowlist"]
     if not isinstance(git_allowlist, list):
-        git_allowlist = DEFAULT_SECURITY_CONFIG["git_config_allowlist"]
+        raise ValueError("Invalid 'security.git_config_allowlist': expected list")
 
     return {
-        "read_only_git_hooks": read_only_hooks_val,
+        "read_only_git_hooks": read_only_hooks,
         "blocked_mount_paths": [str(p) for p in blocked_mounts],
         "blocked_ip_ranges": [str(ip) for ip in blocked_ips],
         "git_config_allowlist": [str(k) for k in git_allowlist],

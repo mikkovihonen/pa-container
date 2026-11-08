@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    import pytest
 
 sys.dont_write_bytecode = True
 
@@ -40,12 +44,10 @@ class TestParseDuration:
 
 
 class TestCliParser:
-    def test_default_command_is_run(self) -> None:
-        cmd, options = parse_cli_args([])
-        assert cmd == "run"
-        assert isinstance(options, RunOptions)
-        assert options.agent is None
-        assert options.container_argv == []
+    def test_missing_subcommand_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args([])
+        captured = capsys.readouterr()
+        assert "the following arguments are required: <command>" in captured.err
 
     def test_run_options_parsing(self) -> None:
         cmd, options = parse_cli_args(
@@ -65,7 +67,7 @@ class TestCliParser:
                 "--log-retention-launches",
                 "5",
                 "--open-browser",
-                "-v",
+                "--verbose",
                 "--log-level",
                 "DEBUG",
             ]
@@ -84,11 +86,16 @@ class TestCliParser:
         assert options.verbose is True
         assert options.log_level == "DEBUG"
 
-    def test_run_no_open_browser_flag(self) -> None:
-        cmd, options = parse_cli_args(["run", "--no-open-browser"])
+    def test_run_open_browser_flag(self) -> None:
+        cmd, options = parse_cli_args(["run", "--open-browser"])
         assert cmd == "run"
         assert isinstance(options, RunOptions)
-        assert options.open_browser is False
+        assert options.open_browser is True
+
+    def test_run_no_open_browser_flag_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args(["run", "--no-open-browser"])
+        captured = capsys.readouterr()
+        assert "unrecognized arguments: --no-open-browser" in captured.err
 
     def test_posix_passthrough_separator(self) -> None:
         cmd, options = parse_cli_args(
@@ -107,12 +114,10 @@ class TestCliParser:
         assert options.agent == "pi"
         assert options.container_argv == ["--help", "-c", "custom_arg"]
 
-    def test_implicit_run_with_flags(self) -> None:
-        cmd, options = parse_cli_args(["--agent", "claude", "--t3"])
-        assert cmd == "run"
-        assert isinstance(options, RunOptions)
-        assert options.agent == "claude"
-        assert options.t3 is True
+    def test_implicit_run_with_flags_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args(["--agent", "claude", "--t3"])
+        captured = capsys.readouterr()
+        assert "unrecognized arguments: --agent claude --t3" in captured.err
 
     def test_build_options_parsing(self) -> None:
         cmd, options = parse_cli_args(
@@ -130,7 +135,7 @@ class TestCliParser:
                 "--clean",
                 "--cmake-arg",
                 "-DFOO=1",
-                "-q",
+                "--quiet",
             ]
         )
         assert cmd == "build"
@@ -154,7 +159,7 @@ class TestCliParser:
         assert options.build_cache is True
 
     def test_logs_options_parsing(self) -> None:
-        cmd, options = parse_cli_args(["logs", "-f", "--category", "build", "--lines", "100"])
+        cmd, options = parse_cli_args(["logs", "--follow", "--category", "build", "--lines", "100"])
         assert cmd == "logs"
         assert isinstance(options, LogsOptions)
         assert options.action == "view"
@@ -376,7 +381,7 @@ class TestCliMain:
 
 class TestProxyCli:
     def test_proxy_options_parsing(self) -> None:
-        cmd, options = parse_cli_args(["proxy", "-a", "-o", "-u", "--json"])
+        cmd, options = parse_cli_args(["proxy", "--all", "--open", "--url", "--json"])
         assert cmd == "proxy"
         assert isinstance(options, ProxyOptions)
         assert options.all is True
@@ -384,11 +389,10 @@ class TestProxyCli:
         assert options.url is True
         assert options.json is True
 
-    def test_proxies_alias_parsing(self) -> None:
-        cmd, options = parse_cli_args(["proxies", "--all"])
-        assert cmd == "proxies"
-        assert isinstance(options, ProxyOptions)
-        assert options.all is True
+    def test_proxies_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args(["proxies", "--all"])
+        captured = capsys.readouterr()
+        assert "invalid choice: 'proxies'" in captured.err
 
     def test_proxy_active_project(self, tmp_path: Path, monkeypatch) -> None:
         from network import ActiveProxyInfo
@@ -559,7 +563,7 @@ class TestProxyCli:
 
 class TestDesktopCli:
     def test_desktop_options_parsing(self) -> None:
-        cmd, options = parse_cli_args(["desktop", "-a", "-o", "-u", "--vnc", "--json"])
+        cmd, options = parse_cli_args(["desktop", "--all", "--open", "--url", "--vnc", "--json"])
         assert cmd == "desktop"
         assert isinstance(options, DesktopOptions)
         assert options.all is True
@@ -568,23 +572,20 @@ class TestDesktopCli:
         assert options.vnc is True
         assert options.json is True
 
-    def test_desktops_alias_parsing(self) -> None:
-        cmd, options = parse_cli_args(["desktops", "--all"])
-        assert cmd == "desktops"
-        assert isinstance(options, DesktopOptions)
-        assert options.all is True
+    def test_desktops_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args(["desktops", "--all"])
+        captured = capsys.readouterr()
+        assert "invalid choice: 'desktops'" in captured.err
 
-    def test_vnc_alias_parsing(self) -> None:
-        cmd, options = parse_cli_args(["vnc", "--open"])
-        assert cmd == "vnc"
-        assert isinstance(options, DesktopOptions)
-        assert options.open is True
+    def test_vnc_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args(["vnc", "--open"])
+        captured = capsys.readouterr()
+        assert "invalid choice: 'vnc'" in captured.err
 
-    def test_gui_alias_parsing(self) -> None:
-        cmd, options = parse_cli_args(["gui", "--url"])
-        assert cmd == "gui"
-        assert isinstance(options, DesktopOptions)
-        assert options.url is True
+    def test_gui_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
+        parse_cli_args(["gui", "--url"])
+        captured = capsys.readouterr()
+        assert "invalid choice: 'gui'" in captured.err
 
     def test_desktop_active_project(self, tmp_path: Path, monkeypatch) -> None:
         from desktop import ActiveDesktopInfo

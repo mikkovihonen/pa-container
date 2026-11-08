@@ -3,12 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 from source_control import (
     mask_token,
@@ -58,7 +57,7 @@ class TestReadSourceControlConfig:
         assert cfg["setup_git_credentials"] is False
         assert cfg["providers"] == {"github": {"token": "ghp_123"}}
 
-    def test_string_boolean_settings(self, tmp_path: Path):
+    def test_string_boolean_settings_raise(self, tmp_path: Path):
         (tmp_path / "config.yaml").write_text(
             yaml.dump(
                 {
@@ -70,10 +69,8 @@ class TestReadSourceControlConfig:
                 }
             )
         )
-        cfg = read_source_control_config(tmp_path)
-        assert cfg["enabled"] is False
-        assert cfg["auto_detect_host_cli"] is True
-        assert cfg["setup_git_credentials"] is False
+        with pytest.raises(ValueError, match="Invalid 'source_control.enabled': expected bool"):
+            read_source_control_config(tmp_path)
 
 
 class TestResolveSourceControlTokens:
@@ -128,16 +125,16 @@ class TestResolveSourceControlTokens:
             tokens = resolve_source_control_tokens(tmp_path)
 
         assert tokens["GH_TOKEN"] == "gho_keyring_secret_token"
-        assert tokens["GITHUB_TOKEN"] == "gho_keyring_secret_token"
+        assert "GITHUB_TOKEN" not in tokens
         assert tokens["GITLAB_TOKEN"] == "glpat_keyring_secret_token"
-        assert tokens["GLAB_TOKEN"] == "glpat_keyring_secret_token"
+        assert "GLAB_TOKEN" not in tokens
         assert tokens["GITEA_TOKEN"] == "gtea_keyring_secret_token"
-        assert tokens["TEA_TOKEN"] == "gtea_keyring_secret_token"
+        assert "TEA_TOKEN" not in tokens
         assert tokens["AZURE_DEVOPS_EXT_PAT"] == "az_keyring_secret_token"
-        assert tokens["AZURE_DEVOPS_TOKEN"] == "az_keyring_secret_token"
+        assert "AZURE_DEVOPS_TOKEN" not in tokens
         assert tokens["BITBUCKET_TOKEN"] == "bitbucket_keyring_secret_token"
         assert tokens["GITCAFE_TOKEN"] == "cafe_keyring_secret_token"
-        assert tokens["CAFE_TOKEN"] == "cafe_keyring_secret_token"
+        assert "CAFE_TOKEN" not in tokens
 
     def test_resolves_custom_keyring_var(self, tmp_path: Path):
         (tmp_path / "config.yaml").write_text(
@@ -164,7 +161,7 @@ class TestResolveSourceControlTokens:
             tokens = resolve_source_control_tokens(tmp_path)
 
         assert tokens["GH_TOKEN"] == "gho_custom_keyring_token"
-        assert tokens["GITHUB_TOKEN"] == "gho_custom_keyring_token"
+        assert "GITHUB_TOKEN" not in tokens
 
     def test_resolves_custom_keyring_var_list(self, tmp_path: Path):
         (tmp_path / "config.yaml").write_text(
@@ -247,7 +244,7 @@ class TestResolveSourceControlTokens:
         ):
             tokens = resolve_source_control_tokens(tmp_path)
             assert tokens["GH_TOKEN"] == "gho_from_host_cli"
-            assert tokens["GITHUB_TOKEN"] == "gho_from_host_cli"
+            assert "GITHUB_TOKEN" not in tokens
 
     def test_probe_host_cli_helper(self):
         from source_control import _probe_host_cli

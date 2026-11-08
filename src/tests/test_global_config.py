@@ -11,14 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config_schema import SCHEMA_VERSION_MISMATCH, validate_global_config
 from config_types import GlobalConfig
-from global_config import ensure_global_config, load_global_config
+from global_config import ensure_global_config, init_global_config, load_global_config
 
 
 class TestGlobalConfigSeeding:
     def test_ensure_global_config_seeds_template(self, tmp_path: Path):
         repo_root = Path(__file__).resolve().parent.parent.parent
         target_dir = tmp_path / ".config" / "pa-container"
-        target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
+        target_file = init_global_config(config_dir=target_dir, repo_root=repo_root)
 
         assert target_file.exists()
         assert target_file == target_dir / "config.yaml"
@@ -27,22 +27,30 @@ class TestGlobalConfigSeeding:
         assert (target_dir / "chat-templates").is_dir()
 
         # Idempotent
-        again = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
+        again = init_global_config(config_dir=target_dir, repo_root=repo_root)
         assert again == target_file
+
+        # ensure_global_config succeeds now
+        assert ensure_global_config(config_dir=target_dir, repo_root=repo_root) == target_file
+
+    def test_ensure_global_config_fails_when_absent(self, tmp_path: Path):
+        target_dir = tmp_path / ".config" / "pa-container"
+        with pytest.raises(FileNotFoundError, match="Global configuration file not found"):
+            ensure_global_config(config_dir=target_dir)
 
     def test_ensure_global_config_missing_template_raises(self, tmp_path: Path):
         fake_repo = tmp_path / "fake_repo"
         fake_repo.mkdir()
         target_dir = tmp_path / ".config" / "pa-container"
         with pytest.raises(FileNotFoundError, match="Global configuration template not found"):
-            ensure_global_config(config_dir=target_dir, repo_root=fake_repo)
+            init_global_config(config_dir=target_dir, repo_root=fake_repo)
 
 
 class TestLoadGlobalConfig:
     def test_load_seeded_config(self, tmp_path: Path):
         repo_root = Path(__file__).resolve().parent.parent.parent
         target_dir = tmp_path / ".config" / "pa-container"
-        target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
+        target_file = init_global_config(config_dir=target_dir, repo_root=repo_root)
 
         cfg = load_global_config(config_file=target_file, repo_root=repo_root)
         assert isinstance(cfg, GlobalConfig)
@@ -60,54 +68,26 @@ class TestLoadGlobalConfig:
         assert cfg.logging.retention.max_days == 14
         assert cfg.logging.retention.max_launches == 10
 
-    def test_canonical_env_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_load_global_config_ignores_env_vars(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         repo_root = Path(__file__).resolve().parent.parent.parent
         target_dir = tmp_path / ".config" / "pa-container"
-        target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
+        target_file = init_global_config(config_dir=target_dir, repo_root=repo_root)
 
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
         monkeypatch.setenv("BRIDGE_INTERFACE", "br0")
         monkeypatch.setenv("PROXY_UPSTREAM_NETWORK", "custom_net")
-        monkeypatch.setenv("LLAMA_BIN", "/custom/bin/llama-server")
-        monkeypatch.setenv("LLAMA_BUILD_REPO", "https://github.com/custom/llama.cpp.git")
-        monkeypatch.setenv("LLAMA_BUILD_TAG", "b9999")
-        monkeypatch.setenv("LLAMA_BUILD_BACKEND", "cuda")
-        monkeypatch.setenv("LLAMA_BUILD_MINIMAL", "false")
-        monkeypatch.setenv("PA_IMAGE_TAG", "custom-agent:latest")
-        monkeypatch.setenv("PROXY_IMAGE_TAG", "custom-proxy:latest")
-        monkeypatch.setenv("BUILDER_IMAGE_TAG", "custom-builder:latest")
-        monkeypatch.setenv("BUILD_DNS", "8.8.8.8")
-        monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
-        monkeypatch.setenv("PA_MEMORY_PREFLIGHT", "0")
-        monkeypatch.setenv("NODE_SOURCE", "build")
-        monkeypatch.setenv("PA_PRUNE_DANGLING", "false")
-        monkeypatch.setenv("PA_PURGE_BUILD_CACHE", "true")
 
         cfg = load_global_config(config_file=target_file, repo_root=repo_root)
-        assert cfg.runtime.log_level == "DEBUG"
-        assert cfg.runtime.bridge_interface == "br0"
-        assert cfg.runtime.proxy_upstream_network == "custom_net"
-        assert cfg.llama.bin == "/custom/bin/llama-server"
-        assert cfg.llama.build.repo == "https://github.com/custom/llama.cpp.git"
-        assert cfg.llama.build.tag == "b9999"
-        assert cfg.llama.build.backend == "cuda"
-        assert cfg.llama.build.minimal is False
-        assert cfg.build.images.agent == "custom-agent:latest"
-        assert cfg.build.images.proxy == "custom-proxy:latest"
-        assert cfg.build.images.builder == "custom-builder:latest"
-        assert cfg.build.dns == "8.8.8.8"
-        assert cfg.build.python_optimize is False
-        assert cfg.build.memory_preflight is False
-        assert cfg.build.node_source == "build"
-        assert cfg.build.prune_dangling is False
-        assert cfg.build.purge_build_cache is True
+        # Environment variables do not silently override config file values
+        assert cfg.runtime.log_level == "INFO"
+        assert cfg.runtime.proxy_upstream_network == "podman"
 
 
 class TestValidateGlobalConfig:
     def test_valid_config(self, tmp_path: Path):
         repo_root = Path(__file__).resolve().parent.parent.parent
         target_dir = tmp_path / ".config" / "pa-container"
-        target_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
+        target_file = init_global_config(config_dir=target_dir, repo_root=repo_root)
 
         is_valid, errors, version = validate_global_config(target_file, repo_root=repo_root)
         assert is_valid is True

@@ -23,17 +23,13 @@ def test_available_agents():
 
 def test_get_agent_driver():
     assert isinstance(get_agent_driver("pi"), PiAgentDriver)
-    assert isinstance(get_agent_driver("default"), PiAgentDriver)
-    assert isinstance(get_agent_driver(), PiAgentDriver)
     assert isinstance(get_agent_driver("opencode"), OpenCodeDriver)
-    assert isinstance(get_agent_driver("open-code"), OpenCodeDriver)
     assert isinstance(get_agent_driver("antigravity"), AntigravityDriver)
-    assert isinstance(get_agent_driver("agy"), AntigravityDriver)
     assert isinstance(get_agent_driver("claude"), ClaudeDriver)
-    assert isinstance(get_agent_driver("claude-code"), ClaudeDriver)
 
-    with pytest.raises(ValueError, match="Unknown agent type: 'unknown'"):
-        get_agent_driver("unknown")
+    for invalid_agent in ("default", "open-code", "agy", "claude-code", "unknown", ""):
+        with pytest.raises(ValueError):
+            get_agent_driver(invalid_agent)
 
 
 def test_pi_driver_contracts(tmp_path):

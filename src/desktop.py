@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from config_types import DesktopConfig
@@ -20,101 +20,89 @@ from network import load_project_config, query_container_port
 
 logger = get_category_logger(__name__, LogCategory.DESKTOP)
 
-_DEFAULT_DESKTOP: DesktopConfig = {
-    "enabled": False,
-    "resolution": "1920x1080",
-    "compositor": "labwc",
-    "vnc": {
-        "enabled": True,
-        "port": "auto",
-        "expose": "localhost",
-    },
-    "novnc": {
-        "enabled": True,
-        "port": "auto",
-        "expose": "localhost",
-    },
-    "open_browser": False,
-    "gpu": {
-        "enabled": "auto",
-    },
-}
-
 
 def read_desktop_config(config_dir: Path | None = None) -> DesktopConfig:
-    """Read and sanitize the desktop configuration from project config.yaml."""
+    """Read and validate the desktop configuration from project config.yaml."""
     cfg = load_project_config(config_dir)
-    section: dict[str, Any] = cfg.get("desktop") or {}
+    section = cfg.get("desktop")
+    if not isinstance(section, dict):
+        raise ValueError("Missing required 'desktop' configuration section in project config")
 
-    raw_enabled = section.get("enabled", _DEFAULT_DESKTOP["enabled"])
-    if isinstance(raw_enabled, str):
-        enabled = raw_enabled.strip().lower() in ("true", "1", "yes", "on")
-    else:
-        enabled = bool(raw_enabled)
+    for key in ("enabled", "resolution", "compositor", "vnc", "novnc", "open_browser", "gpu"):
+        if key not in section:
+            raise ValueError(f"Missing required 'desktop.{key}' configuration in project config")
 
-    resolution = str(section.get("resolution", _DEFAULT_DESKTOP["resolution"])).strip()
+    enabled = section["enabled"]
+    if not isinstance(enabled, bool):
+        raise ValueError(f"Invalid 'desktop.enabled': expected bool, got {type(enabled).__name__}")
+
+    resolution = str(section["resolution"]).strip()
     if not re.match(r"^\d+x\d+$", resolution):
-        resolution = "1920x1080"
+        raise ValueError(f"Invalid 'desktop.resolution': expected WIDTHxHEIGHT format, got {resolution!r}")
 
-    compositor = str(section.get("compositor", _DEFAULT_DESKTOP["compositor"])).strip().lower()
+    compositor = str(section["compositor"]).strip().lower()
     if compositor not in ("labwc",):
-        compositor = "labwc"
+        raise ValueError(f"Invalid 'desktop.compositor': unsupported compositor {compositor!r}")
 
-    raw_open_browser = section.get("open_browser", _DEFAULT_DESKTOP["open_browser"])
-    if isinstance(raw_open_browser, str):
-        open_browser = raw_open_browser.strip().lower() in ("true", "1", "yes", "on")
-    else:
-        open_browser = bool(raw_open_browser)
+    open_browser = section["open_browser"]
+    if not isinstance(open_browser, bool):
+        raise ValueError(f"Invalid 'desktop.open_browser': expected bool, got {type(open_browser).__name__}")
 
     # VNC endpoint settings
-    vnc_sec = section.get("vnc")
-    raw_vnc: dict[str, Any] = vnc_sec if isinstance(vnc_sec, dict) else {}
-    raw_vnc_enabled = raw_vnc.get("enabled", True)
-    vnc_enabled = (
-        raw_vnc_enabled.strip().lower() in ("true", "1", "yes", "on")
-        if isinstance(raw_vnc_enabled, str)
-        else bool(raw_vnc_enabled)
-    )
-    raw_vnc_port = raw_vnc.get("port", "auto")
-    vnc_port: int | str = "auto"
-    if isinstance(raw_vnc_port, int) and 1 <= raw_vnc_port <= 65535:
-        vnc_port = raw_vnc_port
-    elif isinstance(raw_vnc_port, str) and raw_vnc_port.isdigit() and 1 <= int(raw_vnc_port) <= 65535:
-        vnc_port = int(raw_vnc_port)
-
-    vnc_expose = str(raw_vnc.get("expose", "localhost")).strip().lower()
+    vnc_sec = section["vnc"]
+    if not isinstance(vnc_sec, dict):
+        raise ValueError("Invalid 'desktop.vnc': expected mapping")
+    for k in ("enabled", "port", "expose"):
+        if k not in vnc_sec:
+            raise ValueError(f"Missing required 'desktop.vnc.{k}'")
+    vnc_enabled = vnc_sec["enabled"]
+    if not isinstance(vnc_enabled, bool):
+        raise ValueError("Invalid 'desktop.vnc.enabled': expected bool")
+    vnc_port = vnc_sec["port"]
+    if vnc_port != "auto":
+        try:
+            vnc_port = int(vnc_port)
+            if not (1 <= vnc_port <= 65535):
+                raise ValueError()
+        except ValueError, TypeError:
+            raise ValueError(
+                f"Invalid 'desktop.vnc.port': expected 'auto' or 1..65535, got {vnc_sec['port']!r}"
+            ) from None
+    vnc_expose = str(vnc_sec["expose"]).strip().lower()
     if vnc_expose not in ("localhost", "lan"):
-        vnc_expose = "localhost"
+        raise ValueError(f"Invalid 'desktop.vnc.expose': expected 'localhost' or 'lan', got {vnc_expose!r}")
 
     # noVNC endpoint settings
-    novnc_sec = section.get("novnc")
-    raw_novnc: dict[str, Any] = novnc_sec if isinstance(novnc_sec, dict) else {}
-    raw_novnc_enabled = raw_novnc.get("enabled", True)
-    novnc_enabled = (
-        raw_novnc_enabled.strip().lower() in ("true", "1", "yes", "on")
-        if isinstance(raw_novnc_enabled, str)
-        else bool(raw_novnc_enabled)
-    )
-    raw_novnc_port = raw_novnc.get("port", "auto")
-    novnc_port: int | str = "auto"
-    if isinstance(raw_novnc_port, int) and 1 <= raw_novnc_port <= 65535:
-        novnc_port = raw_novnc_port
-    elif isinstance(raw_novnc_port, str) and raw_novnc_port.isdigit() and 1 <= int(raw_novnc_port) <= 65535:
-        novnc_port = int(raw_novnc_port)
-
-    novnc_expose = str(raw_novnc.get("expose", "localhost")).strip().lower()
+    novnc_sec = section["novnc"]
+    if not isinstance(novnc_sec, dict):
+        raise ValueError("Invalid 'desktop.novnc': expected mapping")
+    for k in ("enabled", "port", "expose"):
+        if k not in novnc_sec:
+            raise ValueError(f"Missing required 'desktop.novnc.{k}'")
+    novnc_enabled = novnc_sec["enabled"]
+    if not isinstance(novnc_enabled, bool):
+        raise ValueError("Invalid 'desktop.novnc.enabled': expected bool")
+    novnc_port = novnc_sec["port"]
+    if novnc_port != "auto":
+        try:
+            novnc_port = int(novnc_port)
+            if not (1 <= novnc_port <= 65535):
+                raise ValueError()
+        except ValueError, TypeError:
+            raise ValueError(
+                f"Invalid 'desktop.novnc.port': expected 'auto' or 1..65535, got {novnc_sec['port']!r}"
+            ) from None
+    novnc_expose = str(novnc_sec["expose"]).strip().lower()
     if novnc_expose not in ("localhost", "lan"):
-        novnc_expose = "localhost"
+        raise ValueError(f"Invalid 'desktop.novnc.expose': expected 'localhost' or 'lan', got {novnc_expose!r}")
 
     # GPU settings
-    gpu_sec = section.get("gpu")
-    raw_gpu: dict[str, Any] = gpu_sec if isinstance(gpu_sec, dict) else {}
-    raw_gpu_enabled = raw_gpu.get("enabled", "auto")
-    if isinstance(raw_gpu_enabled, str):
-        val = raw_gpu_enabled.strip().lower()
-        gpu_enabled: bool | str = val in ("true", "1", "yes", "on") if val != "auto" else "auto"
-    else:
-        gpu_enabled = bool(raw_gpu_enabled)
+    gpu_sec = section["gpu"]
+    if not isinstance(gpu_sec, dict) or "enabled" not in gpu_sec:
+        raise ValueError("Invalid 'desktop.gpu': expected mapping with 'enabled'")
+    gpu_enabled = gpu_sec["enabled"]
+    if gpu_enabled not in ("auto", True, False):
+        raise ValueError(f"Invalid 'desktop.gpu.enabled': expected 'auto', true, or false, got {gpu_enabled!r}")
 
     return {
         "enabled": enabled,

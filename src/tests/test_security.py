@@ -1,27 +1,56 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from security import (
-    DEFAULT_SECURITY_CONFIG,
     is_ip_in_blocked_ranges,
     read_security_config,
     validate_mount_paths,
 )
+
+SAMPLE_BLOCKED_MOUNTS = [
+    "~/.ssh",
+    "~/.gnupg",
+    "~/.aws",
+    "~/.azure",
+    "~/.config/gcloud",
+    "~/.kube",
+    "~/.docker",
+    "/var/run/docker.sock",
+    "/var/run/podman/podman.sock",
+    "/etc/shadow",
+    "/etc/passwd",
+    "/etc/sudoers",
+    "/root",
+]
+
+SAMPLE_BLOCKED_IPS = [
+    "127.0.0.0/8",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+    "::1/128",
+    "fc00::/7",
+    "fe80::/10",
+]
 
 
 class TestReadSecurityConfig:
     def _write_config(self, tmp_path: Path, data: dict):
         (tmp_path / "config.yaml").write_text(yaml.dump(data))
 
-    def test_defaults_when_empty_or_missing(self, tmp_path: Path):
-        cfg = read_security_config(tmp_path)
-        assert cfg["read_only_git_hooks"] is True
-        assert cfg["blocked_mount_paths"] == DEFAULT_SECURITY_CONFIG["blocked_mount_paths"]
-        assert cfg["blocked_ip_ranges"] == DEFAULT_SECURITY_CONFIG["blocked_ip_ranges"]
-        assert cfg["git_config_allowlist"] == DEFAULT_SECURITY_CONFIG["git_config_allowlist"]
+    def test_missing_config_raises_file_not_found(self, tmp_path: Path):
+        with pytest.raises(FileNotFoundError):
+            read_security_config(tmp_path)
 
-    def test_custom_values_override_defaults(self, tmp_path: Path):
+    def test_missing_security_section_raises_value_error(self, tmp_path: Path):
+        self._write_config(tmp_path, {})
+        with pytest.raises(ValueError, match="Missing required 'security' configuration section"):
+            read_security_config(tmp_path)
+
+    def test_valid_security_config(self, tmp_path: Path):
         self._write_config(
             tmp_path,
             {
@@ -48,7 +77,7 @@ class TestValidateMountPaths:
             f"{safe_dir}:/home/agent/safe:ro",
             f"{tmp_path}/cache:/home/agent/cache",
         ]
-        errors = validate_mount_paths(mounts, DEFAULT_SECURITY_CONFIG["blocked_mount_paths"])
+        errors = validate_mount_paths(mounts, SAMPLE_BLOCKED_MOUNTS)
         assert errors == []
 
     def test_blocked_mount_paths_detected(self):
@@ -59,7 +88,7 @@ class TestValidateMountPaths:
             "/var/run/docker.sock:/var/run/docker.sock",
             "/etc/shadow:/home/agent/shadow:ro",
         ]
-        errors = validate_mount_paths(mounts, DEFAULT_SECURITY_CONFIG["blocked_mount_paths"])
+        errors = validate_mount_paths(mounts, SAMPLE_BLOCKED_MOUNTS)
         assert len(errors) == 4
         assert any("~/.ssh" in e for e in errors)
         assert any("/var/run/docker.sock" in e for e in errors)
@@ -75,7 +104,7 @@ class TestValidateMountPaths:
             f"{safe_file}:/usr/bin/bash:rw",
             f"{safe_file}:relative/path:ro",
         ]
-        errors = validate_mount_paths(mounts, DEFAULT_SECURITY_CONFIG["blocked_mount_paths"])
+        errors = validate_mount_paths(mounts, SAMPLE_BLOCKED_MOUNTS)
         assert len(errors) == 5
         assert any("/workspace/.pa-container" in e for e in errors)
         assert any("/workspace/.git/hooks" in e for e in errors)
@@ -86,7 +115,7 @@ class TestValidateMountPaths:
 
 class TestIsIpInBlockedRanges:
     def test_private_and_metadata_ips_are_blocked(self):
-        ranges = DEFAULT_SECURITY_CONFIG["blocked_ip_ranges"]
+        ranges = SAMPLE_BLOCKED_IPS
         assert is_ip_in_blocked_ranges("127.0.0.1", ranges)
         assert is_ip_in_blocked_ranges("10.1.2.3", ranges)
         assert is_ip_in_blocked_ranges("172.16.5.5", ranges)
@@ -96,7 +125,7 @@ class TestIsIpInBlockedRanges:
         assert is_ip_in_blocked_ranges("fe80::1", ranges)
 
     def test_public_ips_are_not_blocked(self):
-        ranges = DEFAULT_SECURITY_CONFIG["blocked_ip_ranges"]
+        ranges = SAMPLE_BLOCKED_IPS
         assert not is_ip_in_blocked_ranges("8.8.8.8", ranges)
         assert not is_ip_in_blocked_ranges("1.1.1.1", ranges)
         assert not is_ip_in_blocked_ranges("93.184.216.34", ranges)

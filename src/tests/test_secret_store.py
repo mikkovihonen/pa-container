@@ -10,10 +10,11 @@ sys.dont_write_bytecode = True
 """Unit tests for src/secret_store.py."""
 
 
-def test_resolve_secret_from_env(monkeypatch):
+def test_resolve_secret_ignores_env_var(monkeypatch):
     monkeypatch.setenv("TEST_KEY", "env_secret_123")
-    val = secret_store.resolve_secret("TEST_KEY")
-    assert val == "env_secret_123"
+    with patch("keyring.get_password", return_value="keyring_val"):
+        val = secret_store.resolve_secret("TEST_KEY")
+        assert val == "keyring_val"
 
 
 def test_resolve_secret_from_keyring(monkeypatch):

@@ -128,6 +128,7 @@ class TestComputeImageHash:
         assert result is None
 
     def test_tools_inclusion_changes_hash(self, tmp_path):
+        desktop_block = "desktop:\n  enabled: false\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
         repo = tmp_path / "repo"
         repo.mkdir()
         cfg_dir = repo / ".pa-container"
@@ -135,11 +136,11 @@ class TestComputeImageHash:
         hash_none = images.compute_image_hash(repo)
         assert hash_none is not None
 
-        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go']\n")
+        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go']\n" + desktop_block)
         hash_go = images.compute_image_hash(repo)
         assert hash_go != hash_none
 
-        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go', 'rust']\n")
+        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go', 'rust']\n" + desktop_block)
         hash_go_rust = images.compute_image_hash(repo)
         assert hash_go_rust != hash_go
 
@@ -174,6 +175,7 @@ class TestComputeImageHash:
         assert images.read_project_tools(repo, extra_tools=["opencode"]) == ["claude-code", "opencode", "pi"]
 
     def test_resolve_agent_image_with_tools_only(self, tmp_path):
+        desktop_block = "desktop:\n  enabled: false\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
         repo = tmp_path / "repo"
         repo.mkdir()
         tag, is_project = images.resolve_agent_image(repo)
@@ -185,7 +187,7 @@ class TestComputeImageHash:
 
         cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go']\n")
+        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go']\n" + desktop_block)
         tag, is_project = images.resolve_agent_image(repo)
         assert is_project is True
         assert "pa-container-project-" in tag
@@ -407,7 +409,8 @@ class TestResolveAgentImage:
     def test_resolve_agent_image_with_desktop_enabled(self, tmp_path):
         cfg_dir = tmp_path / ".pa-container"
         cfg_dir.mkdir(parents=True, exist_ok=True)
-        (cfg_dir / "config.yaml").write_text("desktop:\n  enabled: true\n")
+        desktop_block = "desktop:\n  enabled: true\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
+        (cfg_dir / "config.yaml").write_text(desktop_block)
         pa_agent = tmp_path / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
         (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
@@ -424,10 +427,13 @@ class TestResolveAgentImage:
         (cfg_dir / "dependencies" / "root").mkdir(parents=True, exist_ok=True)
         (cfg_dir / "dependencies" / "root" / "commands.sh").write_text("echo test")
 
-        (cfg_dir / "config.yaml").write_text("desktop:\n  enabled: false\n")
+        desktop_off = "desktop:\n  enabled: false\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
+        desktop_on = "desktop:\n  enabled: true\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
+
+        (cfg_dir / "config.yaml").write_text(desktop_off)
         hash_without = images.compute_image_hash(tmp_path, repo_root=tmp_path)
 
-        (cfg_dir / "config.yaml").write_text("desktop:\n  enabled: true\n")
+        (cfg_dir / "config.yaml").write_text(desktop_on)
         hash_with = images.compute_image_hash(tmp_path, repo_root=tmp_path)
 
         assert hash_without is not None

@@ -51,9 +51,9 @@ class RunOptions(GlobalCliOptions):
     t3_tunnel: str | None = None
     t3_tunnel_domain: str | None = None
     t3_tunnel_quick: bool = False
-    t3_tunnel_runner: str = "auto"
-    t3_tunnel_keyring_account: str = "CLOUDFLARE_TUNNEL_TOKEN"
-    t3_tunnel_tailscale_mode: str = "serve"
+    t3_tunnel_runner: str | None = None
+    t3_tunnel_keyring_account: str | None = None
+    t3_tunnel_tailscale_mode: str | None = None
     t3_public_url: str | None = None
     log_retention_days: int | None = None
     log_retention_launches: int | None = None
@@ -63,7 +63,7 @@ class RunOptions(GlobalCliOptions):
 
 @dataclass
 class ProxyOptions(GlobalCliOptions):
-    """Options for the 'proxy' / 'proxies' subcommand."""
+    """Options for the 'proxy' subcommand."""
 
     all: bool = False
     open: bool = False
@@ -73,13 +73,20 @@ class ProxyOptions(GlobalCliOptions):
 
 @dataclass
 class DesktopOptions(GlobalCliOptions):
-    """Options for the 'desktop' / 'desktops' subcommand."""
+    """Options for the 'desktop' subcommand."""
 
     all: bool = False
     open: bool = False
     url: bool = False
     vnc: bool = False
     json: bool = False
+
+
+@dataclass
+class InitOptions(GlobalCliOptions):
+    """Options for the 'init' subcommand."""
+
+    global_config: bool = False
 
 
 @dataclass
@@ -116,7 +123,7 @@ class LogsOptions(GlobalCliOptions):
     build: bool = False
     path: bool = False
     list: bool = False
-    lines: int = 50
+    lines: int | None = None
     # Clean sub-options
     all_projects: bool = False
     older_than: str | None = None
@@ -147,14 +154,12 @@ def create_parser() -> argparse.ArgumentParser:
     # Shared global flags inherited across root and subcommands
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument(
-        "-v",
         "--verbose",
         action="store_true",
         default=argparse.SUPPRESS,
         help="Enable verbose streaming output to terminal.",
     )
     common_parser.add_argument(
-        "-q",
         "--quiet",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -186,14 +191,13 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "-V",
         "--version",
         action="version",
         version=f"%(prog)s {version}",
         help="Show program version and exit.",
     )
 
-    subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+    subparsers = parser.add_subparsers(dest="command", metavar="<command>", required=True)
 
     # ─── 'run' subcommand ────────────────────────────────────────────────────
     run_parser = subparsers.add_parser(
@@ -237,18 +241,18 @@ def create_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--t3-tunnel-runner",
         choices=["auto", "container", "host"],
-        default="auto",
-        help="Runner environment for cloudflared tunnel daemon (default: auto).",
+        default=None,
+        help="Runner environment for cloudflared tunnel daemon.",
     )
     run_parser.add_argument(
         "--t3-tunnel-keyring-account",
-        default="CLOUDFLARE_TUNNEL_TOKEN",
+        default=None,
         help="OS keyring credential account holding the Cloudflare tunnel token.",
     )
     run_parser.add_argument(
         "--t3-tunnel-tailscale-mode",
         choices=["serve", "funnel"],
-        default="serve",
+        default=None,
         help="Tailscale exposure mode: 'serve' (tailnet-only) or 'funnel' (public internet).",
     )
     run_parser.add_argument(
@@ -267,7 +271,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--open-browser",
-        action=argparse.BooleanOptionalAction,
+        action="store_true",
         default=None,
         help="Automatically open mitmweb UI in the default web browser on launch.",
     )
@@ -355,7 +359,6 @@ def create_parser() -> argparse.ArgumentParser:
         description="Manage and view per-project execution and build logs.",
     )
     logs_parser.add_argument(
-        "-f",
         "--follow",
         action="store_true",
         help="Follow active log file in real time (similar to tail -f).",
@@ -380,11 +383,10 @@ def create_parser() -> argparse.ArgumentParser:
         help="List all log files for this project with sizes and modification times.",
     )
     logs_parser.add_argument(
-        "-n",
         "--lines",
         type=int,
-        default=50,
-        help="Number of lines to display from the log tail (default: 50).",
+        default=None,
+        help="Number of lines to display from the log tail.",
     )
 
     logs_subparsers = logs_parser.add_subparsers(dest="logs_subcommand")
@@ -403,34 +405,29 @@ def create_parser() -> argparse.ArgumentParser:
         help="Purge logs older than duration (e.g. '7d', '24h', '30m').",
     )
     clean_logs_parser.add_argument(
-        "-f",
         "--force",
         action="store_true",
         help="Skip interactive confirmation before deleting files.",
     )
 
-    # ─── 'proxy' / 'proxies' subcommand ───────────────────────────────────────
+    # ─── 'proxy' subcommand ──────────────────────────────────────────────────
     proxy_parser = subparsers.add_parser(
         "proxy",
-        aliases=["proxies"],
         parents=[common_parser],
         help="Inspect active proxy containers and mitmweb UI endpoints.",
         description="Query active proxy containers for this project or globally, showing clickable links and status.",
     )
     proxy_parser.add_argument(
-        "-a",
         "--all",
         action="store_true",
         help="List all active proxy containers across all projects.",
     )
     proxy_parser.add_argument(
-        "-o",
         "--open",
         action="store_true",
         help="Open the mitmweb UI in the default OS web browser.",
     )
     proxy_parser.add_argument(
-        "-u",
         "--url",
         action="store_true",
         help="Print only the mitmweb URL (for shell scripts or piping).",
@@ -441,28 +438,24 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output proxy metadata in JSON format.",
     )
 
-    # ─── 'desktop' / 'desktops' subcommand ──────────────────────────────────
+    # ─── 'desktop' subcommand ────────────────────────────────────────────────
     desktop_parser = subparsers.add_parser(
         "desktop",
-        aliases=["desktops", "vnc", "gui"],
         parents=[common_parser],
         help="Inspect active virtual desktop containers, noVNC web UIs, and VNC endpoints.",
         description="Query active virtual desktop sessions for this project or globally, showing clickable links and status.",
     )
     desktop_parser.add_argument(
-        "-a",
         "--all",
         action="store_true",
         help="List all active virtual desktop containers across all projects.",
     )
     desktop_parser.add_argument(
-        "-o",
         "--open",
         action="store_true",
         help="Open the noVNC web UI in the default OS web browser.",
     )
     desktop_parser.add_argument(
-        "-u",
         "--url",
         action="store_true",
         help="Print only the noVNC web UI URL (for shell scripts or piping).",
@@ -476,6 +469,20 @@ def create_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Output virtual desktop metadata in JSON format.",
+    )
+
+    # ─── 'init' subcommand ───────────────────────────────────────────────────
+    init_parser = subparsers.add_parser(
+        "init",
+        parents=[common_parser],
+        help="Initialize project or global pa-container configuration from templates.",
+        description="Seed configuration files from templates into the workspace or user config directory.",
+    )
+    init_parser.add_argument(
+        "--global",
+        dest="global_config",
+        action="store_true",
+        help="Initialize global configuration (~/.config/pa-container/config.yaml) instead of local project.",
     )
 
     return parser
@@ -510,22 +517,13 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             i += 1
     raw_args = normalized_args
 
-    # Check for subcommand presence
-    subcommands = {"run", "build", "clean", "logs", "proxy", "proxies", "desktop", "desktops", "vnc", "gui"}
-    help_or_version = {"-h", "--help", "-V", "--version"}
-    if not any(cmd in raw_args for cmd in subcommands) and not (raw_args and raw_args[0] in help_or_version):
-        raw_args.insert(0, "run")
-
     parser = create_parser()
     args, unknown = parser.parse_known_args(raw_args)
 
-    cmd = getattr(args, "command", None) or "run"
+    if unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
-    # Any unknown arguments on 'run' get forwarded to passthrough
-    if cmd == "run" and unknown:
-        passthrough_args.extend(unknown)
-    elif unknown:
-        parser.error(f"Unrecognized arguments: {' '.join(unknown)}")
+    cmd = args.command
 
     # Global options
     verbose: bool = bool(getattr(args, "verbose", False))
@@ -548,9 +546,9 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             t3_tunnel=getattr(args, "t3_tunnel", None),
             t3_tunnel_domain=getattr(args, "t3_tunnel_domain", None),
             t3_tunnel_quick=getattr(args, "t3_tunnel_quick", False),
-            t3_tunnel_runner=getattr(args, "t3_tunnel_runner", "auto"),
-            t3_tunnel_keyring_account=getattr(args, "t3_tunnel_keyring_account", "CLOUDFLARE_TUNNEL_TOKEN"),
-            t3_tunnel_tailscale_mode=getattr(args, "t3_tunnel_tailscale_mode", "serve"),
+            t3_tunnel_runner=getattr(args, "t3_tunnel_runner", None),
+            t3_tunnel_keyring_account=getattr(args, "t3_tunnel_keyring_account", None),
+            t3_tunnel_tailscale_mode=getattr(args, "t3_tunnel_tailscale_mode", None),
             t3_public_url=getattr(args, "t3_public_url", None),
             log_retention_days=getattr(args, "log_retention_days", None),
             log_retention_launches=getattr(args, "log_retention_launches", None),
@@ -605,14 +603,14 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             build=getattr(args, "build", False),
             path=getattr(args, "path", False),
             list=getattr(args, "list", False),
-            lines=getattr(args, "lines", 50),
+            lines=getattr(args, "lines", None),
             all_projects=getattr(args, "all_projects", False),
             older_than=getattr(args, "older_than", None),
             force=getattr(args, "force", False),
         )
         return "logs", l_options
 
-    if cmd in ("proxy", "proxies"):
+    if cmd == "proxy":
         p_options = ProxyOptions(
             verbose=verbose,
             quiet=quiet,
@@ -626,7 +624,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
         )
         return cmd, p_options
 
-    if cmd in ("desktop", "desktops", "vnc", "gui"):
+    if cmd == "desktop":
         d_options = DesktopOptions(
             verbose=verbose,
             quiet=quiet,
@@ -640,6 +638,17 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             json=bool(getattr(args, "json", False)),
         )
         return cmd, d_options
+
+    if cmd == "init":
+        i_options = InitOptions(
+            verbose=verbose,
+            quiet=quiet,
+            log_level=log_level,
+            log_file=log_file,
+            no_color=no_color,
+            global_config=bool(getattr(args, "global_config", False)),
+        )
+        return cmd, i_options
 
     return cmd, args
 
@@ -998,7 +1007,7 @@ def handle_logs_command(options: LogsOptions) -> int:
             if options.category:
                 cat_tag = f"[{options.category}]"
                 lines = [line_text for line_text in lines if cat_tag in line_text]
-            tail_lines = lines[-options.lines :]
+            tail_lines = lines[-options.lines :] if options.lines is not None else lines
             for line in tail_lines:
                 console.print(line)
         except OSError as e:
@@ -1008,19 +1017,39 @@ def handle_logs_command(options: LogsOptions) -> int:
     return 0
 
 
+def handle_init_command(options: InitOptions) -> int:
+    """Initialize configuration from templates."""
+    console = Console(stderr=False)
+    if options.global_config:
+        from global_config import init_global_config
+
+        target = init_global_config()
+        console.print(f"[green]Initialized global configuration at {target}[/green]")
+    else:
+        from project import init_project_config
+
+        target = init_project_config()
+        console.print(f"[green]Initialized project configuration at {target}[/green]")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Unified CLI dispatcher."""
     cmd, options = parse_cli_args(argv)
+
+    if cmd == "init":
+        sys.exit(handle_init_command(options))
+        return
 
     if cmd == "logs":
         sys.exit(handle_logs_command(options))
         return
 
-    if cmd in ("proxy", "proxies"):
+    if cmd == "proxy":
         sys.exit(handle_proxy_command(options))
         return
 
-    if cmd in ("desktop", "desktops", "vnc", "gui"):
+    if cmd == "desktop":
         sys.exit(handle_desktop_command(options))
         return
 

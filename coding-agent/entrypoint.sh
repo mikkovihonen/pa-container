@@ -248,13 +248,13 @@ exec gosu agent bash -c '
     fi
 
     # ─── Source control credential helpers (SETUP_GIT_CREDENTIALS) ────────────
-    if [ "${SETUP_GIT_CREDENTIALS:-true}" = "true" ]; then
-        if [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; then
+    if [ "${SETUP_GIT_CREDENTIALS}" = "true" ]; then
+        if [ -n "${GH_TOKEN}" ]; then
             if command -v gh >/dev/null 2>&1; then
                 gh auth setup-git >/dev/null 2>&1 || true
             fi
         fi
-        if [ -n "${GITLAB_TOKEN:-}" ] || [ -n "${GLAB_TOKEN:-}" ]; then
+        if [ -n "${GITLAB_TOKEN}" ]; then
             if command -v glab >/dev/null 2>&1; then
                 glab auth setup-git >/dev/null 2>&1 || true
             fi
@@ -272,9 +272,9 @@ exec gosu agent bash -c '
             exit 1
         fi
         echo "=================================================================="
-        echo "  Starting T3 Code server for ${PA_CONTAINER_AGENT:-pi} inside pa-container..."
+        echo "  Starting T3 Code server for ${PA_CONTAINER_AGENT} inside pa-container..."
         echo "  Web UI: https://t3.codes"
-        if [ -n "${T3_PUBLIC_URL:-}" ]; then
+        if [ -n "${T3_PUBLIC_URL}" ]; then
             echo "  Tunnel URL: ${T3_PUBLIC_URL}"
         fi
         echo "=================================================================="
@@ -282,9 +282,9 @@ exec gosu agent bash -c '
         if [ -f "$_shim" ]; then
             export NODE_OPTIONS="${NODE_OPTIONS:+${NODE_OPTIONS} }--require ${_shim}"
         fi
-        export T3_ADVERTISE_HOST="${T3_ADVERTISE_HOST:-localhost}"
+        export T3_ADVERTISE_HOST="${T3_ADVERTISE_HOST}"
         extra_args=()
-        if [ "${T3_LAN:-}" = "true" ] || [ "${T3CODE_LAN:-}" = "true" ]; then
+        if [ "${T3_LAN}" = "true" ]; then
             extra_args+=("--lan")
         fi
 
@@ -294,20 +294,24 @@ exec gosu agent bash -c '
             node "$_seed_script" 2>/dev/null || true
         fi
 
-        exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
+        exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT}" "${extra_args[@]}" "$@"
     else
-        case "${PA_CONTAINER_AGENT:-pi}" in
-            opencode|open-code)
+        case "${PA_CONTAINER_AGENT}" in
+            pi)
+                exec pi "$@"
+                ;;
+            opencode)
                 exec opencode "$@"
                 ;;
-            antigravity|agy)
+            antigravity)
                 exec agy "$@"
                 ;;
-            claude|claude-code)
+            claude)
                 exec claude "$@"
                 ;;
             *)
-                exec pi "$@"
+                echo "ERROR: Unknown agent '${PA_CONTAINER_AGENT}'. Supported agents: pi, opencode, antigravity, claude" >&2
+                exit 1
                 ;;
         esac
     fi

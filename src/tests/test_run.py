@@ -642,62 +642,28 @@ class TestT3AdvertiseHostResolution:
 
 
 class TestOpenBrowserResolution:
-    def test_cli_flag_overrides(self, tmp_path, monkeypatch):
+    def test_cli_flag_overrides(self, tmp_path):
         import run
         from cli import RunOptions
 
-        monkeypatch.delenv("PA_CONTAINER_OPEN_BROWSER", raising=False)
-        (tmp_path / "config.yaml").write_text("proxy:\n  open_browser: false\n")
+        (tmp_path / "config.yaml").write_text(
+            "proxy:\n  expose_ui: localhost\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: false\n"
+        )
 
         options = RunOptions(open_browser=True)
         proxy_cfg = run.read_proxy_config(tmp_path)
-        eff = (
-            options.open_browser
-            if options.open_browser is not None
-            else (
-                (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                if "PA_CONTAINER_OPEN_BROWSER" in os.environ
-                else (proxy_cfg.get("open_browser", False) or getattr(run.global_config.runtime, "open_browser", False))
-            )
-        )
+        eff = options.open_browser if options.open_browser is not None else proxy_cfg["open_browser"]
         assert eff is True
 
-    def test_env_var_overrides(self, tmp_path, monkeypatch):
+    def test_project_config_used_when_no_cli(self, tmp_path):
         import run
         from cli import RunOptions
 
-        monkeypatch.setenv("PA_CONTAINER_OPEN_BROWSER", "true")
-        (tmp_path / "config.yaml").write_text("proxy:\n  open_browser: false\n")
+        (tmp_path / "config.yaml").write_text(
+            "proxy:\n  expose_ui: localhost\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: true\n"
+        )
 
         options = RunOptions(open_browser=None)
         proxy_cfg = run.read_proxy_config(tmp_path)
-        eff = (
-            options.open_browser
-            if options.open_browser is not None
-            else (
-                (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                if "PA_CONTAINER_OPEN_BROWSER" in os.environ
-                else (proxy_cfg.get("open_browser", False) or getattr(run.global_config.runtime, "open_browser", False))
-            )
-        )
-        assert eff is True
-
-    def test_project_config_used_when_no_cli_or_env(self, tmp_path, monkeypatch):
-        import run
-        from cli import RunOptions
-
-        monkeypatch.delenv("PA_CONTAINER_OPEN_BROWSER", raising=False)
-        (tmp_path / "config.yaml").write_text("proxy:\n  open_browser: true\n")
-
-        options = RunOptions(open_browser=None)
-        proxy_cfg = run.read_proxy_config(tmp_path)
-        eff = (
-            options.open_browser
-            if options.open_browser is not None
-            else (
-                (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                if "PA_CONTAINER_OPEN_BROWSER" in os.environ
-                else (proxy_cfg.get("open_browser", False) or getattr(run.global_config.runtime, "open_browser", False))
-            )
-        )
+        eff = options.open_browser if options.open_browser is not None else proxy_cfg["open_browser"]
         assert eff is True

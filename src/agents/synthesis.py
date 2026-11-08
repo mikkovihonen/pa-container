@@ -31,14 +31,10 @@ and `~/.config/pa-container/gateways/`.
 
 
 def resolve_models_file(pa_container_dir: Path) -> Path | None:
-    """Find the project models configuration file (.pa-container/models.yaml or models.yml)."""
-    yaml_candidates = (
-        pa_container_dir / "models.yaml",
-        pa_container_dir / "models.yml",
-    )
-    for candidate in yaml_candidates:
-        if candidate.is_file():
-            return candidate
+    """Find the project models configuration file (.pa-container/models.yaml)."""
+    candidate = pa_container_dir / "models.yaml"
+    if candidate.is_file():
+        return candidate
 
     return None
 
@@ -72,9 +68,12 @@ def extract_models_from_yaml(
             provider_name = model_id
             custom_url = None
         elif isinstance(item, dict):
-            model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
-            provider_name = str(item.get("provider") or item.get("name") or model_id).strip()
-            custom_url = item.get("baseUrl") or item.get("base_url")
+            raw_id = item.get("id")
+            if not raw_id or not isinstance(raw_id, str):
+                raise ValueError(f"Invalid models.yaml entry {item!r}: 'id' must be a non-empty string")
+            model_id = raw_id.strip()
+            provider_name = str(item.get("provider") or model_id).strip()
+            custom_url = item.get("baseUrl")
         else:
             continue
 
@@ -130,9 +129,8 @@ def extract_models_from_yaml(
             }
             continue
 
-        logger.warning(
-            f"Model or gateway '{model_id}' listed in models.yaml allowlist not found "
-            f"under registry directories; skipping."
+        raise ValueError(
+            f"Model or gateway '{model_id}' listed in models.yaml allowlist not found under registry directories."
         )
 
     synthetic_data = {"providers": providers}

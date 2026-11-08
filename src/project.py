@@ -45,8 +45,8 @@ def project_scope(project_dir: Path) -> tuple[str, str]:
     return f"pi-proxy-{key}", f"pi-isolated-net-{key}"
 
 
-def ensure_project_config(project_dir: Path | None = None, repo_root: Path | None = None) -> Path:
-    """Seed the per-project ``.pa-container`` config from the repo template if absent.
+def init_project_config(project_dir: Path | None = None, repo_root: Path | None = None) -> Path:
+    """Explicitly seed the per-project ``.pa-container`` config from the repo template.
 
     Seeds ``{project_dir}/.pa-container`` from ``{repo_root}/coding-agent/default/project``:
     the ``agents/`` subtree plus ``config.yaml``, ``models.yaml``, and the proxy
@@ -62,6 +62,7 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
         raise FileNotFoundError(f"Project config template not found: {template_root}")
 
     project_root = p_dir / ".pa-container"
+    project_root.mkdir(parents=True, exist_ok=True)
 
     agents_template_root = template_root / "agents"
     agents_project_root = project_root / "agents"
@@ -89,6 +90,24 @@ def ensure_project_config(project_dir: Path | None = None, repo_root: Path | Non
             if src_dir.is_dir() and not dst_dir.exists():
                 logger.info(f"Seeding {dst_dir} from {src_dir}.")
                 shutil.copytree(src_dir, dst_dir)
+
+    return project_root
+
+
+def ensure_project_config(project_dir: Path | None = None, repo_root: Path | None = None) -> Path:
+    """Verify that per-project ``.pa-container`` exists and is initialized.
+
+    Returns the project configuration directory (``{project_dir}/.pa-container``).
+    Raises FileNotFoundError if absent.
+    """
+    p_dir = project_dir if project_dir is not None else PROJECT_DIR
+    project_root = p_dir / ".pa-container"
+    config_file = project_root / "config.yaml"
+    if not project_root.is_dir() or not config_file.is_file():
+        raise FileNotFoundError(
+            f"Project configuration not found at {config_file}. "
+            "Initialize the project with 'pa-container init' or configure .pa-container/config.yaml."
+        )
 
     return project_root
 

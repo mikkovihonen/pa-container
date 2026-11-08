@@ -8,7 +8,7 @@
 # Staging (rather than installing into the builder's own /usr/local) is what keeps
 # the toolchains out of the shipped image: Go, Rust, the source trees and their
 # build caches add ~3 GB that never leaves this image.
-PA_STAGE="${PA_STAGE:-/out}"
+PA_STAGE="${PA_STAGE}"
 
 # ─── Architecture ────────────────────────────────────────────────────────────
 # Every download below is per-architecture. Getting it wrong is not caught until

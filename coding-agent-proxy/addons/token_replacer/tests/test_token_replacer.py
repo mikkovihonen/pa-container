@@ -188,10 +188,9 @@ class TestApplyStrategy:
         parsed = re.match(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", result)
         assert parsed is not None
 
-    def test_unknown_fallback(self):
-        # Unknown strategy falls back to static with replacement_value
-        result = _apply_strategy("secret", "bogus", "REPLACED")
-        assert result == "REPLACED"
+    def test_unknown_strategy_raises(self):
+        with pytest.raises(ValueError, match="Unknown replacement strategy 'bogus'"):
+            _apply_strategy("secret", "bogus", "REPLACED")
 
 
 # ---------------------------------------------------------------------------

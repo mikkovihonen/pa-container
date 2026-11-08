@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
 
 sys.dont_write_bytecode = True
 
@@ -33,8 +31,8 @@ def get_repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def ensure_global_config(config_dir: Path | None = None, repo_root: Path | None = None) -> Path:
-    """Ensure global ~/.config/pa-container/config.yaml exists, seeding from template if absent.
+def init_global_config(config_dir: Path | None = None, repo_root: Path | None = None) -> Path:
+    """Explicitly seed global ~/.config/pa-container/config.yaml from template.
 
     Also ensures registry directories (models, gateways, chat-templates) exist.
     """
@@ -47,12 +45,11 @@ def ensure_global_config(config_dir: Path | None = None, repo_root: Path | None 
     (target_dir / "gateways").mkdir(parents=True, exist_ok=True)
     (target_dir / "chat-templates").mkdir(parents=True, exist_ok=True)
 
-    if not target_file.exists():
-        template_file = r_root / "coding-agent" / "default" / "global" / "config.yaml"
-        if not template_file.is_file():
-            raise FileNotFoundError(f"Global configuration template not found: {template_file}")
-        logger.info(f"Seeding global configuration: {target_file} from {template_file}")
-        shutil.copy2(template_file, target_file)
+    template_file = r_root / "coding-agent" / "default" / "global" / "config.yaml"
+    if not template_file.is_file():
+        raise FileNotFoundError(f"Global configuration template not found: {template_file}")
+    logger.info(f"Seeding global configuration: {target_file} from {template_file}")
+    shutil.copy2(template_file, target_file)
 
     try:
         from registry import seed_default_models
@@ -64,14 +61,18 @@ def ensure_global_config(config_dir: Path | None = None, repo_root: Path | None 
     return target_file
 
 
-def _parse_bool(val: Any) -> bool:
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, (int, float)):
-        return bool(val)
-    if isinstance(val, str):
-        return val.strip().lower() not in ("0", "false", "no", "off", "")
-    return bool(val)
+def ensure_global_config(config_dir: Path | None = None, repo_root: Path | None = None) -> Path:
+    """Verify that global configuration exists. Fails hard if absent."""
+    target_dir = config_dir if config_dir is not None else DEFAULT_GLOBAL_CONFIG_DIR
+    target_file = target_dir / "config.yaml"
+
+    if not target_file.is_file():
+        raise FileNotFoundError(
+            f"Global configuration file not found at {target_file}. "
+            "Initialize with 'pa-container init --global' or create ~/.config/pa-container/config.yaml."
+        )
+
+    return target_file
 
 
 def load_global_config(config_file: Path | None = None, repo_root: Path | None = None) -> GlobalConfig:
@@ -93,79 +94,65 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
         raise ValueError(f"Global configuration must be a YAML mapping: {cfg_file}")
 
     # Runtime section
-    raw_rt = data.get("runtime", {})
+    raw_rt = data["runtime"]
     runtime_cfg = RuntimeGlobalConfig(
-        log_level=os.environ.get("LOG_LEVEL") or str(raw_rt.get("log_level", "INFO")),
-        bridge_interface=os.environ.get("BRIDGE_INTERFACE") or raw_rt.get("bridge_interface"),
-        proxy_upstream_network=os.environ.get("PROXY_UPSTREAM_NETWORK")
-        or str(raw_rt.get("proxy_upstream_network", "podman")),
-        open_browser=_parse_bool(os.environ.get("PA_CONTAINER_OPEN_BROWSER", raw_rt.get("open_browser", False))),
+        log_level=str(raw_rt["log_level"]),
+        bridge_interface=raw_rt.get("bridge_interface"),
+        proxy_upstream_network=str(raw_rt["proxy_upstream_network"]),
+        open_browser=bool(raw_rt["open_browser"]),
     )
 
     # LLaMA section
-    raw_llama = data.get("llama", {})
-    raw_build = raw_llama.get("build", {})
-    cmake_flags = raw_build.get("cmake_flags", [])
-    if not isinstance(cmake_flags, list):
-        cmake_flags = []
+    raw_llama = data["llama"]
+    raw_build = raw_llama["build"]
+    cmake_flags = raw_build["cmake_flags"]
 
     llama_build_cfg = LlamaBuildGlobalConfig(
-        repo=os.environ.get("LLAMA_BUILD_REPO")
-        or str(raw_build.get("repo", "https://github.com/ggml-org/llama.cpp.git")),
-        tag=os.environ.get("LLAMA_BUILD_TAG") or str(raw_build.get("tag", "v0.9.0")),
-        backend=os.environ.get("LLAMA_BUILD_BACKEND") or str(raw_build.get("backend", "auto")),
-        minimal=_parse_bool(os.environ.get("LLAMA_BUILD_MINIMAL", raw_build.get("minimal", True))),
+        repo=str(raw_build["repo"]),
+        tag=str(raw_build["tag"]),
+        backend=str(raw_build["backend"]),
+        minimal=bool(raw_build["minimal"]),
         cmake_flags=[str(f) for f in cmake_flags],
     )
 
-    llama_bin = os.environ.get("LLAMA_BIN") or raw_llama.get("bin")
     llama_cfg = LlamaGlobalConfig(
-        bin=llama_bin,
+        bin=raw_llama.get("bin"),
         build=llama_build_cfg,
     )
 
     # Build section
-    raw_bld = data.get("build", {})
-    raw_imgs = raw_bld.get("images", {})
+    raw_bld = data["build"]
+    raw_imgs = raw_bld["images"]
     images_cfg = BuildImagesGlobalConfig(
-        agent=os.environ.get("PA_IMAGE_TAG") or str(raw_imgs.get("agent", "pa-container-agent:local")),
-        proxy=os.environ.get("PROXY_IMAGE_TAG") or str(raw_imgs.get("proxy", "pa-container-agent-proxy:local")),
-        builder=os.environ.get("BUILDER_IMAGE_TAG") or str(raw_imgs.get("builder", "pa-container-agent-builder:local")),
+        agent=str(raw_imgs["agent"]),
+        proxy=str(raw_imgs["proxy"]),
+        builder=str(raw_imgs["builder"]),
     )
 
     build_cfg = BuildGlobalConfig(
         images=images_cfg,
-        dns=os.environ.get("BUILD_DNS") or str(raw_bld.get("dns", "1.1.1.1")),
-        python_optimize=_parse_bool(os.environ.get("PYTHON_OPTIMIZE", raw_bld.get("python_optimize", True))),
-        memory_preflight=_parse_bool(os.environ.get("PA_MEMORY_PREFLIGHT", raw_bld.get("memory_preflight", True))),
-        node_source=os.environ.get("NODE_SOURCE") or str(raw_bld.get("node_source", "prebuilt")),
-        prune_dangling=_parse_bool(os.environ.get("PA_PRUNE_DANGLING", raw_bld.get("prune_dangling", True))),
-        purge_build_cache=_parse_bool(os.environ.get("PA_PURGE_BUILD_CACHE", raw_bld.get("purge_build_cache", False))),
+        dns=str(raw_bld["dns"]),
+        python_optimize=bool(raw_bld["python_optimize"]),
+        memory_preflight=bool(raw_bld["memory_preflight"]),
+        node_source=str(raw_bld["node_source"]),
+        prune_dangling=bool(raw_bld["prune_dangling"]),
+        purge_build_cache=bool(raw_bld["purge_build_cache"]),
     )
 
     # Logging section
-    raw_log = data.get("logging", {})
-    if not isinstance(raw_log, dict):
-        raw_log = {}
-    raw_ret = raw_log.get("retention", {})
-    if not isinstance(raw_ret, dict):
-        raw_ret = {}
-
-    max_days_val = raw_ret.get("max_days")
-    max_launches_val = raw_ret.get("max_launches")
-    log_level_env = os.environ.get("LOG_LEVEL")
-    log_level_str = log_level_env or raw_log.get("log_level") or raw_rt.get("log_level", "INFO")
+    raw_log = data["logging"]
+    raw_ret = raw_log["retention"]
 
     logging_cfg = LoggingGlobalConfig(
-        log_level=str(log_level_str),
+        log_level=str(raw_log["log_level"]),
         retention=LogRetentionGlobalConfig(
-            max_days=int(max_days_val) if max_days_val is not None else 14,
-            max_launches=int(max_launches_val) if max_launches_val is not None else 10,
+            max_days=raw_ret["max_days"],
+            max_launches=raw_ret["max_launches"],
         ),
     )
 
     return GlobalConfig(
-        schema_version=str(schema_version or data.get("schema_version", "0.6.6")),
+        schema_version=str(schema_version or data["schema_version"]),
         runtime=runtime_cfg,
         llama=llama_cfg,
         build=build_cfg,

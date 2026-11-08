@@ -43,7 +43,7 @@ BUILD_DIR="/usr/src/python"
 # Peak RSS of one compile job. A PGO-instrumented compile of the larger
 # translation units (Parser/parser.o especially) gets close to 1 GiB; a plain
 # build is far lighter.
-if [ "${PYTHON_OPTIMIZE:-1}" = "1" ]; then
+if [ "${PYTHON_OPTIMIZE}" = "1" ] || [ "${PYTHON_OPTIMIZE}" = "true" ]; then
     MIB_PER_JOB=900
     CONFIGURE_ARGS=(--enable-optimizations)
 else
@@ -346,7 +346,7 @@ rm -rf /tmp/extension-check
 "/tmp/venv-check/bin/python" -c 'import sys; print("venv:", sys.version.split()[0])'
 rm -rf /tmp/venv-check
 
-if [ "${PYTHON_OPTIMIZE:-1}" = "1" ]; then
+if [ "${PYTHON_OPTIMIZE}" = "1" ] || [ "${PYTHON_OPTIMIZE}" = "true" ]; then
     stage_record "python" "${PYTHON_VERSION} (PGO)"
 else
     stage_record "python" "${PYTHON_VERSION} (no PGO)"

@@ -187,8 +187,7 @@ def _apply_strategy(original_value: str, strategy: str, replacement_value: str) 
     elif strategy == "uuid":
         return str(uuid.uuid4())
     else:
-        log.warning(f"Unknown replacement strategy '{strategy}', falling back to static")
-        return replacement_value
+        raise ValueError(f"Unknown replacement strategy '{strategy}'")
 
 
 # ---------------------------------------------------------------------------
@@ -480,8 +479,12 @@ def _validate_rule(rule: dict[str, Any]) -> None:
     Catches configuration errors at load time rather than at request time.
     """
     name = rule.get("name", "<unnamed>")
-    replace = rule.get("replace_with", {})
-    strategy = replace.get("strategy", "static")
+    replace = rule.get("replace_with")
+    if not isinstance(replace, dict):
+        raise ValueError(f"Rule '{name}': 'replace_with' mapping is required")
+    if "strategy" not in replace:
+        raise ValueError(f"Rule '{name}': 'strategy' is required in 'replace_with'")
+    strategy = replace["strategy"]
     if strategy not in _VALID_STRATEGIES:
         raise ValueError(
             f"Rule '{name}': invalid replacement strategy '{strategy}'. Valid strategies: {sorted(_VALID_STRATEGIES)}"
@@ -590,8 +593,8 @@ def _remove_chunked_encoding_if_present(headers: Headers) -> None:
 def _build_matchers(rule: dict[str, Any]) -> list[TokenMatcher]:
     """Build matcher instances from a rule's content_patterns definitions."""
     matchers: list[TokenMatcher] = []
-    replace = rule.get("replace_with", {})
-    strategy = replace.get("strategy", "static")
+    replace = rule["replace_with"]
+    strategy = replace["strategy"]
     raw_value = replace.get("value", "REDACTED")
     replacement_value = _resolve_env_refs(raw_value)
 

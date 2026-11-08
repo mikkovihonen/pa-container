@@ -69,13 +69,13 @@ def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) 
         agent_sec = data.get("agent")
         if isinstance(agent_sec, dict):
             agent_type = str(agent_sec.get("type") or "").strip().lower()
-            if agent_type in ("pi", "default"):
+            if agent_type == "pi":
                 tools.add("pi")
-            elif agent_type in ("opencode", "open-code"):
+            elif agent_type == "opencode":
                 tools.add("opencode")
-            elif agent_type in ("antigravity", "agy"):
+            elif agent_type == "antigravity":
                 tools.add("antigravity")
-            elif agent_type in ("claude", "claude-code"):
+            elif agent_type == "claude":
                 tools.add("claude-code")
     except Exception:
         pass
@@ -104,10 +104,12 @@ def compute_image_hash(
             files_to_hash.append(cmd_file)
 
     tools = read_project_tools(project_dir, extra_tools=extra_tools)
-    from desktop import read_desktop_config
+    desktop_active = False
+    if (project_dir / ".pa-container" / "config.yaml").exists():
+        from desktop import read_desktop_config
 
-    desktop_cfg = read_desktop_config(project_dir / ".pa-container")
-    desktop_active = bool(desktop_cfg.get("enabled", False))
+        desktop_cfg = read_desktop_config(project_dir / ".pa-container")
+        desktop_active = bool(desktop_cfg.get("enabled", False))
 
     if not files_to_hash and not tools and not desktop_active:
         return None
@@ -225,10 +227,12 @@ def resolve_agent_image(
     extra_tools: list[str] | None = None,
 ) -> tuple[str, bool]:
     """Resolve the agent container image tag for this workspace."""
-    from desktop import read_desktop_config
+    desktop_enabled = False
+    if (project_dir / ".pa-container" / "config.yaml").exists():
+        from desktop import read_desktop_config
 
-    desktop_cfg = read_desktop_config(project_dir / ".pa-container")
-    desktop_enabled = bool(desktop_cfg.get("enabled", False))
+        desktop_cfg = read_desktop_config(project_dir / ".pa-container")
+        desktop_enabled = bool(desktop_cfg.get("enabled", False))
 
     has_deps = has_dependency_files(project_dir)
     tools = read_project_tools(project_dir, extra_tools=extra_tools)

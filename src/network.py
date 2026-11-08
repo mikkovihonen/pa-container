@@ -51,13 +51,6 @@ logger = get_category_logger(__name__, LogCategory.NETWORK)
 
 # ─── Project config (.pa-container/config.yaml) ───────────────────────────
 
-# Container resource limits applied when values are present (a falsy/null value
-# omits the flag → unlimited). Defaults preserve the agent's historical 16g/8.
-_DEFAULT_RESOURCES = {
-    "agent": {"memory": "16g", "cpus": 8},
-    "proxy": {"memory": "4g", "cpus": 4},
-}
-
 # Proxy egress policy: YAML key under ``egress.allow`` → the ``PROXY_ALLOW_*``
 # env var the proxy entrypoint reads to open that protocol's (uninspected) rule.
 _PROXY_FORWARD_FLAGS = {
@@ -73,22 +66,20 @@ _PROXY_FORWARD_PORTS = {
 
 
 def load_project_config(config_dir: Path | None = None) -> dict[str, Any]:
-    """Load and parse `.pa-container/config.yaml`, returning an empty dict if missing or invalid."""
-    import yaml as _yaml
-
+    """Load and parse `.pa-container/config.yaml`, failing hard if missing or invalid."""
     from yaml_strict import load_yaml_file
 
     config_path = (config_dir or CONFIG_DIR) / "config.yaml"
     if not config_path.exists():
-        logger.debug(f"Project config not found at {config_path}; using defaults.")
-        return {}
+        raise FileNotFoundError(f"Project config not found at {config_path}")
 
     try:
         loaded = load_yaml_file(config_path)
-        return loaded if isinstance(loaded, dict) else {}
-    except (OSError, _yaml.YAMLError) as e:
-        logger.warning(f"Could not read project config {config_path}: {e}; using defaults.")
-        return {}
+    except Exception as e:
+        raise ValueError(f"Invalid YAML in project config at {config_path}: {e}") from e
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Project config at {config_path} must be a YAML mapping")
+    return loaded
 
 
 def scan_tmpfs_paths(config_dir: Path | None = None) -> list[str]:
@@ -105,23 +96,26 @@ def scan_volume_paths(config_dir: Path | None = None) -> list[str]:
     return sorted({str(p) for p in paths})
 
 
-def read_flow_export_enabled(config_dir: Path | None = None, default: bool = False) -> bool:
+def read_flow_export_enabled(config_dir: Path | None = None) -> bool:
     """Read the proxy flow export toggle from config.yaml `flow_export.enabled`."""
-    flow_export = load_project_config(config_dir).get("flow_export") or {}
-    return bool(flow_export.get("enabled", default))
-
-
-def _egress_truthy(value: object) -> bool:
-    """Check if a configuration value represents boolean True."""
-    return str(value).strip().lower() in ("true", "1", "yes", "on")
+    flow_export = load_project_config(config_dir).get("flow_export")
+    if not isinstance(flow_export, dict) or "enabled" not in flow_export:
+        raise ValueError("Missing required 'flow_export.enabled' configuration in project config")
+    val = flow_export["enabled"]
+    if not isinstance(val, bool):
+        raise ValueError(f"Invalid 'flow_export.enabled': expected bool, got {type(val).__name__}")
+    return val
 
 
 def read_proxy_forward_env(config_dir: Path | None = None) -> dict[str, str]:
     """Generate `PROXY_ALLOW_*` environment variables for non-HTTP egress from config.yaml `egress.allow`."""
-    allow = (load_project_config(config_dir).get("egress") or {}).get("allow") or {}
+    egress = load_project_config(config_dir).get("egress")
+    if not isinstance(egress, dict) or "allow" not in egress:
+        raise ValueError("Missing required 'egress.allow' configuration in project config")
+    allow = egress["allow"] or {}
     env: dict[str, str] = {}
     for key, var in _PROXY_FORWARD_FLAGS.items():
-        if _egress_truthy(allow.get(key)):
+        if allow.get(key) is True:
             env[var] = "true"
     for key, var in _PROXY_FORWARD_PORTS.items():
         ports = allow.get(key) or []
@@ -132,17 +126,19 @@ def read_proxy_forward_env(config_dir: Path | None = None) -> dict[str, str]:
 
 
 def read_resource_limits(config_dir: Path | None = None, which: str = "agent") -> ResourceLimits:
-    """Resource limits for ``which`` ('agent'|'proxy') from config.yaml ``resources``.
-
-    Returns ``{"memory": ..., "cpus": ...}``, filling any missing value from
-    :data:`_DEFAULT_RESOURCES`. A value set to null/empty in config.yaml is passed
-    through as falsy so :func:`resource_limit_args` omits the flag (unlimited).
-    """
-    section = (load_project_config(config_dir).get("resources") or {}).get(which) or {}
-    defaults = _DEFAULT_RESOURCES[which]
+    """Resource limits for ``which`` ('agent'|'proxy') from config.yaml ``resources``."""
+    cfg = load_project_config(config_dir)
+    res = cfg.get("resources")
+    if not isinstance(res, dict) or which not in res:
+        raise ValueError(f"Missing required 'resources.{which}' configuration in project config")
+    section = res[which]
+    if not isinstance(section, dict):
+        raise ValueError(f"Invalid 'resources.{which}' configuration in project config: expected mapping")
+    if "memory" not in section or "cpus" not in section:
+        raise ValueError(f"Missing required 'memory' or 'cpus' in 'resources.{which}'")
     return {
-        "memory": section.get("memory", defaults["memory"]),
-        "cpus": section.get("cpus", defaults["cpus"]),
+        "memory": section["memory"],
+        "cpus": section["cpus"],
     }
 
 
@@ -156,78 +152,61 @@ def resource_limit_args(limits: ResourceLimits) -> list[str]:
     return args
 
 
-_DEFAULT_LLAMA = {"startup_timeout": 180, "startup_attempts": 2}
-_DEFAULT_NETWORK = {"ipv6": False, "dns": "1.1.1.1"}
-
-
 def read_llama_config(config_dir: Path | None = None) -> LlamaConfig:
-    """llama-server startup tuning from config.yaml ``llama``.
-
-    Returns ``{"startup_timeout": <seconds>, "startup_attempts": <int>}`` — how
-    long to wait for ``/health`` and how many times to (re)launch a model before
-    giving up. Missing values fall back to :data:`_DEFAULT_LLAMA`.
-    """
-    section = load_project_config(config_dir).get("llama") or {}
+    """llama-server startup tuning from config.yaml ``llama``."""
+    section = load_project_config(config_dir).get("llama")
+    if not isinstance(section, dict):
+        raise ValueError("Missing required 'llama' configuration section in project config")
+    if "startup_timeout" not in section or "startup_attempts" not in section:
+        raise ValueError("Missing required 'startup_timeout' or 'startup_attempts' in 'llama'")
     return {
-        "startup_timeout": int(section.get("startup_timeout", _DEFAULT_LLAMA["startup_timeout"])),
-        "startup_attempts": int(section.get("startup_attempts", _DEFAULT_LLAMA["startup_attempts"])),
+        "startup_timeout": int(section["startup_timeout"]),
+        "startup_attempts": int(section["startup_attempts"]),
     }
 
 
 def read_network_config(config_dir: Path | None = None) -> NetworkConfig:
-    """Network settings from config.yaml ``network``.
-
-    Returns ``{"ipv6": <bool>, "dns": <str>}`` — whether to plumb IPv6 through the
-    isolated network/proxy, and the upstream resolver the proxy uses. Missing
-    values fall back to :data:`_DEFAULT_NETWORK`.
-    """
-    section = load_project_config(config_dir).get("network") or {}
+    """Network settings from config.yaml ``network``."""
+    section = load_project_config(config_dir).get("network")
+    if not isinstance(section, dict):
+        raise ValueError("Missing required 'network' configuration section in project config")
+    if "ipv6" not in section or "dns" not in section:
+        raise ValueError("Missing required 'ipv6' or 'dns' in 'network'")
+    ipv6_val = section["ipv6"]
+    if not isinstance(ipv6_val, bool):
+        raise ValueError(f"Invalid 'network.ipv6': expected bool, got {type(ipv6_val).__name__}")
     return {
-        "ipv6": _egress_truthy(section.get("ipv6", _DEFAULT_NETWORK["ipv6"])),
-        "dns": str(section.get("dns") or _DEFAULT_NETWORK["dns"]),
+        "ipv6": ipv6_val,
+        "dns": str(section["dns"]),
     }
 
 
-_DEFAULT_PROXY = {
-    "expose_ui": "localhost",
-    "max_view_flows": 2000,
-    "stream_large_bodies": "10m",
-    "open_browser": False,
-}
-
-
 def read_proxy_config(config_dir: Path | None = None) -> ProxyConfig:
-    """Proxy settings from config.yaml ``proxy``.
+    """Proxy settings from config.yaml ``proxy``."""
+    section = load_project_config(config_dir).get("proxy")
+    if not isinstance(section, dict):
+        raise ValueError("Missing required 'proxy' configuration section in project config")
+    for key in ("expose_ui", "max_view_flows", "stream_large_bodies", "open_browser"):
+        if key not in section:
+            raise ValueError(f"Missing required 'proxy.{key}' configuration in project config")
 
-    Returns a dict with:
-    - ``expose_ui``: "localhost" | "lan"
-    - ``max_view_flows``: int | None (default 2000)
-    - ``stream_large_bodies``: str | None (default "10m")
-    - ``open_browser``: bool (default False)
-    """
-    section = load_project_config(config_dir).get("proxy") or {}
-    expose = str(section.get("expose_ui", _DEFAULT_PROXY["expose_ui"])).strip().lower()
+    expose = str(section["expose_ui"]).strip().lower()
     if expose not in ("localhost", "lan"):
-        expose = "localhost"
+        raise ValueError(f"Invalid 'proxy.expose_ui': expected 'localhost' or 'lan', got {expose!r}")
 
-    max_flows = section.get("max_view_flows", _DEFAULT_PROXY["max_view_flows"])
-    if max_flows is not None:
-        try:
-            max_flows = int(max_flows)
-        except ValueError, TypeError:
-            max_flows = _DEFAULT_PROXY["max_view_flows"]
+    max_flows = section["max_view_flows"]
+    if max_flows is not None and (not isinstance(max_flows, int) or max_flows < 0):
+        raise ValueError(f"Invalid 'proxy.max_view_flows': expected non-negative int or null, got {max_flows!r}")
 
-    stream_bodies = section.get("stream_large_bodies", _DEFAULT_PROXY["stream_large_bodies"])
+    stream_bodies = section["stream_large_bodies"]
     if stream_bodies is not None:
         stream_bodies = str(stream_bodies).strip()
         if stream_bodies.lower() in ("null", "none", "off", "0", ""):
             stream_bodies = None
 
-    raw_open_browser = section.get("open_browser", _DEFAULT_PROXY["open_browser"])
-    if isinstance(raw_open_browser, str):
-        open_browser = raw_open_browser.strip().lower() in ("true", "1", "yes", "on")
-    else:
-        open_browser = bool(raw_open_browser)
+    open_browser = section["open_browser"]
+    if not isinstance(open_browser, bool):
+        raise ValueError(f"Invalid 'proxy.open_browser': expected bool, got {type(open_browser).__name__}")
 
     return {
         "expose_ui": expose,
@@ -238,83 +217,63 @@ def read_proxy_config(config_dir: Path | None = None) -> ProxyConfig:
 
 
 def read_proxy_ui_expose(config_dir: Path | None = None) -> str:
-    """Where the proxy's mitmweb UI is published, from config.yaml ``proxy.expose_ui``.
-
-    ``"localhost"`` (default) binds the auto-assigned port to 127.0.0.1 only;
-    ``"lan"`` binds 0.0.0.0 (reachable from other hosts). Unknown values fall back
-    to ``"localhost"``.
-    """
+    """Where the proxy's mitmweb UI is published, from config.yaml ``proxy.expose_ui``."""
     return str(read_proxy_config(config_dir)["expose_ui"])
 
 
-_DEFAULT_NESTED_CONTAINERS = {"enabled": False, "storage": "volume", "security": "disable"}
 _NESTED_STORAGE_MODES = ("volume", "tmpfs")
 _NESTED_SECURITY_MODES = ("disable", "engine_t")
 
 
-def _parse_port_mapping(entry: object) -> tuple[int, int] | None:
-    """Parse one ``nested_containers.ports.publish`` entry to ``(host, agent)``.
-
-    Accepts ``3000`` / ``"3000"`` (same port both sides) and ``"18080:8080"``
-    (host 18080 → agent 8080). Returns ``None`` — with a warning — for anything
-    unparseable or outside 1..65535, so one bad entry drops itself rather than
-    failing the launch.
-    """
+def _parse_port_mapping(entry: object) -> tuple[int, int]:
+    """Parse one ``ports.publish`` entry to ``(host, agent)``."""
     text = str(entry).strip()
     if not text:
-        return None
-    host_text, _, agent_text = text.partition(":")
-    agent_text = agent_text or host_text
+        raise ValueError(f"Empty port mapping entry: {entry!r}")
+    host_text, sep, agent_text = text.partition(":")
+    if sep:
+        if not host_text.strip() or not agent_text.strip():
+            raise ValueError(f"Invalid port mapping format: {entry!r} (expected 'HOST:AGENT')")
+        agent_text = agent_text.strip()
+    else:
+        agent_text = host_text
     try:
         host, agent = int(host_text), int(agent_text)
-    except ValueError:
-        logger.warning(
-            f"Ignoring unparseable nested_containers.ports.publish entry {entry!r} (want 3000 or '18080:8080')."
-        )
-        return None
+    except ValueError as e:
+        raise ValueError(f"Port mapping entry {entry!r} contains non-integer port: {e}") from e
     if not (1 <= host <= 65535 and 1 <= agent <= 65535):
-        logger.warning(f"Ignoring out-of-range nested_containers.ports.publish entry {entry!r} (ports are 1..65535).")
-        return None
+        raise ValueError(f"Port numbers in entry {entry!r} out of range (must be 1..65535)")
     return host, agent
 
 
 def _read_ports_section(section: dict[str, Any], section_name: str = "ports") -> PortPublishConfig:
-    """Read a ``ports`` sub-section → ``{"expose", "publish"}``.
-
-    ``publish`` is normalised to a list of ``(host_port, agent_port)`` pairs with
-    duplicate *host* ports dropped (podman would reject the second ``-p`` anyway,
-    and failing the launch over a copy-pasted line is not worth it). ``expose``
-    mirrors ``proxy.expose_ui``: ``localhost`` binds 127.0.0.1 only, ``lan``
-    binds every interface.
-    """
-    ports = section.get("ports") or {}
-    if not isinstance(ports, dict):
-        logger.warning(f"{section_name} is not a mapping; ignoring it (no ports published).")
+    """Read a ``ports`` sub-section → ``{"expose", "publish"}``."""
+    ports = section.get("ports")
+    if ports is None:
         return {"expose": "localhost", "publish": []}
+    if not isinstance(ports, dict):
+        raise ValueError(f"'{section_name}' must be a mapping, got {type(ports).__name__}")
 
-    expose = str(ports.get("expose") or "").strip().lower()
-    if expose and expose not in ("localhost", "lan"):
-        logger.warning(f"Unknown {section_name}.expose '{expose}'; using 'localhost'.")
-        expose = ""
+    expose = str(ports.get("expose") or "localhost").strip().lower()
+    if expose not in ("localhost", "lan"):
+        raise ValueError(f"Invalid '{section_name}.expose': expected 'localhost' or 'lan', got {expose!r}")
 
-    raw = ports.get("publish") or []
-    if not isinstance(raw, list):
-        logger.warning(f"{section_name}.publish is not a list; ignoring it (no ports published).")
+    raw = ports.get("publish")
+    if raw is None:
         raw = []
+    if not isinstance(raw, list):
+        raise ValueError(f"'{section_name}.publish' must be a list, got {type(raw).__name__}")
 
     publish: list[tuple[int, int]] = []
     claimed: set[int] = set()
     for entry in raw:
         mapping = _parse_port_mapping(entry)
-        if mapping is None:
-            continue
         if mapping[0] in claimed:
-            logger.warning(f"Duplicate host port {mapping[0]} in {section_name}.publish; keeping the first.")
-            continue
+            raise ValueError(f"Duplicate host port {mapping[0]} in '{section_name}.publish'")
         claimed.add(mapping[0])
         publish.append(mapping)
 
-    return {"expose": expose or "localhost", "publish": publish}
+    return {"expose": expose, "publish": publish}
 
 
 def _read_nested_ports(section: dict[str, Any]) -> PortPublishConfig:
@@ -323,34 +282,34 @@ def _read_nested_ports(section: dict[str, Any]) -> PortPublishConfig:
 
 
 def read_nested_containers_config(config_dir: Path | None = None) -> NestedContainersConfig:
-    """Nested-container settings from config.yaml ``nested_containers``.
+    """Nested-container settings from config.yaml ``nested_containers``."""
+    section = load_project_config(config_dir).get("nested_containers")
+    if not isinstance(section, dict):
+        raise ValueError("Missing required 'nested_containers' configuration section in project config")
+    for key in ("enabled", "storage", "security", "ports"):
+        if key not in section:
+            raise ValueError(f"Missing required 'nested_containers.{key}' configuration")
 
-    Returns ``{"enabled": <bool>, "storage": "volume"|"tmpfs", "security":
-    "disable"|"engine_t", "ports": {"expose": "localhost"|"lan", "publish":
-    [(host, agent), ...]}}`` — whether the agent may run its own containers
-    (rootless podman inside the agent container), where the nested image layers
-    live, which SELinux posture the agent container gets, and which ports its
-    nested containers' UIs are reachable on from the host.
+    enabled = section["enabled"]
+    if not isinstance(enabled, bool):
+        raise ValueError(f"Invalid 'nested_containers.enabled': expected bool, got {type(enabled).__name__}")
 
-    Fail-safe: an absent, malformed or unrecognised value falls back to
-    :data:`_DEFAULT_NESTED_CONTAINERS`, i.e. nesting **off** and nothing
-    published. Enabling it relaxes the agent container's SELinux confinement and
-    grants ``/dev/fuse`` + ``/dev/net/tun``, so it must never be turned on by
-    accident. Traffic from nested containers still egresses through the proxy —
-    neither nesting nor a published port is a bypass (see
-    ``docs/design/nested-containers.md``).
-    """
-    section = load_project_config(config_dir).get("nested_containers") or {}
-    storage = str(section.get("storage") or "").strip().lower()
-    security = str(section.get("security") or "").strip().lower()
-    if storage and storage not in _NESTED_STORAGE_MODES:
-        logger.warning(f"Unknown nested_containers.storage '{storage}'; using 'volume'.")
-    if security and security not in _NESTED_SECURITY_MODES:
-        logger.warning(f"Unknown nested_containers.security '{security}'; using 'disable'.")
+    storage = str(section["storage"]).strip().lower()
+    if storage not in _NESTED_STORAGE_MODES:
+        raise ValueError(
+            f"Invalid 'nested_containers.storage': expected one of {_NESTED_STORAGE_MODES}, got {storage!r}"
+        )
+
+    security = str(section["security"]).strip().lower()
+    if security not in _NESTED_SECURITY_MODES:
+        raise ValueError(
+            f"Invalid 'nested_containers.security': expected one of {_NESTED_SECURITY_MODES}, got {security!r}"
+        )
+
     return {
-        "enabled": _egress_truthy(section.get("enabled", _DEFAULT_NESTED_CONTAINERS["enabled"])),
-        "storage": storage if storage in _NESTED_STORAGE_MODES else str(_DEFAULT_NESTED_CONTAINERS["storage"]),
-        "security": security if security in _NESTED_SECURITY_MODES else str(_DEFAULT_NESTED_CONTAINERS["security"]),
+        "enabled": enabled,
+        "storage": storage,
+        "security": security,
         "ports": _read_nested_ports(section),
     }
 
@@ -375,16 +334,14 @@ def read_agent_extras(config_dir: Path | None = None) -> AgentExtrasConfig:
 
 
 def read_read_only_pa_container(config_dir: Path | None = None) -> bool:
-    """Check whether the agent container's /workspace/.pa-container directory is read-only.
-
-    Defaults to True (read-only) when absent or unrecognized, preventing untrusted
-    agent processes from modifying orchestration files, allowlists, or scripts.
-    """
-    section = load_project_config(config_dir).get("agent") or {}
-    val = section.get("read_only_pa_container")
-    if val is None:
-        return True
-    return _egress_truthy(val)
+    """Check whether the agent container's /workspace/.pa-container directory is read-only."""
+    section = load_project_config(config_dir).get("agent")
+    if not isinstance(section, dict) or "read_only_pa_container" not in section:
+        raise ValueError("Missing required 'agent.read_only_pa_container' configuration")
+    val = section["read_only_pa_container"]
+    if not isinstance(val, bool):
+        raise ValueError(f"Invalid 'agent.read_only_pa_container': expected bool, got {type(val).__name__}")
+    return val
 
 
 def read_agent_ports(config_dir: Path | None = None) -> PortPublishConfig:
@@ -407,60 +364,39 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
     """Read list of enabled agent names from config.yaml ``agents.enabled``."""
     cfg = load_project_config(config_dir)
     agents_sec = cfg.get("agents")
-    if isinstance(agents_sec, dict):
-        enabled = agents_sec.get("enabled")
-        if isinstance(enabled, list):
-            res = [str(x).strip().lower() for x in enabled if isinstance(x, str) and str(x).strip()]
-            if res:
-                return res
-    agent_sec = cfg.get("agent")
-    if isinstance(agent_sec, dict):
-        t = str(agent_sec.get("type") or "").strip().lower()
-        if t:
-            return [t]
-    return ["pi"]
+    if not isinstance(agents_sec, dict) or "enabled" not in agents_sec:
+        raise ValueError("Missing required 'agents.enabled' configuration")
+    enabled = agents_sec["enabled"]
+    if not isinstance(enabled, list) or not enabled:
+        raise ValueError("Invalid 'agents.enabled': expected non-empty list")
+    return [str(x).strip().lower() for x in enabled]
 
 
 def read_agent_type(config_dir: Path | None = None) -> str:
-    """Agent engine type from config.yaml ``agents.default`` or first enabled agent."""
+    """Agent engine type from config.yaml ``agents.default``."""
     cfg = load_project_config(config_dir)
     agents_sec = cfg.get("agents")
-    if isinstance(agents_sec, dict):
-        default = agents_sec.get("default")
-        if default and isinstance(default, str) and default.strip():
-            return default.strip().lower()
-        enabled = agents_sec.get("enabled")
-        if isinstance(enabled, list):
-            for x in enabled:
-                if isinstance(x, str) and x.strip():
-                    return x.strip().lower()
-    section = cfg.get("agent") or {}
-    agent_type = str(section.get("type") or "pi").strip().lower()
-    return agent_type or "pi"
-
-
-_DEFAULT_GIT_CONFIG = {
-    "safe_directory": True,
-    "rewrite_ssh_to_https": True,
-}
+    if not isinstance(agents_sec, dict) or "default" not in agents_sec:
+        raise ValueError("Missing required 'agents.default' configuration")
+    default = agents_sec["default"]
+    if not isinstance(default, str) or not default.strip():
+        raise ValueError("Invalid 'agents.default': expected non-empty string")
+    return default.strip().lower()
 
 
 def read_git_config(config_dir: Path | None = None) -> dict[str, bool]:
-    """Git settings from config.yaml ``git``.
-
-    Returns ``{"safe_directory": <bool>, "rewrite_ssh_to_https": <bool>}`` —
-    whether to mark /workspace as safe.directory to prevent UID mismatch errors,
-    and whether to rewrite SSH git remote URLs to HTTPS. Missing values fall
-    back to :data:`_DEFAULT_GIT_CONFIG` (both True).
-    """
-    section = load_project_config(config_dir).get("git") or {}
-    safe_dir = section.get("safe_directory")
-    rewrite_ssh = section.get("rewrite_ssh_to_https")
+    """Git settings from config.yaml ``git``."""
+    section = load_project_config(config_dir).get("git")
+    if not isinstance(section, dict):
+        raise ValueError("Missing required 'git' configuration section in project config")
+    for key in ("safe_directory", "rewrite_ssh_to_https"):
+        if key not in section:
+            raise ValueError(f"Missing required 'git.{key}' configuration")
+        if not isinstance(section[key], bool):
+            raise ValueError(f"Invalid 'git.{key}': expected bool, got {type(section[key]).__name__}")
     return {
-        "safe_directory": _egress_truthy(safe_dir) if safe_dir is not None else _DEFAULT_GIT_CONFIG["safe_directory"],
-        "rewrite_ssh_to_https": (
-            _egress_truthy(rewrite_ssh) if rewrite_ssh is not None else _DEFAULT_GIT_CONFIG["rewrite_ssh_to_https"]
-        ),
+        "safe_directory": section["safe_directory"],
+        "rewrite_ssh_to_https": section["rewrite_ssh_to_https"],
     }
 
 

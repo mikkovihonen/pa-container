@@ -21,10 +21,10 @@ def test_resolve_models_file(tmp_path):
     assert resolve_models_file(pa_dir) == yaml_path
 
     yaml_path.unlink()
-    # models.yml also supported
+    # models.yml is NOT supported
     yml_path = pa_dir / "models.yml"
     yml_path.write_text("allow: []")
-    assert resolve_models_file(pa_dir) == yml_path
+    assert resolve_models_file(pa_dir) is None
 
 
 def test_extract_models_from_yaml_with_registries(tmp_path):
@@ -56,7 +56,6 @@ def test_extract_models_from_yaml_with_registries(tmp_path):
             "test-model",
             "test-gw",
             {"id": "test-model", "provider": "custom-alias", "baseUrl": "http://llama:8888/v1"},
-            "unknown-model",
         ],
     }
 
@@ -77,6 +76,11 @@ def test_extract_models_from_yaml_with_registries(tmp_path):
 
     assert "llama" in hostnames
     assert "api.gateway.example" in hostnames
+
+    # Unknown model in allowlist raises ValueError
+    bad_data = {"allow": ["unknown-model"]}
+    with pytest.raises(ValueError, match="Model or gateway 'unknown-model' listed in models.yaml allowlist not found"):
+        extract_models_from_yaml(bad_data, models_dir=models_dir, gateways_dir=gateways_dir)
 
 
 def test_load_project_models_yaml(tmp_path):

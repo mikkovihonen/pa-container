@@ -213,8 +213,8 @@ def validate_models(
         errors.append(f"Models file not found: {models_path}")
         return False, errors
 
-    if models_path.suffix.lower() not in (".yaml", ".yml"):
-        errors.append(f"Models file must be a YAML file (.yaml or .yml), got: {models_path.name}")
+    if models_path.suffix.lower() != ".yaml":
+        errors.append(f"Models file must be a YAML file (.yaml), got: {models_path.name}")
         return False, errors
 
     try:

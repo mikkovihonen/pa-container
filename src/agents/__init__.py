@@ -21,19 +21,18 @@ AVAILABLE_AGENTS: tuple[str, ...] = ("pi", "opencode", "antigravity", "claude")
 
 _DRIVERS: dict[str, type[AgentDriver]] = {
     "pi": PiAgentDriver,
-    "default": PiAgentDriver,
     "opencode": OpenCodeDriver,
-    "open-code": OpenCodeDriver,
     "antigravity": AntigravityDriver,
-    "agy": AntigravityDriver,
     "claude": ClaudeDriver,
-    "claude-code": ClaudeDriver,
 }
 
 
-def get_agent_driver(name: str | None = None) -> AgentDriver:
+def get_agent_driver(name: str) -> AgentDriver:
     """Resolve and return an AgentDriver instance for the specified agent name."""
-    agent_key = (name or "pi").strip().lower()
+    if not name or not isinstance(name, str):
+        valid_agents = ", ".join(AVAILABLE_AGENTS)
+        raise ValueError(f"Agent name is required. Supported agents: {valid_agents}")
+    agent_key = name.strip().lower()
     driver_cls = _DRIVERS.get(agent_key)
     if driver_cls is None:
         valid_agents = ", ".join(AVAILABLE_AGENTS)

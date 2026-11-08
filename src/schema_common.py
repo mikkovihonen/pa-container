@@ -11,11 +11,22 @@ if TYPE_CHECKING:
 # ─── Field validation ───────────────────────────────────────────────────────
 
 
+def _format_type(expected: type | tuple[type, ...]) -> str:
+    if isinstance(expected, tuple):
+        return " or ".join(_format_type(t) for t in expected)
+    return expected.__name__
+
+
 def _validate_field(value: Any, expected: type | tuple[type, ...], path: str) -> list[str]:
     """Validate a single field's type, returning any error messages."""
     errors: list[str] = []
+    if isinstance(value, bool):
+        expected_types = expected if isinstance(expected, tuple) else (expected,)
+        if bool not in expected_types and (int in expected_types or float in expected_types):
+            errors.append(f"  {path}: expected {_format_type(expected)}, got bool (value: {value!r})")
+            return errors
     if not isinstance(value, expected):
-        errors.append(f"  {path}: expected {expected}, got {type(value).__name__} (value: {value!r})")
+        errors.append(f"  {path}: expected {_format_type(expected)}, got {type(value).__name__} (value: {value!r})")
     return errors
 
 
@@ -27,10 +38,19 @@ def _validate_schema(data: dict[str, Any], schema: dict[str, Any], path: str = "
     errors: list[str] = []
     for key, spec in schema.items():
         current_path = f"{path}.{key}" if path else key
-        value = data.get(key)
 
-        if value is None:
+        if key not in data:
             if spec.get("required", True):
+                errors.append(f"  {current_path}: required field missing")
+            continue
+
+        value = data[key]
+        if value is None:
+            expected_type = spec["type"]
+            allows_none = (
+                type(None) in expected_type if isinstance(expected_type, tuple) else expected_type is type(None)
+            )
+            if not allows_none:
                 errors.append(f"  {current_path}: required field missing")
             continue
 
@@ -82,7 +102,7 @@ SCHEMA: dict[str, Any] = {
     "network": {
         "type": dict,
         "keys": {
-            "ipv6": {"type": (bool, str, int)},  # YAML bools, "true"/"1"/0/1 strings
+            "ipv6": {"type": bool},
             "dns": {"type": str},
         },
     },
@@ -90,9 +110,9 @@ SCHEMA: dict[str, Any] = {
         "type": dict,
         "keys": {
             "expose_ui": {"type": str},
-            "max_view_flows": {"type": (int, type(None)), "required": False},
-            "stream_large_bodies": {"type": (str, int, type(None)), "required": False},
-            "open_browser": {"type": (bool, str, int, type(None)), "required": False},
+            "max_view_flows": {"type": (int, type(None))},
+            "stream_large_bodies": {"type": (str, int, type(None))},
+            "open_browser": {"type": bool},
         },
     },
     "tools": {
@@ -106,7 +126,7 @@ SCHEMA: dict[str, Any] = {
         "type": dict,
         "keys": {
             "enabled": {"type": list},
-            "default": {"type": (str, type(None)), "required": False},
+            "default": {"type": str},
         },
     },
     "agent": {
@@ -119,7 +139,7 @@ SCHEMA: dict[str, Any] = {
             "mounts": {"type": list},
             "capabilities": {"type": list, "required": False},
             "devices": {"type": list, "required": False},
-            "read_only_pa_container": {"type": (bool, str, int), "required": False},
+            "read_only_pa_container": {"type": bool},
             "mode": {"type": str, "required": False},
             "ports": {
                 "type": dict,
@@ -134,14 +154,14 @@ SCHEMA: dict[str, Any] = {
     "nested_containers": {
         "type": dict,
         "keys": {
-            "enabled": {"type": (bool, str, int)},  # YAML bools, "true"/"1"/0/1 strings
-            "storage": {"type": str},  # volume | tmpfs
-            "security": {"type": str},  # disable | engine_t
+            "enabled": {"type": bool},
+            "storage": {"type": str},
+            "security": {"type": str},
             "ports": {
                 "type": dict,
                 "keys": {
-                    "expose": {"type": str},  # localhost | lan
-                    "publish": {"type": list},  # [3000, "18080:8080", ...]
+                    "expose": {"type": str},
+                    "publish": {"type": list},
                 },
             },
         },
@@ -162,7 +182,7 @@ SCHEMA: dict[str, Any] = {
     "flow_export": {
         "type": dict,
         "keys": {
-            "enabled": {"type": (bool, str, int)},
+            "enabled": {"type": bool},
         },
     },
     "egress": {
@@ -173,78 +193,70 @@ SCHEMA: dict[str, Any] = {
     },
     "git": {
         "type": dict,
-        "required": False,
         "keys": {
-            "safe_directory": {"type": (bool, str, int), "required": False},
-            "rewrite_ssh_to_https": {"type": (bool, str, int), "required": False},
+            "safe_directory": {"type": bool},
+            "rewrite_ssh_to_https": {"type": bool},
         },
     },
     "source_control": {
         "type": dict,
         "required": False,
         "keys": {
-            "enabled": {"type": (bool, str, int), "required": False},
-            "auto_detect_host_cli": {"type": (bool, str, int), "required": False},
-            "setup_git_credentials": {"type": (bool, str, int), "required": False},
+            "enabled": {"type": bool, "required": False},
+            "auto_detect_host_cli": {"type": bool, "required": False},
+            "setup_git_credentials": {"type": bool, "required": False},
             "providers": {"type": dict, "required": False},
         },
     },
     "security": {
         "type": dict,
-        "required": False,
         "keys": {
-            "read_only_git_hooks": {"type": (bool, str, int), "required": False},
-            "blocked_mount_paths": {"type": list, "required": False},
-            "blocked_ip_ranges": {"type": list, "required": False},
-            "git_config_allowlist": {"type": list, "required": False},
+            "read_only_git_hooks": {"type": bool},
+            "blocked_mount_paths": {"type": list},
+            "blocked_ip_ranges": {"type": list},
+            "git_config_allowlist": {"type": list},
         },
     },
     "logging": {
         "type": dict,
-        "required": False,
         "keys": {
-            "log_level": {"type": (str, type(None)), "required": False},
+            "log_level": {"type": (str, type(None))},
             "retention": {
                 "type": dict,
-                "required": False,
                 "keys": {
-                    "max_days": {"type": (int, type(None)), "required": False},
-                    "max_launches": {"type": (int, type(None)), "required": False},
+                    "max_days": {"type": (int, type(None))},
+                    "max_launches": {"type": (int, type(None))},
                 },
             },
         },
     },
     "desktop": {
         "type": dict,
-        "required": False,
         "keys": {
-            "enabled": {"type": (bool, str, int), "required": False},
-            "resolution": {"type": str, "required": False},
-            "compositor": {"type": str, "required": False},
-            "open_browser": {"type": (bool, str, int), "required": False},
+            "enabled": {"type": bool},
+            "resolution": {"type": str},
+            "compositor": {"type": str},
+            "open_browser": {"type": bool},
             "vnc": {
                 "type": dict,
-                "required": False,
                 "keys": {
-                    "enabled": {"type": (bool, str, int), "required": False},
-                    "port": {"type": (int, str), "required": False},
-                    "expose": {"type": str, "required": False},
+                    "enabled": {"type": bool},
+                    "port": {"type": (int, str)},
+                    "expose": {"type": str},
                 },
             },
             "novnc": {
                 "type": dict,
-                "required": False,
                 "keys": {
-                    "enabled": {"type": (bool, str, int), "required": False},
-                    "port": {"type": (int, str), "required": False},
-                    "expose": {"type": str, "required": False},
+                    "enabled": {"type": bool},
+                    "port": {"type": (int, str)},
+                    "expose": {"type": str},
                 },
             },
             "gpu": {
                 "type": dict,
-                "required": False,
                 "keys": {
-                    "enabled": {"type": (bool, str, int), "required": False},
+                    "enabled": {"type": (bool, str)},
                 },
             },
         },
@@ -266,7 +278,7 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
             "log_level": {"type": str},
             "bridge_interface": {"type": (str, type(None)), "required": False},
             "proxy_upstream_network": {"type": str},
-            "open_browser": {"type": (bool, str, int, type(None)), "required": False},
+            "open_browser": {"type": bool},
         },
     },
     "llama": {
@@ -279,7 +291,7 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
                     "repo": {"type": str},
                     "tag": {"type": str},
                     "backend": {"type": str},
-                    "minimal": {"type": (bool, str, int)},
+                    "minimal": {"type": bool},
                     "cmake_flags": {"type": list},
                 },
             },
@@ -297,22 +309,22 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
                 },
             },
             "dns": {"type": str},
-            "python_optimize": {"type": (bool, str, int)},
-            "memory_preflight": {"type": (bool, str, int)},
+            "python_optimize": {"type": bool},
+            "memory_preflight": {"type": bool},
             "node_source": {"type": str},
+            "prune_dangling": {"type": bool},
+            "purge_build_cache": {"type": bool},
         },
     },
     "logging": {
         "type": dict,
-        "required": False,
         "keys": {
-            "log_level": {"type": (str, type(None)), "required": False},
+            "log_level": {"type": str},
             "retention": {
                 "type": dict,
-                "required": False,
                 "keys": {
-                    "max_days": {"type": (int, type(None)), "required": False},
-                    "max_launches": {"type": (int, type(None)), "required": False},
+                    "max_days": {"type": (int, type(None))},
+                    "max_launches": {"type": (int, type(None))},
                 },
             },
         },
@@ -321,7 +333,7 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
         "type": dict,
         "required": False,
         "keys": {
-            "open_browser": {"type": (bool, str, int, type(None)), "required": False},
+            "open_browser": {"type": bool, "required": False},
         },
     },
 }
@@ -353,9 +365,9 @@ def _validate_models_yaml(
             if not item.strip():
                 errors.append(f"  allow[{i}]: item must not be empty string")
         elif isinstance(item, dict):
-            m_id = item.get("id") or item.get("model") or item.get("name")
+            m_id = item.get("id")
             if not m_id or not isinstance(m_id, str):
-                errors.append(f"  allow[{i}]: expected non-empty 'id', 'model', or 'name' string")
+                errors.append(f"  allow[{i}]: expected non-empty 'id' string")
         else:
             errors.append(f"  allow[{i}]: expected string or dict, got {type(item).__name__}")
 

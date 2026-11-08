@@ -393,7 +393,7 @@ class TestAllowlistAddonConfig:
         assert addon._mode == "allow"
         assert addon._default_action == "block"
 
-    def test_flat_config(self, tmp_path):
+    def test_flat_config_rejected(self, tmp_path):
         config = {
             "global": {
                 "mode": "allow",
@@ -408,12 +408,7 @@ class TestAllowlistAddonConfig:
             yaml.dump(config, f)
 
         addon = AllowlistAddon(config_path=str(config_file))
-        assert len(addon.rules) == 1
-        rule = addon.rules[0]
-        assert rule.name == "global-allowlist"
-        assert rule.mode == "allow"
-        assert "api.example.com" in rule.hostnames
-        assert "10.0.0.0/8" in rule.ip_ranges
+        assert len(addon.rules) == 0
 
     def test_named_rules(self, tmp_path):
         config = {

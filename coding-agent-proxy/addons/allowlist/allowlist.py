@@ -439,26 +439,8 @@ class AllowlistAddon:
             except Exception as e:
                 log.warning(f"[allowlist] Failed to parse rule: {e}")
 
-        # If no named rules are defined, fall back to flat hostnames/ip_ranges
-        # from the global config section (a simple allowlist without rule objects).
         if not self.rules:
-            flat_hostnames = self.global_config.get("hostnames", [])
-            flat_ips = self.global_config.get("ip_ranges", [])
-            if flat_hostnames or flat_ips:
-                rule = AllowlistRule(
-                    {
-                        "name": "global-allowlist",
-                        "mode": self._mode,
-                        "hostnames": flat_hostnames,
-                        "ip_ranges": flat_ips,
-                        "enabled": True,
-                    }
-                )
-                self.rules.append(rule)
-                log.info(
-                    f"[allowlist] No named rules; using flat allowlist: "
-                    f"hostnames={len(flat_hostnames)}, ip_ranges={len(flat_ips)}"
-                )
+            log.warning("[allowlist] No rules loaded; 'rules' section is required in allowlist configuration.")
 
     def _is_localhost(self, hostname: str) -> bool:
         """Check if a hostname is a localhost variant or local llama provider."""

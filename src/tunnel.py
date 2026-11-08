@@ -92,9 +92,9 @@ def validate_tunnel_prerequisites(
     tunnel_type: str | None,
     domain: str | None = None,
     quick: bool = False,
-    runner: str = "auto",
-    keyring_account: str = "CLOUDFLARE_TUNNEL_TOKEN",
-    tailscale_mode: str = "serve",
+    runner: str | None = None,
+    keyring_account: str | None = None,
+    tailscale_mode: str | None = None,
     runtime: str = "podman",
 ) -> None:
     """Validate tunnel prerequisites fail-fast on startup before initializing any resources."""
@@ -116,13 +116,13 @@ def validate_tunnel_prerequisites(
         )
 
     if ttype == "tailscale":
-        _validate_tailscale_prerequisites(tailscale_mode=tailscale_mode)
+        _validate_tailscale_prerequisites(tailscale_mode=tailscale_mode or "serve")
     elif ttype == "cloudflare":
         _validate_cloudflare_prerequisites(
             domain=domain,
             quick=quick,
-            runner=runner,
-            keyring_account=keyring_account,
+            runner=runner or "auto",
+            keyring_account=keyring_account or "CLOUDFLARE_TUNNEL_TOKEN",
             runtime=runtime,
         )
 
@@ -311,8 +311,8 @@ def _validate_cloudflare_prerequisites(
 class TailscaleTunnelManager:
     """Manages Tailscale tunnel integration and MagicDNS HTTPS exposure."""
 
-    def __init__(self, mode: str = "serve", port: int = 3773) -> None:
-        self.mode = mode.strip().lower()
+    def __init__(self, mode: str | None = None, port: int = 3773) -> None:
+        self.mode = (mode or "serve").strip().lower()
         self.port = port
         self.tailscale_bin = shutil.which("tailscale") or "tailscale"
         self._fqdn: str | None = None
@@ -384,16 +384,16 @@ class CloudflareTunnelManager:
         self,
         domain: str | None = None,
         quick: bool = False,
-        runner: str = "auto",
-        keyring_account: str = "CLOUDFLARE_TUNNEL_TOKEN",
+        runner: str | None = None,
+        keyring_account: str | None = None,
         port: int = 3773,
         runtime: str = "podman",
         run_id: str | None = None,
     ) -> None:
         self.domain = domain.strip().lower() if domain else None
         self.quick = quick
-        self.runner = runner.strip().lower()
-        self.keyring_account = keyring_account
+        self.runner = (runner or "auto").strip().lower()
+        self.keyring_account = keyring_account or "CLOUDFLARE_TUNNEL_TOKEN"
         self.port = port
         self.runtime = runtime
         self.run_id = run_id or "default"

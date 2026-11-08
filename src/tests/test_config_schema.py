@@ -31,9 +31,18 @@ def valid_config(tmp_path: Path) -> Path:
                 },
                 "llama": {"startup_timeout": 180, "startup_attempts": 2},
                 "network": {"ipv6": False, "dns": "1.1.1.1"},
-                "proxy": {"expose_ui": "localhost"},
+                "proxy": {
+                    "expose_ui": "localhost",
+                    "max_view_flows": 2000,
+                    "stream_large_bodies": "10m",
+                    "open_browser": False,
+                },
                 "agents": {"enabled": ["pi"], "default": "pi"},
-                "agent": {"env": {}, "mounts": []},
+                "agent": {
+                    "env": {},
+                    "mounts": [],
+                    "read_only_pa_container": True,
+                },
                 "nested_containers": {
                     "enabled": False,
                     "storage": "volume",
@@ -43,6 +52,29 @@ def valid_config(tmp_path: Path) -> Path:
                 "tmpfs": {"paths": []},
                 "flow_export": {"enabled": False},
                 "egress": {"allow": {}},
+                "git": {
+                    "safe_directory": True,
+                    "rewrite_ssh_to_https": True,
+                },
+                "security": {
+                    "read_only_git_hooks": True,
+                    "blocked_mount_paths": [],
+                    "blocked_ip_ranges": [],
+                    "git_config_allowlist": [],
+                },
+                "logging": {
+                    "log_level": "INFO",
+                    "retention": {"max_days": 14, "max_launches": 10},
+                },
+                "desktop": {
+                    "enabled": False,
+                    "resolution": "1920x1080",
+                    "compositor": "labwc",
+                    "open_browser": False,
+                    "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+                    "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+                    "gpu": {"enabled": "auto"},
+                },
             }
         )
     )
@@ -270,18 +302,24 @@ class TestNestedContainersSchema:
         assert is_valid is False
         assert any("storage" in e for e in errors)
 
-    def test_enabled_accepts_yaml_bool_and_string(self, valid_config: Path):
+    def test_enabled_accepts_only_bool(self, valid_config: Path):
         import yaml as _yaml
 
         from config_schema import validate_config
 
-        for value in (True, "true", 1):
-            data = _yaml.safe_load(valid_config.read_text())
-            data["nested_containers"]["enabled"] = value
+        data = _yaml.safe_load(valid_config.read_text())
+        data["nested_containers"]["enabled"] = True
+        valid_config.write_text(_yaml.dump(data))
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is True, errors
+
+        for invalid in ("true", 1):
+            data["nested_containers"]["enabled"] = invalid
             valid_config.write_text(_yaml.dump(data))
             with patch("config_schema.get_app_version", return_value=None):
                 is_valid, errors, _ = validate_config(valid_config)
-            assert is_valid is True, errors
+            assert is_valid is False
 
 
 class TestValidateModels:
@@ -304,23 +342,23 @@ class TestValidateModels:
         assert errors == []
 
     def test_valid_models_dicts_and_default_passes(self, tmp_path: Path):
-        """When models.yaml has default and dict items in allow list, validation passes."""
+        """When models.yaml has default and dict items in allow list with id, validation passes."""
         from config_schema import validate_models
 
-        content = "default: qwen\nallow:\n  - id: qwen\n  - model: opper/claude\n  - name: gemma\n"
+        content = "default: qwen\nallow:\n  - id: qwen\n  - id: opper/claude\n  - id: gemma\n"
         p = self._write_models(tmp_path, content)
         is_valid, errors = validate_models(p)
         assert is_valid is True
         assert errors == []
 
-    def test_valid_yml_suffix_passes(self, tmp_path: Path):
-        """When models file uses .yml extension, validation passes."""
+    def test_yml_suffix_rejected(self, tmp_path: Path):
+        """When models file uses .yml extension, validation fails."""
         from config_schema import validate_models
 
         p = self._write_models(tmp_path, "allow:\n  - qwen\n", filename="models.yml")
         is_valid, errors = validate_models(p)
-        assert is_valid is True
-        assert errors == []
+        assert is_valid is False
+        assert any("must be a YAML file (.yaml)" in e for e in errors)
 
     def test_file_not_found(self, tmp_path: Path):
         """When models file does not exist, validation fails."""
@@ -331,13 +369,13 @@ class TestValidateModels:
         assert any("not found" in e for e in errors)
 
     def test_non_yaml_suffix_rejected(self, tmp_path: Path):
-        """When models file does not have .yaml or .yml extension, validation fails."""
+        """When models file does not have .yaml extension, validation fails."""
         from config_schema import validate_models
 
         p = self._write_models(tmp_path, '{"allow": ["qwen"]}', filename="models.json")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("must be a YAML file (.yaml or .yml)" in e for e in errors)
+        assert any("must be a YAML file (.yaml)" in e for e in errors)
 
     def test_invalid_yaml(self, tmp_path: Path):
         """When models.yaml has syntax errors, validation fails."""
@@ -404,13 +442,13 @@ class TestValidateModels:
         assert any("must not be empty string" in e for e in errors)
 
     def test_allow_dict_item_missing_id(self, tmp_path: Path):
-        """When an allow dict item is missing id/model/name, validation fails."""
+        """When an allow dict item is missing id, validation fails."""
         from config_schema import validate_models
 
         p = self._write_models(tmp_path, "allow:\n  - other: val\n")
         is_valid, errors = validate_models(p)
         assert is_valid is False
-        assert any("expected non-empty 'id', 'model', or 'name' string" in e for e in errors)
+        assert any("expected non-empty 'id' string" in e for e in errors)
 
     def test_allow_invalid_item_type(self, tmp_path: Path):
         """When allow item is not string or dict, validation fails."""
@@ -514,8 +552,8 @@ class TestChatTemplatePaths:
         from template_paths import check_chat_template_paths
 
         rel_path = "templates/chat.jinja"
-        full_path = tmp_path / rel_path
-        full_path.parent.mkdir(parents=True)
+        full_path = tmp_path / "coding-agent" / "default" / "global" / "chat-templates" / rel_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text("jinja")
 
         flags = ["--chat-template-file", rel_path]
@@ -552,7 +590,7 @@ class TestChatTemplatePaths:
         errors = check_chat_template_paths(flags, repo_root=tmp_path)
         assert any("path is not a string" in e for e in errors)
 
-    def test_legacy_path_resolution_with_chat_templates_in_parts(self, tmp_path: Path):
+    def test_legacy_path_resolution_rejected(self, tmp_path: Path):
         from template_paths import check_chat_template_paths, resolve_chat_template_path
 
         global_dir = tmp_path / "chat-templates"
@@ -564,10 +602,10 @@ class TestChatTemplatePaths:
         legacy_path = "/nonexistent/old-name/chat-templates/Qwen3.6-35B-A3B-UD-Q6_K-XL/chat_template.jinja"
         flags = ["--chat-template-file", legacy_path]
         errors = check_chat_template_paths(flags, global_templates_dir=global_dir)
-        assert errors == []
+        assert any("does not exist" in e for e in errors)
 
-        resolved = resolve_chat_template_path(legacy_path, global_templates_dir=global_dir)
-        assert resolved == tpl_file
+        with pytest.raises(FileNotFoundError):
+            resolve_chat_template_path(legacy_path, global_templates_dir=global_dir)
 
     def test_nonexistent_file(self, tmp_path: Path):
         from template_paths import check_chat_template_paths
@@ -619,7 +657,7 @@ class TestAgentReadOnlyPiContainerSchema:
         assert is_valid is True
         assert errors == []
 
-    def test_valid_read_only_pa_container_string_and_int(self, valid_config: Path):
+    def test_invalid_read_only_pa_container_string_and_int(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
@@ -629,16 +667,16 @@ class TestAgentReadOnlyPiContainerSchema:
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is True
-        assert errors == []
+        assert is_valid is False
+        assert any("agent.read_only_pa_container: expected bool" in e for e in errors)
 
         data["agent"]["read_only_pa_container"] = 0
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is True
-        assert errors == []
+        assert is_valid is False
+        assert any("agent.read_only_pa_container: expected bool" in e for e in errors)
 
     def test_invalid_read_only_pa_container_type(self, valid_config: Path):
         from config_schema import validate_config

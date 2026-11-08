@@ -61,7 +61,7 @@ class TestEnsureProjectConfig:
         (template / "dependencies" / "agent" / "commands.sh").write_text("#!/bin/bash\n")
         return template
 
-    def test_seeds_agent_and_yaml_when_absent(self, tmp_path, monkeypatch):
+    def test_init_seeds_agent_and_yaml_when_absent(self, tmp_path, monkeypatch):
         repo = tmp_path / "repo"
         proj = tmp_path / "project"
         proj.mkdir()
@@ -69,7 +69,7 @@ class TestEnsureProjectConfig:
         monkeypatch.setattr(project, "REPO_ROOT", repo)
         monkeypatch.setattr(project, "PROJECT_DIR", proj)
 
-        pa_container_dir = project.ensure_project_config()
+        pa_container_dir = project.init_project_config()
 
         assert pa_container_dir == proj / ".pa-container"
         assert (proj / ".pa-container" / "agents" / "pi" / "config.json").exists()
@@ -78,6 +78,16 @@ class TestEnsureProjectConfig:
             assert (proj / ".pa-container" / name).exists()
         assert (proj / ".pa-container" / "dependencies" / "root" / "commands.sh").exists()
         assert (proj / ".pa-container" / "dependencies" / "agent" / "commands.sh").exists()
+
+        # ensure_project_config now succeeds because config.yaml exists
+        assert project.ensure_project_config() == pa_container_dir
+
+    def test_ensure_project_config_raises_when_absent(self, tmp_path, monkeypatch):
+        proj = tmp_path / "empty_project"
+        proj.mkdir()
+        monkeypatch.setattr(project, "PROJECT_DIR", proj)
+        with pytest.raises(FileNotFoundError, match="Project configuration not found"):
+            project.ensure_project_config()
 
     def test_does_not_overwrite_existing(self, tmp_path, monkeypatch):
         repo = tmp_path / "repo"
@@ -90,7 +100,7 @@ class TestEnsureProjectConfig:
         monkeypatch.setattr(project, "REPO_ROOT", repo)
         monkeypatch.setattr(project, "PROJECT_DIR", proj)
 
-        project.ensure_project_config()
+        project.init_project_config()
 
         assert existing.read_text() == "global: {custom: true}\n"
         # Missing ones are still seeded.
@@ -100,13 +110,13 @@ class TestEnsureProjectConfig:
 
 class TestEnsureProjectConfigMissingTemplate:
     def test_raises_when_template_missing(self, tmp_path, monkeypatch):
-        """ensure_project_config raises FileNotFoundError when the template dir is absent."""
+        """init_project_config raises FileNotFoundError when the template dir is absent."""
         repo = tmp_path / "repo"
         proj = tmp_path / "project"
         monkeypatch.setattr(project, "REPO_ROOT", repo)
         monkeypatch.setattr(project, "PROJECT_DIR", proj)
         with pytest.raises(FileNotFoundError, match="Project config template not found"):
-            project.ensure_project_config()
+            project.init_project_config()
 
 
 class TestConfigFixHint:

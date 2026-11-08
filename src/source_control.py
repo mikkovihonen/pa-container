@@ -25,16 +25,10 @@ if TYPE_CHECKING:
     from config_types import SourceControlConfig
 
 from logging_driver import LogCategory, get_category_logger
-from network import _egress_truthy, load_project_config
+from network import load_project_config
 from secret_store import DEFAULT_KEYRING_SERVICE, get_keyring_secret
 
 logger = get_category_logger(__name__, LogCategory.SECURITY)
-
-_DEFAULT_SOURCE_CONTROL = {
-    "enabled": False,
-    "auto_detect_host_cli": False,
-    "setup_git_credentials": True,
-}
 
 
 @dataclass(frozen=True)
@@ -42,7 +36,6 @@ class ProviderDefinition:
     name: str
     canonical_env_var: str
     default_keyring_vars: tuple[str, ...]
-    secondary_export_vars: tuple[str, ...]
     host_cli_cmd: tuple[str, ...] | None
 
 
@@ -50,29 +43,25 @@ PROVIDER_DEFINITIONS: tuple[ProviderDefinition, ...] = (
     ProviderDefinition(
         name="github",
         canonical_env_var="GH_TOKEN",
-        default_keyring_vars=("GH_TOKEN", "GITHUB_TOKEN"),
-        secondary_export_vars=("GITHUB_TOKEN",),
+        default_keyring_vars=("GH_TOKEN",),
         host_cli_cmd=("gh", "auth", "token"),
     ),
     ProviderDefinition(
         name="gitlab",
         canonical_env_var="GITLAB_TOKEN",
-        default_keyring_vars=("GITLAB_TOKEN", "GLAB_TOKEN"),
-        secondary_export_vars=("GLAB_TOKEN",),
+        default_keyring_vars=("GITLAB_TOKEN",),
         host_cli_cmd=None,
     ),
     ProviderDefinition(
         name="forgejo",
         canonical_env_var="GITEA_TOKEN",
-        default_keyring_vars=("GITEA_TOKEN", "TEA_TOKEN", "FORGEJO_TOKEN"),
-        secondary_export_vars=("TEA_TOKEN",),
+        default_keyring_vars=("GITEA_TOKEN",),
         host_cli_cmd=None,
     ),
     ProviderDefinition(
         name="azure_devops",
         canonical_env_var="AZURE_DEVOPS_EXT_PAT",
-        default_keyring_vars=("AZURE_DEVOPS_EXT_PAT", "AZURE_DEVOPS_TOKEN"),
-        secondary_export_vars=("AZURE_DEVOPS_TOKEN",),
+        default_keyring_vars=("AZURE_DEVOPS_EXT_PAT",),
         host_cli_cmd=(
             "az",
             "account",
@@ -88,15 +77,13 @@ PROVIDER_DEFINITIONS: tuple[ProviderDefinition, ...] = (
     ProviderDefinition(
         name="bitbucket",
         canonical_env_var="BITBUCKET_TOKEN",
-        default_keyring_vars=("BITBUCKET_TOKEN", "BITBUCKET_APP_PASSWORD"),
-        secondary_export_vars=(),
+        default_keyring_vars=("BITBUCKET_TOKEN",),
         host_cli_cmd=None,
     ),
     ProviderDefinition(
         name="gitcafe",
         canonical_env_var="GITCAFE_TOKEN",
-        default_keyring_vars=("GITCAFE_TOKEN", "CAFE_TOKEN"),
-        secondary_export_vars=("CAFE_TOKEN",),
+        default_keyring_vars=("GITCAFE_TOKEN",),
         host_cli_cmd=None,
     ),
 )
@@ -117,23 +104,19 @@ def read_source_control_config(config_dir: Path | None = None) -> SourceControlC
     raw_section = config.get("source_control")
     section: dict[str, object] = raw_section if isinstance(raw_section, dict) else {}
 
-    enabled_val = section.get("enabled")
-    auto_detect_val = section.get("auto_detect_host_cli")
-    setup_git_val = section.get("setup_git_credentials")
-    providers_val = section.get("providers")
+    for key in ("enabled", "auto_detect_host_cli", "setup_git_credentials"):
+        if key in section and not isinstance(section[key], bool):
+            raise ValueError(f"Invalid 'source_control.{key}': expected bool, got {type(section[key]).__name__}")
+
+    enabled_val = section.get("enabled", False)
+    auto_detect_val = section.get("auto_detect_host_cli", False)
+    setup_git_val = section.get("setup_git_credentials", True)
+    providers_val = section.get("providers", {})
 
     return {
-        "enabled": _egress_truthy(enabled_val) if enabled_val is not None else _DEFAULT_SOURCE_CONTROL["enabled"],
-        "auto_detect_host_cli": (
-            _egress_truthy(auto_detect_val)
-            if auto_detect_val is not None
-            else _DEFAULT_SOURCE_CONTROL["auto_detect_host_cli"]
-        ),
-        "setup_git_credentials": (
-            _egress_truthy(setup_git_val)
-            if setup_git_val is not None
-            else _DEFAULT_SOURCE_CONTROL["setup_git_credentials"]
-        ),
+        "enabled": bool(enabled_val),
+        "auto_detect_host_cli": bool(auto_detect_val),
+        "setup_git_credentials": bool(setup_git_val),
         "providers": providers_val if isinstance(providers_val, dict) else {},
     }
 
@@ -186,7 +169,7 @@ def resolve_source_control_tokens(
         keyring_service = str(p_cfg.get("keyring_service") or DEFAULT_KEYRING_SERVICE)
 
         # Extract configured keyring variable(s) or fallback to provider candidate accounts
-        configured_vars = p_cfg.get("keyring_var") or p_cfg.get("keyring_account")
+        configured_vars = p_cfg.get("keyring_var")
         if configured_vars:
             if isinstance(configured_vars, (list, tuple)):
                 candidates = [str(k).strip() for k in configured_vars if str(k).strip()]
@@ -216,7 +199,5 @@ def resolve_source_control_tokens(
         if token:
             sc_log.info(f"Resolved {provider.name} source control token from {source}: {mask_token(token)}")
             resolved_env[provider.canonical_env_var] = token
-            for sec_var in provider.secondary_export_vars:
-                resolved_env[sec_var] = token
 
     return resolved_env

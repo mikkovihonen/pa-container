@@ -7,7 +7,7 @@ sys.dont_write_bytecode = True
 
 """Chat template file path resolution and existence validation."""
 
-from config import GLOBAL_CHAT_TEMPLATES_DIR, GLOBAL_CONFIG_DIR, REPO_ROOT
+from config import GLOBAL_CHAT_TEMPLATES_DIR, REPO_ROOT
 
 
 def resolve_chat_template_path(
@@ -15,64 +15,24 @@ def resolve_chat_template_path(
     repo_root: Path | None = None,
     global_templates_dir: Path | None = None,
 ) -> Path:
-    """Resolve a `--chat-template-file` flag path globally, expanding tilde and relative paths."""
+    """Resolve a `--chat-template-file` flag path, expanding tildes and failing hard if absent."""
     p = Path(template_path).expanduser()
-    g_dir = global_templates_dir or GLOBAL_CHAT_TEMPLATES_DIR
-    r_root = repo_root or REPO_ROOT
-
     if p.is_absolute():
-        if p.exists():
-            return p
-        # If path contains "chat-templates", check under active global or bundled templates
-        if "chat-templates" in p.parts:
-            idx = p.parts.index("chat-templates")
-            rel = Path(*p.parts[idx + 1 :])
-            candidate = g_dir / rel
-            if candidate.exists():
-                return candidate.resolve()
-            bundled = r_root / "coding-agent" / "default" / "global" / "chat-templates" / rel
-            if bundled.exists():
-                return bundled.resolve()
-        # If it points to global chat-templates directory but doesn't exist on disk,
-        # check if it exists in the bundled repository chat-templates
-        try:
-            rel = p.relative_to(g_dir)
-            bundled = r_root / "coding-agent" / "default" / "global" / "chat-templates" / rel
-            if bundled.exists():
-                return bundled.resolve()
-        except ValueError:
-            pass
-        return p
+        if p.is_file():
+            return p.resolve()
+        raise FileNotFoundError(f"Chat template file not found: {p}")
 
-    # 1. Directly under global chat-templates directory (~/.config/pa-container/chat-templates/)
-    if (g_dir / p).exists():
-        return (g_dir / p).resolve()
+    g_dir = global_templates_dir or GLOBAL_CHAT_TEMPLATES_DIR
+    candidate = (g_dir / p).resolve()
+    if candidate.is_file():
+        return candidate
 
-    # 2. Relative to ~/.config/pa-container/ (e.g. "chat-templates/<model>/...")
-    if (GLOBAL_CONFIG_DIR / p).exists():
-        return (GLOBAL_CONFIG_DIR / p).resolve()
+    r_root = repo_root or REPO_ROOT
+    bundled = (r_root / "coding-agent" / "default" / "global" / "chat-templates" / p).resolve()
+    if bundled.is_file():
+        return bundled
 
-    parts = p.parts
-
-    # 3. If path starts with "chat-templates/", check under g_dir (without prefix)
-    if len(parts) > 1 and parts[0] == "chat-templates":
-        sub = Path(*parts[1:])
-        if (g_dir / sub).exists():
-            return (g_dir / sub).resolve()
-
-    # 4. Check relative to repo_root or current working directory
-    if (r_root / p).exists():
-        return (r_root / p).resolve()
-    bundled_tpl = r_root / "coding-agent" / "default" / "global" / "chat-templates" / p
-    if bundled_tpl.exists():
-        return bundled_tpl.resolve()
-    if (Path.cwd() / p).exists():
-        return (Path.cwd() / p).resolve()
-
-    # Fallback default: prefer global templates directory
-    if len(parts) > 1 and parts[0] == "chat-templates":
-        return (GLOBAL_CONFIG_DIR / p).resolve()
-    return (g_dir / p).resolve()
+    raise FileNotFoundError(f"Chat template file not found at {candidate} or {bundled}")
 
 
 def check_chat_template_paths(
@@ -95,11 +55,14 @@ def check_chat_template_paths(
                 )
                 continue
 
-            resolved = resolve_chat_template_path(
-                template_path,
-                repo_root=repo_root,
-                global_templates_dir=global_templates_dir,
-            )
-            if not resolved.exists():
-                errors.append(f"flags[{i}]: --chat-template-file path does not exist: {resolved}")
+            try:
+                resolved = resolve_chat_template_path(
+                    template_path,
+                    repo_root=repo_root,
+                    global_templates_dir=global_templates_dir,
+                )
+                if not resolved.exists():
+                    errors.append(f"flags[{i}]: --chat-template-file path does not exist: {resolved}")
+            except FileNotFoundError as e:
+                errors.append(f"flags[{i}]: --chat-template-file path does not exist: {e}")
     return errors

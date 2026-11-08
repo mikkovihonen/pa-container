@@ -19,18 +19,10 @@ from desktop import (
 
 def test_read_desktop_config_defaults(tmp_path: Path):
     (tmp_path / "config.yaml").write_text("schema_version: '0.6.6'\n")
-    cfg = read_desktop_config(tmp_path)
-    assert cfg["enabled"] is False
-    assert cfg["resolution"] == "1920x1080"
-    assert cfg["compositor"] == "labwc"
-    assert cfg["open_browser"] is False
-    assert cfg["vnc"]["enabled"] is True
-    assert cfg["vnc"]["port"] == "auto"
-    assert cfg["vnc"]["expose"] == "localhost"
-    assert cfg["novnc"]["enabled"] is True
-    assert cfg["novnc"]["port"] == "auto"
-    assert cfg["novnc"]["expose"] == "localhost"
-    assert cfg["gpu"]["enabled"] == "auto"
+    import pytest
+
+    with pytest.raises(ValueError, match="Missing required 'desktop' configuration section"):
+        read_desktop_config(tmp_path)
 
 
 def test_read_desktop_config_custom(tmp_path: Path):
@@ -65,28 +57,28 @@ desktop:
 
 
 def test_read_desktop_config_sanitization(tmp_path: Path):
+    import pytest
+
     content = """
 desktop:
   enabled: "yes"
   resolution: "invalid_resolution"
   compositor: "kde"
+  open_browser: false
   vnc:
+    enabled: true
     port: 999999
     expose: "world"
   novnc:
+    enabled: true
     port: "not_a_number"
+    expose: "localhost"
   gpu:
     enabled: "auto"
 """
     (tmp_path / "config.yaml").write_text(content)
-    cfg = read_desktop_config(tmp_path)
-    assert cfg["enabled"] is True
-    assert cfg["resolution"] == "1920x1080"
-    assert cfg["compositor"] == "labwc"
-    assert cfg["vnc"]["port"] == "auto"
-    assert cfg["vnc"]["expose"] == "localhost"
-    assert cfg["novnc"]["port"] == "auto"
-    assert cfg["gpu"]["enabled"] == "auto"
+    with pytest.raises(ValueError, match="Invalid 'desktop.enabled': expected bool"):
+        read_desktop_config(tmp_path)
 
 
 def test_check_desktop_health():
