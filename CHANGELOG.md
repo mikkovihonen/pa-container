@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## [0.7.0] - 2026-11-08
+
 ### Added
 - **Unified Command Line Interface (`src/cli.py`).** Added unified argument parsing dispatcher supporting `run`, `build`, `clean`, and `logs` subcommands with POSIX `--` container passthrough, implicit `run` defaulting, and global flags (`-v`, `-q`, `--log-level`, `--log-file`, `--no-color`).
 - **Sequential stage checklist & real-time progress (`src/logging_driver.py`).** Added `Stage` and `StageStatus` tracking in `LogDriver`, preserving completed stages (`✔ [category] Stage label`) in terminal scrollback while animating the active in-flight stage with a 10 Hz Rich spinner and category tag.

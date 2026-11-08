@@ -1,6 +1,6 @@
 # Global pa-container configuration (~/.config/pa-container/config.yaml)
 # Seeded automatically on first run; edit to customize host-wide defaults.
-schema_version: "0.6.6"
+schema_version: "0.7.0"
 
 # Host container runtime and orchestration logging
 runtime:
