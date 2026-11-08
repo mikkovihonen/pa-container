@@ -136,6 +136,18 @@ def get_free_port() -> int:
         return port
 
 
+def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+    """Check if a TCP port is available on the given host interface."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, port))
+            return True
+    except OSError as e:
+        _LOG.debug(f"Port {port} on {host} is unavailable: {e}")
+        return False
+
+
 def is_pid_alive(pid: int) -> bool:
     """Check if a process with the given PID is running on the host.
 

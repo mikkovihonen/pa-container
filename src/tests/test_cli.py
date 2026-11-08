@@ -69,6 +69,8 @@ class TestCliParser:
                 "opencode",
                 "--t3",
                 "--t3-lan",
+                "--t3-port",
+                "8080",
                 "--t3-advertise-host",
                 "192.168.1.10",
                 "--t3-tunnel",
@@ -89,6 +91,7 @@ class TestCliParser:
         assert options.agent == "opencode"
         assert options.t3 is True
         assert options.t3_lan is True
+        assert options.t3_port == "8080"
         assert options.t3_advertise_host == "192.168.1.10"
         assert options.t3_tunnel == "cloudflare"
         assert options.t3_tunnel_quick is True

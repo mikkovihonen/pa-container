@@ -118,7 +118,8 @@ When T3 Code runs inside a container, `t3 serve` must bind to `--host 0.0.0.0` s
 `pa-container` includes an automated network shim (`t3-advertise-host.cjs`) along with explicit CLI configuration knobs for advertised addresses and network exposure:
 
 - **Advertised Host / Pairing URL**:
-    - **Default (`localhost`)**: The pairing link and connection URL display `http://localhost:3773/pair#token=...` for local host browser use.
+    - **Default (`localhost`)**: The pairing link and connection URL display `http://localhost:<port>/pair#token=...` for local host browser use.
+    - **Port Selection & Multi-Instance Auto-Allocation (`--t3-port`)**: By default, T3 Code binds to port `3773`. If port `3773` is already in use by another instance or process, `pa-container` automatically allocates an ephemeral free port so multiple instances can run concurrently without collision. Pass `--t3-port auto` to force ephemeral assignment, or `--t3-port <port>` for an explicit port. The assigned port is passed to `t3 --port` so the printed pairing URL matches the host port.
     - **External Host IP (`external`)**: To advertise the host machine's primary outbound IPv4 address (e.g. `192.168.1.100`), pass `--t3-external-ip` (or `--t3-advertise-host external`) on the CLI.
     - **Custom Host / Override**: Pass an explicit IP or hostname via `--t3-advertise-host <host>`:
         ```bash

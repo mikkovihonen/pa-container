@@ -63,6 +63,7 @@ from network import (
     read_proxy_config,
     read_read_only_pa_container,
     read_resource_limits,
+    resolve_t3_port,
     resource_limit_args,
     scan_tmpfs_paths,
     scan_volume_paths,
@@ -294,6 +295,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     cli_agent = options.agent
     cli_t3 = options.t3
     cli_lan = options.t3_lan
+    cli_t3_port = options.t3_port
     cli_t3_advertise_host = options.t3_advertise_host
     cli_t3_tunnel = options.t3_tunnel
     cli_t3_tunnel_domain = options.t3_tunnel_domain
@@ -304,7 +306,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     cli_t3_public_url = options.t3_public_url
     container_argv = options.container_argv
 
-    if cli_t3_tunnel:
+    if cli_t3_tunnel or cli_t3_port:
         cli_t3 = True
         from tunnel import TunnelValidationError, validate_tunnel_prerequisites
 
@@ -450,10 +452,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 f"  [dim cyan][{LogCategory.DESKTOP}][/dim cyan] Virtual Desktop: [link={desktop_novnc_url}]{desktop_novnc_url}[/link] [dim](VNC: {desktop_vnc_endpoint}) 🔗 (click to open)[/dim]"
             )
 
+    t3_port = 3773
     if is_t3_mode:
-        claimed_agent_ports = {agent for _, agent in agent_ports["publish"]}
-        if 3773 not in claimed_agent_ports:
-            agent_ports["publish"].append((3773, 3773))
+        t3_port = resolve_t3_port(agent_ports, cli_port=cli_t3_port)
         has_active_tunnel = bool(cli_t3_tunnel or cli_t3_public_url)
         if (
             not has_active_tunnel
@@ -495,7 +496,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         t3_bind = "127.0.0.1" if agent_ports["expose"] != "lan" else "0.0.0.0"
         logger.info(
             f"T3 Code mode enabled (https://t3.codes):"
-            f"\n  Inbound server port: {t3_bind}:3773"
+            f"\n  Inbound server port: {t3_bind}:{t3_port}"
             f"\n  Advertised host: {t3_advertise_host}"
             f"\n  Starting T3 Code server for {agent_driver.name} inside container..."
             f"\n  Once initialized, open https://t3.codes and use the pairing link displayed below."
@@ -555,7 +556,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 if ttype == "tailscale":
                     from tunnel import TailscaleTunnelManager
 
-                    ts_mgr = TailscaleTunnelManager(mode=cli_t3_tunnel_tailscale_mode, port=3773)
+                    ts_mgr = TailscaleTunnelManager(mode=cli_t3_tunnel_tailscale_mode, port=t3_port)
                     pub_url, adv_host = ts_mgr.start(stack)
                     t3_public_url = t3_public_url or pub_url
                     t3_advertise_host = adv_host
@@ -567,7 +568,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         quick=cli_t3_tunnel_quick,
                         runner=cli_t3_tunnel_runner,
                         keyring_account=cli_t3_tunnel_keyring_account,
-                        port=3773,
+                        port=t3_port,
                         runtime=CONTAINER_RUNTIME,
                         run_id=run_id,
                     )
@@ -891,6 +892,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     [
                         "--env",
                         "PA_CONTAINER_MODE=t3",
+                        "--env",
+                        f"T3_PORT={t3_port}",
                         "--env",
                         f"T3_ADVERTISE_HOST={t3_advertise_host}",
                         *(["--env", f"T3_PUBLIC_URL={t3_public_url}"] if t3_public_url else []),

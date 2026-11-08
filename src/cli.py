@@ -56,6 +56,7 @@ class RunOptions(GlobalCliOptions):
     agent: str | None = None
     t3: bool = False
     t3_lan: bool = False
+    t3_port: str | None = None
     t3_advertise_host: str | None = None
     t3_tunnel: str | None = None
     t3_tunnel_domain: str | None = None
@@ -228,6 +229,10 @@ def create_parser() -> argparse.ArgumentParser:
         "--t3-lan",
         action="store_true",
         help="Allow T3 Code inbound connections from LAN devices (binds 0.0.0.0).",
+    )
+    run_parser.add_argument(
+        "--t3-port",
+        help="Port for T3 Code web server (integer or 'auto'). Defaults to 3773 or next available port if in use.",
     )
     run_parser.add_argument(
         "--t3-advertise-host",
@@ -557,6 +562,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             agent=getattr(args, "agent", None),
             t3=getattr(args, "t3", False),
             t3_lan=getattr(args, "t3_lan", False),
+            t3_port=getattr(args, "t3_port", None),
             t3_advertise_host=getattr(args, "t3_advertise_host", None),
             t3_tunnel=getattr(args, "t3_tunnel", None),
             t3_tunnel_domain=getattr(args, "t3_tunnel_domain", None),

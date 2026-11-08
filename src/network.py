@@ -23,6 +23,7 @@ from runtimes import PodmanRuntime
 from util import (
     get_free_port,
     get_ref_count,
+    is_port_available,
     read_live_clients,
     run_quiet,
     start_refcounted_resource,
@@ -351,6 +352,68 @@ def read_agent_ports(config_dir: Path | None = None) -> PortPublishConfig:
     """
     section = load_project_config(config_dir).get("agent") or {}
     return _read_ports_section(section, "agent.ports")
+
+
+def resolve_t3_port(
+    agent_ports: PortPublishConfig,
+    cli_port: int | str | None = None,
+    default_port: int = 3773,
+) -> int:
+    """Resolve the host and container port for T3 Code server.
+
+    If an explicit port is provided via CLI or configured in agent.ports.publish,
+    it is preferred (falling back to an ephemeral port if occupied or if 'auto').
+    If default port 3773 is free, it is selected; otherwise an ephemeral port
+    is allocated to avoid host port collisions across multiple instances.
+
+    The published port mapping (t3_port, t3_port) is added or updated in agent_ports.
+    """
+    host = "127.0.0.1" if agent_ports.get("expose") != "lan" else "0.0.0.0"
+
+    publish = agent_ports.get("publish", [])
+    existing_idx: int | None = None
+    for idx, (h_port, c_port) in enumerate(publish):
+        if c_port == default_port or h_port == default_port:
+            existing_idx = idx
+            break
+
+    target: int | str
+    if cli_port is not None:
+        raw = str(cli_port).strip().lower()
+        if raw == "auto":
+            target = "auto"
+        else:
+            try:
+                target = int(raw)
+            except ValueError as e:
+                raise ValueError(f"Invalid T3 Code port {cli_port!r}: expected integer or 'auto'") from e
+            if not (1 <= target <= 65535):
+                raise ValueError(f"T3 Code port {target} out of range (must be 1..65535)")
+    elif existing_idx is not None:
+        target = publish[existing_idx][0]
+    else:
+        target = default_port
+
+    if target == "auto":
+        t3_port = get_free_port()
+    elif isinstance(target, int):
+        if is_port_available(target, host=host):
+            t3_port = target
+        else:
+            logger.warning(f"Configured or default T3 Code port {target} is in use; allocating ephemeral port.")
+            t3_port = get_free_port()
+    else:
+        t3_port = get_free_port()
+
+    publish_list = list(publish)
+    if existing_idx is not None:
+        publish_list[existing_idx] = (t3_port, t3_port)
+    else:
+        if not any(h == t3_port and c == t3_port for h, c in publish_list):
+            publish_list.append((t3_port, t3_port))
+    agent_ports["publish"] = publish_list
+
+    return t3_port
 
 
 def read_agent_mode(config_dir: Path | None = None) -> str:

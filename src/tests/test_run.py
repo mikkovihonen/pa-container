@@ -285,6 +285,10 @@ class TestEnsureProxyImage:
 
 class TestT3LaunchConfiguration:
     def test_t3_flag_enables_mode_and_default_port(self):
+        from unittest.mock import patch
+
+        from network import resolve_t3_port
+
         argv = ["run.py", "--t3"]
         cli_t3 = "--t3" in argv
         container_argv = [arg for arg in argv[1:] if arg != "--t3"]
@@ -292,17 +296,21 @@ class TestT3LaunchConfiguration:
         assert container_argv == []
 
         agent_ports = {"expose": "localhost", "publish": []}
-        claimed_agent_ports = {agent for _, agent in agent_ports["publish"]}
-        if 3773 not in claimed_agent_ports:
-            agent_ports["publish"].append((3773, 3773))
+        with patch("network.is_port_available", return_value=True):
+            port = resolve_t3_port(agent_ports)
+        assert port == 3773
         assert agent_ports["publish"] == [(3773, 3773)]
 
     def test_t3_preserves_custom_port(self):
+        from unittest.mock import patch
+
+        from network import resolve_t3_port
+
         agent_ports = {"expose": "localhost", "publish": [(13773, 3773)]}
-        claimed_agent_ports = {agent for _, agent in agent_ports["publish"]}
-        if 3773 not in claimed_agent_ports:
-            agent_ports["publish"].append((3773, 3773))
-        assert agent_ports["publish"] == [(13773, 3773)]
+        with patch("network.is_port_available", return_value=True):
+            port = resolve_t3_port(agent_ports)
+        assert port == 13773
+        assert agent_ports["publish"] == [(13773, 13773)]
 
     def test_t3_advertise_host_cli_parsing(self):
         # Two-arg form
@@ -590,10 +598,13 @@ class TestT3AdvertiseHostResolution:
             "--env",
             "PA_CONTAINER_MODE=t3",
             "--env",
+            "T3_PORT=3773",
+            "--env",
             f"T3_ADVERTISE_HOST={t3_advertise_host}",
             *(["--env", f"T3_PUBLIC_URL={t3_public_url}"] if t3_public_url else []),
         ]
         assert "--env" in env_args
+        assert "T3_PORT=3773" in env_args
         assert "T3_PUBLIC_URL=https://t3.example.com" in env_args
         assert "T3_ADVERTISE_HOST=t3.example.com" in env_args
 

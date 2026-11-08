@@ -294,7 +294,7 @@ exec gosu agent bash -c '
             node "$_seed_script" 2>/dev/null || true
         fi
 
-        exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT}" "${extra_args[@]}" "$@"
+        exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
     else
         case "${PA_CONTAINER_AGENT}" in
             pi)

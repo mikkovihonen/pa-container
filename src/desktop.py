@@ -125,18 +125,7 @@ def read_desktop_config(config_dir: Path | None = None) -> DesktopConfig:
     }
 
 
-def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
-    """Check if a TCP port is available on the given host interface."""
-    import socket
-
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((host, port))
-            return True
-    except OSError as e:
-        logger.debug(f"Port {port} on {host} is unavailable: {e}")
-        return False
+from util import is_port_available
 
 
 def resolve_desktop_ports(cfg: DesktopConfig) -> tuple[int, int]:

@@ -77,7 +77,8 @@ if (publicUrl) {
             });
         }
         if (str.includes('Listening on http')) {
-            str = str.replace(/Listening on http:\/\/[^\s]+/g, `Listening on ${publicUrl} (tunnel terminating to container port 3773)`);
+            const containerPort = process.env.T3_PORT || '3773';
+            str = str.replace(/Listening on http:\/\/[^\s]+/g, `Listening on ${publicUrl} (tunnel terminating to container port ${containerPort})`);
         }
         return str;
     }
