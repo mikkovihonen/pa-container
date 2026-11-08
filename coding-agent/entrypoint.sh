@@ -37,6 +37,12 @@ fi
 # ─── Home directory ownership (/home/agent is mounted as tmpfs at runtime) ───
 chown agent:agent /home/agent
 chmod 755 /home/agent
+for _user_dir in /home/agent/.local /home/agent/.local/share /home/agent/.config /home/agent/.cache; do
+    if [ -d "$_user_dir" ]; then
+        chown agent:agent "$_user_dir" 2>/dev/null || true
+        chmod 755 "$_user_dir" 2>/dev/null || true
+    fi
+done
 
 # ─── Shadow directories ownership (tmpfs / named volume mounts) ───────────
 # Mount roots (tmpfs, named volumes) are created owned by root:root (0755).

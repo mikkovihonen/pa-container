@@ -857,8 +857,26 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
                 t3_chown = ["/home/agent/.t3"]
 
+            driver_mount_chown: list[str] = []
+            for m in agent_driver.get_mounts(PROJECT_DIR):
+                dest_path = Path(m.destination)
+                try:
+                    rel = dest_path.relative_to(Path("/home/agent"))
+                    curr = Path("/home/agent")
+                    for part in rel.parts:
+                        curr = curr / part
+                        driver_mount_chown.append(str(curr))
+                except ValueError:
+                    driver_mount_chown.append(str(dest_path))
+
             chown_paths = sorted(
-                set(tmpfs_paths + shadow_destinations + ["/workspace/.pa-container/exports"] + t3_chown)
+                set(
+                    tmpfs_paths
+                    + shadow_destinations
+                    + ["/workspace/.pa-container/exports"]
+                    + t3_chown
+                    + driver_mount_chown
+                )
             )
             final_container_argv = agent_driver.get_command(container_argv)
 

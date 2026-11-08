@@ -1,3 +1,7 @@
+# Version control & CI
+.git
+.github
+
 # MacOS
 .DS_Store
 .localized
@@ -5,22 +9,25 @@ __MACOS__
 .AppleDouble
 .LSOverride
 
-# Python
+# Python & caches
 __pycache__/
 *.py[cod]
 .env
 .venv
 env/
 venv/
-.pytest_cache
-.mypy_cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+*.egg-info/
+dist/
+build/
+.cache/
 
-# llama.cpp
-llama-server/.locks
-llama-server/models
-llama-server/logs
+# Documentation & build outputs
+site/
+docs/
 
-# Pi
-coding-agent/logs
-coding-agent/setups
+# Coding Agent runtime & workspace state
 .pa-container/

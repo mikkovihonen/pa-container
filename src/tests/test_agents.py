@@ -81,21 +81,35 @@ def test_opencode_driver_contracts(tmp_path):
 
     project_dir = tmp_path / "project"
     mounts = driver.get_mounts(project_dir)
-    assert len(mounts) == 1
+    assert len(mounts) == 2
     assert mounts[0].destination == "/home/agent/.config/opencode"
+    assert mounts[1].destination == "/home/agent/.local/share/opencode"
+    assert driver.get_sessions_dir(project_dir) == project_dir / ".pa-container" / "agents" / "opencode" / "data"
+
+    legacy_file = project_dir / ".pa-container" / "agents" / "opencode" / "config.json"
+    legacy_file.parent.mkdir(parents=True, exist_ok=True)
+    legacy_file.write_text("{}")
 
     server_configs = [{"name": "qwen", "baseUrl": "http://llama:9999/v1"}]
-    gateway_configs = [{"name": "opper", "baseUrl": "https://api.opper.ai"}]
+    gateway_configs = [{"name": "opper", "baseUrl": "https://api.opper.ai", "containerEnvVar": "OPPER_API_KEY"}]
     driver.synthesize_config(server_configs, gateway_configs, "qwen", project_dir)
 
-    cfg_file = project_dir / ".pa-container" / "agents" / "opencode" / "config.json"
+    assert legacy_file.exists()
+    cfg_file = project_dir / ".pa-container" / "agents" / "opencode" / "opencode.json"
     assert cfg_file.is_file()
     cfg_data = json.loads(cfg_file.read_text())
-    assert cfg_data["default_model"] == "qwen"
+    assert cfg_data["$schema"] == "https://opencode.ai/config.json"
+    assert cfg_data["model"] == "qwen/qwen"
+    assert cfg_data["enabled_providers"] == ["qwen", "opper"]
     assert "qwen" in cfg_data["providers"]
-    assert cfg_data["providers"]["qwen"]["base_url"] == "http://llama:9999/v1"
+    assert cfg_data["providers"]["qwen"]["settings"]["baseURL"] == "http://llama:9999/v1"
+    assert cfg_data["providers"]["qwen"]["package"] == "@opencode/ai/providers/openai-compatible"
+    assert cfg_data["providers"]["qwen"]["models"]["qwen"]["name"] == "qwen"
     assert "opper" in cfg_data["providers"]
-    assert cfg_data["providers"]["opper"]["api_key"] == "OPPER_API_KEY_PLACEHOLDER"
+    assert cfg_data["providers"]["opper"]["settings"]["baseURL"] == "https://api.opper.ai"
+    assert cfg_data["providers"]["opper"]["package"] == "@opencode/ai/providers/openai-compatible"
+    assert cfg_data["providers"]["opper"]["models"]["opper"]["name"] == "opper"
+    assert cfg_data["providers"]["opper"]["env"] == ["OPPER_API_KEY"]
 
 
 def test_antigravity_driver_contracts(tmp_path):

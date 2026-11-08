@@ -74,8 +74,8 @@ If an agent is not listed in `agents.enabled`, `pa-container` rejects the invoca
 
 ### 2. OpenCode (`opencode`)
 
-- **State Directory**: `.pa-container/agents/opencode/` mounted to `/home/agent/.config/opencode`.
-- **Model Translation**: Synthesizes `.pa-container/agents/opencode/config.json` with OpenAI-compatible endpoint configurations.
+- **State Directory**: `.pa-container/agents/opencode/` mounted to `/home/agent/.config/opencode` (configuration) and `.pa-container/agents/opencode/data/` mounted to `/home/agent/.local/share/opencode` (sessions and database).
+- **Model Translation**: Synthesizes `.pa-container/agents/opencode/opencode.json` with OpenAI-compatible endpoint configurations and restricts `enabled_providers` to project-configured models.
 - **Egress Authentication**: Outgoing requests carry placeholder `Bearer pa-container-token-placeholder` headers that the proxy transforms into the real API key.
 
 ### 3. Google Antigravity (`antigravity`)

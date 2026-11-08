@@ -38,9 +38,15 @@ class OpenCodeDriver(AgentDriver):
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:
         opencode_dir = self.get_state_dir(project_dir)
         opencode_dir.mkdir(parents=True, exist_ok=True)
+        data_dir = opencode_dir / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
         return [
             AgentMount(source=opencode_dir, destination="/home/agent/.config/opencode"),
+            AgentMount(source=data_dir, destination="/home/agent/.local/share/opencode"),
         ]
+
+    def get_sessions_dir(self, project_dir: Path) -> Path | None:
+        return self.get_state_dir(project_dir) / "data"
 
     def synthesize_config(
         self,
@@ -49,32 +55,80 @@ class OpenCodeDriver(AgentDriver):
         default_model: str | None,
         project_dir: Path,
     ) -> None:
-        """Synthesize ~/.config/opencode/config.json from active servers and gateways."""
+        """Synthesize ~/.config/opencode/opencode.json from active servers and gateways."""
         opencode_dir = self.get_state_dir(project_dir)
         opencode_dir.mkdir(parents=True, exist_ok=True)
-        config_file = opencode_dir / "config.json"
+        config_file = opencode_dir / "opencode.json"
 
-        endpoints: dict[str, dict[str, object]] = {}
+        providers: dict[str, dict[str, object]] = {}
         for srv in server_configs:
             name = srv["name"]
-            endpoints[name] = {
-                "type": "openai",
-                "base_url": srv.get("baseUrl") or "http://llama:9999/v1",
-                "api_key": "not-required",
+            base_url = srv.get("baseUrl") or "http://llama:9999/v1"
+            providers[name] = {
+                "name": name,
+                "package": "@opencode/ai/providers/openai-compatible",
+                "settings": {
+                    "baseURL": base_url,
+                },
+                "models": {
+                    name: {
+                        "name": name,
+                    }
+                },
             }
 
         for gw in gateway_configs:
             name = gw["name"]
             base_url = gw.get("baseUrl") or (gw.get("gatewayDef") and gw["gatewayDef"].base_url) or ""
-            endpoints[name] = {
-                "type": "openai",
-                "base_url": base_url,
-                "api_key": f"{name.upper().replace('-', '_')}_API_KEY_PLACEHOLDER",
+            gw_entry: dict[str, object] = {
+                "name": name,
+                "package": "@opencode/ai/providers/openai-compatible",
+                "settings": {
+                    "baseURL": base_url,
+                },
+                "models": {
+                    name: {
+                        "name": name,
+                    }
+                },
             }
+            if gw.get("containerEnvVar"):
+                gw_entry["env"] = [gw["containerEnvVar"]]
+            providers[name] = gw_entry
 
-        config_data = {
-            "default_model": default_model or (server_configs and server_configs[0]["name"]) or "default",
-            "providers": endpoints,
+        if default_model:
+            if "/" in default_model:
+                model_str = default_model
+            elif default_model in providers:
+                model_str = f"{default_model}/{default_model}"
+            else:
+                matched_prov = None
+                for p_id, p_conf in providers.items():
+                    models_obj = p_conf.get("models")
+                    if isinstance(models_obj, dict) and default_model in models_obj:
+                        matched_prov = p_id
+                        break
+                if matched_prov:
+                    model_str = f"{matched_prov}/{default_model}"
+                elif providers:
+                    first_prov = next(iter(providers.keys()))
+                    model_str = f"{first_prov}/{default_model}"
+                else:
+                    model_str = f"default/{default_model}"
+        elif server_configs:
+            srv_name = server_configs[0]["name"]
+            model_str = f"{srv_name}/{srv_name}"
+        elif gateway_configs:
+            gw_name = gateway_configs[0]["name"]
+            model_str = f"{gw_name}/{gw_name}"
+        else:
+            model_str = "default/default"
+
+        config_data: dict[str, object] = {
+            "$schema": "https://opencode.ai/config.json",
+            "model": model_str,
+            "enabled_providers": list(providers.keys()),
+            "providers": providers,
         }
 
         with config_file.open("w") as f:

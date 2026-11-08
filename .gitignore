@@ -13,25 +13,19 @@ __pycache__/
 .venv
 env/
 venv/
-.pytest_cache
-.pytest_cache/**
-.ruff_cache
-.ruff_cache/**
-.mypy_cache
-.mypy_cache/**
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
 
 # Node
 .npm
 
 # Claude
-.claude
-.claude/**
+.claude/
 .claude.json
 
-# Coding Agent runtime caches, logs, and workspace configuration
-coding-agent/logs
-coding-agent/logs/**
+# Coding Agent runtime caches and workspace configuration
 .pa-container/
 
 # Generated coverage badge (committed by CI)
@@ -40,8 +34,11 @@ docs/assets/coverage.svg
 # Build artifacts
 site/
 *.egg-info/
+dist/
+build/
 
 # Generated index (from README.md)
 docs/index.md
 
-.cache
+# Host caches
+.cache/

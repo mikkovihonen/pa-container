@@ -526,6 +526,35 @@ class TestT3AdvertiseHostResolution:
         assert t3_mounts == ["--volume", f"{pa_container_dir / 't3'}:/home/agent/.t3"]
         assert t3_chown == ["/home/agent/.t3"]
 
+    def test_driver_mount_chown_intermediate_paths(self):
+        from pathlib import Path
+
+        from agents.base import AgentMount
+
+        mounts = [
+            AgentMount(source=Path("/host/cfg"), destination="/home/agent/.config/opencode"),
+            AgentMount(source=Path("/host/data"), destination="/home/agent/.local/share/opencode"),
+            AgentMount(source=Path("/host/workspace"), destination="/workspace/custom"),
+        ]
+        driver_mount_chown: list[str] = []
+        for m in mounts:
+            dest_path = Path(m.destination)
+            try:
+                rel = dest_path.relative_to(Path("/home/agent"))
+                curr = Path("/home/agent")
+                for part in rel.parts:
+                    curr = curr / part
+                    driver_mount_chown.append(str(curr))
+            except ValueError:
+                driver_mount_chown.append(str(dest_path))
+
+        assert "/home/agent/.config" in driver_mount_chown
+        assert "/home/agent/.config/opencode" in driver_mount_chown
+        assert "/home/agent/.local" in driver_mount_chown
+        assert "/home/agent/.local/share" in driver_mount_chown
+        assert "/home/agent/.local/share/opencode" in driver_mount_chown
+        assert "/workspace/custom" in driver_mount_chown
+
     def test_t3_tunnel_cli_parsing(self):
         raw_args = [
             "--t3-tunnel",
