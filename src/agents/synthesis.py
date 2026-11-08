@@ -30,11 +30,11 @@ and `~/.config/pa-container/gateways/`.
 """
 
 
-def resolve_models_file(pi_container_dir: Path) -> Path | None:
+def resolve_models_file(pa_container_dir: Path) -> Path | None:
     """Find the project models configuration file (.pa-container/models.yaml or models.yml)."""
     yaml_candidates = (
-        pi_container_dir / "models.yaml",
-        pi_container_dir / "models.yml",
+        pa_container_dir / "models.yaml",
+        pa_container_dir / "models.yml",
     )
     for candidate in yaml_candidates:
         if candidate.is_file():
@@ -140,7 +140,7 @@ def extract_models_from_yaml(
 
 
 def load_project_models(
-    pi_container_dir: Path,
+    pa_container_dir: Path,
     models_dir: Path | None = None,
     gateways_dir: Path | None = None,
 ) -> tuple[dict[str, Any], list[ServerConfigItem], set[str], list[GatewayConfigItem], str | None, Path]:
@@ -149,10 +149,10 @@ def load_project_models(
     Returns:
         (synthetic_models_data, server_configs, llama_hostnames, gateway_configs, default_model, models_file_path)
     """
-    models_path = resolve_models_file(pi_container_dir)
+    models_path = resolve_models_file(pa_container_dir)
     if models_path is None:
-        expected = pi_container_dir / "models.yaml"
-        raise FileNotFoundError(f"No models configuration found in {pi_container_dir}. Expected {expected.name}.")
+        expected = pa_container_dir / "models.yaml"
+        raise FileNotFoundError(f"No models configuration found in {pa_container_dir}. Expected {expected.name}.")
 
     raw = load_yaml_strict(models_path.read_text())
     data = raw if isinstance(raw, dict) else {}

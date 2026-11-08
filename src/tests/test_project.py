@@ -69,9 +69,9 @@ class TestEnsureProjectConfig:
         monkeypatch.setattr(project, "REPO_ROOT", repo)
         monkeypatch.setattr(project, "PROJECT_DIR", proj)
 
-        pi_container_dir = project.ensure_project_config()
+        pa_container_dir = project.ensure_project_config()
 
-        assert pi_container_dir == proj / ".pa-container"
+        assert pa_container_dir == proj / ".pa-container"
         assert (proj / ".pa-container" / "agents" / "pi" / "config.json").exists()
         assert not (proj / ".pa-container" / "chat-templates").exists()
         for name in ("config.yaml", "allowlist.yaml", "token_replacer.yaml", "models.yaml"):
