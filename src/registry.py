@@ -41,9 +41,6 @@ class GatewayAuth:
     client_id: str | None = None
     scopes: list[str] = field(default_factory=list)
     token_cache: Path | None = None
-    env_var: str | None = None
-    keyring_service: str | None = None
-    keyring_account: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GatewayAuth:
@@ -57,9 +54,6 @@ class GatewayAuth:
             client_id=data.get("clientId"),
             scopes=data.get("scopes", []),
             token_cache=token_cache_path,
-            env_var=data.get("envVar"),
-            keyring_service=data.get("keyringService"),
-            keyring_account=data.get("keyringAccount"),
         )
 
 
@@ -72,6 +66,8 @@ class GatewayDef:
     gateway_type: str = "openai-compat"
     description: str = ""
     auth: GatewayAuth | None = None
+    allowlist: list[dict[str, Any]] = field(default_factory=list)
+    token_replacer: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, gateway_id: str, data: dict[str, Any]) -> GatewayDef:
@@ -83,6 +79,8 @@ class GatewayDef:
             gateway_type=data.get("type", "openai-compat"),
             description=data.get("description", ""),
             auth=auth,
+            allowlist=list(data.get("allowlist") or []),
+            token_replacer=list(data.get("token_replacer") or []),
         )
 
 
@@ -112,6 +110,7 @@ class LlamaServerModelDef:
 # ─── Bundled Seed Template Directories ───────────────────────────────────────
 
 BUNDLED_MODELS_DIR: Path = REPO_ROOT / "coding-agent" / "default" / "global" / "models"
+BUNDLED_GATEWAYS_DIR: Path = REPO_ROOT / "coding-agent" / "default" / "global" / "gateways"
 BUNDLED_CHAT_TEMPLATES_DIR: Path = REPO_ROOT / "coding-agent" / "default" / "global" / "chat-templates"
 
 
@@ -173,6 +172,35 @@ def seed_default_models(registry_dir: Path | None = None) -> list[str]:
                 shutil.copy2(model_file, dst)
                 seeded.append(dst.name)
                 logger.info(f"Seeded default model definition: {dst}")
+
+    return seeded
+
+
+def seed_default_gateways(registry_dir: Path | None = None) -> list[str]:
+    """Seed default gateway definitions if the gateways registry directory is empty or missing."""
+    target_dir = get_gateways_dir(registry_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    seeded: list[str] = []
+    existing = list(target_dir.glob("*.yaml"))
+    if not existing:
+        bundled_dir = BUNDLED_GATEWAYS_DIR
+        if bundled_dir.is_dir():
+            for gw_file in sorted(bundled_dir.glob("*.yaml")):
+                dst = target_dir / gw_file.name
+                shutil.copy2(gw_file, dst)
+                seeded.append(dst.name)
+                logger.info(f"Seeded default gateway definition: {dst}")
+
+            if seeded:
+                from logging_driver import get_log_driver
+
+                log_drv = get_log_driver()
+                if log_drv is not None and not log_drv.quiet:
+                    log_drv.console.print(
+                        f"  [bold green]✓[/bold green] Seeded default model gateways into [cyan]{target_dir}[/cyan]: "
+                        + ", ".join(seeded)
+                    )
 
     return seeded
 

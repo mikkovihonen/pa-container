@@ -1,0 +1,26 @@
+id: opper
+description: "Opper AI Model Gateway"
+baseUrl: "https://api.opper.ai/v3/compat"
+type: openai-compat
+
+auth:
+  type: api-key
+
+allowlist:
+  - name: "opper-ai-allow"
+    mode: "allow"
+    hostnames:
+      - "api.opper.ai"
+    ip_ranges: []
+
+token_replacer:
+  - name: "Inject Opper API Key"
+    hostnames:
+      - "api.opper.ai"
+    content_patterns:
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "(?<=Bearer\\s)OPPER_API_KEY_PLACEHOLDER"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:containerEnvVar}"

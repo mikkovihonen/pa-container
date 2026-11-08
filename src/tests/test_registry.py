@@ -14,6 +14,7 @@ from registry import (
     load_gateway_def,
     load_model_def,
     seed_default_chat_templates,
+    seed_default_gateways,
     seed_default_models,
 )
 
@@ -127,9 +128,13 @@ type: openai-compat
 baseUrl: "https://api.opper.ai/v3/compat"
 auth:
   type: api-key
-  envVar: "OPPER_API_KEY"
-  keyringService: "pa-container"
-  keyringAccount: "OPPER_API_KEY"
+allowlist:
+  - name: "opper-allow"
+    mode: "allow"
+    hostnames: ["api.opper.ai"]
+token_replacer:
+  - name: "Inject Opper Key"
+    hostnames: ["api.opper.ai"]
 """
     (gw_dir / "opper.yaml").write_text(gw_yaml)
 
@@ -141,9 +146,10 @@ auth:
     assert gw_def.base_url == "https://api.opper.ai/v3/compat"
     assert gw_def.auth is not None
     assert gw_def.auth.type == "api-key"
-    assert gw_def.auth.env_var == "OPPER_API_KEY"
-    assert gw_def.auth.keyring_service == "pa-container"
-    assert gw_def.auth.keyring_account == "OPPER_API_KEY"
+    assert len(gw_def.allowlist) == 1
+    assert gw_def.allowlist[0]["name"] == "opper-allow"
+    assert len(gw_def.token_replacer) == 1
+    assert gw_def.token_replacer[0]["name"] == "Inject Opper Key"
 
 
 def test_load_gateway_def_defaults_to_openai_compat(tmp_path: Path):
@@ -220,3 +226,56 @@ def test_list_defs_strictly_yaml(tmp_path: Path):
     defs = list_gateway_defs(gw_dir)
     assert len(defs) == 1
     assert defs[0].id == "valid"
+
+
+def test_seed_default_gateways(tmp_path: Path):
+    gw_dir = tmp_path / "gateways"
+    assert not gw_dir.exists()
+
+    seeded = seed_default_gateways(gw_dir)
+    assert len(seeded) == 7
+    expected = {
+        "anthropic.yaml",
+        "deepseek.yaml",
+        "gemini.yaml",
+        "groq.yaml",
+        "openai.yaml",
+        "openrouter.yaml",
+        "opper.yaml",
+    }
+    assert set(seeded) == expected
+    for name in expected:
+        assert (gw_dir / name).exists()
+
+    # Second call does not re-seed
+    seeded_again = seed_default_gateways(gw_dir)
+    assert seeded_again == []
+
+
+def test_all_bundled_gateways_valid():
+    """Verify all 7 bundled gateways load properly with self-contained allowlist and token_replacer."""
+    from registry import BUNDLED_GATEWAYS_DIR
+
+    expected_ids = {"anthropic", "deepseek", "gemini", "groq", "openai", "openrouter", "opper"}
+    defs = list_gateway_defs(BUNDLED_GATEWAYS_DIR)
+    loaded_ids = {d.id for d in defs}
+    assert loaded_ids == expected_ids
+
+    for d in defs:
+        assert d.base_url.startswith("https://")
+        assert d.auth is not None
+        assert d.auth.type == "api-key"
+        assert len(d.allowlist) >= 1
+        assert len(d.token_replacer) >= 1
+        # No credentials in global definitions
+        assert not hasattr(d.auth, "env_var") or getattr(d.auth, "env_var", None) is None
+
+
+def test_empty_or_commented_gateway_yaml_rejected(tmp_path: Path):
+    """Empty or completely commented out YAML files are rejected as invalid."""
+    gw_dir = tmp_path / "gateways"
+    gw_dir.mkdir(parents=True)
+    (gw_dir / "empty.yaml").write_text("# Only comments\n# nothing else\n")
+
+    gw_def = load_gateway_def("empty", gw_dir)
+    assert gw_def is None

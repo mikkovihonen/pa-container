@@ -16,6 +16,7 @@ from registry import (
     LlamaServerModelDef,
     load_gateway_def,
     load_model_def,
+    seed_default_gateways,
     seed_default_models,
 )
 from yaml_strict import load_yaml_strict
@@ -58,8 +59,9 @@ def extract_models_from_yaml(
     if default_model is not None:
         default_model = str(default_model).strip() or None
 
-    # Seed default model definition if registry is empty
+    # Seed default model and gateway definitions if registries are empty
     seed_default_models(models_dir)
+    seed_default_gateways(gateways_dir)
 
     allow_list = data.get("allow") or []
     for item in allow_list:
@@ -83,14 +85,40 @@ def extract_models_from_yaml(
         # 1. Check if model_id is a registered external gateway
         gw_def = load_gateway_def(model_id, registry_dir=gateways_dir)
         if gw_def is not None:
+            if gw_def.auth is not None:
+                if not isinstance(item, dict):
+                    raise ValueError(
+                        f"Gateway '{model_id}' requires authentication. It must be declared as a mapping in models.yaml."
+                    )
+                if gw_def.auth.type == "api-key":
+                    for req_field in ("containerEnvVar", "keyringService", "keyringAccount"):
+                        val = item.get(req_field)
+                        if not val or not isinstance(val, str) or not val.strip():
+                            raise ValueError(
+                                f"Gateway '{model_id}' requires '{req_field}' to be a non-empty string in models.yaml"
+                            )
+                elif gw_def.auth.type == "openid":
+                    val = item.get("containerEnvVar")
+                    if not val or not isinstance(val, str) or not val.strip():
+                        raise ValueError(
+                            f"Gateway '{model_id}' requires 'containerEnvVar' to be a non-empty string in models.yaml"
+                        )
+
             effective_base_url = custom_url or gw_def.base_url
-            gateway_configs.append(
-                {
-                    "name": provider_name,
-                    "gatewayDef": gw_def,
-                    "baseUrl": effective_base_url,
-                }
-            )
+            gw_item: GatewayConfigItem = {
+                "name": provider_name,
+                "gatewayDef": gw_def,
+                "baseUrl": effective_base_url,
+            }
+            if isinstance(item, dict):
+                if item.get("containerEnvVar"):
+                    gw_item["containerEnvVar"] = str(item["containerEnvVar"]).strip()
+                if item.get("keyringService"):
+                    gw_item["keyringService"] = str(item["keyringService"]).strip()
+                if item.get("keyringAccount"):
+                    gw_item["keyringAccount"] = str(item["keyringAccount"]).strip()
+
+            gateway_configs.append(gw_item)
             providers[provider_name] = {
                 "baseUrl": effective_base_url,
                 "api": gw_def.gateway_type,

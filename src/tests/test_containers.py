@@ -108,6 +108,20 @@ class TestWarnAboutGatewayAllowlist:
             containers.warn_about_gateway_allowlist(tmp_path, [])
         assert caplog.records == []
 
+    def test_silent_when_gateway_bundles_own_allowlist(self, tmp_path: Path, caplog: pytest.LogCaptureFixture):
+        from registry import GatewayDef
+
+        (tmp_path / "allowlist.yaml").write_text("global:\n  rules: []\n")
+        gw_def = GatewayDef(
+            id="anthropic",
+            base_url="https://api.anthropic.com/v1",
+            allowlist=[{"name": "anthropic-allow", "mode": "allow", "hostnames": ["api.anthropic.com"]}],
+        )
+        gateways = [{"name": "anthropic", "baseUrl": gw_def.base_url, "gatewayDef": gw_def}]
+        with caplog.at_level("WARNING"):
+            containers.warn_about_gateway_allowlist(tmp_path, gateways)
+        assert caplog.records == []
+
     def test_ignores_localhost_gateway(self, tmp_path: Path, caplog: pytest.LogCaptureFixture):
         (tmp_path / "allowlist.yaml").write_text("global:\n  rules: []\n")
         gateways = [{"name": "local", "baseUrl": "http://127.0.0.1:8000/v1"}]

@@ -1,0 +1,30 @@
+id: anthropic
+description: "Anthropic Claude API Gateway"
+baseUrl: "https://api.anthropic.com/v1"
+type: anthropic
+
+auth:
+  type: api-key
+
+allowlist:
+  - name: "anthropic-api-allow"
+    mode: "allow"
+    hostnames:
+      - "api.anthropic.com"
+      - "cdn.anthropic.com"
+      - "auth.anthropic.com"
+      - "*.anthropic.com"
+    ip_ranges: []
+
+token_replacer:
+  - name: "Anthropic API Key Injection"
+    hostnames:
+      - "api.anthropic.com"
+      - "*.anthropic.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "x-api-key"
+        regex: "ANTHROPIC_API_KEY_PLACEHOLDER"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:containerEnvVar}"

@@ -1,0 +1,26 @@
+id: groq
+description: "Groq High-Speed Inference Gateway"
+baseUrl: "https://api.groq.com/openai/v1"
+type: openai-compat
+
+auth:
+  type: api-key
+
+allowlist:
+  - name: "groq-api-allow"
+    mode: "allow"
+    hostnames:
+      - "api.groq.com"
+    ip_ranges: []
+
+token_replacer:
+  - name: "Groq Bearer Token Injection"
+    hostnames:
+      - "api.groq.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "(?<=Bearer\\s)GROQ_API_KEY_PLACEHOLDER"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:containerEnvVar}"

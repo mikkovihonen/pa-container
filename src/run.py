@@ -132,14 +132,14 @@ def process_gateway_configs(gateway_configs: list[GatewayConfigItem], pa_contain
             from auth import ensure_gateway_auth
 
             token = ensure_gateway_auth(gw["name"], gw_def.auth)
-            var_name = gw_def.auth.env_var or f"{gw['name'].upper().replace('-', '_')}_TOKEN"
+            var_name = gw.get("containerEnvVar") or f"{gw['name'].upper().replace('-', '_')}_TOKEN"
             os.environ[var_name] = token
         elif gw_def.auth.type == "api-key":
             from secret_store import DEFAULT_KEYRING_SERVICE, get_keyring_secret
 
-            var_name = gw_def.auth.env_var or f"{gw['name'].upper().replace('-', '_')}_API_KEY"
-            service = gw_def.auth.keyring_service or DEFAULT_KEYRING_SERVICE
-            account = gw_def.auth.keyring_account or var_name
+            var_name = gw.get("containerEnvVar") or f"{gw['name'].upper().replace('-', '_')}_API_KEY"
+            service = gw.get("keyringService") or DEFAULT_KEYRING_SERVICE
+            account = gw.get("keyringAccount") or var_name
 
             token_val = get_keyring_secret(account, service=service)
             if not token_val:
@@ -604,6 +604,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     llama_hostnames=" ".join(sorted(llama_hostnames)),
                     ipv6=ipv6_enabled,
                     project_dir=PROJECT_DIR,
+                    gateway_configs=gateway_configs,
                 )
 
             log_drv.start_stage(LogCategory.SERVER, "Starting model server & network proxy")

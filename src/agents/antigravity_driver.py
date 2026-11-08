@@ -32,7 +32,7 @@ class AntigravityDriver(AgentDriver):
 
     def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
         return {
-            "GEMINI_API_KEY": "pa-container-token-placeholder",
+            "GEMINI_API_KEY": "GEMINI_API_KEY_PLACEHOLDER",
         }
 
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:

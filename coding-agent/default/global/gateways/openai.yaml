@@ -1,0 +1,28 @@
+id: openai
+description: "OpenAI API Gateway"
+baseUrl: "https://api.openai.com/v1"
+type: openai-compat
+
+auth:
+  type: api-key
+
+allowlist:
+  - name: "openai-api-allow"
+    mode: "allow"
+    hostnames:
+      - "api.openai.com"
+      - "*.openai.azure.com"
+    ip_ranges: []
+
+token_replacer:
+  - name: "OpenAI-Compatible Bearer Token Injection"
+    hostnames:
+      - "api.openai.com"
+      - "*.openai.azure.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "(?<=Bearer\\s)OPENAI_API_KEY_PLACEHOLDER"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:containerEnvVar}"

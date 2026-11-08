@@ -353,14 +353,48 @@ def _validate_models_yaml(
         errors.append("  allow: list must not be empty")
         return errors
 
+    from registry import load_gateway_def
+
     for i, item in enumerate(allow):
         if isinstance(item, str):
-            if not item.strip():
+            model_id = item.strip()
+            if not model_id:
                 errors.append(f"  allow[{i}]: item must not be empty string")
+                continue
+            gw_def = load_gateway_def(model_id, registry_dir=gateways_dir)
+            if gw_def is not None and gw_def.auth is not None:
+                if gw_def.auth.type == "api-key":
+                    errors.append(
+                        f"  allow[{i}]: gateway '{model_id}' requires authentication. "
+                        "It must be configured as a mapping with non-empty 'containerEnvVar', "
+                        "'keyringService', and 'keyringAccount'."
+                    )
+                elif gw_def.auth.type == "openid":
+                    errors.append(
+                        f"  allow[{i}]: gateway '{model_id}' requires authentication. "
+                        "It must be configured as a mapping with non-empty 'containerEnvVar'."
+                    )
         elif isinstance(item, dict):
             m_id = item.get("id")
             if not m_id or not isinstance(m_id, str):
                 errors.append(f"  allow[{i}]: expected non-empty 'id' string")
+                continue
+            model_id = m_id.strip()
+            gw_def = load_gateway_def(model_id, registry_dir=gateways_dir)
+            if gw_def is not None and gw_def.auth is not None:
+                if gw_def.auth.type == "api-key":
+                    for req_field in ("containerEnvVar", "keyringService", "keyringAccount"):
+                        val = item.get(req_field)
+                        if not val or not isinstance(val, str) or not val.strip():
+                            errors.append(
+                                f"  allow[{i}]: gateway '{model_id}' requires '{req_field}' to be a non-empty string"
+                            )
+                elif gw_def.auth.type == "openid":
+                    val = item.get("containerEnvVar")
+                    if not val or not isinstance(val, str) or not val.strip():
+                        errors.append(
+                            f"  allow[{i}]: gateway '{model_id}' requires 'containerEnvVar' to be a non-empty string"
+                        )
         else:
             errors.append(f"  allow[{i}]: expected string or dict, got {type(item).__name__}")
 

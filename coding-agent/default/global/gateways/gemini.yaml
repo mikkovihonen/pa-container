@@ -1,0 +1,28 @@
+id: gemini
+description: "Google Gemini API Gateway"
+baseUrl: "https://generativelanguage.googleapis.com/v1beta"
+type: gemini
+
+auth:
+  type: api-key
+
+allowlist:
+  - name: "gemini-api-allow"
+    mode: "allow"
+    hostnames:
+      - "generativelanguage.googleapis.com"
+      - "oauth2.googleapis.com"
+    ip_ranges: []
+
+token_replacer:
+  - name: "Gemini API Key Injection"
+    hostnames:
+      - "generativelanguage.googleapis.com"
+      - "*.googleapis.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "x-goog-api-key"
+        regex: "GEMINI_API_KEY_PLACEHOLDER"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:containerEnvVar}"

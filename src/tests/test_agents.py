@@ -76,7 +76,7 @@ def test_opencode_driver_contracts(tmp_path):
     assert driver.name == "opencode"
     assert driver.required_tools == ["opencode"]
     assert driver.get_command(["run", "main.py"]) == ["run", "main.py"]
-    assert driver.get_environment()["OPENAI_API_KEY"] == "pa-container-token-placeholder"
+    assert driver.get_environment()["OPENAI_API_KEY"] == "OPENAI_API_KEY_PLACEHOLDER"
     assert driver.get_t3_driver() is None
 
     project_dir = tmp_path / "project"
@@ -95,6 +95,7 @@ def test_opencode_driver_contracts(tmp_path):
     assert "qwen" in cfg_data["providers"]
     assert cfg_data["providers"]["qwen"]["base_url"] == "http://llama:9999/v1"
     assert "opper" in cfg_data["providers"]
+    assert cfg_data["providers"]["opper"]["api_key"] == "OPPER_API_KEY_PLACEHOLDER"
 
 
 def test_antigravity_driver_contracts(tmp_path):
@@ -102,7 +103,7 @@ def test_antigravity_driver_contracts(tmp_path):
     assert driver.name == "antigravity"
     assert driver.required_tools == ["antigravity"]
     assert driver.get_command(["--goal", "audit"]) == ["--goal", "audit"]
-    assert driver.get_environment()["GEMINI_API_KEY"] == "pa-container-token-placeholder"
+    assert driver.get_environment()["GEMINI_API_KEY"] == "GEMINI_API_KEY_PLACEHOLDER"
     assert driver.get_t3_driver() is None
 
     project_dir = tmp_path / "project"
@@ -127,7 +128,7 @@ def test_claude_driver_contracts(tmp_path):
     assert driver.required_tools == ["claude-code"]
     assert driver.get_command(["-p", "hello"]) == ["-p", "hello"]
     env = driver.get_environment()
-    assert env["ANTHROPIC_API_KEY"] == "pa-container-token-placeholder"
+    assert env["ANTHROPIC_API_KEY"] == "ANTHROPIC_API_KEY_PLACEHOLDER"
     assert env["CLAUDE_CONFIG_DIR"] == "/home/agent/.claude"
     assert driver.get_t3_driver() == "claudeAgent"
 

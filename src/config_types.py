@@ -49,12 +49,15 @@ class ServerConfigItem(TypedDict):
     baseUrl: str
 
 
-class GatewayConfigItem(TypedDict):
+class GatewayConfigItem(TypedDict, total=False):
     """Synthesized external API gateway configuration item."""
 
     name: str
     gatewayDef: GatewayDef
     baseUrl: str
+    containerEnvVar: str
+    keyringService: str
+    keyringAccount: str
 
 
 # ─── Project Configuration TypedDicts ────────────────────────────────────────

@@ -1,0 +1,27 @@
+id: openrouter
+description: "OpenRouter Unified Model Gateway"
+baseUrl: "https://openrouter.ai/api/v1"
+type: openai-compat
+
+auth:
+  type: api-key
+
+allowlist:
+  - name: "openrouter-ai-allow"
+    mode: "allow"
+    hostnames:
+      - "openrouter.ai"
+      - "*.openrouter.ai"
+    ip_ranges: []
+
+token_replacer:
+  - name: "OpenRouter Bearer Token Injection"
+    hostnames:
+      - "openrouter.ai"
+    content_patterns:
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "(?<=Bearer\\s)OPENROUTER_API_KEY_PLACEHOLDER"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:containerEnvVar}"

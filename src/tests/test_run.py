@@ -189,9 +189,18 @@ class TestProcessGatewayConfigs:
         gw_def = GatewayDef(
             id="opper",
             base_url="https://api.opper.ai/v3/compat",
-            auth=GatewayAuth(type="api-key", env_var="MISSING_OPPER_KEY"),
+            auth=GatewayAuth(type="api-key"),
         )
-        gateways = [{"name": "opper", "gatewayDef": gw_def, "baseUrl": gw_def.base_url}]
+        gateways = [
+            {
+                "name": "opper",
+                "gatewayDef": gw_def,
+                "baseUrl": gw_def.base_url,
+                "containerEnvVar": "MISSING_OPPER_KEY",
+                "keyringService": "pa-container",
+                "keyringAccount": "MISSING_OPPER_KEY",
+            }
+        ]
 
         exited = []
         monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
@@ -212,9 +221,18 @@ class TestProcessGatewayConfigs:
         gw_def = GatewayDef(
             id="opper",
             base_url="https://api.opper.ai/v3/compat",
-            auth=GatewayAuth(type="api-key", env_var="ENV_OPPER_KEY"),
+            auth=GatewayAuth(type="api-key"),
         )
-        gateways = [{"name": "opper", "gatewayDef": gw_def, "baseUrl": gw_def.base_url}]
+        gateways = [
+            {
+                "name": "opper",
+                "gatewayDef": gw_def,
+                "baseUrl": gw_def.base_url,
+                "containerEnvVar": "ENV_OPPER_KEY",
+                "keyringService": "pa-container",
+                "keyringAccount": "ENV_OPPER_KEY",
+            }
+        ]
 
         exited = []
         monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
@@ -232,9 +250,18 @@ class TestProcessGatewayConfigs:
         gw_def = GatewayDef(
             id="opper",
             base_url="https://api.opper.ai/v3/compat",
-            auth=GatewayAuth(type="api-key", env_var="TEST_OPPER_KEY"),
+            auth=GatewayAuth(type="api-key"),
         )
-        gateways = [{"name": "opper", "gatewayDef": gw_def, "baseUrl": gw_def.base_url}]
+        gateways = [
+            {
+                "name": "opper",
+                "gatewayDef": gw_def,
+                "baseUrl": gw_def.base_url,
+                "containerEnvVar": "TEST_OPPER_KEY",
+                "keyringService": "pa-container",
+                "keyringAccount": "TEST_OPPER_KEY",
+            }
+        ]
 
         monkeypatch.delenv("TEST_OPPER_KEY", raising=False)
 

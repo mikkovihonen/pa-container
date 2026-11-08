@@ -52,11 +52,12 @@ def init_global_config(config_dir: Path | None = None, repo_root: Path | None = 
     shutil.copy2(template_file, target_file)
 
     try:
-        from registry import seed_default_models
+        from registry import seed_default_gateways, seed_default_models
 
         seed_default_models(target_dir / "models")
+        seed_default_gateways(target_dir / "gateways")
     except Exception as e:
-        logger.debug(f"Default model seeding skipped or deferred: {e}")
+        logger.debug(f"Default model/gateway seeding skipped or deferred: {e}")
 
     return target_file
 

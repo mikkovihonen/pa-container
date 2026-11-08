@@ -226,7 +226,6 @@ baseUrl: "https://gw.nitor.app/v1"
 
 auth:
   type: openid
-  envVar: "NITOR_GW_TOKEN"
   discoveryUrl: "https://auth.nitor.app/.well-known/openid-configuration"
   # Or explicit endpoints if discoveryUrl is omitted:
   # authorizationUrl: "https://auth.nitor.app/oauth/authorize"
@@ -238,7 +237,7 @@ auth:
     - "offline_access"
 ```
 
-For OpenID authentication, pa-container initiates an interactive browser login with PKCE, securely caches the tokens in `~/.cache/pa-container/tokens/` with `0600` permissions, and passes the Bearer token to the proxy. The agent container uses a placeholder token and never accesses the real credential.
+For OpenID authentication, pa-container initiates an interactive browser login with PKCE, securely caches the tokens in `~/.cache/pa-container/tokens/` with `0600` permissions, and passes the Bearer token to the proxy. The agent container uses a placeholder token and never accesses the real credential. Specify `containerEnvVar` in `.pa-container/models.yaml` to name the proxy environment variable.
 
 ##### B. API Key with OS Keyring (`type: api-key`)
 
@@ -253,9 +252,36 @@ baseUrl: "https://api.opper.ai/v3/compat"
 
 auth:
   type: api-key
-  envVar: "OPPER_API_KEY"
-  keyringService: "pa-container"
-  keyringAccount: "OPPER_API_KEY"
+
+allowlist:
+  - name: "opper-ai-allow"
+    mode: "allow"
+    hostnames:
+      - "api.opper.ai"
+    ip_ranges: []
+
+token_replacer:
+  - name: "Inject Opper API Key"
+    hostnames:
+      - "api.opper.ai"
+    content_patterns:
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "(?<=Bearer\\s)OPPER_API_KEY_PLACEHOLDER"
+    replace_with:
+      strategy: "static"
+      value: "${ENV:containerEnvVar}"
+```
+
+In `.pa-container/models.yaml`, enable the gateway and configure its container environment variable and OS keyring account:
+
+```yaml
+allow:
+  - id: opper
+    provider: opper
+    containerEnvVar: "OPPER_API_KEY"
+    keyringService: "pa-container"
+    keyringAccount: "OPPER_API_KEY"
 ```
 
 API keys MUST be stored in the OS user keyring (macOS Keychain, Linux GNOME Keyring / Secret Service, Windows Credential Manager) queried via `keyringService` and `keyringAccount` (defaulting to service `pa-container`). Host environment variables are strictly ignored to prevent credential leakage.

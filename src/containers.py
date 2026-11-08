@@ -253,14 +253,22 @@ def warn_about_registry_allowlist(config_dir: Path) -> None:
 
 
 def warn_about_gateway_allowlist(config_dir: Path, gateway_configs: list[GatewayConfigItem]) -> None:
-    """Warn when gateway baseUrl hostnames are missing from allowlist.yaml."""
+    """Warn when gateway baseUrl hostnames are missing from combined effective allowlist."""
     if not gateway_configs:
         return
 
     allowlist_path = config_dir / "allowlist.yaml"
     patterns = get_allowed_hostnames(config_dir)
-    if patterns is None:
-        return
+    combined_patterns: list[str] = list(patterns or [])
+
+    # Include hostnames from all enabled gateway allowlists
+    for gw in gateway_configs:
+        gw_def = gw.get("gatewayDef")
+        if gw_def and gw_def.allowlist:
+            for rule in gw_def.allowlist:
+                if str(rule.get("mode", "allow")) == "allow":
+                    for host in rule.get("hostnames", []):
+                        combined_patterns.append(str(host))
 
     for gw in gateway_configs:
         base_url = gw.get("baseUrl")
@@ -270,10 +278,10 @@ def warn_about_gateway_allowlist(config_dir: Path, gateway_configs: list[Gateway
         if not parsed_host or parsed_host in ("localhost", "127.0.0.1", "::1"):
             continue
 
-        if not hostname_allowed(parsed_host, patterns):
+        if not hostname_allowed(parsed_host, combined_patterns):
             logger.warning(
                 f"Gateway '{gw['name']}' uses baseUrl '{base_url}', but host '{parsed_host}' "
-                f"is not allowed in {allowlist_path}; requests from the agent container will "
+                f"is not allowed in {allowlist_path} or gateway definition; requests from the agent container will "
                 f"fail with mitmproxy's 403 Forbidden. Add '{parsed_host}' to allowlist.yaml."
             )
 

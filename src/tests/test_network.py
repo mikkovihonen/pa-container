@@ -168,6 +168,65 @@ class TestContainerNetworkManagerPullSecrets:
             assert secrets == {"KEYRING_SECRET": "vault_pass_999"}
             assert os.environ.get("KEYRING_SECRET") == "vault_pass_999"
 
+    def test_synthesizes_gateway_configs_and_pulls_secrets(self, tmp_path):
+        from registry import GatewayAuth, GatewayDef
+
+        gw_def = GatewayDef(
+            id="anthropic",
+            base_url="https://api.anthropic.com/v1",
+            auth=GatewayAuth(type="api-key"),
+            allowlist=[{"name": "anthropic-allow", "mode": "allow", "hostnames": ["api.anthropic.com"]}],
+            token_replacer=[
+                {
+                    "name": "Inject Anthropic Key",
+                    "hostnames": ["api.anthropic.com"],
+                    "content_patterns": [
+                        {"field": "headers", "header_name": "x-api-key", "regex": "ANTHROPIC_API_KEY_PLACEHOLDER"}
+                    ],
+                    "replace_with": {"strategy": "static", "value": "${ENV:containerEnvVar}"},
+                }
+            ],
+        )
+
+        gw_configs = [
+            {
+                "name": "anthropic",
+                "gatewayDef": gw_def,
+                "baseUrl": gw_def.base_url,
+                "containerEnvVar": "ANTHROPIC_API_KEY",
+                "keyringService": "pa-container",
+                "keyringAccount": "ANTHROPIC_API_KEY",
+            }
+        ]
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=tmp_path,
+            lock_dir=tmp_path / "locks",
+            gateway_configs=gw_configs,
+        )
+
+        eff_allow, eff_replacer = mgr._synthesize_proxy_configs()
+        assert eff_allow.exists()
+        assert eff_replacer.exists()
+
+        import yaml
+
+        replacer_data = yaml.safe_load(eff_replacer.read_text())
+        assert len(replacer_data["rules"]) == 1
+        rule = replacer_data["rules"][0]
+        assert rule["replace_with"]["value"] == "${ENV:ANTHROPIC_API_KEY}"
+        assert rule["content_patterns"][0]["regex"] == "ANTHROPIC_API_KEY_PLACEHOLDER"
+
+        allow_data = yaml.safe_load(eff_allow.read_text())
+        assert any("api.anthropic.com" in r.get("hostnames", []) for r in allow_data["global"]["rules"])
+
+        with patch("secret_store.resolve_secret", return_value="sk-ant-12345"):
+            secrets = mgr._pull_secrets_from_config()
+            assert secrets["ANTHROPIC_API_KEY"] == "sk-ant-12345"
+
 
 # ---------------------------------------------------------------------------
 # ContainerNetworkManagerEnvFlags

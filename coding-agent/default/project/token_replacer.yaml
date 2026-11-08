@@ -2,43 +2,18 @@ global:
   log_replacements: true
   dry_run: false
 
-rules:
-  # Replace placeholder Bearer tokens on egress for OpenAI-compatible gateways
-  - name: "OpenAI-Compatible Bearer Token Injection"
-    hostnames:
-      - "api.openai.com"
-      - "openrouter.ai"
-      - "*.openai.azure.com"
-    content_patterns:
-      - field: "headers"
-        header_name: "Authorization"
-        regex: "(Bearer )pa-container-.*"
-    replace_with:
-      strategy: "static"
-      value: "${ENV:OPENAI_API_KEY}"
-
-  # Replace placeholder Gemini API keys on egress for Antigravity / Gemini API
-  - name: "Gemini API Key Injection"
-    hostnames:
-      - "generativelanguage.googleapis.com"
-      - "*.googleapis.com"
-    content_patterns:
-      - field: "headers"
-        header_name: "x-goog-api-key"
-        regex: "pa-container-.*"
-    replace_with:
-      strategy: "static"
-      value: "${ENV:GEMINI_API_KEY}"
-
-  # Replace placeholder Anthropic API keys on egress for Claude Code
-  - name: "Anthropic API Key Injection"
-    hostnames:
-      - "api.anthropic.com"
-      - "*.anthropic.com"
-    content_patterns:
-      - field: "headers"
-        header_name: "x-api-key"
-        regex: "pa-container-.*"
-    replace_with:
-      strategy: "static"
-      value: "${ENV:ANTHROPIC_API_KEY}"
+# Workspace-specific token replacement rules.
+# Model gateways enabled in .pa-container/models.yaml automatically inject
+# their bundled token replacement rules at runtime.
+rules: []
+  # Example: Custom Bearer token injection for an internal API
+  # - name: "Internal Service Auth"
+  #   hostnames:
+  #     - "internal-api.example.com"
+  #   content_patterns:
+  #     - field: "headers"
+  #       header_name: "Authorization"
+  #       regex: "(?<=Bearer\\s)INTERNAL_API_KEY_PLACEHOLDER"
+  #   replace_with:
+  #     strategy: "static"
+  #     value: "${ENV:INTERNAL_API_KEY}"

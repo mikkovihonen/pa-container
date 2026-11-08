@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from config_types import (
         AgentExtrasConfig,
         ClientInfo,
+        GatewayConfigItem,
         LlamaConfig,
         LoggingProjectConfig,
         LogRetentionConfig,
@@ -538,6 +539,7 @@ class ContainerNetworkManager:
         ipv6: bool = False,
         lock_dir: Path | None = None,
         project_dir: Path | None = None,
+        gateway_configs: list[GatewayConfigItem] | None = None,
     ) -> None:
         # Accept either a runtime name or a ready PodmanRuntime.
         self.runtime: PodmanRuntime = (
@@ -555,6 +557,7 @@ class ContainerNetworkManager:
         self.llama_ports: str | None = llama_ports
         self.llama_hostnames: str | None = llama_hostnames
         self.ipv6: bool = ipv6
+        self.gateway_configs: list[GatewayConfigItem] = gateway_configs or []
         # Host port the proxy's mitmweb UI is published on. Auto-assigned when
         # this process starts the proxy; resolved from the running container when
         # attaching to an already-running one. See ``mitmweb_url``.
@@ -571,6 +574,103 @@ class ContainerNetworkManager:
             "clients_file": self.lock_dir / f".{self.proxy_name}.clients.json",
         }
 
+    def _synthesize_proxy_configs(self) -> tuple[Path, Path]:
+        """Synthesize effective proxy allowlist.yaml and token_replacer.yaml in runtime cache."""
+        import copy
+
+        import yaml
+
+        from yaml_strict import load_yaml_file
+
+        runtime_dir = self.lock_dir / f"proxy-{self.project_hash}"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Effective allowlist
+        allowlist_path = self.config_dir / "allowlist.yaml"
+        effective_allowlist: dict[str, Any]
+        if allowlist_path.is_file():
+            try:
+                loaded = load_yaml_file(allowlist_path)
+                effective_allowlist = copy.deepcopy(loaded) if isinstance(loaded, dict) else {}
+            except Exception as e:
+                logger.warning(f"Could not load {allowlist_path}: {e}")
+                effective_allowlist = {}
+        else:
+            effective_allowlist = {}
+
+        if "global" not in effective_allowlist or not isinstance(effective_allowlist["global"], dict):
+            effective_allowlist["global"] = {
+                "mode": "allow",
+                "default_action": "block",
+                "status_code": 403,
+                "rules": [],
+            }
+        else:
+            if "rules" not in effective_allowlist["global"] or not isinstance(
+                effective_allowlist["global"]["rules"], list
+            ):
+                effective_allowlist["global"]["rules"] = []
+
+        for gw in self.gateway_configs:
+            gw_def = gw.get("gatewayDef")
+            if gw_def and gw_def.allowlist:
+                for rule in gw_def.allowlist:
+                    r_copy = copy.deepcopy(rule)
+                    if gw.get("name") and gw["name"] != gw_def.id:
+                        r_copy["name"] = f"{r_copy.get('name', 'Gateway Allowlist')} ({gw['name']})"
+                    effective_allowlist["global"]["rules"].append(r_copy)
+
+        effective_allowlist_file = runtime_dir / "allowlist.yaml"
+        effective_allowlist_file.write_text(yaml.safe_dump(effective_allowlist, sort_keys=False))
+
+        # 2. Effective token replacer
+        replacer_path = self.config_dir / "token_replacer.yaml"
+        effective_replacer: dict[str, Any]
+        if replacer_path.is_file():
+            try:
+                loaded = load_yaml_file(replacer_path)
+                effective_replacer = copy.deepcopy(loaded) if isinstance(loaded, dict) else {}
+            except Exception as e:
+                logger.warning(f"Could not load {replacer_path}: {e}")
+                effective_replacer = {}
+        else:
+            effective_replacer = {}
+
+        if "global" not in effective_replacer or not isinstance(effective_replacer["global"], dict):
+            effective_replacer["global"] = {
+                "log_replacements": True,
+                "dry_run": False,
+            }
+        if "rules" not in effective_replacer or not isinstance(effective_replacer["rules"], list):
+            effective_replacer["rules"] = []
+
+        for gw in self.gateway_configs:
+            gw_def = gw.get("gatewayDef")
+            if gw_def and gw_def.token_replacer:
+                provider_name = gw.get("name") or gw_def.id
+                model_id = gw_def.id
+                container_env_var = gw.get("containerEnvVar", "")
+                base_placeholder = f"{model_id.upper().replace('-', '_')}_API_KEY_PLACEHOLDER"
+                inst_placeholder = f"{provider_name.upper().replace('-', '_')}_API_KEY_PLACEHOLDER"
+
+                for rule in gw_def.token_replacer:
+                    r_copy = copy.deepcopy(rule)
+                    if provider_name != model_id:
+                        r_copy["name"] = f"{r_copy.get('name', 'Token Replacer Rule')} ({provider_name})"
+                    if container_env_var:
+                        rw = r_copy.get("replace_with")
+                        if isinstance(rw, dict) and rw.get("value"):
+                            rw["value"] = rw["value"].replace("${ENV:containerEnvVar}", f"${{ENV:{container_env_var}}}")
+                    for pat in r_copy.get("content_patterns", []):
+                        if isinstance(pat, dict) and pat.get("regex"):
+                            pat["regex"] = pat["regex"].replace(base_placeholder, inst_placeholder)
+                    effective_replacer["rules"].append(r_copy)
+
+        effective_replacer_file = runtime_dir / "token_replacer.yaml"
+        effective_replacer_file.write_text(yaml.safe_dump(effective_replacer, sort_keys=False))
+
+        return effective_allowlist_file, effective_replacer_file
+
     def _pull_secrets_from_config(self) -> dict[str, str]:
         """Pull secrets required by the mounted token_replacer config.
 
@@ -581,10 +681,10 @@ class ContainerNetworkManager:
         Override this method to integrate with a host secret store
         (Vault, AWS Secrets Manager, Azure Key Vault, etc.).
         """
-        config_path = self.config_dir / "token_replacer.yaml"
-        if not config_path.exists():
+        _, effective_replacer_path = self._synthesize_proxy_configs()
+        if not effective_replacer_path.exists():
             logger.warning(
-                f"Token replacer config not found at {config_path}; "
+                f"Token replacer config not found at {effective_replacer_path}; "
                 f"no secrets will be injected into the proxy container."
             )
             return {}
@@ -592,7 +692,7 @@ class ContainerNetworkManager:
         from secret_store import resolve_secret
         from yaml_strict import load_yaml_file
 
-        loaded = load_yaml_file(config_path)
+        loaded = load_yaml_file(effective_replacer_path)
         config = loaded if isinstance(loaded, dict) else {}
 
         required_vars = scan_config_env_refs(config)
@@ -855,19 +955,15 @@ class ContainerNetworkManager:
         # per-project proxies can coexist (the old fixed 8081 could bind once).
         self.mitmweb_port = get_free_port()
 
-        # Mount the host addon configs over the image's baked defaults. Each is
-        # only mounted if present so a missing host config falls back to the
-        # (fail-closed) default baked into the image.
-        config_mounts: list[str] = []
-        for host_name, container_path in (
-            ("token_replacer.yaml", "/home/mitmproxy/config/token_replacer.yaml"),
-            ("allowlist.yaml", "/home/mitmproxy/config/allowlist.yaml"),
-        ):
-            host_path = self.config_dir / host_name
-            if host_path.exists():
-                config_mounts += ["--volume", f"{host_path}:{container_path}:ro"]
-            else:
-                logger.warning(f"Addon config {host_path} not found; using the image default.")
+        # Mount the synthesized effective addon configs (combining workspace config
+        # and enabled gateway definitions) over the image's baked defaults.
+        effective_allowlist, effective_replacer = self._synthesize_proxy_configs()
+        config_mounts: list[str] = [
+            "--volume",
+            f"{effective_replacer}:/home/mitmproxy/config/token_replacer.yaml:ro",
+            "--volume",
+            f"{effective_allowlist}:/home/mitmproxy/config/allowlist.yaml:ro",
+        ]
 
         # Mount a host directory for flow exports. The flow_export addon appends
         # each flow to a per-client-IP JSON Lines file (flows-<ip>.jsonl) under

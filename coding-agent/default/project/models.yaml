@@ -4,3 +4,64 @@ default: Qwen3.6-35B-A3B-UD-Q6_K_XL
 # Allowlist of models and gateways enabled for this project
 allow:
   - Qwen3.6-35B-A3B-UD-Q6_K_XL
+
+  # --- Popular Cloud Model Gateways (uncomment to enable) ---
+  # For each enabled gateway requiring auth, containerEnvVar, keyringService,
+  # and keyringAccount must be explicitly set.
+  # Set credentials in the OS user keyring before launch:
+  #   uv run keyring set <keyringService> <keyringAccount>
+  #
+  # - id: opper
+  #   provider: opper
+  #   containerEnvVar: OPPER_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: OPPER_API_KEY
+  #
+  # - id: openai
+  #   provider: openai
+  #   containerEnvVar: OPENAI_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: OPENAI_API_KEY
+  #
+  # - id: anthropic
+  #   provider: anthropic
+  #   containerEnvVar: ANTHROPIC_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: ANTHROPIC_API_KEY
+  #
+  # - id: gemini
+  #   provider: gemini
+  #   containerEnvVar: GEMINI_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: GEMINI_API_KEY
+  #
+  # - id: openrouter
+  #   provider: openrouter
+  #   containerEnvVar: OPENROUTER_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: OPENROUTER_API_KEY
+  #
+  # - id: deepseek
+  #   provider: deepseek
+  #   containerEnvVar: DEEPSEEK_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: DEEPSEEK_API_KEY
+  #
+  # - id: groq
+  #   provider: groq
+  #   containerEnvVar: GROQ_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: GROQ_API_KEY
+  #
+  # Multi-Instance Example: Same gateway with multiple keys for different teams:
+  # - id: opper
+  #   provider: opper-team-a
+  #   containerEnvVar: OPPER_TEAM_A_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: OPPER_TEAM_A_KEY
+  #
+  # - id: opper
+  #   provider: opper-team-b
+  #   containerEnvVar: OPPER_TEAM_B_API_KEY
+  #   keyringService: pa-container
+  #   keyringAccount: OPPER_TEAM_B_KEY
