@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - **Unified Command Line Interface (`src/cli.py`).** Added unified argument parsing dispatcher supporting `run`, `build`, `clean`, and `logs` subcommands with POSIX `--` container passthrough, implicit `run` defaulting, and global flags (`-v`, `-q`, `--log-level`, `--log-file`, `--no-color`).
+- **Sequential stage checklist & real-time progress (`src/logging_driver.py`).** Added `Stage` and `StageStatus` tracking in `LogDriver`, preserving completed stages (`✔ [category] Stage label`) in terminal scrollback while animating the active in-flight stage with a 10 Hz Rich spinner and category tag.
+- **Subprocess output streaming to active stage detail (`src/logging_driver.py`).** Updated `run_command_logged()` to strip ANSI escapes and carriage-return lines (`\r`) from subprocess stdout in real time and display continuous activity lines in the active stage detail, automatically clearing transient detail upon completion.
+- **Console-width stage line truncation (`src/logging_driver.py`).** Added terminal-width truncation (`console.width - 1`, ellipsis overflow) to prevent long compiler or command output from wrapping and breaking single-line progress display.
 - **Per-project diagnostic logging driver (`src/logging_driver.py`).** Implemented rich-driven `LogDriver` managing session run logs (`run-<timestamp>.log`) and container build logs (`build-<timestamp>.log`) under `~/.local/state/pa-container/projects/<workspace>-<hash>/logs/` with atomic `latest.log` and `latest-build.log` symlinks.
 - **Explicit subsystem category logging & tagging.** Added `LogCategory` and `CategoryLogger` (with `[%(asctime)s] [%(levelname)s] [%(category)s] [%(name)s:%(lineno)d] %(message)s` formatting) across `preflight`, `build`, `proxy`, `server`, `network`, `volume`, `security`, `agent`, `flow_export`, and `cleanup`.
 - **Configurable log retention & lifecycle management.** Added `logging.retention.max_days` and `logging.retention.max_launches` configuration options with automatic startup pruning and dedicated CLI cleanup utilities (`clean_project_logs()` and `clean_all_projects_logs()`).
@@ -26,6 +29,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - **Project renamed to `pa-container` (Podman Agent Container).** Renamed the project from `pi-container` to `pa-container` (Podman Agent Container) to reflect multi-agent support and Podman containerization.
+- **Direct `pa` CLI binary (`pyproject.toml`).** Replaced `run.sh` and `build.sh` shims with direct `pa` console script executable managed by `uv`.
+
+### Fixed
+- **Commented-out `rules:` in proxy configs.** Fixed `TypeError: 'NoneType' object is not iterable` in `scan_config_env_refs()` across `src/network.py` and `coding-agent-proxy/addons/token_replacer/token_replacer.py` when `token_replacer.yaml` has `rules:` with no elements (or all rules commented out). Guarded `rules` list iteration with `or []` and type-checked dictionary items in `token_replacer` and `allowlist` addons.
+- **Proxy container dependencies sync (`coding-agent-proxy/Containerfile`).** Added `--no-install-project` to `uv sync` in the proxy Containerfile so dependencies install properly without requiring root project package source.
 
 ### Removed
 - **Removed legacy while-loop CLI parsing.** Replaced the 100+ line manual argument parsing loop in `src/run.py` and old `build.py` flags with the unified `src/cli.py` dispatcher without backwards compatibility aliases or shims.
