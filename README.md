@@ -10,7 +10,7 @@ A containerized environment for running autonomous coding agents ([Pi](https://p
 
 [![CI](https://github.com/mikkovihonen/pa-container/actions/workflows/ci.yml/badge.svg)](https://github.com/mikkovihonen/pa-container/actions/workflows/ci.yml)
 [![Coverage](docs/assets/coverage.svg)](docs/development.md#coverage)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Python: 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/desc/uv-managed-brightgreen.svg)](https://docs.astral.sh/uv/)
 
@@ -71,7 +71,7 @@ The unified `pa` CLI manages the full environment lifecycle:
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
 
 ## Agentic coding disclosure
 
