@@ -20,6 +20,8 @@ _IMAGE_DEFINITION_FILES = (
     "t3-advertise-host.cjs",
     "t3-sync-antigravity.py",
     "t3-policy.json",
+    "labwc/menu.xml",
+    "labwc/rc.xml",
 )
 _PROXY_IMAGE_DEFINITION_FILES = ("Containerfile", "entrypoint.sh")
 _SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, "pa-container-agent-builder:local")

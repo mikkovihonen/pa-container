@@ -132,6 +132,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ─── Virtual Desktop & GUI Support (Conditional) ───────────────────────────
 # Installed only when desktop.enabled: true in .pa-container/config.yaml.
 # Base shared image (WITH_DESKTOP=false) remains lean (~500 MB saved).
+#
+# Note on noVNC: Debian's `novnc` package declares a hard dependency on `nodejs`,
+# which would pull Debian's distro Node (v20) and ~120 MB of redundant packages
+# (libnode115, node-*) that conflict with the builder's modern Node (v26).
+# Since noVNC consists purely of static client-side web assets served by python3-websockify,
+# we download and extract the package directly to /usr/share/novnc without invoking
+# apt's dependency chain.
 ARG WITH_DESKTOP=false
 RUN if [ "${WITH_DESKTOP}" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
@@ -139,7 +146,6 @@ RUN if [ "${WITH_DESKTOP}" = "true" ]; then \
             xwayland \
             wlr-randr \
             wayvnc \
-            novnc \
             websockify \
             grim \
             wlrctl \
@@ -163,10 +169,16 @@ RUN if [ "${WITH_DESKTOP}" = "true" ]; then \
             fonts-liberation \
             libnss3 \
             libnss3-tools \
+     && cd /tmp \
+     && apt-get download novnc \
+     && dpkg-deb -x novnc*.deb / \
+     && rm -f novnc*.deb \
+     && printf '{"reconnect": true, "reconnect_delay": 1000}\n' > /usr/share/novnc/mandatory.json \
      && rm -rf /var/lib/apt/lists/* \
      && labwc --version \
      && wayvnc --version \
-     && grim -v; \
+     && grim -h >/dev/null \
+     && test -f /usr/share/novnc/vnc.html; \
     fi
 
 # ─── Toolchain from the builder image ────────────────────────────────────────
@@ -506,6 +518,7 @@ COPY coding-agent/skills /usr/local/share/pa-container/skills
 COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pa-container/t3-advertise-host.cjs
 COPY coding-agent/t3-sync-antigravity.py /usr/local/share/pa-container/t3-sync-antigravity.py
 COPY coding-agent/t3-policy.json /etc/t3code/policy.json
+COPY coding-agent/labwc /etc/xdg/labwc
 
 ARG AGENT_UID=1000
 ARG AGENT_GID=1000

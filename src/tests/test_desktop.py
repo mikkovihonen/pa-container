@@ -336,3 +336,39 @@ def test_containerfile_and_entrypoint_desktop_skill_integration():
     assert "/home/agent/.pi/agent/skills/virtual-desktop" in entrypoint
     assert "/usr/local/share/pa-container/skills/virtual-desktop" in entrypoint
     assert "rm -rf /home/agent/.pi/agent/skills/virtual-desktop" in entrypoint
+
+
+def test_desktop_exit_prevention_and_supervisor():
+    from config import REPO_ROOT
+    from images import _IMAGE_DEFINITION_FILES
+
+    # 1. Config tracking
+    assert "labwc/menu.xml" in _IMAGE_DEFINITION_FILES
+    assert "labwc/rc.xml" in _IMAGE_DEFINITION_FILES
+
+    # 2. labwc menu.xml must not offer Exit or Poweroff
+    menu_path = REPO_ROOT / "coding-agent" / "labwc" / "menu.xml"
+    assert menu_path.is_file()
+    menu_content = menu_path.read_text()
+    assert '<action name="Exit"' not in menu_content
+    assert "poweroff" not in menu_content.lower()
+
+    # 3. labwc rc.xml must disable exit shortcuts
+    rc_path = REPO_ROOT / "coding-agent" / "labwc" / "rc.xml"
+    assert rc_path.is_file()
+    rc_content = rc_path.read_text()
+    assert 'key="W-F4"' in rc_content
+    assert 'key="C-A-BackSpace"' in rc_content
+    assert '<action name="None"' in rc_content
+
+    # 4. Containerfile must deploy labwc config and noVNC reconnect settings
+    containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
+    assert "COPY coding-agent/labwc /etc/xdg/labwc" in containerfile
+    assert "mandatory.json" in containerfile
+    assert '"reconnect": true' in containerfile
+
+    # 5. entrypoint.sh must seed config and run the auto-recovery supervisor loop
+    entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
+    assert "/etc/xdg/labwc/* /home/agent/.config/labwc/" in entrypoint
+    assert 'kill -0 "$_labwc_pid"' in entrypoint
+    assert 'kill -0 "$_wayvnc_pid"' in entrypoint
