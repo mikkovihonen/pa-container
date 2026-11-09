@@ -463,9 +463,11 @@ class TestT3LaunchConfiguration:
         assert settings["providerInstances"]["opencode"]["driver"] == "opencode"
         assert settings["providerInstances"]["opencode"]["enabled"] is True
         assert settings["providerInstances"]["opencode"]["binaryPath"] == "opencode"
+        assert settings["providerInstances"]["opencode"]["config"]["binaryPath"] == "opencode"
         assert settings["providerInstances"]["pi"]["driver"] == "pi"
         assert settings["providerInstances"]["claudeAgent"]["driver"] == "claudeAgent"
         assert settings["providerInstances"]["antigravity"]["driver"] == "antigravity"
+        assert settings["providerInstances"]["antigravity"]["config"]["authMethod"] == "oauth-personal"
 
         # Preserve existing custom settings on re-synthesis
         settings["providerInstances"]["opencode"]["customOption"] = "preserved"

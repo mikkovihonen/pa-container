@@ -12,6 +12,7 @@ allowlist:
     hostnames:
       - "generativelanguage.googleapis.com"
       - "oauth2.googleapis.com"
+      - "dl.google.com"
     ip_ranges: []
 
 token_replacer:

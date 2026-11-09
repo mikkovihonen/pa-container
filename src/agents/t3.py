@@ -44,10 +44,15 @@ def synthesize_t3_settings(
         existing = provider_instances.get(meta.instance_id, {})
         if not isinstance(existing, dict):
             existing = {}
+        existing_config = existing.get("config", {})
+        if not isinstance(existing_config, dict):
+            existing_config = {}
+        merged_config = {**existing_config, **meta.settings}
         provider_instances[meta.instance_id] = {
             **existing,
             "driver": meta.driver_kind,
             "enabled": True,
+            "config": merged_config,
             **meta.settings,
         }
 

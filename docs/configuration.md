@@ -772,7 +772,7 @@ tools:
 - **Coding Agent Runtimes:**
     - `pi`: Pi Coding Agent CLI runtime (provides `/usr/local/bin/pi`).
     - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (provides `/usr/local/bin/opencode`).
-    - `antigravity`: Google Antigravity agent runtime with Gemini API integration (provides `/usr/local/bin/antigravity`, `/usr/local/bin/agy`).
+    - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (provides `/usr/local/bin/antigravity`, `/usr/local/bin/agy`, `/usr/local/bin/agy_acp_server.par`).
     - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (provides `/usr/local/bin/claude`, `/usr/local/bin/claude-code`).
 
 When `tools.include` is non-empty, pa-container builds or reuses the required tool images and layers them into a project-specific container image in seconds.

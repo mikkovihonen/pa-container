@@ -249,6 +249,12 @@ exec gosu agent bash -c '
             exit 1
         fi
 
+        # Seed pre-installed T3 managed runtimes into /home/agent/.t3/tools if available
+        if [ -d "/usr/local/share/t3/tools/antigravity-acp" ]; then
+            mkdir -p /home/agent/.t3/tools
+            cp -an /usr/local/share/t3/tools/antigravity-acp /home/agent/.t3/tools/ 2>/dev/null || true
+        fi
+
         # Preflight login check for agent-native authenticated agents in T3 mode
         if [[ ",${PA_CONTAINER_ENABLED_AGENTS:-$PA_CONTAINER_AGENT}," == *",claude,"* ]] && [ -z "${ANTHROPIC_API_KEY}" ]; then
             if command -v claude >/dev/null 2>&1; then
