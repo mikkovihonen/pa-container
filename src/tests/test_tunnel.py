@@ -239,6 +239,29 @@ class TestTunnelPrerequisitesValidation:
                 runtime="podman",
             )
 
+    def test_tailscale_with_cloudflare_options_raises(self):
+        with pytest.raises(TunnelValidationError, match="Conflicting Tunnel Options"):
+            validate_tunnel_prerequisites(
+                "tailscale",
+                quick=True,
+            )
+
+    def test_cloudflare_with_tailscale_options_raises(self):
+        with pytest.raises(TunnelValidationError, match="Conflicting Tunnel Options"):
+            validate_tunnel_prerequisites(
+                "cloudflare",
+                quick=True,
+                tailscale_mode="serve",
+            )
+
+    def test_no_tunnel_type_with_conflicting_options_raises(self):
+        with pytest.raises(TunnelValidationError, match="Conflicting Tunnel Options"):
+            validate_tunnel_prerequisites(
+                None,
+                quick=True,
+                tailscale_mode="serve",
+            )
+
 
 class TestTailscaleTunnelManager:
     def test_tailscale_serve_start_and_cleanup(self):

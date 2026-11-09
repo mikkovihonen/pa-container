@@ -4,7 +4,10 @@
   "limits": {
     "providers": {
       "allowedDrivers": [
-        "pi"
+        "pi",
+        "opencode",
+        "claudeAgent",
+        "antigravity"
       ]
     }
   }

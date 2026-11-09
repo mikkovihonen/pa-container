@@ -64,6 +64,7 @@ def extract_models_from_yaml(
     seed_default_gateways(gateways_dir)
 
     allow_list = data.get("allow") or []
+    seen_agent_native_providers: set[str] = set()
     for item in allow_list:
         if isinstance(item, str):
             model_id = item.strip()
@@ -85,7 +86,7 @@ def extract_models_from_yaml(
         # 1. Check if model_id is a registered external gateway
         gw_def = load_gateway_def(model_id, registry_dir=gateways_dir)
         if gw_def is not None:
-            if gw_def.auth is not None:
+            if gw_def.auth is not None and gw_def.auth.type in ("api-key", "openid"):
                 if not isinstance(item, dict):
                     raise ValueError(
                         f"Gateway '{model_id}' requires authentication. It must be declared as a mapping in models.yaml."
@@ -103,6 +104,13 @@ def extract_models_from_yaml(
                         raise ValueError(
                             f"Gateway '{model_id}' requires 'containerEnvVar' to be a non-empty string in models.yaml"
                         )
+            elif gw_def.auth is not None and gw_def.auth.type == "agent-native":
+                provider = gw_def.gateway_type or gw_def.id
+                if provider in seen_agent_native_providers:
+                    raise ValueError(
+                        f"Gateway '{model_id}' with auth.type 'agent-native' can only be instantiated once per provider ('{provider}')"
+                    )
+                seen_agent_native_providers.add(provider)
 
             effective_base_url = custom_url or gw_def.base_url
             gw_item: GatewayConfigItem = {

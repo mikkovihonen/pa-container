@@ -1,0 +1,21 @@
+id: google-account
+description: "Google Gemini / Antigravity Gateway (Agent-Native Account)"
+baseUrl: "https://generativelanguage.googleapis.com"
+type: gemini
+
+auth:
+  type: agent-native
+
+allowlist:
+  - name: "google-account-allow"
+    mode: "allow"
+    hostnames:
+      - "accounts.google.com"
+      - "oauth2.googleapis.com"
+      - "generativelanguage.googleapis.com"
+      - "antigravity.google"
+      - "*.googleapis.com"
+      - "*.google.com"
+    ip_ranges: []
+
+token_replacer: []

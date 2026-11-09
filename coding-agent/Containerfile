@@ -504,7 +504,6 @@ COPY coding-agent/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop
 COPY coding-agent/skills /usr/local/share/pa-container/skills
 COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pa-container/t3-advertise-host.cjs
-COPY coding-agent/t3-seed-settings.cjs /usr/local/share/pa-container/t3-seed-settings.cjs
 COPY coding-agent/t3-policy.json /etc/t3code/policy.json
 
 ARG AGENT_UID=1000

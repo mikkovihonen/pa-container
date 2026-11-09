@@ -99,6 +99,16 @@ def validate_tunnel_prerequisites(
 ) -> None:
     """Validate tunnel prerequisites fail-fast on startup before initializing any resources."""
     if not tunnel_type:
+        if (quick or domain or keyring_account) and tailscale_mode:
+            raise TunnelValidationError(
+                format_error_box(
+                    "Conflicting Tunnel Options",
+                    [
+                        "Both Cloudflare tunnel options and Tailscale tunnel options were specified.",
+                        "Please choose either Cloudflare or Tailscale.",
+                    ],
+                )
+            )
         return
 
     ttype = tunnel_type.strip().lower()
@@ -116,8 +126,27 @@ def validate_tunnel_prerequisites(
         )
 
     if ttype == "tailscale":
+        if quick or domain or keyring_account:
+            raise TunnelValidationError(
+                format_error_box(
+                    "Conflicting Tunnel Options",
+                    [
+                        "Options --t3-tunnel-quick, --t3-tunnel-domain, and --t3-tunnel-keyring-account",
+                        "are Cloudflare-specific and cannot be used with Tailscale tunnels.",
+                    ],
+                )
+            )
         _validate_tailscale_prerequisites(tailscale_mode=tailscale_mode or "serve")
     elif ttype == "cloudflare":
+        if tailscale_mode:
+            raise TunnelValidationError(
+                format_error_box(
+                    "Conflicting Tunnel Options",
+                    [
+                        "Option --t3-tunnel-tailscale-mode is Tailscale-specific and cannot be used with Cloudflare tunnels.",
+                    ],
+                )
+            )
         _validate_cloudflare_prerequisites(
             domain=domain,
             quick=quick,
@@ -494,7 +523,7 @@ class CloudflareTunnelManager:
         # Parse assigned trycloudflare.com URL from stderr output
         quick_url: str | None = None
         start_time = time.time()
-        timeout = 15.0
+        timeout = 30.0
 
         if self._proc and self._proc.stderr:
             while time.time() - start_time < timeout:

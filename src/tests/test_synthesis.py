@@ -251,6 +251,19 @@ def test_gateway_auth_enforcement_and_multi_instance(tmp_path: Path):
     assert synthetic["providers"]["opper-team-a"]["apiKey"] == "OPPER_TEAM_A_API_KEY_PLACEHOLDER"
     assert synthetic["providers"]["opper-team-b"]["apiKey"] == "OPPER_TEAM_B_API_KEY_PLACEHOLDER"
 
+    # 7. Agent-native single-instance constraint in extract_models_from_yaml
+    (gw_dir / "anthropic-account.yaml").write_text(
+        "id: anthropic-account\ntype: anthropic\nbaseUrl: https://api.anthropic.com/v1\nauth:\n  type: agent-native\n"
+    )
+    native_data = {"allow": ["anthropic-account"]}
+    synth, srvs, hosts, gws, def_m = extract_models_from_yaml(native_data, gateways_dir=gw_dir)
+    assert len(gws) == 1
+    assert gws[0]["name"] == "anthropic-account"
+
+    dup_native_data = {"allow": ["anthropic-account", {"id": "anthropic-account"}]}
+    with pytest.raises(ValueError, match="can only be instantiated once per provider"):
+        extract_models_from_yaml(dup_native_data, gateways_dir=gw_dir)
+
 
 def test_agent_drivers_placeholder_synchronization(tmp_path: Path):
     from agents.antigravity_driver import AntigravityDriver
@@ -264,4 +277,4 @@ def test_agent_drivers_placeholder_synchronization(tmp_path: Path):
     assert antigravity.get_environment()["GEMINI_API_KEY"] == "GEMINI_API_KEY_PLACEHOLDER"
 
     opencode = OpenCodeDriver()
-    assert opencode.get_environment()["OPENAI_API_KEY"] == "OPENAI_API_KEY_PLACEHOLDER"
+    assert opencode.get_environment() == {}

@@ -23,7 +23,13 @@ import containers
 import images
 import project
 import volumes
-from agents import get_agent_driver, load_project_models, resolve_models_file
+from agents import (
+    AgentMount,
+    get_agent_driver,
+    load_project_models,
+    resolve_models_file,
+    resolve_selected_agent_names,
+)
 from build import DEFAULT_ROOT_COMMANDS, build_agent, build_project_image, build_proxy
 from config import (
     ADMIN_PASSWORD,
@@ -151,6 +157,8 @@ def process_gateway_configs(gateway_configs: list[GatewayConfigItem], pa_contain
                 return
 
             os.environ[var_name] = token_val
+        elif gw_def.auth.type == "agent-native":
+            continue
 
     containers.warn_about_gateway_allowlist(pa_container_dir, gateway_configs)
 
@@ -306,8 +314,38 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     cli_t3_public_url = options.t3_public_url
     container_argv = options.container_argv
 
-    if cli_t3_tunnel or cli_t3_port:
+    if not cli_t3_tunnel:
+        has_cf = bool(
+            cli_t3_tunnel_quick or cli_t3_tunnel_domain or cli_t3_tunnel_runner or cli_t3_tunnel_keyring_account
+        )
+        has_ts = bool(cli_t3_tunnel_tailscale_mode)
+        if has_cf and not has_ts:
+            cli_t3_tunnel = "cloudflare"
+        elif has_ts and not has_cf:
+            cli_t3_tunnel = "tailscale"
+
+    if (
+        cli_t3_tunnel
+        or cli_t3_port
+        or cli_t3_public_url
+        or cli_t3_advertise_host
+        or cli_lan
+        or cli_t3_tunnel_quick
+        or cli_t3_tunnel_domain
+        or cli_t3_tunnel_runner
+        or cli_t3_tunnel_keyring_account
+        or cli_t3_tunnel_tailscale_mode
+    ):
         cli_t3 = True
+
+    if (
+        cli_t3_tunnel
+        or cli_t3_tunnel_quick
+        or cli_t3_tunnel_domain
+        or cli_t3_tunnel_runner
+        or cli_t3_tunnel_keyring_account
+        or cli_t3_tunnel_tailscale_mode
+    ):
         from tunnel import TunnelValidationError, validate_tunnel_prerequisites
 
         try:
@@ -330,27 +368,22 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             )
             return 1
 
+    is_t3_mode = cli_t3 or (read_agent_mode(pa_container_dir) == "t3")
     enabled_agents = read_enabled_agents(pa_container_dir)
-    agent_type = cli_agent or read_agent_type(pa_container_dir)
-    if cli_agent and cli_agent.lower() not in enabled_agents:
-        disabled_msg = (
-            f"Agent '{cli_agent}' is not enabled in this workspace's config.yaml. "
-            f"Enabled agents: {', '.join(enabled_agents)}"
-        )
-        log_drv.fail_and_render(
-            LogCategory.PREFLIGHT,
-            "Agent Disabled",
-            disabled_msg,
-            source_logger=preflight_logger,
-        )
-        return 1
-
+    default_agent = read_agent_type(pa_container_dir)
     try:
-        agent_driver = get_agent_driver(agent_type)
+        active_agent_name, selected_agent_names = resolve_selected_agent_names(
+            cli_agent=cli_agent,
+            enabled_agents=enabled_agents,
+            default_agent=default_agent,
+            is_t3_mode=is_t3_mode,
+        )
+        agent_driver = get_agent_driver(active_agent_name)
+        selected_agent_drivers = [get_agent_driver(name) for name in selected_agent_names]
     except ValueError as e:
         log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
-            "Unknown Agent Driver",
+            "Invalid Agent Selection",
             str(e),
             exc=e,
             source_logger=preflight_logger,
@@ -511,12 +544,21 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         _,
     ) = load_project_models(pa_container_dir)
 
-    agent_driver.synthesize_config(
-        server_configs=server_configs,
-        gateway_configs=gateway_configs,
-        default_model=default_model,
-        project_dir=PROJECT_DIR,
-    )
+    for agent_name in enabled_agents:
+        agent_drv = get_agent_driver(agent_name)
+        agent_drv.synthesize_config(
+            server_configs=server_configs,
+            gateway_configs=gateway_configs,
+            default_model=default_model,
+            project_dir=PROJECT_DIR,
+        )
+
+    if is_t3_mode:
+        from agents.t3 import synthesize_t3_policy, synthesize_t3_settings
+
+        t3_dir = pa_container_dir / "t3"
+        synthesize_t3_settings(t3_dir, agent_driver, selected_agent_drivers)
+        synthesize_t3_policy(t3_dir, selected_agent_drivers)
 
     process_gateway_configs(gateway_configs, pa_container_dir)
 
@@ -559,7 +601,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     ts_mgr = TailscaleTunnelManager(mode=cli_t3_tunnel_tailscale_mode, port=t3_port)
                     pub_url, adv_host = ts_mgr.start(stack)
                     t3_public_url = t3_public_url or pub_url
-                    t3_advertise_host = adv_host
+                    if not cli_t3_advertise_host:
+                        t3_advertise_host = adv_host
                 elif ttype == "cloudflare":
                     from tunnel import CloudflareTunnelManager
 
@@ -574,7 +617,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     )
                     pub_url, adv_host = cf_mgr.start(stack)
                     t3_public_url = t3_public_url or pub_url
-                    t3_advertise_host = adv_host
+                    if not cli_t3_advertise_host:
+                        t3_advertise_host = adv_host
 
             if is_t3_mode and t3_public_url:
                 from tunnel import normalize_tunnel_url
@@ -590,6 +634,10 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     f"\n  Protocol:   HTTPS (WSS) - Standard Port (443)"
                     f"\n=================================================================="
                 )
+                if not log_drv.quiet:
+                    log_drv.console.print(
+                        f"  [dim cyan][{LogCategory.NETWORK}][/dim cyan] T3 Tunnel URL: [link={t3_public_url}]{t3_public_url}[/link] 🔗 (click to open)"
+                    )
 
             ensure_proxy_image(CONTAINER_RUNTIME, repo_root=REPO_ROOT)
 
@@ -676,7 +724,13 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
             # ─── Resolve agent image (shared vs. project-specific) ──────
             log_drv.start_stage(LogCategory.BUILD, "Resolving agent container image")
-            driver_tools = agent_driver.required_tools
+            driver_tools: list[str] = []
+            for d in selected_agent_drivers:
+                for tool in d.required_tools:
+                    if tool not in driver_tools:
+                        driver_tools.append(tool)
+            if is_t3_mode and "t3" not in driver_tools:
+                driver_tools.append("t3")
             agent_image_tag, is_project_specific = images.resolve_agent_image(PROJECT_DIR, extra_tools=driver_tools)
             if is_project_specific:
                 label_hash = images.compute_image_hash(PROJECT_DIR, extra_tools=driver_tools)
@@ -777,7 +831,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
             # Persistent unified project shadow volume (config.yaml volumes.paths + agent shadow paths)
             volume_paths = scan_volume_paths(pa_container_dir)
-            shadow_destinations = sorted(set(volume_paths + agent_driver.get_shadow_paths()))
+            agent_shadow_paths = [p for d in selected_agent_drivers for p in d.get_shadow_paths()]
+            shadow_destinations = sorted(set(volume_paths + agent_shadow_paths))
             shadow_vol_name = volumes.project_shadow_volume_name(project.project_key(PROJECT_DIR))
             project_path_str = str(PROJECT_DIR.resolve())
 
@@ -845,20 +900,35 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     except Exception as e:
                         logger.warning(f"Could not resolve git worktree hooks path: {e}")
 
-            driver_mounts = [arg for m in agent_driver.get_mounts(PROJECT_DIR) for arg in m.to_run_args()]
-            driver_env = [
-                flag for k, v in agent_driver.get_environment(agent_extras).items() for flag in ("--env", f"{k}={v}")
-            ]
+            selected_mounts: list[AgentMount] = []
+            seen_mount_dests: set[str] = set()
+            for d in selected_agent_drivers:
+                for m in d.get_mounts(PROJECT_DIR):
+                    if m.destination not in seen_mount_dests:
+                        seen_mount_dests.add(m.destination)
+                        selected_mounts.append(m)
+
+            driver_mounts = [arg for m in selected_mounts for arg in m.to_run_args()]
+            merged_driver_env: dict[str, str] = {}
+            for d in selected_agent_drivers:
+                merged_driver_env.update(d.get_environment(agent_extras, gateway_configs=gateway_configs))
+            driver_env = [flag for k, v in merged_driver_env.items() for flag in ("--env", f"{k}={v}")]
             t3_mounts: list[str] = []
             t3_chown: list[str] = []
             if is_t3_mode:
                 t3_dir = pa_container_dir / "t3"
                 t3_dir.mkdir(parents=True, exist_ok=True)
                 t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
+                shim_src = REPO_ROOT / "coding-agent" / "t3-advertise-host.cjs"
+                if shim_src.exists():
+                    t3_mounts.extend(["--volume", f"{shim_src}:/usr/local/share/pa-container/t3-advertise-host.cjs:ro"])
+                policy_file = t3_dir / "policy.json"
+                if policy_file.exists():
+                    t3_mounts.extend(["--volume", f"{policy_file}:/etc/t3code/policy.json:ro"])
                 t3_chown = ["/home/agent/.t3"]
 
             driver_mount_chown: list[str] = []
-            for m in agent_driver.get_mounts(PROJECT_DIR):
+            for m in selected_mounts:
                 dest_path = Path(m.destination)
                 try:
                     rel = dest_path.relative_to(Path("/home/agent"))
@@ -943,7 +1013,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 "--env",
                 f"PA_CONTAINER_AGENT={agent_driver.name}",
                 "--env",
-                f"PA_CONTAINER_ENABLED_AGENTS={','.join(enabled_agents)}",
+                f"PA_CONTAINER_ENABLED_AGENTS={','.join(selected_agent_names)}",
                 *driver_env,
                 "--env",
                 f"LLAMA_PORTS={portconfig}",

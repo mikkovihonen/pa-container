@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from agents.base import AgentDriver, AgentMount
+from agents.base import AgentDriver, AgentMount, T3DriverMetadata
 
 """Runtime driver for the OpenCode agent."""
 
@@ -30,10 +30,12 @@ class OpenCodeDriver(AgentDriver):
     def get_command(self, cli_args: list[str]) -> list[str]:
         return cli_args
 
-    def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
-        return {
-            "OPENAI_API_KEY": "OPENAI_API_KEY_PLACEHOLDER",
-        }
+    def get_environment(
+        self,
+        config: AgentExtrasConfig | None = None,
+        gateway_configs: list[GatewayConfigItem] | None = None,
+    ) -> dict[str, str]:
+        return {}
 
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:
         opencode_dir = self.get_state_dir(project_dir)
@@ -133,3 +135,10 @@ class OpenCodeDriver(AgentDriver):
 
         with config_file.open("w") as f:
             json.dump(config_data, f, indent=2)
+
+    def get_t3_metadata(self) -> T3DriverMetadata:
+        return T3DriverMetadata(
+            driver_kind="opencode",
+            instance_id="opencode",
+            settings={"binaryPath": "opencode", "serverUrl": "", "serverPassword": ""},
+        )

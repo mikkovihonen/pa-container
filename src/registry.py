@@ -155,7 +155,7 @@ def seed_default_chat_templates(templates_dir: Path | None = None) -> list[str]:
 
 
 def seed_default_models(registry_dir: Path | None = None) -> list[str]:
-    """Seed default model definitions if the models registry directory is empty or missing."""
+    """Seed default model definitions if the models registry directory is missing files."""
     target_dir = get_models_dir(registry_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -163,12 +163,11 @@ def seed_default_models(registry_dir: Path | None = None) -> list[str]:
     seed_default_chat_templates(templates_dir)
 
     seeded: list[str] = []
-    existing = list(target_dir.glob("*.yaml"))
-    if not existing:
-        bundled_dir = BUNDLED_MODELS_DIR
-        if bundled_dir.is_dir():
-            for model_file in sorted(bundled_dir.glob("*.yaml")):
-                dst = target_dir / model_file.name
+    bundled_dir = BUNDLED_MODELS_DIR
+    if bundled_dir.is_dir():
+        for model_file in sorted(bundled_dir.glob("*.yaml")):
+            dst = target_dir / model_file.name
+            if not dst.exists():
                 shutil.copy2(model_file, dst)
                 seeded.append(dst.name)
                 logger.info(f"Seeded default model definition: {dst}")
@@ -177,30 +176,29 @@ def seed_default_models(registry_dir: Path | None = None) -> list[str]:
 
 
 def seed_default_gateways(registry_dir: Path | None = None) -> list[str]:
-    """Seed default gateway definitions if the gateways registry directory is empty or missing."""
+    """Seed default gateway definitions if missing in the destination gateways directory."""
     target_dir = get_gateways_dir(registry_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
     seeded: list[str] = []
-    existing = list(target_dir.glob("*.yaml"))
-    if not existing:
-        bundled_dir = BUNDLED_GATEWAYS_DIR
-        if bundled_dir.is_dir():
-            for gw_file in sorted(bundled_dir.glob("*.yaml")):
-                dst = target_dir / gw_file.name
+    bundled_dir = BUNDLED_GATEWAYS_DIR
+    if bundled_dir.is_dir():
+        for gw_file in sorted(bundled_dir.glob("*.yaml")):
+            dst = target_dir / gw_file.name
+            if not dst.exists():
                 shutil.copy2(gw_file, dst)
                 seeded.append(dst.name)
                 logger.info(f"Seeded default gateway definition: {dst}")
 
-            if seeded:
-                from logging_driver import get_log_driver
+        if seeded:
+            from logging_driver import get_log_driver
 
-                log_drv = get_log_driver()
-                if log_drv is not None and not log_drv.quiet:
-                    log_drv.console.print(
-                        f"  [bold green]✓[/bold green] Seeded default model gateways into [cyan]{target_dir}[/cyan]: "
-                        + ", ".join(seeded)
-                    )
+            log_drv = get_log_driver()
+            if log_drv is not None and not log_drv.quiet:
+                log_drv.console.print(
+                    f"  [bold green]✓[/bold green] Seeded default model gateways into [cyan]{target_dir}[/cyan]: "
+                    + ", ".join(seeded)
+                )
 
     return seeded
 
@@ -232,6 +230,8 @@ def load_gateway_def(gateway_id: str, registry_dir: Path | None = None) -> Gatew
     """Load an external gateway definition by ID from ~/.config/pa-container/gateways/."""
     target_dir = get_gateways_dir(registry_dir)
     found = _find_definition_file(gateway_id, target_dir)
+    if not found and registry_dir is None:
+        found = _find_definition_file(gateway_id, BUNDLED_GATEWAYS_DIR)
     if not found:
         return None
     _, data = found

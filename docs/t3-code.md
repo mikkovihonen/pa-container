@@ -2,9 +2,13 @@
 
 **T3 Code** ([t3.codes](https://t3.codes)) is an open-source, local-first control panel and graphical interface (desktop, web, and mobile) for AI coding agents. It provides a visual workspace with multi-threading, interactive diff reviews, branch management, and model reasoning visualizations.
 
-T3 Code features first-class native support for the **Pi coding agent** (`@earendil-works/pi-coding-agent`), driving Pi via its structured JSONL RPC interface.
+T3 Code features first-class native support for multiple coding agents:
+- **Pi** (`@earendil-works/pi-coding-agent`), driven via its structured JSONL RPC interface.
+- **OpenCode** (`opencode`), driven via its v2 HTTP/WebSocket server and OpenAPI interface.
+- **Claude Code** (`@anthropic-ai/claude-code`), driven via the Claude Agent SDK.
+- **Antigravity** (`agy`), driven via the Agent Client Protocol (ACP).
 
-`pa-container` supports running T3 Code directly inside the isolated agent container, allowing you to use the **https://t3.codes** web interface (or the desktop/mobile apps) while retaining complete network egress inspection, token substitution, and sandbox isolation.
+`pa-container` supports running T3 Code directly inside the isolated agent container for any enabled agent, allowing you to use the **https://t3.codes** web interface (or desktop/mobile apps) while retaining complete network egress inspection, token substitution, and sandbox isolation.
 
 ---
 
@@ -24,59 +28,61 @@ flowchart LR
 
         subgraph Agent["Agent Container"]
             T3Server["<b>t3 serve</b><br/>(port 3773)"]
-            Pi["<b>pi</b><br/>(RPC Mode)"]
+            ActiveAgent["Active Agent<br/><b>pi | opencode | claude | agy</b>"]
             Tools["Toolchains<br/>mold, git, compilers"]
             Workspace["/workspace"]
         end
     end
 
     Browser -- "WebSocket (127.0.0.1:3773)" --> T3Server
-    T3Server -- "JSONL RPC" --> Pi
-    Pi --> Workspace
-    Pi --> Tools
-    Pi -- "LLM Requests" --> ProxyFilter
+    T3Server -- "IPC / RPC / HTTP" --> ActiveAgent
+    ActiveAgent --> Workspace
+    ActiveAgent --> Tools
+    ActiveAgent -- "LLM Requests" --> ProxyFilter
     ProxyFilter --> Llama
     ProxyFilter -- "Allowed APIs" --> RemoteLLM["External LLMs"]
 ```
 
 ### Key Principles
 
-- **In-Container Execution**: The T3 Code server process (`t3 serve`) runs inside the agent container alongside Pi. It directly spawns `/usr/local/bin/pi` inside `/workspace`.
+- **In-Container Execution**: The T3 Code server process (`t3 serve`) runs inside the agent container alongside the active coding agent. It directly manages agent sessions inside `/workspace`.
 - **Inbound Host Forwarding**: Host port `3773` is published to the agent container (`127.0.0.1:3773`), allowing your host browser at `https://t3.codes` to establish a local WebSocket connection (`ws://127.0.0.1:3773`).
-- **Proxy Egress & Token Replacement**: All outbound API calls from Pi or T3 Code traverse the `pa-container-agent-proxy`. Unapproved network traffic is blocked, and dummy provider tokens are swapped with real credentials on the wire.
-- **Dynamic Model Discovery**: T3 Code queries Pi's RPC endpoint, which dynamically loads model definitions from `/home/agent/.pi/agent/models.json` (including local `llama-server` endpoints).
+- **Proxy Egress & Token Replacement**: All outbound API calls from the agent or T3 Code traverse the `pa-container-agent-proxy`. Unapproved network traffic is blocked, and dummy provider tokens are swapped with real credentials on the wire.
+- **Dynamic Model Discovery**: T3 Code queries the active agent's model catalog (e.g. `models.json` for Pi, `opencode.json` for OpenCode, `claude.json` for Claude), including local `llama-server` endpoints and cloud gateways.
 
 ---
 
 ## Quickstart
 
-### 1. Enable the T3 Toolchain
+### 1. Launch in T3 Mode
 
-Add `"t3"` to your `tools.include` list in `.pa-container/config.yaml`:
-
-```yaml
-tools:
-  include:
-    - "t3"
-```
-
-*(Alternatively, you can install the CLI dynamically in `.pa-container/dependencies/root/commands.sh` via `npm install -g t3` or `curl -fsSL https://t3.codes/install.sh | sh`).*
-
-### 2. Launch in T3 Mode
-
-Run the container launcher with the `--t3` flag:
+Run the container launcher with the `--t3` flag and optionally select an agent driver:
 
 ```bash
+# Launch in T3 mode with all workspace-enabled agents (agents.default is initial active)
 pa run --t3
+
+# Launch locked exclusively to OpenCode
+pa run --agent opencode --t3
+
+# Launch with multiple switchable agents (opencode active initially, pi also provisioned)
+pa run --agent opencode,pi --t3
+
+# Launch with all workspace-enabled agents explicitly
+pa run --agent all --t3
 ```
+
+*(When running with `--t3`, the `t3` toolchain and all required agent tools are automatically resolved and built into the container if not already included).*
 
 The launcher will:
 1. Verify host port `3773` is free and forward `127.0.0.1:3773` to the agent container.
-2. Launch `t3 serve --host 0.0.0.0 --port 3773`.
-3. Output the T3 pairing URL:
+2. Synthesize T3 Code provider settings and enterprise policy for the selected agent(s).
+3. Provision configuration files, volumes, and credentials for all selected agents.
+4. Launch `t3 serve --host 0.0.0.0 --port 3773`.
+5. Output the T3 pairing URL:
     ```text
     ==================================================================
-      Starting T3 Code server for Pi inside pa-container...
+      Starting T3 Code server for opencode inside pa-container...
       Web UI: https://t3.codes
     ==================================================================
     Listening on http://0.0.0.0:3773
@@ -395,8 +401,10 @@ pa run --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com
 For quick testing without a custom domain or Cloudflare account:
 
 ```bash
-pa run --t3 --t3-tunnel cloudflare --t3-tunnel-quick
+pa run --t3-tunnel-quick
 ```
+
+*(You can also use `pa run --t3 --t3-tunnel cloudflare --t3-tunnel-quick`; specifying `--t3-tunnel-quick` automatically implies both `--t3` and Cloudflare tunnel provider).*
 
 This provisions an ephemeral tunnel on `https://<random>.trycloudflare.com` and renders the corresponding QR code.
 

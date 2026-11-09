@@ -18,7 +18,6 @@ _IMAGE_DEFINITION_FILES = (
     "entrypoint.sh",
     "agent-desktop",
     "t3-advertise-host.cjs",
-    "t3-seed-settings.cjs",
     "t3-policy.json",
 )
 _PROXY_IMAGE_DEFINITION_FILES = ("Containerfile", "entrypoint.sh")

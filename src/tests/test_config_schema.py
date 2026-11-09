@@ -459,6 +459,34 @@ class TestValidateModels:
         assert is_valid is False
         assert any("expected string or dict, got int" in e for e in errors)
 
+    def test_allow_agent_native_gateway_valid(self, tmp_path: Path):
+        """Agent-native gateways pass validation as simple strings or dicts without keyring fields."""
+        from config_schema import validate_models
+
+        gw_dir = tmp_path / "gateways"
+        gw_dir.mkdir(parents=True)
+        (gw_dir / "anthropic-account.yaml").write_text(
+            "id: anthropic-account\ntype: anthropic\nbaseUrl: https://api.anthropic.com/v1\nauth:\n  type: agent-native\n"
+        )
+        p = self._write_models(tmp_path, "allow:\n  - anthropic-account\n")
+        is_valid, errors = validate_models(p, gateways_dir=gw_dir)
+        assert is_valid is True
+        assert errors == []
+
+    def test_allow_agent_native_duplicate_rejected(self, tmp_path: Path):
+        """Agent-native gateways can only be instantiated once per provider."""
+        from config_schema import validate_models
+
+        gw_dir = tmp_path / "gateways"
+        gw_dir.mkdir(parents=True)
+        (gw_dir / "anthropic-account.yaml").write_text(
+            "id: anthropic-account\ntype: anthropic\nbaseUrl: https://api.anthropic.com/v1\nauth:\n  type: agent-native\n"
+        )
+        p = self._write_models(tmp_path, "allow:\n  - anthropic-account\n  - id: anthropic-account\n")
+        is_valid, errors = validate_models(p, gateways_dir=gw_dir)
+        assert is_valid is False
+        assert any("can only be instantiated once per provider" in e for e in errors)
+
 
 class TestModelDefinitionValidation:
     """Tests for validate_model_def_data in schema_common.py."""

@@ -1,0 +1,22 @@
+id: anthropic-account
+description: "Anthropic Claude API Gateway (Agent-Native Subscription)"
+baseUrl: "https://api.anthropic.com/v1"
+type: anthropic
+
+auth:
+  type: agent-native
+
+allowlist:
+  - name: "anthropic-account-allow"
+    mode: "allow"
+    hostnames:
+      - "api.anthropic.com"
+      - "cdn.anthropic.com"
+      - "auth.anthropic.com"
+      - "claude.ai"
+      - "platform.claude.com"
+      - "*.anthropic.com"
+      - "*.claude.ai"
+    ip_ranges: []
+
+token_replacer: []

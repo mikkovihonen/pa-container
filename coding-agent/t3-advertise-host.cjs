@@ -66,13 +66,13 @@ if (publicUrl) {
     function rewriteString(str) {
         if (typeof str !== 'string' || !publicUrl) return str;
         if (str.includes('/pair#token=')) {
-            str = str.replace(/https?:\/\/[^\/:]+(?::\d+)?\/pair#token=([a-zA-Z0-9_\.-]+)/g, `${publicUrl}/pair#token=$1`);
+            str = str.replace(/https?:\/\/[^\/:]+(?::\d+)?\/pair#token=([^\s&"'<>]+)/g, `${publicUrl}/pair#token=$1`);
         }
         if (str.includes('Connection string:')) {
             str = str.replace(/Connection string:\s*https?:\/\/[^\s]+/g, `Connection string: ${publicUrl}`);
         }
         if (str.includes('App link:')) {
-            str = str.replace(/pairingUrl=https?%3A%2F%2F[^&%\s]+(?::\d+)?(%2Fpair%23token%3D[a-zA-Z0-9_\.-]+)/g, (m, suffix) => {
+            str = str.replace(/pairingUrl=https?%3A%2F%2F[^&%\s]+(?:%3A\d+|:\d+)?(%2Fpair%23token%3D[^\s&"'<>]+)/g, (m, suffix) => {
                 return `pairingUrl=${encodeURIComponent(publicUrl)}${suffix}`;
             });
         }
@@ -94,25 +94,42 @@ if (publicUrl) {
         return origUrlToString.call(this);
     };
 
-    // Intercept console.log to replace connection strings, pairing links, app links, and listener banners
-    const origLog = console.log.bind(console);
-    console.log = function (...args) {
-        for (let i = 0; i < args.length; i++) {
-            if (typeof args[i] === 'string') {
-                args[i] = rewriteString(args[i]);
+    // Intercept console logging methods to replace connection strings, pairing links, app links, and listener banners
+    for (const method of ['log', 'error', 'warn', 'info']) {
+        const orig = console[method].bind(console);
+        console[method] = function (...args) {
+            for (let i = 0; i < args.length; i++) {
+                if (typeof args[i] === 'string') {
+                    args[i] = rewriteString(args[i]);
+                }
             }
-        }
-        return origLog.apply(console, args);
-    };
+            return orig.apply(console, args);
+        };
+    }
 
-    // Intercept process.stdout.write for raw streams
-    const origStdoutWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = function (chunk, encoding, callback) {
-        if (typeof chunk === 'string') {
-            chunk = rewriteString(chunk);
-        }
-        return origStdoutWrite(chunk, encoding, callback);
-    };
+    // Intercept process.stdout and process.stderr writes for raw streams and Buffer chunks
+    function patchStreamWrite(stream) {
+        const origWrite = stream.write.bind(stream);
+        stream.write = function (chunk, encoding, callback) {
+            if (typeof encoding === 'function') {
+                callback = encoding;
+                encoding = undefined;
+            }
+            if (typeof chunk === 'string') {
+                chunk = rewriteString(chunk);
+            } else if (Buffer.isBuffer(chunk)) {
+                const enc = encoding || 'utf8';
+                const str = chunk.toString(enc);
+                const rewritten = rewriteString(str);
+                if (rewritten !== str) {
+                    chunk = Buffer.from(rewritten, enc);
+                }
+            }
+            return origWrite(chunk, encoding, callback);
+        };
+    }
+    patchStreamWrite(process.stdout);
+    patchStreamWrite(process.stderr);
 
     // Intercept qrcode-terminal to render QR code for the public HTTPS tunnel URL if used externally
     const origRequire = Module.prototype.require;
@@ -123,7 +140,7 @@ if (publicUrl) {
                 const origGen = res.generate.bind(res);
                 res.generate = function (input, opts, cb) {
                     if (typeof input === 'string' && input.includes('/pair#token=')) {
-                        const tokenMatch = input.match(/[#&]token=([a-zA-Z0-9_\.-]+)/);
+                        const tokenMatch = input.match(/[#&]token=([^\s&"'<>]+)/);
                         if (tokenMatch) {
                             input = `${publicUrl}/pair#token=${tokenMatch[1]}`;
                         }

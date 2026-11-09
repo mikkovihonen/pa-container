@@ -80,8 +80,8 @@ If an agent is not listed in `agents.enabled`, `pa-container` rejects the invoca
 
 ### 3. Google Antigravity (`antigravity`)
 
-- **State Directory**: `.pa-container/agents/antigravity/` mounted to `/home/agent/.gemini/antigravity`.
-- **Model Translation**: Synthesizes `.pa-container/agents/antigravity/config.json` targeting Gemini models.
+- **State Directory**: `.pa-container/agents/antigravity/` mounted to `/home/agent/.gemini/antigravity` (and `.pa-container/agents/antigravity/config/` mounted to `/home/agent/.gemini/config`).
+- **Model Translation**: Synthesizes `.pa-container/agents/antigravity/config.json` and `settings.json` targeting Gemini models.
 - **Egress Authentication**: Proxy injects the host's `GEMINI_API_KEY` into `x-goog-api-key` headers for `generativelanguage.googleapis.com`.
 
 ### 4. Claude Code (`claude`)

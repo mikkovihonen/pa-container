@@ -148,35 +148,6 @@ if [ -n "$HOST_GIT_CONFIG" ]; then
     done < <(echo "$HOST_GIT_CONFIG" | jq -r 'to_entries[] | [.key, .value] | @tsv')
 fi
 
-# ─── T3 Code allowedDrivers synchronization ─────────────────────────────────
-if [ -d /etc/t3code ]; then
-    _enabled_agents="${PA_CONTAINER_ENABLED_AGENTS:-${PA_CONTAINER_AGENT:-pi}}"
-    IFS=',' read -ra _arr <<< "$_enabled_agents"
-    _drivers=()
-    for _ag in "${_arr[@]}"; do
-        case "$_ag" in
-            pi|default) _drivers+=('"pi"') ;;
-            claude|claude-code) _drivers+=('"claudeAgent"') ;;
-            opencode|open-code) _drivers+=('"codex"') ;;
-        esac
-    done
-    if [ ${#_drivers[@]} -gt 0 ]; then
-        _driver_list=$(IFS=,; echo "${_drivers[*]}")
-        cat <<EOF > /etc/t3code/policy.json
-{
-  "schemaVersion": 1,
-  "organization": "pa-container",
-  "limits": {
-    "providers": {
-      "allowedDrivers": [
-        ${_driver_list}
-      ]
-    }
-  }
-}
-EOF
-    fi
-fi
 
 exec gosu agent bash -c '
     set -a; source /etc/environment; set +a;
@@ -277,6 +248,33 @@ exec gosu agent bash -c '
             echo "Install it via tools.include: [\"t3\"], npm install -g t3, or .pa-container/dependencies/root/commands.sh." >&2
             exit 1
         fi
+
+        # Preflight login check for agent-native authenticated agents in T3 mode
+        if [[ ",${PA_CONTAINER_ENABLED_AGENTS:-$PA_CONTAINER_AGENT}," == *",claude,"* ]] && [ -z "${ANTHROPIC_API_KEY}" ]; then
+            if command -v claude >/dev/null 2>&1; then
+                _auth_status=$(CLAUDE_CONFIG_DIR=/home/agent/.claude claude auth status --json 2>/dev/null || true)
+                if ! echo "$_auth_status" | grep -q '"loggedIn"[[:space:]]*:[[:space:]]*true'; then
+                    echo "=================================================================="
+                    echo "  Claude Code requires authentication before starting T3."
+                    echo "  Starting interactive login..."
+                    echo "=================================================================="
+                    CLAUDE_CONFIG_DIR=/home/agent/.claude claude auth login
+                fi
+            fi
+        fi
+
+        if [[ ",${PA_CONTAINER_ENABLED_AGENTS:-$PA_CONTAINER_AGENT}," == *",antigravity,"* ]] && [ -z "${GEMINI_API_KEY}" ]; then
+            if command -v agy >/dev/null 2>&1; then
+                if [ ! -f /home/agent/.gemini/antigravity/antigravity_state.pbtxt ]; then
+                    echo "=================================================================="
+                    echo "  Antigravity requires authentication before starting T3."
+                    echo "  Starting interactive login..."
+                    echo "=================================================================="
+                    agy -p "Authentication check" || true
+                fi
+            fi
+        fi
+
         echo "=================================================================="
         echo "  Starting T3 Code server for ${PA_CONTAINER_AGENT} inside pa-container..."
         echo "  Web UI: https://t3.codes"
@@ -292,12 +290,6 @@ exec gosu agent bash -c '
         extra_args=()
         if [ "${T3_LAN}" = "true" ]; then
             extra_args+=("--lan")
-        fi
-
-        # Seed T3 Code settings for active agent
-        _seed_script="/usr/local/share/pa-container/t3-seed-settings.cjs"
-        if [ -f "$_seed_script" ]; then
-            node "$_seed_script" 2>/dev/null || true
         fi
 
         exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"

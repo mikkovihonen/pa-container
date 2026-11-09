@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import sys
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,6 +29,15 @@ class AgentMount:
         return ["--volume", f"{self.source}:{self.destination}{mode}"]
 
 
+@dataclass(frozen=True)
+class T3DriverMetadata:
+    """T3 Code provider metadata and instance configuration."""
+
+    driver_kind: str
+    instance_id: str
+    settings: dict[str, Any] = field(default_factory=dict)
+
+
 class AgentDriver(ABC):
     """Abstract interface defining execution, mounting, and configuration contracts for agents."""
 
@@ -47,7 +56,11 @@ class AgentDriver(ABC):
         """Return the command arguments to execute inside the container."""
         return [self.name, *cli_args]
 
-    def get_environment(self, config: AgentExtrasConfig | None = None) -> dict[str, str]:
+    def get_environment(
+        self,
+        config: AgentExtrasConfig | None = None,
+        gateway_configs: list[GatewayConfigItem] | None = None,
+    ) -> dict[str, str]:
         """Return dummy/placeholder environment variables needed by this agent."""
         return {}
 
@@ -77,6 +90,6 @@ class AgentDriver(ABC):
         """Synthesize agent-specific configuration from active models and gateways."""
         return None
 
-    def get_t3_driver(self) -> str | None:
-        """Return the corresponding T3 Code driver name if supported, else None."""
+    def get_t3_metadata(self) -> T3DriverMetadata | None:
+        """Return the T3 Code provider metadata and configuration if supported, else None."""
         return None

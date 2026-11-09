@@ -13,7 +13,10 @@ allowlist:
       - "api.anthropic.com"
       - "cdn.anthropic.com"
       - "auth.anthropic.com"
+      - "claude.ai"
+      - "platform.claude.com"
       - "*.anthropic.com"
+      - "*.claude.ai"
     ip_ranges: []
 
 token_replacer:

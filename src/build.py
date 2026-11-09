@@ -57,6 +57,11 @@ def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.Compl
     if driver is not None:
         return driver.run_command_logged(cmd, category=LogCategory.BUILD, **kwargs)
 
+    label = kwargs.pop("label", None)
+    if label:
+        logger.info(label)
+    check = kwargs.pop("check", True)
+
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -75,7 +80,7 @@ def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.Compl
     thread.join()
 
     result: subprocess.CompletedProcess[str] = subprocess.CompletedProcess(cmd, returncode)
-    if returncode != 0:
+    if check and returncode != 0:
         raise subprocess.CalledProcessError(returncode, cmd)
     return result
 

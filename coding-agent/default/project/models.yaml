@@ -29,6 +29,13 @@ allow:
   #   keyringService: pa-container
   #   keyringAccount: ANTHROPIC_API_KEY
   #
+  # --- Agent-Native Subscription / Account Logins ---
+  # Agent-native gateways do not require host secrets or keyring accounts;
+  # authentication is handled directly by the agent CLI (Claude / Antigravity).
+  # Can be instantiated at most once per provider:
+  # - id: anthropic-account
+  # - id: google-account
+  #
   # - id: gemini
   #   provider: gemini
   #   containerEnvVar: GEMINI_API_KEY

@@ -233,11 +233,13 @@ def test_seed_default_gateways(tmp_path: Path):
     assert not gw_dir.exists()
 
     seeded = seed_default_gateways(gw_dir)
-    assert len(seeded) == 7
+    assert len(seeded) == 9
     expected = {
         "anthropic.yaml",
+        "anthropic-account.yaml",
         "deepseek.yaml",
         "gemini.yaml",
+        "google-account.yaml",
         "groq.yaml",
         "openai.yaml",
         "openrouter.yaml",
@@ -253,10 +255,20 @@ def test_seed_default_gateways(tmp_path: Path):
 
 
 def test_all_bundled_gateways_valid():
-    """Verify all 7 bundled gateways load properly with self-contained allowlist and token_replacer."""
+    """Verify all 9 bundled gateways load properly with self-contained allowlist and token_replacer."""
     from registry import BUNDLED_GATEWAYS_DIR
 
-    expected_ids = {"anthropic", "deepseek", "gemini", "groq", "openai", "openrouter", "opper"}
+    expected_ids = {
+        "anthropic",
+        "anthropic-account",
+        "deepseek",
+        "gemini",
+        "google-account",
+        "groq",
+        "openai",
+        "openrouter",
+        "opper",
+    }
     defs = list_gateway_defs(BUNDLED_GATEWAYS_DIR)
     loaded_ids = {d.id for d in defs}
     assert loaded_ids == expected_ids
@@ -264,9 +276,12 @@ def test_all_bundled_gateways_valid():
     for d in defs:
         assert d.base_url.startswith("https://")
         assert d.auth is not None
-        assert d.auth.type == "api-key"
+        assert d.auth.type in ("api-key", "agent-native")
         assert len(d.allowlist) >= 1
-        assert len(d.token_replacer) >= 1
+        if d.auth.type == "api-key":
+            assert len(d.token_replacer) >= 1
+        elif d.auth.type == "agent-native":
+            assert len(d.token_replacer) == 0
         # No credentials in global definitions
         assert not hasattr(d.auth, "env_var") or getattr(d.auth, "env_var", None) is None
 

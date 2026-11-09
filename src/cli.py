@@ -218,7 +218,12 @@ def create_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--agent",
-        help="Coding agent driver to launch (pi, claude, opencode, antigravity).",
+        help=(
+            "Coding agent driver(s) to launch. Accepts a single agent (e.g. 'opencode'), "
+            "a comma-separated list (e.g. 'opencode,pi'), or 'all'. "
+            "In T3 mode, defaults to all enabled agents if omitted. "
+            "In standard CLI mode, launches the first agent interactively with secondary agents provisioned."
+        ),
     )
     run_parser.add_argument(
         "--t3",

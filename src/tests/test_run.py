@@ -431,19 +431,79 @@ class TestT3LaunchConfiguration:
         assert policy_file.is_file()
         data = json.loads(policy_file.read_text())
         assert data.get("schemaVersion") == 1
-        assert data.get("limits", {}).get("providers", {}).get("allowedDrivers") == ["pi"]
+        assert data.get("limits", {}).get("providers", {}).get("allowedDrivers") == [
+            "pi",
+            "opencode",
+            "claudeAgent",
+            "antigravity",
+        ]
 
-    def test_t3_settings_seeding_structure(self):
-        settings = {}
-        settings["providerInstances"] = settings.get("providerInstances", {})
-        settings["providerInstances"]["pi"] = {"driver": "pi", "enabled": True}
-        settings["providerInstances"]["codex"] = {"driver": "codex", "enabled": False}
-        settings["providerInstances"]["claudeAgent"] = {"driver": "claudeAgent", "enabled": False}
-        settings["textGenerationModelSelection"] = {"instanceId": "pi", "model": "default"}
+    def test_t3_settings_and_policy_synthesis(self, tmp_path):
+        import json
 
-        assert settings["providerInstances"]["pi"]["enabled"] is True
-        assert settings["providerInstances"]["codex"]["enabled"] is False
+        from agents import (
+            AntigravityDriver,
+            ClaudeDriver,
+            OpenCodeDriver,
+            PiAgentDriver,
+            synthesize_t3_policy,
+            synthesize_t3_settings,
+        )
+
+        t3_dir = tmp_path / "t3"
+        drivers = [PiAgentDriver(), OpenCodeDriver(), ClaudeDriver(), AntigravityDriver()]
+        active = OpenCodeDriver()
+
+        settings_path = synthesize_t3_settings(t3_dir, active, drivers)
+        assert settings_path.is_file()
+        settings = json.loads(settings_path.read_text())
+
+        assert settings["textGenerationModelSelection"]["instanceId"] == "opencode"
         assert settings["textGenerationModelSelection"]["model"] == "default"
+        assert settings["providerInstances"]["opencode"]["driver"] == "opencode"
+        assert settings["providerInstances"]["opencode"]["enabled"] is True
+        assert settings["providerInstances"]["opencode"]["binaryPath"] == "opencode"
+        assert settings["providerInstances"]["pi"]["driver"] == "pi"
+        assert settings["providerInstances"]["claudeAgent"]["driver"] == "claudeAgent"
+        assert settings["providerInstances"]["antigravity"]["driver"] == "antigravity"
+
+        # Preserve existing custom settings on re-synthesis
+        settings["providerInstances"]["opencode"]["customOption"] = "preserved"
+        settings_path.write_text(json.dumps(settings))
+        synthesize_t3_settings(t3_dir, active, drivers)
+        updated_settings = json.loads(settings_path.read_text())
+        assert updated_settings["providerInstances"]["opencode"]["customOption"] == "preserved"
+
+        # Synthesize policy
+        policy_path = synthesize_t3_policy(t3_dir, drivers)
+        assert policy_path.is_file()
+        policy = json.loads(policy_path.read_text())
+        assert policy["schemaVersion"] == 1
+        assert policy["organization"] == "pa-container"
+        assert policy["limits"]["providers"]["allowedDrivers"] == [
+            "pi",
+            "opencode",
+            "claudeAgent",
+            "antigravity",
+        ]
+
+    def test_t3_single_agent_synthesis_disables_unselected(self, tmp_path):
+        import json
+
+        from agents import OpenCodeDriver, PiAgentDriver, synthesize_t3_policy, synthesize_t3_settings
+
+        t3_dir = tmp_path / "t3"
+        # Initial run with both opencode and pi
+        synthesize_t3_settings(t3_dir, OpenCodeDriver(), [OpenCodeDriver(), PiAgentDriver()])
+        # Subsequent run with only opencode
+        settings_path = synthesize_t3_settings(t3_dir, OpenCodeDriver(), [OpenCodeDriver()])
+        settings = json.loads(settings_path.read_text())
+        assert settings["providerInstances"]["opencode"]["enabled"] is True
+        assert settings["providerInstances"]["pi"]["enabled"] is False
+
+        policy_path = synthesize_t3_policy(t3_dir, [OpenCodeDriver()])
+        policy = json.loads(policy_path.read_text())
+        assert policy["limits"]["providers"]["allowedDrivers"] == ["opencode"]
 
 
 class TestT3AdvertiseHostResolution:
@@ -503,15 +563,6 @@ class TestT3AdvertiseHostResolution:
         if cli_lan:
             agent_ports["expose"] = "lan"
         assert agent_ports["expose"] == "lan"
-
-    def test_t3_seed_settings_file(self):
-        script_file = run.REPO_ROOT / "coding-agent" / "t3-seed-settings.cjs"
-        assert script_file.is_file()
-        content = script_file.read_text()
-        assert "providerInstances.pi" in content
-        assert 'driver: "pi"' in content
-        assert "isPiEnabled" in content
-        assert "/home/agent/.t3/userdata/settings.json" in content
 
     def test_t3_mounts_configured_in_t3_mode(self, tmp_path):
         pa_container_dir = tmp_path / ".pa-container"
@@ -663,6 +714,86 @@ class TestT3AdvertiseHostResolution:
         assert "T3_PORT=3773" in env_args
         assert "T3_PUBLIC_URL=https://t3.example.com" in env_args
         assert "T3_ADVERTISE_HOST=t3.example.com" in env_args
+
+    def test_t3_tunnel_quick_infers_cloudflare_tunnel(self):
+        from cli import RunOptions
+
+        options = RunOptions(t3_tunnel_quick=True)
+
+        cli_t3_tunnel = options.t3_tunnel
+        cli_t3_tunnel_domain = options.t3_tunnel_domain
+        cli_t3_tunnel_quick = options.t3_tunnel_quick
+        cli_t3_tunnel_runner = options.t3_tunnel_runner
+        cli_t3_tunnel_keyring_account = options.t3_tunnel_keyring_account
+        cli_t3_tunnel_tailscale_mode = options.t3_tunnel_tailscale_mode
+
+        if not cli_t3_tunnel:
+            has_cf = bool(
+                cli_t3_tunnel_quick or cli_t3_tunnel_domain or cli_t3_tunnel_runner or cli_t3_tunnel_keyring_account
+            )
+            has_ts = bool(cli_t3_tunnel_tailscale_mode)
+            if has_cf and not has_ts:
+                cli_t3_tunnel = "cloudflare"
+            elif has_ts and not has_cf:
+                cli_t3_tunnel = "tailscale"
+
+        assert cli_t3_tunnel == "cloudflare"
+
+    def test_t3_tunnel_tailscale_mode_infers_tailscale_tunnel(self):
+        from cli import RunOptions
+
+        options = RunOptions(t3_tunnel_tailscale_mode="serve")
+
+        cli_t3_tunnel = options.t3_tunnel
+        cli_t3_tunnel_domain = options.t3_tunnel_domain
+        cli_t3_tunnel_quick = options.t3_tunnel_quick
+        cli_t3_tunnel_runner = options.t3_tunnel_runner
+        cli_t3_tunnel_keyring_account = options.t3_tunnel_keyring_account
+        cli_t3_tunnel_tailscale_mode = options.t3_tunnel_tailscale_mode
+
+        if not cli_t3_tunnel:
+            has_cf = bool(
+                cli_t3_tunnel_quick or cli_t3_tunnel_domain or cli_t3_tunnel_runner or cli_t3_tunnel_keyring_account
+            )
+            has_ts = bool(cli_t3_tunnel_tailscale_mode)
+            if has_cf and not has_ts:
+                cli_t3_tunnel = "cloudflare"
+            elif has_ts and not has_cf:
+                cli_t3_tunnel = "tailscale"
+
+        assert cli_t3_tunnel == "tailscale"
+
+    def test_t3_advertise_host_shim_app_link_and_pairing_rewrite(self):
+        import subprocess
+
+        from config import REPO_ROOT
+
+        shim_path = REPO_ROOT / "coding-agent" / "t3-advertise-host.cjs"
+        node_script = f"""
+        process.env.T3_PUBLIC_URL = "https://rick-symbols-trains-radar.trycloudflare.com";
+        process.env.T3_ADVERTISE_HOST = "rick-symbols-trains-radar.trycloudflare.com";
+        require("{shim_path}");
+
+        let captured = [];
+        const origWrite = process.stdout.write;
+        process.stdout.write = (chunk) => {{
+            captured.push(chunk.toString());
+            return true;
+        }};
+
+        console.log("App link: t3code://pair?pairingUrl=http%3A%2F%2Flocalhost%3A3773%2Fpair%23token%3Dsecret123");
+        console.log("Pairing URL: http://localhost:3773/pair#token=secret123");
+
+        const out = captured.join("");
+        if (!out.includes("https%3A%2F%2Frick-symbols-trains-radar.trycloudflare.com%2Fpair%23token%3Dsecret123")) {{
+            throw new Error("App link was not properly rewritten: " + out);
+        }}
+        if (!out.includes("Pairing URL: https://rick-symbols-trains-radar.trycloudflare.com/pair#token=secret123")) {{
+            throw new Error("Pairing URL was not properly rewritten: " + out);
+        }}
+        """
+        res = subprocess.run(["node", "-e", node_script], capture_output=True, text=True, check=False)
+        assert res.returncode == 0, f"Node script failed: {res.stderr}"
 
     def test_agent_driver_required_tools_access(self):
         """Verify that driver.required_tools property is accessed without being called as a function."""

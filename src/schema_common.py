@@ -355,7 +355,11 @@ def _validate_models_yaml(
 
     from registry import load_gateway_def
 
+    seen_agent_native_providers: set[str] = set()
+
     for i, item in enumerate(allow):
+        gw_def = None
+        model_id = ""
         if isinstance(item, str):
             model_id = item.strip()
             if not model_id:
@@ -397,6 +401,15 @@ def _validate_models_yaml(
                         )
         else:
             errors.append(f"  allow[{i}]: expected string or dict, got {type(item).__name__}")
+            continue
+
+        if gw_def is not None and gw_def.auth is not None and gw_def.auth.type == "agent-native":
+            provider = gw_def.gateway_type or gw_def.id
+            if provider in seen_agent_native_providers:
+                errors.append(
+                    f"  allow[{i}]: gateway '{model_id}' with auth.type 'agent-native' can only be instantiated once per provider ('{provider}')"
+                )
+            seen_agent_native_providers.add(provider)
 
     return errors
 
