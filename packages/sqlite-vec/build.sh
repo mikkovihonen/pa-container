@@ -1,13 +1,9 @@
 #!/bin/bash
 # Compile sqlite-vec vector search extension for SQLite from source with SIMD kernels and stage it.
 #
-# Run from coding-agent-builder/Containerfile, as root, at image build time.
+# Run from ACP package builder, as root, at image build time.
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
-# legacy path
-# legacy check
-# shellcheck source=/dev/null
-# common sourced
 
 require_env SQLITE_VEC_VERSION SQLITE_VEC_COMMIT
 

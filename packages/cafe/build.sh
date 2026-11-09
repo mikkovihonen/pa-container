@@ -1,13 +1,9 @@
 #!/bin/bash
 # Download, verify, and stage the GitCafe CLI (cafe) with Bun runtime.
 #
-# Run from coding-agent-builder/Containerfile, as root, at image build time.
+# Run from ACP package builder, as root, at image build time.
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
-# legacy path
-# legacy check
-# shellcheck source=/dev/null
-# common sourced
 
 require_env CAFE_VERSION CAFE_SHA256 BUN_VERSION BUN_SHA256_AMD64 BUN_SHA256_ARM64
 

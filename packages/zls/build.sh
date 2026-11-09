@@ -1,13 +1,9 @@
 #!/bin/bash
 # Build zls Zig language server from source and stage it.
 #
-# Run from coding-agent-builder/Containerfile, as root, at image build time.
+# Run from ACP package builder, as root, at image build time.
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
-# legacy path
-# legacy check
-# shellcheck source=/dev/null
-# common sourced
 
 require_env ZLS_VERSION ZLS_COMMIT ZIG_VERSION ZIG_SHA256_AMD64 ZIG_SHA256_ARM64
 

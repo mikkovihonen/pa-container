@@ -1,13 +1,9 @@
 #!/bin/bash
 # Install, configure, and stage Azure CLI (az) with azure-devops extension.
 #
-# Run from coding-agent-builder/Containerfile, as root, at image build time.
+# Run from ACP package builder, as root, at image build time.
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
-# legacy path
-# legacy check
-# shellcheck source=/dev/null
-# common sourced
 
 require_env AZ_VERSION AZURE_DEVOPS_VERSION AZURE_DEVOPS_SHA256
 

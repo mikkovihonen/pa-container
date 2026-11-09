@@ -1,13 +1,9 @@
 #!/bin/bash
 # Download, verify, and stage the Gitea / Forgejo CLI (tea) release binary.
 #
-# Run from coding-agent-builder/Containerfile, as root, at image build time.
+# Run from ACP package builder, as root, at image build time.
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
-# legacy path
-# legacy check
-# shellcheck source=/dev/null
-# common sourced
 
 require_env TEA_VERSION TEA_SHA256_AMD64 TEA_SHA256_ARM64
 

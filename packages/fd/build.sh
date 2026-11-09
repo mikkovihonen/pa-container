@@ -1,13 +1,9 @@
 #!/bin/bash
 # Build fd from source and stage it as /usr/local/bin/fd.
 #
-# Run from coding-agent-builder/Containerfile, as root, at image build time.
+# Run from ACP package builder, as root, at image build time.
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
-# legacy path
-# legacy check
-# shellcheck source=/dev/null
-# common sourced
 
 require_env FD_VERSION FD_COMMIT
 
