@@ -6,8 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+- **Ephemeral port auto-allocation for T3 Code (`--t3-port`).** Added `resolve_t3_port` in `src/run.py` to dynamically allocate ephemeral ports for T3 Code or accept an explicit `--t3-port <port|auto>`, avoiding port collisions across concurrent running workspaces. Propagated the assigned port to the container environment, tunnel managers, and log banner.
+- **Bundled external gateway definitions & dynamic proxy synthesis.** Added self-contained gateway definitions under `coding-agent/default/global/gateways/` (`anthropic`, `gemini`, `openai`, `groq`, `openrouter`, `deepseek`, `opper`). `ContainerNetworkManager` dynamically synthesizes runtime `allowlist.yaml` and `token_replacer.yaml` to inject gateway rules and secrets on the fly based on `.pa-container/models.yaml`.
+- **Agent-native dual authentication (`anthropic-account` & `google-account`).** Added bundled gateways for Claude and Antigravity subscription logins, supporting both API key and direct CLI OAuth authentication without requiring OS keyring secrets. Added container preflight login validation and enforced single-instantiation rules per provider.
+- **OpenCode 2.x local models and session persistence.** Implemented model configuration synthesis conforming to OpenCode 2.x schema, mapping local `llama-server` models and cloud gateways to OpenAI-compatible provider specs, restricting enabled providers to project models, and mounting state and data directories for automatic session persistence.
+- **Antigravity ACP runtime and configuration persistence.** Staged the Antigravity ACP runtime in the toolchain builder, seeded managed provider files for T3 Code integration, mounted `/home/agent/.gemini/config` to persist permissions, plugins, and MCP settings, and added a background auth sync bridge (`coding-agent/t3-sync-antigravity.py`) to synchronize Antigravity OAuth tokens into T3 Code's managed cache.
+- **Toolchain version upgrade audit and verification (`tools/check_upgrades.py`).** Added 100% audit and test coverage for all 39 version `ARG`s in `coding-agent-builder/Containerfile` with upstream version checkers for Node, Rust, Golang, Bun, ripgrep, fzf, jq, yq, uv, starship, zellij, zsh, tmux, podman, and others, accompanied by unit test coverage.
+
+### Changed
+- **GPL-3.0 License transition.** Relicensed the project under the GNU General Public License v3.0, replacing MIT license text in `LICENSE`, updating documentation and badges in `README.md`, and setting package metadata in `pyproject.toml`.
+- **Minimal project configuration seeds.** Slimmed down default project seed configurations (`allowlist.yaml` and `token_replacer.yaml`) to minimal baselines, moving external cloud provider rules into self-contained gateway definitions.
+
 ### Fixed
 - **Cloud gateway DNS resolution loop in proxy.** Excluded external cloud gateway endpoints from `llama_hostnames` during model synthesis so their public hostnames (such as `api.anthropic.com`) are not mapped to the proxy's internal address (`ETH1_IP`) in `/etc/hosts`. This fixes the "Claude API unknown" error in T3 Code and prevents connection looping on external APIs.
+- **Agent-native gateway isolation.** Filtered agent-native subscription gateways (`anthropic-account`, `google-account`) out of incompatible agent drivers (OpenCode and Pi) during configuration synthesis.
+- **Missing T3 port flag on server launch.** Restored default port fallback in `coding-agent/entrypoint.sh` and ensured `T3_PORT` is reliably forwarded to the server launch arguments.
+- **Permissions and directory creation in `/home/agent`.** Fixed `mkdir EACCES` errors by automatically ensuring proper directory ownership across intermediate state and data directories in `/home/agent`.
 
 ## [0.7.0] - 2026-11-08
 
