@@ -995,3 +995,63 @@ class TestExecuteRunFatalErrors:
         assert mock_fail.call_args[0][0] == LogCategory.PREFLIGHT
         assert mock_fail.call_args[0][1] == "Host Port Collision"
         driver.shutdown()
+
+    def test_t3_already_running_aborts_in_preflight(self, tmp_path, monkeypatch):
+        from cli import RunOptions
+        from containers import RunningT3ContainerInfo
+        from logging_driver import LogCategory, LogDriver
+
+        proj = tmp_path / "my_project"
+        proj.mkdir()
+        pa = proj / ".pa-container"
+        pa.mkdir()
+        (pa / "config.yaml").write_text("version: 1\nagent:\n  name: pi\n")
+        (pa / "models.yaml").write_text("models: []\n")
+
+        monkeypatch.setattr(run, "PROJECT_DIR", proj)
+        monkeypatch.setattr(run, "validate_config", lambda p: (True, [], 1))
+        monkeypatch.setattr(run, "validate_project_yaml", lambda p: [])
+        monkeypatch.setattr(run, "validate_models", lambda p: (True, []))
+        monkeypatch.setattr(run, "validate_mount_paths", lambda m, b: [])
+        monkeypatch.setattr(run, "read_flow_export_enabled", lambda d: False)
+        monkeypatch.setattr(run, "read_network_config", lambda d: {"ipv6": False})
+        monkeypatch.setattr(run, "read_llama_config", lambda d: {})
+        monkeypatch.setattr(run, "read_agent_extras", lambda d: {"mounts": []})
+        monkeypatch.setattr(run, "read_read_only_pa_container", lambda d: False)
+        monkeypatch.setattr(run, "read_security_config", lambda d: {"blocked_mount_paths": []})
+        monkeypatch.setattr(run, "read_git_config", lambda d: {})
+        monkeypatch.setattr(run, "read_source_control_config", lambda d: {})
+        monkeypatch.setattr(run, "resolve_source_control_tokens", lambda d, **kw: {})
+        monkeypatch.setattr(run, "read_enabled_agents", lambda d: ["pi"])
+        monkeypatch.setattr(run, "read_default_agent", lambda d: "pi")
+        monkeypatch.setattr(run, "read_desktop_config", lambda d: {"enabled": False})
+        mock_driver_obj = MagicMock()
+        mock_driver_obj.get_sessions_dir.return_value = tmp_path / "sessions"
+        monkeypatch.setattr(run, "get_agent_driver", lambda t: mock_driver_obj)
+        monkeypatch.setattr(run.containers, "sweep_orphaned_servers", lambda d: None)
+        monkeypatch.setattr(run.containers, "sweep_orphaned_proxies", lambda r, d: None)
+        monkeypatch.setattr(run.containers, "cleanup_orphaned_agent_containers", lambda r: None)
+        monkeypatch.setattr(
+            run.containers,
+            "find_running_t3_container",
+            lambda d, runtime: RunningT3ContainerInfo(
+                container_name="pa-container-agent-xyz123",
+                container_id="xyz123",
+                project_hash="102a2e0fff",
+                launcher_pid=99999,
+            ),
+        )
+
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+        driver = LogDriver(proj, quiet=True)
+
+        with patch.object(driver, "fail_and_render", wraps=driver.fail_and_render) as mock_fail:
+            ret = run.execute_run(RunOptions(t3=True), driver=driver)
+
+        assert ret == 1
+        assert mock_fail.called
+        assert mock_fail.call_args[0][0] == LogCategory.PREFLIGHT
+        assert mock_fail.call_args[0][1] == "T3 Container Already Running"
+        assert "pa-container-agent-xyz123" in mock_fail.call_args[0][2]
+        driver.shutdown()

@@ -405,6 +405,26 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     except Exception as e:
         logger.warning(f"Error during crash recovery cleanup: {e}", exc_info=True)
 
+    if is_t3_mode:
+        running_t3 = containers.find_running_t3_container(PROJECT_DIR, runtime=CONTAINER_RUNTIME)
+        if running_t3:
+            pid_info = f" (launcher PID: {running_t3.launcher_pid})" if running_t3.launcher_pid else ""
+            log_drv.fail_and_render(
+                LogCategory.PREFLIGHT,
+                "T3 Container Already Running",
+                (
+                    f"A T3 mode pa-container is already running for this workspace: {running_t3.container_name}{pid_info}\n"
+                    f"Only one T3 mode container can run per workspace at a time because T3 Code requires "
+                    f"exclusive ownership of the workspace's T3 state."
+                ),
+                hints=[
+                    f"To stop the existing container, run: {CONTAINER_RUNTIME} rm -f {running_t3.container_name}",
+                    "Or attach to the existing T3 session in the terminal where it was started.",
+                ],
+                source_logger=preflight_logger,
+            )
+            return 1
+
     nested_cfg = read_nested_containers_config(pa_container_dir)
     nested_ports = nested_cfg["ports"]
     if nested_cfg["enabled"]:
@@ -972,6 +992,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 "--label",
                 f"pa-container.project.path={PROJECT_DIR.resolve()}",
                 *(["--label", "pa-container.desktop.enabled=true"] if desktop_cfg["enabled"] else []),
+                "--label",
+                f"pa-container.mode={'t3' if is_t3_mode else 'cli'}",
                 "--label",
                 f"pa-container.launcher_pid={os.getpid()}",
                 "--label",
