@@ -562,7 +562,7 @@ class ContainerNetworkManager:
         self.proxy_name: str = proxy_name
         self.config_dir: Path = config_dir or (PROJECT_DIR / ".pa-container")
         self.project_dir: Path = (
-            project_dir or (self.config_dir.parent if self.config_dir.name == ".pa-container" else PROJECT_DIR)
+            project_dir or (self.config_dir.parent if self.config_dir.name == ".pa-container" else self.config_dir)
         ).resolve()
         self.project_hash: str = self.proxy_name.removeprefix("pa-container-proxy-")
         self.llama_ports: str | None = llama_ports
@@ -631,6 +631,27 @@ class ContainerNetworkManager:
                         r_copy["name"] = f"{r_copy.get('name', 'Gateway Allowlist')} ({gw['name']})"
                     effective_allowlist["global"]["rules"].append(r_copy)
 
+        if self.project_dir:
+            try:
+                from images import read_project_packages
+                from packages import aggregate_egress_hosts, discover_packages
+
+                active_pkgs = read_project_packages(self.project_dir)
+                all_manifests = discover_packages()
+                active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
+
+                pkg_hosts = aggregate_egress_hosts(active_manifests)
+                if pkg_hosts:
+                    effective_allowlist["global"]["rules"].append(
+                        {
+                            "name": "Package Egress Allowlist",
+                            "mode": "allow",
+                            "hosts": pkg_hosts,
+                        }
+                    )
+            except Exception as e:
+                logger.debug(f"Could not aggregate package egress allowlist: {e}")
+
         effective_allowlist_file = runtime_dir / "allowlist.yaml"
         effective_allowlist_file.write_text(yaml.safe_dump(effective_allowlist, sort_keys=False))
 
@@ -676,6 +697,36 @@ class ContainerNetworkManager:
                         if isinstance(pat, dict) and pat.get("regex"):
                             pat["regex"] = pat["regex"].replace(base_placeholder, inst_placeholder)
                     effective_replacer["rules"].append(r_copy)
+
+        if self.project_dir:
+            try:
+                from images import read_project_packages
+                from packages import aggregate_token_replacers, discover_packages
+
+                active_pkgs = read_project_packages(self.project_dir)
+                all_manifests = discover_packages()
+                active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
+
+                pkg_tokens = aggregate_token_replacers(active_manifests)
+                for pt in pkg_tokens:
+                    r_dict: dict[str, Any] = {
+                        "name": pt["name"],
+                        "mode": "allow",
+                        "replace_with": {
+                            "value": pt["replacement"] or f"${{ENV:{pt['name'].upper().replace('-', '_')}}}"
+                        },
+                    }
+                    if pt.get("header"):
+                        r_dict["headers"] = {
+                            pt["header"]: pt["pattern"] or ".*",
+                        }
+                    if pt.get("pattern") and not pt.get("header"):
+                        r_dict["content_patterns"] = [
+                            {"regex": pt["pattern"]},
+                        ]
+                    effective_replacer["rules"].append(r_dict)
+            except Exception as e:
+                logger.debug(f"Could not aggregate package token replacers: {e}")
 
         effective_replacer_file = runtime_dir / "token_replacer.yaml"
         effective_replacer_file.write_text(yaml.safe_dump(effective_replacer, sort_keys=False))

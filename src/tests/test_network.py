@@ -227,6 +227,36 @@ class TestContainerNetworkManagerPullSecrets:
             secrets = mgr._pull_secrets_from_config()
             assert secrets["ANTHROPIC_API_KEY"] == "sk-ant-12345"
 
+    def test_synthesizes_package_egress_and_token_replacers(self, tmp_path):
+        proj = tmp_path / "project"
+        proj.mkdir()
+        pa_dir = proj / ".pa-container"
+        pa_dir.mkdir()
+        (pa_dir / "config.yaml").write_text("packages:\n  - gh\n")
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=pa_dir,
+            lock_dir=tmp_path / "locks",
+            project_dir=proj,
+        )
+
+        eff_allow, eff_replacer = mgr._synthesize_proxy_configs()
+        assert eff_allow.exists()
+        assert eff_replacer.exists()
+
+        import yaml
+
+        allow_data = yaml.safe_load(eff_allow.read_text())
+        pkg_rules = [r for r in allow_data["global"]["rules"] if r.get("name") == "Package Egress Allowlist"]
+        assert len(pkg_rules) == 1
+        assert "api.github.com" in pkg_rules[0]["hosts"]
+
+        replacer_data = yaml.safe_load(eff_replacer.read_text())
+        assert any(r.get("name") == "github-token" for r in replacer_data["rules"])
+
 
 # ---------------------------------------------------------------------------
 # ContainerNetworkManagerEnvFlags

@@ -9,7 +9,7 @@ import threading
 import uuid
 from contextlib import ExitStack, suppress
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
@@ -380,6 +380,33 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         )
         agent_driver = get_agent_driver(active_agent_name)
         selected_agent_drivers = [get_agent_driver(name) for name in selected_agent_names]
+
+        driver_packages: list[str] = []
+        for d in selected_agent_drivers:
+            for pkg in d.required_packages:
+                if pkg not in driver_packages:
+                    driver_packages.append(pkg)
+        if is_t3_mode and "t3" not in driver_packages:
+            driver_packages.append("t3")
+
+        pkg_privileges: dict[str, Any] = {}
+        try:
+            from packages import aggregate_runtime_privileges, discover_packages
+
+            active_pkgs = images.read_project_packages(PROJECT_DIR, extra_packages=driver_packages)
+            all_manifests = discover_packages()
+            active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
+            pkg_privileges = aggregate_runtime_privileges(active_manifests)
+            if pkg_privileges.get("devices"):
+                agent_extras["devices"] = sorted(set(agent_extras["devices"]) | set(pkg_privileges["devices"]))
+            if pkg_privileges.get("cap_add"):
+                agent_extras["capabilities"] = sorted(
+                    set(agent_extras["capabilities"]) | set(pkg_privileges["cap_add"])
+                )
+            if pkg_privileges.get("env"):
+                agent_extras["env"].update(pkg_privileges["env"])
+        except Exception as e:
+            logger.debug(f"Could not aggregate package runtime privileges: {e}")
     except ValueError as e:
         log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
@@ -427,6 +454,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             return 1
 
     nested_cfg = read_nested_containers_config(pa_container_dir)
+    if pkg_privileges.get("nested_containers"):
+        nested_cfg["enabled"] = True
     nested_ports = nested_cfg["ports"]
     if nested_cfg["enabled"]:
         logger.info(
@@ -745,13 +774,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
             # ─── Resolve agent image (shared vs. project-specific) ──────
             log_drv.start_stage(LogCategory.BUILD, "Resolving agent container image")
-            driver_packages: list[str] = []
-            for d in selected_agent_drivers:
-                for pkg in d.required_packages:
-                    if pkg not in driver_packages:
-                        driver_packages.append(pkg)
-            if is_t3_mode and "t3" not in driver_packages:
-                driver_packages.append("t3")
             agent_image_tag, is_project_specific = images.resolve_agent_image(
                 PROJECT_DIR, extra_packages=driver_packages
             )
@@ -855,7 +877,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             # Persistent unified project shadow volume (config.yaml volumes.paths + agent shadow paths)
             volume_paths = scan_volume_paths(pa_container_dir)
             agent_shadow_paths = [p for d in selected_agent_drivers for p in d.get_shadow_paths()]
-            shadow_destinations = sorted(set(volume_paths + agent_shadow_paths))
+            pkg_shadow_paths = list(pkg_privileges.get("shadow_paths", []))
+            shadow_destinations = sorted(set(volume_paths + agent_shadow_paths + pkg_shadow_paths))
             shadow_vol_name = volumes.project_shadow_volume_name(project.project_key(PROJECT_DIR))
             project_path_str = str(PROJECT_DIR.resolve())
 
