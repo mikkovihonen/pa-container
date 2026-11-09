@@ -92,11 +92,15 @@ class ClaudeDriver(AgentDriver):
             (
                 gw
                 for gw in gateway_configs
-                if (gw.get("gatewayDef") and getattr(gw["gatewayDef"], "gateway_type", None) == "anthropic")
-                or (
-                    gw.get("gatewayDef") and getattr(gw["gatewayDef"], "id", None) in ("anthropic", "anthropic-account")
+                if self.is_gateway_enabled_for_agent(gw)
+                and (
+                    (gw.get("gatewayDef") and getattr(gw["gatewayDef"], "gateway_type", None) == "anthropic")
+                    or (
+                        gw.get("gatewayDef")
+                        and getattr(gw["gatewayDef"], "id", None) in ("anthropic", "anthropic-account")
+                    )
+                    or gw.get("name") in ("anthropic", "anthropic-account")
                 )
-                or gw.get("name") in ("anthropic", "anthropic-account")
             ),
             None,
         )

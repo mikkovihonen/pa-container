@@ -65,6 +65,7 @@ class GatewayDef:
     base_url: str
     gateway_type: str = "openai-compat"
     description: str = ""
+    agent: str | None = None
     auth: GatewayAuth | None = None
     allowlist: list[dict[str, Any]] = field(default_factory=list)
     token_replacer: list[dict[str, Any]] = field(default_factory=list)
@@ -78,6 +79,7 @@ class GatewayDef:
             base_url=data.get("baseUrl", ""),
             gateway_type=data.get("type", "openai-compat"),
             description=data.get("description", ""),
+            agent=data.get("agent"),
             auth=auth,
             allowlist=list(data.get("allowlist") or []),
             token_replacer=list(data.get("token_replacer") or []),

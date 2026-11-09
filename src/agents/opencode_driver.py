@@ -80,6 +80,8 @@ class OpenCodeDriver(AgentDriver):
             }
 
         for gw in gateway_configs:
+            if not self.is_gateway_enabled_for_agent(gw):
+                continue
             name = gw["name"]
             base_url = gw.get("baseUrl") or (gw.get("gatewayDef") and gw["gatewayDef"].base_url) or ""
             gw_entry: dict[str, object] = {
@@ -97,6 +99,8 @@ class OpenCodeDriver(AgentDriver):
             if gw.get("containerEnvVar"):
                 gw_entry["env"] = [gw["containerEnvVar"]]
             providers[name] = gw_entry
+
+        valid_gws = [gw for gw in gateway_configs if self.is_gateway_enabled_for_agent(gw)]
 
         if default_model:
             if "/" in default_model:
@@ -120,8 +124,8 @@ class OpenCodeDriver(AgentDriver):
         elif server_configs:
             srv_name = server_configs[0]["name"]
             model_str = f"{srv_name}/{srv_name}"
-        elif gateway_configs:
-            gw_name = gateway_configs[0]["name"]
+        elif valid_gws:
+            gw_name = valid_gws[0]["name"]
             model_str = f"{gw_name}/{gw_name}"
         else:
             model_str = "default/default"

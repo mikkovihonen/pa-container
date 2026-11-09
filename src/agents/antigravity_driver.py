@@ -74,10 +74,13 @@ class AntigravityDriver(AgentDriver):
     def get_mounts(self, project_dir: Path) -> list[AgentMount]:
         agy_dir = self.get_state_dir(project_dir)
         agy_dir.mkdir(parents=True, exist_ok=True)
+        cli_dir = agy_dir / "cli"
+        cli_dir.mkdir(parents=True, exist_ok=True)
         config_dir = agy_dir / "config"
         config_dir.mkdir(parents=True, exist_ok=True)
         return [
             AgentMount(source=agy_dir, destination="/home/agent/.gemini/antigravity"),
+            AgentMount(source=cli_dir, destination="/home/agent/.gemini/antigravity-cli"),
             AgentMount(source=config_dir, destination="/home/agent/.gemini/config"),
         ]
 
@@ -100,9 +103,12 @@ class AntigravityDriver(AgentDriver):
             (
                 gw
                 for gw in gateway_configs
-                if (gw.get("gatewayDef") and getattr(gw["gatewayDef"], "gateway_type", None) == "gemini")
-                or (gw.get("gatewayDef") and getattr(gw["gatewayDef"], "id", None) in ("gemini", "google-account"))
-                or gw.get("name") in ("gemini", "google-account")
+                if self.is_gateway_enabled_for_agent(gw)
+                and (
+                    (gw.get("gatewayDef") and getattr(gw["gatewayDef"], "gateway_type", None) == "gemini")
+                    or (gw.get("gatewayDef") and getattr(gw["gatewayDef"], "id", None) in ("gemini", "google-account"))
+                    or gw.get("name") in ("gemini", "google-account")
+                )
             ),
             None,
         )

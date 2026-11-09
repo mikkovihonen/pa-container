@@ -579,6 +579,18 @@ class TestT3AdvertiseHostResolution:
         assert t3_mounts == ["--volume", f"{pa_container_dir / 't3'}:/home/agent/.t3"]
         assert t3_chown == ["/home/agent/.t3"]
 
+    def test_t3_sync_antigravity_mount_included(self, tmp_path):
+        from config import REPO_ROOT
+
+        pa_container_dir = tmp_path / ".pa-container"
+        t3_dir = pa_container_dir / "t3"
+        t3_dir.mkdir(parents=True, exist_ok=True)
+        t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
+        sync_src = REPO_ROOT / "coding-agent" / "t3-sync-antigravity.py"
+        if sync_src.exists():
+            t3_mounts.extend(["--volume", f"{sync_src}:/usr/local/share/pa-container/t3-sync-antigravity.py:ro"])
+        assert f"{sync_src}:/usr/local/share/pa-container/t3-sync-antigravity.py:ro" in t3_mounts
+
     def test_driver_mount_chown_intermediate_paths(self):
         from pathlib import Path
 

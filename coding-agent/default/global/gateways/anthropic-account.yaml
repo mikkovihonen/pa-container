@@ -2,6 +2,7 @@ id: anthropic-account
 description: "Anthropic Claude API Gateway (Agent-Native Subscription)"
 baseUrl: "https://api.anthropic.com/v1"
 type: anthropic
+agent: claude
 
 auth:
   type: agent-native

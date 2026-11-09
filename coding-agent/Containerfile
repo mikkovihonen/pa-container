@@ -504,6 +504,7 @@ COPY coding-agent/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop
 COPY coding-agent/skills /usr/local/share/pa-container/skills
 COPY coding-agent/t3-advertise-host.cjs /usr/local/share/pa-container/t3-advertise-host.cjs
+COPY coding-agent/t3-sync-antigravity.py /usr/local/share/pa-container/t3-sync-antigravity.py
 COPY coding-agent/t3-policy.json /etc/t3code/policy.json
 
 ARG AGENT_UID=1000
@@ -511,7 +512,8 @@ ARG AGENT_GID=1000
 
 # No node user to remove any more: that was the node: base image's own uid-1000 user,
 # which had to go before `agent` could claim 1000. Plain Debian ships no such user.
-RUN groupadd --gid ${AGENT_GID} agent \
+RUN getent group nobody >/dev/null 2>&1 || groupadd -r nobody \
+ && groupadd --gid ${AGENT_GID} agent \
  && useradd --uid ${AGENT_UID} --gid ${AGENT_GID} --create-home --shell /bin/bash agent
 
 ENV NODE_USE_SYSTEM_CA=1

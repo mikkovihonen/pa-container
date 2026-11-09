@@ -63,6 +63,8 @@ class PiAgentDriver(AgentDriver):
             }
 
         for gw in gateway_configs:
+            if not self.is_gateway_enabled_for_agent(gw):
+                continue
             name = gw["name"]
             base_url = gw.get("baseUrl") or (gw.get("gatewayDef") and gw["gatewayDef"].base_url) or ""
             providers[name] = {

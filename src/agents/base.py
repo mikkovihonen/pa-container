@@ -80,6 +80,35 @@ class AgentDriver(ABC):
         """Return host path where agent session files are stored, if applicable."""
         return self.get_state_dir(project_dir) / "sessions"
 
+    def is_gateway_enabled_for_agent(self, gateway: GatewayConfigItem) -> bool:
+        """Check if an external gateway is allowed for this agent.
+
+        Gateways with auth.type == 'agent-native' are only enabled for their own agent.
+        """
+        gw_def = gateway.get("gatewayDef")
+        if gw_def is None:
+            return True
+        auth = getattr(gw_def, "auth", None)
+        if auth is None or getattr(auth, "type", None) != "agent-native":
+            return True
+
+        explicit_agent = getattr(gw_def, "agent", None)
+        if explicit_agent and isinstance(explicit_agent, str) and explicit_agent.strip():
+            return explicit_agent.strip().lower() == self.name
+
+        gw_type = getattr(gw_def, "gateway_type", None) or ""
+        gw_id = getattr(gw_def, "id", None) or gateway.get("name") or ""
+        if gw_type == "anthropic" or gw_id in ("anthropic", "anthropic-account"):
+            return self.name == "claude"
+        if gw_type == "gemini" or gw_id in ("gemini", "google-account"):
+            return self.name == "antigravity"
+        if gw_type == "opencode" or gw_id == "opencode":
+            return self.name == "opencode"
+        if gw_type == "pi" or gw_id == "pi":
+            return self.name == "pi"
+
+        return False
+
     def synthesize_config(
         self,
         server_configs: list[ServerConfigItem],

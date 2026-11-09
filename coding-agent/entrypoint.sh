@@ -34,6 +34,10 @@ else
     printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99force-ipv4
 fi
 
+if ! getent group nobody >/dev/null 2>&1; then
+    groupadd -r nobody 2>/dev/null || true
+fi
+
 # ─── Home directory ownership (/home/agent is mounted as tmpfs at runtime) ───
 chown agent:agent /home/agent
 chmod 755 /home/agent
@@ -252,14 +256,14 @@ exec gosu agent bash -c '
         # Seed pre-installed T3 managed runtimes into /home/agent/.t3/tools if available
         if [ -d "/usr/local/share/t3/tools/antigravity-acp" ]; then
             mkdir -p /home/agent/.t3/tools
-            cp -an /usr/local/share/t3/tools/antigravity-acp /home/agent/.t3/tools/ 2>/dev/null || true
+            cp -a /usr/local/share/t3/tools/antigravity-acp /home/agent/.t3/tools/ 2>/dev/null || true
         fi
 
         # Preflight login check for agent-native authenticated agents in T3 mode
         if [[ ",${PA_CONTAINER_ENABLED_AGENTS:-$PA_CONTAINER_AGENT}," == *",claude,"* ]] && [ -z "${ANTHROPIC_API_KEY}" ]; then
             if command -v claude >/dev/null 2>&1; then
                 _auth_status=$(CLAUDE_CONFIG_DIR=/home/agent/.claude claude auth status --json 2>/dev/null || true)
-                if ! echo "$_auth_status" | grep -q '"loggedIn"[[:space:]]*:[[:space:]]*true'; then
+                if ! echo "$_auth_status" | grep -q "\"loggedIn\"[[:space:]]*:[[:space:]]*true"; then
                     echo "=================================================================="
                     echo "  Claude Code requires authentication before starting T3."
                     echo "  Starting interactive login..."
@@ -271,13 +275,20 @@ exec gosu agent bash -c '
 
         if [[ ",${PA_CONTAINER_ENABLED_AGENTS:-$PA_CONTAINER_AGENT}," == *",antigravity,"* ]] && [ -z "${GEMINI_API_KEY}" ]; then
             if command -v agy >/dev/null 2>&1; then
-                if [ ! -f /home/agent/.gemini/antigravity/antigravity_state.pbtxt ]; then
+                if [ ! -f /home/agent/.gemini/antigravity-cli/antigravity-oauth-token ]; then
                     echo "=================================================================="
                     echo "  Antigravity requires authentication before starting T3."
                     echo "  Starting interactive login..."
                     echo "=================================================================="
-                    agy -p "Authentication check" || true
+                    agy --dangerously-skip-permissions -p "Authentication check" || true
                 fi
+            fi
+        fi
+
+        # Sync Antigravity OAuth tokens to T3 ACP credentials store
+        if [ -f /home/agent/.gemini/antigravity-cli/antigravity-oauth-token ]; then
+            if [ -f /usr/local/share/pa-container/t3-sync-antigravity.py ]; then
+                python3 /usr/local/share/pa-container/t3-sync-antigravity.py 2>/dev/null || true
             fi
         fi
 
@@ -314,7 +325,7 @@ exec gosu agent bash -c '
                 exec claude "$@"
                 ;;
             *)
-                echo "ERROR: Unknown agent '${PA_CONTAINER_AGENT}'. Supported agents: pi, opencode, antigravity, claude" >&2
+                echo "ERROR: Unknown agent \"${PA_CONTAINER_AGENT}\". Supported agents: pi, opencode, antigravity, claude" >&2
                 exit 1
                 ;;
         esac

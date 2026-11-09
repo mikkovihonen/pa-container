@@ -2,6 +2,7 @@ id: google-account
 description: "Google Gemini / Antigravity Gateway (Agent-Native Account)"
 baseUrl: "https://generativelanguage.googleapis.com"
 type: gemini
+agent: antigravity
 
 auth:
   type: agent-native

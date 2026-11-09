@@ -546,9 +546,10 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
     for agent_name in enabled_agents:
         agent_drv = get_agent_driver(agent_name)
+        agent_gw_configs = [gw for gw in gateway_configs if agent_drv.is_gateway_enabled_for_agent(gw)]
         agent_drv.synthesize_config(
             server_configs=server_configs,
-            gateway_configs=gateway_configs,
+            gateway_configs=agent_gw_configs,
             default_model=default_model,
             project_dir=PROJECT_DIR,
         )
@@ -557,7 +558,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         from agents.t3 import synthesize_t3_policy, synthesize_t3_settings
 
         t3_dir = pa_container_dir / "t3"
-        synthesize_t3_settings(t3_dir, agent_driver, selected_agent_drivers)
+        synthesize_t3_settings(t3_dir, agent_driver, selected_agent_drivers, project_dir=PROJECT_DIR)
         synthesize_t3_policy(t3_dir, selected_agent_drivers)
 
     process_gateway_configs(gateway_configs, pa_container_dir)
@@ -911,7 +912,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             driver_mounts = [arg for m in selected_mounts for arg in m.to_run_args()]
             merged_driver_env: dict[str, str] = {}
             for d in selected_agent_drivers:
-                merged_driver_env.update(d.get_environment(agent_extras, gateway_configs=gateway_configs))
+                d_gateways = [gw for gw in gateway_configs if d.is_gateway_enabled_for_agent(gw)]
+                merged_driver_env.update(d.get_environment(agent_extras, gateway_configs=d_gateways))
             driver_env = [flag for k, v in merged_driver_env.items() for flag in ("--env", f"{k}={v}")]
             t3_mounts: list[str] = []
             t3_chown: list[str] = []
@@ -922,6 +924,11 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 shim_src = REPO_ROOT / "coding-agent" / "t3-advertise-host.cjs"
                 if shim_src.exists():
                     t3_mounts.extend(["--volume", f"{shim_src}:/usr/local/share/pa-container/t3-advertise-host.cjs:ro"])
+                sync_src = REPO_ROOT / "coding-agent" / "t3-sync-antigravity.py"
+                if sync_src.exists():
+                    t3_mounts.extend(
+                        ["--volume", f"{sync_src}:/usr/local/share/pa-container/t3-sync-antigravity.py:ro"]
+                    )
                 policy_file = t3_dir / "policy.json"
                 if policy_file.exists():
                     t3_mounts.extend(["--volume", f"{policy_file}:/etc/t3code/policy.json:ro"])

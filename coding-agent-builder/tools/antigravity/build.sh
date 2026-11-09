@@ -52,7 +52,12 @@ rm -f "/tmp/${antigravity_tarball}"
 fetch_verified "${acp_url}" "${acp_sha}" "/tmp/${acp_zip}"
 
 unzip -q -o "/tmp/${acp_zip}" agy_acp_server.par localharness_external -d "${PA_STAGE}/usr/local/bin"
-chmod 755 "${PA_STAGE}/usr/local/bin/agy_acp_server.par" "${PA_STAGE}/usr/local/bin/localharness_external"
+mv "${PA_STAGE}/usr/local/bin/agy_acp_server.par" "${PA_STAGE}/usr/local/bin/agy_acp_server.real.par"
+cat << 'WRAPPER' > "${PA_STAGE}/usr/local/bin/agy_acp_server.par"
+#!/bin/bash
+exec /usr/local/bin/agy_acp_server.real.par --enforce_kernel_ipv6_support=false "$@"
+WRAPPER
+chmod 755 "${PA_STAGE}/usr/local/bin/agy_acp_server.par" "${PA_STAGE}/usr/local/bin/agy_acp_server.real.par" "${PA_STAGE}/usr/local/bin/localharness_external"
 rm -f "/tmp/${acp_zip}"
 
 # 3. Pre-stage T3 managed runtime metadata so T3 detects Antigravity out-of-the-box
