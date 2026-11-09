@@ -66,7 +66,7 @@ fetch_verified() {
     local url="$1" sha="$2" dest="$3"
 
     echo "Downloading ${url##*/}"
-    curl -fsSL --retry 3 --retry-delay 2 -o "${dest}" "${url}"
+    curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o "${dest}" "${url}"
     echo "${sha}  ${dest}" | sha256sum -c - > /dev/null
 }
 

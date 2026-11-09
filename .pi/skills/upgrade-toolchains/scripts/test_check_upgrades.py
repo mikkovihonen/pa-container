@@ -72,12 +72,26 @@ ARG QUOTED_VAL="test-1.0"
             "AARDVARK_VERSION": "v1.14.0",
             "COLGREP_VERSION": "v0.1.0",
             "SQLITE_VEC_VERSION": "v0.1.6",
+            "PYTHON_VERSION": "3.14.6",
+            "PI_VERSION": "1.5.0",
+            "OPENCODE_VERSION": "2.2.5",
+            "CLAUDE_CODE_VERSION": "2.1.319",
+            "ANTIGRAVITY_VERSION": "1.5.2",
+            "ANTIGRAVITY_ACP_VERSION": "1.4.5",
+            "CHROMIUM_VERSION": "157.0.8103.38",
         }
         self.assertEqual(get_current_tool_version("mold", args), "2.40.1")
         self.assertEqual(get_current_tool_version("tree-sitter-cli", args), "v0.25.3")
         self.assertEqual(get_current_tool_version("aardvark-dns", args), "v1.14.0")
         self.assertEqual(get_current_tool_version("colgrep", args), "v0.1.0")
         self.assertEqual(get_current_tool_version("sqlite-vec", args), "v0.1.6")
+        self.assertEqual(get_current_tool_version("python", args), "3.14.6")
+        self.assertEqual(get_current_tool_version("pi", args), "1.5.0")
+        self.assertEqual(get_current_tool_version("opencode", args), "2.2.5")
+        self.assertEqual(get_current_tool_version("claude-code", args), "2.1.319")
+        self.assertEqual(get_current_tool_version("antigravity", args), "1.5.2")
+        self.assertEqual(get_current_tool_version("antigravity-acp", args), "1.4.5")
+        self.assertEqual(get_current_tool_version("chromium", args), "157.0.8103.38")
         self.assertEqual(get_current_tool_version("nonexistent", args), "")
 
     def test_update_containerfile_arg_single_line(self) -> None:
@@ -222,6 +236,157 @@ class TestVerify(unittest.TestCase):
     def test_run_verify_failure(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(returncode=1)
         self.assertFalse(run_verify())
+
+
+class TestGroupsAndResolvers(unittest.TestCase):
+    def test_every_group_tool_has_a_resolver(self) -> None:
+        from check_upgrades import GROUPS
+        from upstreams import RESOLVERS
+
+        for group, tools in GROUPS.items():
+            for tool in tools:
+                self.assertIn(
+                    tool,
+                    RESOLVERS,
+                    f"Tool '{tool}' in group '{group}' has no resolver in RESOLVERS",
+                )
+
+    def test_every_containerfile_version_arg_is_monitored(self) -> None:
+        from check_upgrades import CONTAINERFILE, read_containerfile_args
+        from upstreams import RESOLVERS
+
+        args = read_containerfile_args(CONTAINERFILE)
+        version_args = [k for k in args if k.endswith("_VERSION")]
+
+        # Companion tools resolved jointly with their parent tool:
+        # ZIG_VERSION -> resolved by zls
+        # AZURE_DEVOPS_VERSION -> resolved by az
+        # BUN_VERSION -> resolved by cafe
+        companion_args = {"ZIG_VERSION", "AZURE_DEVOPS_VERSION", "BUN_VERSION"}
+
+        # Tools with non-standard version ARG naming:
+        special_names = {
+            "tree-sitter-cli": "TREE_SITTER_VERSION",
+            "aardvark-dns": "AARDVARK_VERSION",
+        }
+
+        covered_args: set[str] = set(companion_args)
+        for tool in RESOLVERS:
+            if tool in special_names:
+                covered_args.add(special_names[tool])
+            else:
+                covered_args.add(f"{tool.replace('-', '_').upper()}_VERSION")
+
+        uncovered = [v for v in version_args if v not in covered_args]
+        self.assertEqual(
+            uncovered,
+            [],
+            f"Containerfile has unmonitored version ARGs: {uncovered}",
+        )
+
+
+class TestAgentResolvers(unittest.TestCase):
+    @patch("upstreams.agents.fetch_json")
+    @patch("upstreams.agents.get_containerfile_args")
+    def test_resolve_pi(self, mock_args: MagicMock, mock_fetch: MagicMock) -> None:
+        from upstreams.agents import resolve_pi
+
+        mock_fetch.return_value = {
+            "version": "1.5.0",
+            "dist": {"tarball": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.5.0.tgz"},
+        }
+        mock_args.return_value = {"PI_VERSION": "1.5.0", "PI_SHA256": "abc123"}
+        info = resolve_pi()
+        self.assertEqual(info.tool, "pi")
+        self.assertEqual(info.version, "1.5.0")
+        self.assertEqual(info.args["PI_SHA256"], "abc123")
+
+    @patch("upstreams.agents.fetch_json")
+    def test_resolve_antigravity(self, mock_fetch: MagicMock) -> None:
+        from upstreams.agents import resolve_antigravity
+
+        mock_fetch.return_value = {
+            "version": "1.5.3,6604829099950080",
+            "variations": {
+                "x86_64_linux": {"sha256": "sha-amd64"},
+                "arm64_linux": {"sha256": "sha-arm64"},
+            },
+        }
+        info = resolve_antigravity()
+        self.assertEqual(info.tool, "antigravity")
+        self.assertEqual(info.version, "1.5.3")
+        self.assertEqual(info.args["ANTIGRAVITY_BUILD_ID"], "6604829099950080")
+        self.assertEqual(info.args["ANTIGRAVITY_SHA256_AMD64"], "sha-amd64")
+        self.assertEqual(info.args["ANTIGRAVITY_SHA256_ARM64"], "sha-arm64")
+
+    @patch("upstreams.agents.fetch_url")
+    def test_resolve_antigravity_acp(self, mock_fetch: MagicMock) -> None:
+        from upstreams.agents import resolve_antigravity_acp
+
+        mock_ts = """
+        const ANTIGRAVITY_RELEASE_VERSION = "1.4.5";
+        ["linux-x64", {
+          version: ANTIGRAVITY_RELEASE_VERSION,
+          sha256: "923923a0d7dc8073f66cc6f78647a3107e3a7ee2b7e1a24df8b3927b5188013b",
+        }],
+        ["linux-arm64", {
+          version: ANTIGRAVITY_RELEASE_VERSION,
+          sha256: "7d64246633ae094f67e3bbcd2d679e89048f91346d5339313336e7483f40f056",
+        }],
+        """
+        mock_fetch.return_value = mock_ts.encode("utf-8")
+        info = resolve_antigravity_acp()
+        self.assertEqual(info.tool, "antigravity-acp")
+        self.assertEqual(info.version, "1.4.5")
+        self.assertEqual(info.args["ANTIGRAVITY_ACP_SHA256_AMD64"], "923923a0d7dc8073f66cc6f78647a3107e3a7ee2b7e1a24df8b3927b5188013b")
+        self.assertEqual(info.args["ANTIGRAVITY_ACP_SHA256_ARM64"], "7d64246633ae094f67e3bbcd2d679e89048f91346d5339313336e7483f40f056")
+
+    @patch("upstreams.github_release._fetch_json")
+    @patch("upstreams.github_release.get_containerfile_args")
+    def test_resolve_chromium(self, mock_args: MagicMock, mock_fetch: MagicMock) -> None:
+        from upstreams.github_release import resolve_chromium
+
+        mock_fetch.return_value = {
+            "channels": {
+                "Stable": {
+                    "version": "157.0.8103.38",
+                    "downloads": {
+                        "chrome": [
+                            {"platform": "linux64", "url": "https://example.com/linux64.zip"},
+                            {"platform": "linux-arm64", "url": "https://example.com/linux-arm64.zip"},
+                        ]
+                    },
+                }
+            }
+        }
+        mock_args.return_value = {
+            "CHROMIUM_VERSION": "157.0.8103.38",
+            "CHROMIUM_SHA256_AMD64": "chromesha-amd64",
+            "CHROMIUM_SHA256_ARM64": "chromesha-arm64",
+        }
+        info = resolve_chromium()
+        self.assertEqual(info.tool, "chromium")
+        self.assertEqual(info.version, "157.0.8103.38")
+        self.assertEqual(info.args["CHROMIUM_SHA256_AMD64"], "chromesha-amd64")
+        self.assertEqual(info.args["CHROMIUM_SHA256_ARM64"], "chromesha-arm64")
+
+    @patch("upstreams.language_manifests._fetch_url")
+    @patch("upstreams.language_manifests.get_containerfile_args")
+    def test_resolve_python(self, mock_args: MagicMock, mock_fetch: MagicMock) -> None:
+        import json
+        from upstreams.language_manifests import resolve_python
+
+        eol_json = json.dumps([{"cycle": "3.14", "latest": "3.14.6"}]).encode("utf-8")
+        mock_fetch.return_value = eol_json
+        mock_args.return_value = {
+            "PYTHON_VERSION": "3.14.6",
+            "PYTHON_SHA256": "pysha256",
+        }
+        info = resolve_python()
+        self.assertEqual(info.tool, "python")
+        self.assertEqual(info.version, "3.14.6")
+        self.assertEqual(info.args["PYTHON_SHA256"], "pysha256")
+
 
 
 if __name__ == "__main__":

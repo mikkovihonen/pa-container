@@ -9,6 +9,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from upstreams.base import ToolReleaseInfo
+from upstreams.agents import (
+    resolve_antigravity,
+    resolve_antigravity_acp,
+    resolve_claude_code,
+    resolve_opencode,
+    resolve_pi,
+)
 from upstreams.github_git import (
     resolve_ast_grep,
     resolve_clangd,
@@ -25,6 +32,7 @@ from upstreams.github_git import (
 )
 from upstreams.github_release import (
     resolve_aardvark_dns,
+    resolve_chromium,
     resolve_gh,
     resolve_glab,
     resolve_netavark,
@@ -37,6 +45,7 @@ from upstreams.language_manifests import (
     resolve_git,
     resolve_go,
     resolve_node,
+    resolve_python,
     resolve_ruby,
     resolve_rust,
 )
@@ -50,6 +59,7 @@ from upstreams.pypi import (
 
 RESOLVERS: dict[str, Callable[[], ToolReleaseInfo]] = {
     # Core
+    "python": resolve_python,
     "go": resolve_go,
     "rust": resolve_rust,
     "node": resolve_node,
@@ -61,6 +71,7 @@ RESOLVERS: dict[str, Callable[[], ToolReleaseInfo]] = {
     "python-dotenv": resolve_python_dotenv,
     "pyyaml": resolve_pyyaml,
     # On-demand tools
+    "chromium": resolve_chromium,
     "mold": resolve_mold,
     "git": resolve_git,
     "ripgrep": resolve_ripgrep,
@@ -81,4 +92,10 @@ RESOLVERS: dict[str, Callable[[], ToolReleaseInfo]] = {
     "tea": resolve_tea,
     "az": resolve_az,
     "cafe": resolve_cafe,
+    # Agents
+    "pi": resolve_pi,
+    "opencode": resolve_opencode,
+    "claude-code": resolve_claude_code,
+    "antigravity": resolve_antigravity,
+    "antigravity-acp": resolve_antigravity_acp,
 }

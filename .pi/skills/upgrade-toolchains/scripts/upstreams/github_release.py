@@ -5,7 +5,8 @@ import urllib.request
 
 sys.dont_write_bytecode = True
 
-from upstreams.base import ToolReleaseInfo
+import upstreams.base
+from upstreams.base import ToolReleaseInfo, get_containerfile_args, sha256_of_url
 from upstreams.github_git import get_git_tags_and_commits
 
 
@@ -238,4 +239,45 @@ def resolve_tea() -> ToolReleaseInfo:
         category="vcs",
         release_url=f"https://gitea.com/gitea/tea/releases/tag/{tag}",
     )
+
+
+def resolve_chromium() -> ToolReleaseInfo:
+    """Resolve latest stable Chromium release from Chrome for Testing."""
+    url = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
+    data = _fetch_json(url)
+    stable = data.get("channels", {}).get("Stable", {})
+    ver = stable.get("version", "")
+    downloads = stable.get("downloads", {}).get("chrome", [])
+    dl_amd64 = next((d["url"] for d in downloads if d.get("platform") == "linux64"), "")
+    dl_arm64 = next((d["url"] for d in downloads if d.get("platform") == "linux-arm64"), "")
+
+    current_args = get_containerfile_args()
+    curr_ver = current_args.get("CHROMIUM_VERSION", "").strip('"').strip("'")
+    curr_sha_amd64 = current_args.get("CHROMIUM_SHA256_AMD64", "").strip('"').strip("'")
+    curr_sha_arm64 = current_args.get("CHROMIUM_SHA256_ARM64", "").strip('"').strip("'")
+
+    if curr_ver == ver and curr_sha_amd64 and curr_sha_arm64:
+        sha_amd64 = curr_sha_amd64
+        sha_arm64 = curr_sha_arm64
+    elif upstreams.base.IS_UPGRADE_MODE:
+        sha_amd64 = sha256_of_url(dl_amd64) if dl_amd64 else ""
+        sha_arm64 = sha256_of_url(dl_arm64) if dl_arm64 else ""
+    else:
+        sha_amd64 = ""
+        sha_arm64 = ""
+
+    args = {"CHROMIUM_VERSION": ver}
+    if sha_amd64:
+        args["CHROMIUM_SHA256_AMD64"] = sha_amd64
+    if sha_arm64:
+        args["CHROMIUM_SHA256_ARM64"] = sha_arm64
+
+    return ToolReleaseInfo(
+        tool="chromium",
+        version=ver,
+        args=args,
+        category="tools",
+        release_url=f"https://storage.googleapis.com/chrome-for-testing-public/{ver}",
+    )
+
 

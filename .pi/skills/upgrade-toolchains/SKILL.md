@@ -21,8 +21,10 @@ Use this skill whenever the user asks to inspect, audit, or upgrade any of the t
 - **`search`**: `ripgrep`, `fd`, `ast-grep`, `tree-sitter-cli`, `colgrep`
 - **`vector`**: `qdrant`, `sqlite-vec`
 - **`lsp`**: `rust-analyzer`, `gopls`, `clangd`, `zls`
-- **`vcs`**: `git`, `ruby`
-- **`core`**: Core runtime dependencies (`go`, `rust`, `node`, `podman`, `netavark`, `aardvark-dns`, `uv`, `podman-compose`, `python-dotenv`, `pyyaml`)
+- **`vcs`**: `git`, `ruby`, `gh`, `glab`, `tea`, `az`, `cafe`
+- **`tools`**: `t3`, `chromium`
+- **`agents`**: `pi`, `opencode`, `claude-code`, `antigravity`, `antigravity-acp`
+- **`core`**: Core runtime dependencies (`python`, `go`, `rust`, `node`, `podman`, `netavark`, `aardvark-dns`, `uv`, `podman-compose`, `python-dotenv`, `pyyaml`)
 
 ## Workflows
 

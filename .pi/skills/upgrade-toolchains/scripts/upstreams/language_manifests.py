@@ -6,7 +6,7 @@ import urllib.request
 
 sys.dont_write_bytecode = True
 
-from upstreams.base import ToolReleaseInfo, parse_version_tuple
+from upstreams.base import ToolReleaseInfo, get_containerfile_args, parse_version_tuple
 
 
 def _fetch_url(url: str) -> bytes:
@@ -208,3 +208,43 @@ def resolve_cafe() -> ToolReleaseInfo:
         category="vcs",
         release_url="https://git.cafe",
     )
+
+
+def resolve_python() -> ToolReleaseInfo:
+    """Resolve latest Python release within the active 3.14 cycle and its CPython sha256."""
+    eol_data = json.loads(_fetch_url("https://endoflife.date/api/python.json").decode("utf-8"))
+    c314 = next((c for c in eol_data if c.get("cycle") == "3.14"), None)
+    ver = c314["latest"] if c314 else "3.14.6"
+
+    current_args = get_containerfile_args()
+    curr_ver = current_args.get("PYTHON_VERSION", "").strip('"').strip("'")
+    curr_sha = current_args.get("PYTHON_SHA256", "").strip('"').strip("'")
+
+    sha = ""
+    if curr_ver == ver and curr_sha:
+        sha = curr_sha
+    else:
+        try:
+            spdx_url = f"https://www.python.org/ftp/python/{ver}/Python-{ver}.tgz.spdx.json"
+            spdx_data = json.loads(_fetch_url(spdx_url).decode("utf-8"))
+            for p in spdx_data.get("packages", []):
+                if p.get("name") == "CPython":
+                    for c in p.get("checksums", []):
+                        if c.get("algorithm") == "SHA256":
+                            sha = c.get("checksumValue", "")
+                            break
+        except Exception:
+            if curr_sha:
+                sha = curr_sha
+
+    return ToolReleaseInfo(
+        tool="python",
+        version=ver,
+        args={
+            "PYTHON_VERSION": ver,
+            "PYTHON_SHA256": sha,
+        },
+        category="core",
+        release_url=f"https://www.python.org/downloads/release/python-{ver.replace('.', '')}/",
+    )
+

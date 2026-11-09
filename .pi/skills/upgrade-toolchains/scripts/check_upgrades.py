@@ -35,8 +35,10 @@ GROUPS: dict[str, list[str]] = {
     "vector": ["qdrant", "sqlite-vec"],
     "lsp": ["rust-analyzer", "gopls", "clangd", "zls"],
     "vcs": ["git", "ruby", "gh", "glab", "tea", "az", "cafe"],
-    "tools": ["t3"],
+    "tools": ["t3", "chromium"],
+    "agents": ["pi", "opencode", "claude-code", "antigravity", "antigravity-acp"],
     "core": [
+        "python",
         "go",
         "rust",
         "node",
@@ -76,7 +78,7 @@ def get_current_tool_version(tool: str, args: dict[str, str]) -> str:
     if key in args:
         return args[key].strip('"').strip("'")
     if tool == "python":
-        return args.get("PYTHON_VERSION", "")
+        return args.get("PYTHON_VERSION", "").strip('"').strip("'")
     return ""
 
 
@@ -233,6 +235,9 @@ def main() -> None:
         return
 
     # Upgrades requested
+    import upstreams.base
+
+    upstreams.base.IS_UPGRADE_MODE = True
     upgraded: list[str] = []
     for tool in targets:
         if tool not in RESOLVERS:
