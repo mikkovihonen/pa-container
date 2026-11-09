@@ -301,7 +301,8 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
                 "keys": {
                     "agent": {"type": str},
                     "proxy": {"type": str},
-                    "builder": {"type": str},
+                    "base": {"type": str, "required": False},
+                    "builder": {"type": str, "required": False},
                 },
             },
             "dns": {"type": str},

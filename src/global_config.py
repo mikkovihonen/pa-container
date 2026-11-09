@@ -123,10 +123,12 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
     # Build section
     raw_bld = data["build"]
     raw_imgs = raw_bld["images"]
+    base_tag = str(raw_imgs.get("base") or raw_imgs.get("builder") or "pa-container-agent-base:local")
     images_cfg = BuildImagesGlobalConfig(
         agent=str(raw_imgs["agent"]),
         proxy=str(raw_imgs["proxy"]),
-        builder=str(raw_imgs["builder"]),
+        base=base_tag,
+        builder=base_tag,
     )
 
     build_cfg = BuildGlobalConfig(

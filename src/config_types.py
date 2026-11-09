@@ -311,7 +311,8 @@ class BuildImagesGlobalConfig:
 
     agent: str = "pa-container-agent:local"
     proxy: str = "pa-container-agent-proxy:local"
-    builder: str = "pa-container-agent-builder:local"
+    base: str = "pa-container-agent-base:local"
+    builder: str = "pa-container-agent-base:local"
 
 
 @dataclass(frozen=True)

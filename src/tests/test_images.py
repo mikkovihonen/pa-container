@@ -941,7 +941,7 @@ class TestNewestSharedImageTime:
     def test_returns_the_newer_of_the_two(self, monkeypatch):
         times = {
             images.PROXY_IMAGE_TAG: "2025-01-01T00:00:00Z",
-            "pa-container-agent-builder:local": "2025-06-01T00:00:00Z",
+            images.AGENT_BASE_IMAGE_TAG: "2025-06-01T00:00:00Z",
         }
         monkeypatch.setattr(
             images,
@@ -950,12 +950,12 @@ class TestNewestSharedImageTime:
         )
 
         result = images.newest_shared_image_time()
-        assert result == ("pa-container-agent-builder:local", _ts("2025-06-01T00:00:00Z"))
+        assert result == (images.AGENT_BASE_IMAGE_TAG, _ts("2025-06-01T00:00:00Z"))
 
     def test_proxy_wins_when_newer(self, monkeypatch):
         times = {
             images.PROXY_IMAGE_TAG: "2025-06-01T00:00:00Z",
-            "pa-container-agent-builder:local": "2025-01-01T00:00:00Z",
+            images.AGENT_BASE_IMAGE_TAG: "2025-01-01T00:00:00Z",
         }
         monkeypatch.setattr(
             images,
@@ -979,7 +979,7 @@ class TestNewestSharedImageTime:
     def test_covers_both_source_images(self):
         assert set(images._SHARED_SOURCE_IMAGES) == {
             images.PROXY_IMAGE_TAG,
-            "pa-container-agent-builder:local",
+            images.AGENT_BASE_IMAGE_TAG,
         }
 
 
@@ -1057,10 +1057,10 @@ class TestProjectImageBuildReason:
                 "pa-container-project-abcde-abc123def4567890.local",
                 "abc123def4567890",
                 _ts("2025-06-01T00:00:00Z"),
-                "pa-container-agent-builder:local",
+                images.AGENT_BASE_IMAGE_TAG,
             )
         assert reason == "stale shared image"
-        assert "pa-container-agent-builder:local" in caplog.text
+        assert images.AGENT_BASE_IMAGE_TAG in caplog.text
 
     def test_content_hash_mismatch(self, monkeypatch, tmp_path):
         project_dir = _make_project_with_deps(tmp_path)

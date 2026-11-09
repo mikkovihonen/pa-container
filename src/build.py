@@ -44,7 +44,7 @@ LLAMA_BIN = (
 )
 PA_IMAGE_TAG = global_config.build.images.agent
 PROXY_IMAGE_TAG = global_config.build.images.proxy
-BUILDER_IMAGE_TAG = global_config.build.images.builder
+AGENT_BASE_IMAGE_TAG = global_config.build.images.base
 
 # The Containerfile unconditionally does `COPY --from=root_commands_path`, so
 # every build must supply that context. Project-specific builds point it at the
@@ -218,7 +218,6 @@ def _node_build_args() -> list[str]:
 
 
 CORE_PACKAGES: list[str] = ["python", "node", "podman"]
-AGENT_BASE_IMAGE_TAG = "pa-container-agent-base:local"
 
 
 def build_package(package_name: str, runtime: str = "podman", label: str | None = None) -> None:

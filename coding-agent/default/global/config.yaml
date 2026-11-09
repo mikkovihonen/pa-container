@@ -28,7 +28,7 @@ build:
   images:
     agent: pa-container-agent:local
     proxy: pa-container-agent-proxy:local
-    builder: pa-container-agent-builder:local
+    base: pa-container-agent-base:local
   dns: "1.1.1.1"
   python_optimize: true
   memory_preflight: true

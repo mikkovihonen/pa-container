@@ -7,7 +7,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 import project
-from config import PA_IMAGE_TAG, PROXY_IMAGE_TAG, REPO_ROOT
+from config import AGENT_BASE_IMAGE_TAG, PA_IMAGE_TAG, PROXY_IMAGE_TAG, REPO_ROOT
 from logging_driver import LogCategory, get_category_logger
 from yaml_strict import load_yaml_strict
 
@@ -24,7 +24,7 @@ _IMAGE_DEFINITION_FILES = (
     "labwc/rc.xml",
 )
 _PROXY_IMAGE_DEFINITION_FILES = ("Containerfile", "entrypoint.sh")
-_SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, "pa-container-agent-builder:local")
+_SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, AGENT_BASE_IMAGE_TAG)
 _PROTECTED_IMAGE_TAGS = frozenset({PA_IMAGE_TAG, *_SHARED_SOURCE_IMAGES})
 _UNTAGGED_NAME = "<none>:<none>"
 

@@ -155,7 +155,7 @@ class TestValidateGlobalConfig:
                     "runtime": {"log_level": "INFO", "proxy_upstream_network": "podman"},
                     "llama": {"build": {"repo": "a", "tag": "b", "backend": "cpu", "minimal": True, "cmake_flags": []}},
                     "build": {
-                        "images": {"agent": "a", "proxy": "p", "builder": "b"},
+                        "images": {"agent": "a", "proxy": "p", "base": "b"},
                         "dns": "1.1.1.1",
                         "python_optimize": True,
                         "memory_preflight": True,

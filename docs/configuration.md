@@ -23,7 +23,7 @@ Global configuration properties can be edited in `~/.config/pa-container/config.
 |-----------------------------|-------------|---------|
 | `build.images.agent` | The tag of the pi container image to run | `pa-container-agent:local` |
 | `build.images.proxy` | The tag of the proxy container image to run | `pa-container-agent-proxy:local` |
-| `build.images.builder` | Toolchain image that the agent image copies from | `pa-container-agent-builder:local` |
+| `build.images.base` | Base runner image that the agent image is built upon | `pa-container-agent-base:local` |
 | `llama.bin` | Path to the `llama-server` executable (overridable via `LLAMA_BIN`) | `~/.cache/pa-container/bin/llama-server` or `llama-server` |
 | `runtime.proxy_upstream_network` | Upstream network the proxy connects to for internet access | `podman` |
 | `runtime.log_level` | Log level | `INFO` |

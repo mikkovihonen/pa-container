@@ -53,7 +53,8 @@ GLOBAL_CACHE_DIR: Path = Path.home() / ".cache" / "pa-container"
 
 PA_IMAGE_TAG: str = global_config.build.images.agent
 PROXY_IMAGE_TAG: str = global_config.build.images.proxy
-BUILDER_IMAGE_TAG: str = global_config.build.images.builder
+AGENT_BASE_IMAGE_TAG: str = global_config.build.images.base
+BUILDER_IMAGE_TAG: str = AGENT_BASE_IMAGE_TAG
 
 _cached_llama = GLOBAL_CACHE_DIR / "bin" / "llama-server"
 LLAMA_BIN: str | None = (
