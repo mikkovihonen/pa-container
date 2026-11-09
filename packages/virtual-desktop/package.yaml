@@ -1,0 +1,36 @@
+schema_version: "2.0.0"
+name: "virtual-desktop"
+version: "1.0.0"
+description: "Headless Wayland desktop (labwc), wayvnc, noVNC, and agent-desktop automation CLI"
+category: "desktop"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps: []
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+mcp:
+    enabled: true
+    server_id: "virtual-desktop"
+    transport: "stdio"
+    command: "/usr/local/bin/agent-desktop"
+    args: ["mcp"]
+
+runtime:
+    devices:
+        - "/dev/dri"
+    env:
+        DISPLAY: ":0"
+        WAYLAND_DISPLAY: "wayland-0"
+        XDG_RUNTIME_DIR: "/run/user/1000"
+        PA_CONTAINER_DESKTOP: "true"
+
+verification:
+    command: "agent-desktop status"
+    expected_output_contains: "Virtual Desktop"

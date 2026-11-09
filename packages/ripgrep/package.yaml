@@ -1,0 +1,28 @@
+schema_version: "2.0.0"
+name: "ripgrep"
+version: "15.2.0"
+description: "Ultra-fast line-oriented search tool (rg) with PCRE2 support"
+category: "search"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "cargo"
+        - "rust"
+        - "gcc"
+        - "git"
+        - "pcre2-devel"
+    env:
+        RIPGREP_VERSION: "15.2.0"
+        RIPGREP_COMMIT: "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "rg --version"
+    expected_output_contains: "ripgrep 15.2"

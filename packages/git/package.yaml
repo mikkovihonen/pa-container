@@ -1,0 +1,30 @@
+schema_version: "2.0.0"
+name: "git"
+version: "2.56.0"
+description: "Fast, scalable, distributed revision control system"
+category: "scm"
+license: "GPL-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "gcc"
+        - "make"
+        - "curl-devel"
+        - "expat-devel"
+        - "gettext"
+        - "openssl-devel"
+        - "zlib-devel"
+    env:
+        GIT_VERSION: "2.56.0"
+        GIT_SHA256: "26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "git --version"
+    expected_output_contains: "git version 2.56"

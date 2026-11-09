@@ -1,0 +1,28 @@
+schema_version: "2.0.0"
+name: "ruby"
+version: "3.4.12"
+description: "Dynamic, open source programming language with a focus on simplicity"
+category: "toolchains"
+license: "Ruby OR BSD-2-Clause"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "gcc"
+        - "make"
+        - "openssl-devel"
+        - "readline-devel"
+        - "zlib-devel"
+    env:
+        RUBY_VERSION: "3.4.12"
+        RUBY_SHA256: "db6c147940d7ad0b706823d42c8e6713c36dec70a1f83f635f1d3a7f0599ec90"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "ruby --version"
+    expected_output_contains: "ruby 3.4"

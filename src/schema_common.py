@@ -115,12 +115,9 @@ SCHEMA: dict[str, Any] = {
             "open_browser": {"type": bool},
         },
     },
-    "tools": {
-        "type": dict,
+    "packages": {
+        "type": list,
         "required": False,
-        "keys": {
-            "include": {"type": list, "required": False},
-        },
     },
     "agents": {
         "type": dict,

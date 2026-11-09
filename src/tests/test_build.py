@@ -38,12 +38,18 @@ class TestBuildProxy:
         mock_process.wait.return_value = 0
         return mock_process
 
+    @pytest.fixture(autouse=True)
+    def _mock_package_builds(self):
+        with patch("build.ensure_package_images"):
+            yield
+
     def test_calls_runtime_build(self):
         """build_proxy should invoke the container runtime with correct args."""
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
             build_proxy("podman")
-            mock_popen.assert_called_once()
-            cmd = mock_popen.call_args[0][0]
+            build_calls = [c for c in mock_popen.call_args_list if c[0][0][0] == "podman"]
+            assert len(build_calls) == 1
+            cmd = build_calls[0][0][0]
             assert cmd[0] == "podman"
             assert cmd[1] == "build"
             assert "--force-rm" in cmd
@@ -89,7 +95,10 @@ class TestBuildProxy:
 
     def test_build_agent_calls_runtime(self):
         """build_agent should invoke the container runtime with correct args."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+        with (
+            patch("build.build_agent_base", return_value="pa-container-agent-base:local"),
+            patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen,
+        ):
             build_agent("podman")
             mock_popen.assert_called_once()
             cmd = mock_popen.call_args[0][0]
@@ -99,48 +108,26 @@ class TestBuildProxy:
             assert any("Containerfile" in str(c) for c in cmd)
 
     def test_build_agent_labels_image_as_shared(self):
-        """The shared base must be labelled `shared`, never `project`.
-
-        It is built from the same Containerfile as the per-project images. When that
-        file hardcoded `type=project`, the base was stamped as a project image too and
-        run.py's orphan cleanup could not tell it apart from a real project's image.
-        """
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+        """The shared base must be labelled `shared`, never `project`."""
+        with (
+            patch("build.build_agent_base", return_value="pa-container-agent-base:local"),
+            patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen,
+        ):
             build_agent("podman")
             cmd = mock_popen.call_args[0][0]
-            assert "pa-container.type=shared" in cmd
-            assert "pa-container.type=project" not in cmd
+            labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
+            assert "pa-container.type=shared" in labels
+            assert "pa-container.type=project" not in labels
 
     def test_containerfile_does_not_hardcode_type_label(self):
-        """`pa-container.type` must come from the CLI, not the Containerfile.
-
-        The agent Containerfile builds both the shared base and the per-project
-        images, so it cannot know which type it is producing. Setting the label per
-        build also keeps it off build intermediates, so a half-finished build is never
-        picked up as an orphan.
-        """
         from build import REPO_ROOT
 
         containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
         assert "LABEL pa-container.type" not in containerfile
 
-    def test_build_agent_does_not_forward_python_args(self, monkeypatch):
-        """PYTHON_OPTIMIZE belongs to the builder image, which is where Python is compiled.
 
-        Passing it here would be a lie: the agent image only copies the result, and an
-        unused --build-arg would still change the agent image's cache key.
-        """
-        import build as build_mod
-
-        monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_mod.build_agent("podman")
-            cmd = mock_popen.call_args[0][0]
-            assert not any("PYTHON_OPTIMIZE" in str(c) for c in cmd)
-
-
-class TestBuildBuilder:
-    """Tests for build_builder() — the toolchain image."""
+class TestBuildAgentBase:
+    """Tests for build_agent_base() — the base runner image."""
 
     @staticmethod
     def _mock_popen():
@@ -149,47 +136,35 @@ class TestBuildBuilder:
         mock_process.wait.return_value = 0
         return mock_process
 
-    def test_builds_the_builder_containerfile(self):
+    def test_builds_the_agent_base_containerfile(self):
         import build as build_mod
 
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_mod.build_builder("podman")
+            tag = build_mod.build_agent_base("podman", with_desktop=False)
+            assert tag == build_mod.AGENT_BASE_IMAGE_TAG
             cmd = mock_popen.call_args[0][0]
             assert cmd[:2] == ["podman", "build"]
-            assert build_mod.BUILDER_IMAGE_TAG in cmd
-            assert "--target" in cmd
-            assert cmd[cmd.index("--target") + 1] == "stage"
-            assert any("coding-agent-builder" in str(c) and "Containerfile" in str(c) for c in cmd)
+            assert build_mod.AGENT_BASE_IMAGE_TAG in cmd
+            assert any("coding-agent" in str(c) and "Containerfile" in str(c) for c in cmd)
 
     def test_carries_a_build_time_label(self):
-        """run.py dates project images against this label; without it, it exits."""
         import build as build_mod
 
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_mod.build_builder("podman")
+            build_mod.build_agent_base("podman", with_desktop=False)
             cmd = mock_popen.call_args[0][0]
             labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
             assert any(lbl.startswith("pa-container.build.time=") for lbl in labels)
-            assert "pa-container.type=shared" in labels
+            assert "pa-container.type=base" in labels
 
-    def test_forwards_python_optimize(self, monkeypatch):
-        """This is the image that compiles CPython, so PYTHON_OPTIMIZE applies here."""
+    def test_desktop_flag_changes_base_tag_and_arg(self):
         import build as build_mod
 
-        monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_mod.build_builder("podman")
+            tag = build_mod.build_agent_base("podman", with_desktop=True)
+            assert tag == "pa-container-agent-base-desktop:local"
             cmd = mock_popen.call_args[0][0]
-            assert "PYTHON_OPTIMIZE=0" in cmd
-
-    def test_forwards_node_source(self, monkeypatch):
-        import build as build_mod
-
-        monkeypatch.setenv("NODE_SOURCE", "build")
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_mod.build_builder("podman")
-            cmd = mock_popen.call_args[0][0]
-            assert "NODE_SOURCE=build" in cmd
+            assert "WITH_DESKTOP=true" in cmd
 
 
 class TestNodeBuildArgs:
@@ -268,25 +243,19 @@ class TestBuildDNSArgs:
 
 
 class TestMain:
-    def test_main_builds_all_three_images(self):
-        """main should build the toolchain, then the proxy, then the agent.
-
-        Order is load-bearing in both links: the proxy image COPYs its CPython and uv
-        from the toolchain image, and the agent image COPYs from both. Any of them
-        missing or stale makes a build fail or bake in stale content.
-        """
+    def test_main_builds_all_images(self):
+        """main should build the proxy, then the agent."""
         calls = []
         with (
             patch("build.validate_environment", return_value="podman"),
             patch("build.check_build_memory", return_value=True),
             patch("build.build_proxy", side_effect=lambda r: calls.append("proxy")),
-            patch("build.build_builder", side_effect=lambda r: calls.append("builder")),
             patch("build.build_agent", side_effect=lambda r: calls.append("agent")),
             patch("images.prune_dangling_images") as mock_prune,
             patch("sys.exit"),
         ):
             main([])
-        assert calls == ["builder", "proxy", "agent"]
+        assert calls == ["proxy", "agent"]
         mock_prune.assert_called_once_with("podman", purge_cache=False)
 
     def test_main_clean_runs_all_cleanups(self):
@@ -295,20 +264,21 @@ class TestMain:
             patch("containers.cleanup_orphaned_agent_containers", return_value=["agent-1"]) as mock_ctr,
             patch("images.cleanup_orphaned_project_images", return_value=["proj-1"]) as mock_img,
             patch("images.prune_dangling_images", return_value=["layer-1"]) as mock_prune,
-            patch("build.build_builder") as mock_bld,
+            patch("build.build_proxy") as mock_proxy,
+            patch("build.build_agent") as mock_agent,
         ):
             main(["--clean"])
             mock_ctr.assert_called_once_with("podman")
             mock_img.assert_called_once_with("podman")
             mock_prune.assert_called_once_with("podman", purge_cache=True)
-            mock_bld.assert_not_called()
+            mock_proxy.assert_not_called()
+            mock_agent.assert_not_called()
 
     def test_main_no_prune_skips_pruning(self):
         with (
             patch("build.validate_environment", return_value="podman"),
             patch("build.check_build_memory", return_value=True),
             patch("build.build_proxy"),
-            patch("build.build_builder"),
             patch("build.build_agent"),
             patch("images.prune_dangling_images") as mock_prune,
         ):
@@ -316,47 +286,35 @@ class TestMain:
             mock_prune.assert_not_called()
 
     def test_main_rejects_bad_node_source_before_building_anything(self, monkeypatch):
-        """An invalid NODE_SOURCE must cost nothing at all.
-
-        It is consumed by the first image built, so the check has to happen before that
-        build starts rather than inside it.
-        """
         monkeypatch.setenv("NODE_SOURCE", "prebuild")
         with (
             patch("build.validate_environment", return_value="podman"),
             patch("build.check_build_memory", return_value=True),
             patch("build.build_proxy") as mock_proxy,
-            patch("build.build_builder") as mock_builder,
             patch("build.build_agent") as mock_agent,
             patch("sys.exit", side_effect=SystemExit(1)),
             pytest.raises(SystemExit),
         ):
             main()
         mock_proxy.assert_not_called()
-        mock_builder.assert_not_called()
         mock_agent.assert_not_called()
 
     def test_main_stops_before_building_when_memory_is_short(self):
-        """The preflight has to run before the first build, not between them."""
         with (
             patch("build.validate_environment", return_value="podman"),
             patch("build.check_build_memory", return_value=False),
             patch("build.build_proxy") as mock_proxy,
-            patch("build.build_builder") as mock_builder,
             patch("build.build_agent") as mock_agent,
             patch("sys.exit", side_effect=SystemExit(1)),
             pytest.raises(SystemExit),
         ):
             main()
         mock_proxy.assert_not_called()
-        mock_builder.assert_not_called()
         mock_agent.assert_not_called()
 
     def test_main_exits_on_environment_error(self):
-        """main should call sys.exit(1) when validate_environment raises EnvironmentError."""
         from util import EnvironmentError
 
-        # Use a real exit tracker to verify sys.exit(1) is called
         exit_calls = []
 
         def track_exit(code=0):
@@ -373,16 +331,12 @@ class TestMain:
         assert exit_calls == [1]
 
     def test_main_exits_on_build_failure(self):
-        """main should exit 1 when subprocess raises CalledProcessError."""
         import subprocess
 
-        # build_builder is the one made to fail because it is the first image built;
-        # the other two are patched so a failure here can never reach a real podman.
         with (
             patch("build.validate_environment", return_value="podman"),
             patch("build.check_build_memory", return_value=True),
-            patch("build.build_builder", side_effect=subprocess.CalledProcessError(1, "cmd")),
-            patch("build.build_proxy"),
+            patch("build.build_proxy", side_effect=subprocess.CalledProcessError(1, "cmd")),
             patch("build.build_agent"),
             patch("sys.exit") as mock_exit,
             patch("builtins.print"),
@@ -391,12 +345,10 @@ class TestMain:
             mock_exit.assert_called_once_with(1)
 
     def test_main_exits_on_file_not_found(self):
-        """main should exit 1 when runtime command is not found."""
         with (
             patch("build.validate_environment", return_value="nonexistent_runtime"),
             patch("build.check_build_memory", return_value=True),
-            patch("build.build_builder", side_effect=FileNotFoundError),
-            patch("build.build_proxy"),
+            patch("build.build_proxy", side_effect=FileNotFoundError),
             patch("build.build_agent"),
             patch("sys.exit") as mock_exit,
             patch("builtins.print"),
@@ -420,6 +372,14 @@ class TestBuildProjectImage:
         mock_process.wait.return_value = 0
         return mock_process
 
+    @pytest.fixture(autouse=True)
+    def _mock_prereqs(self):
+        with (
+            patch("build.ensure_package_images"),
+            patch("build.build_agent_base", return_value="pa-container-agent-base:local"),
+        ):
+            yield
+
     def test_build_project_image_calls_runtime(self):
         """build_project_image should invoke the container runtime with correct args."""
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
@@ -436,13 +396,18 @@ class TestBuildProjectImage:
             assert "--force-rm" in cmd
             assert "--tag" in cmd
             assert "pa-container-agent-test.local" in cmd
-            assert "LABEL_HASH=abc123" in cmd
-            # Should include the Containerfile path
             assert any("Containerfile" in str(c) for c in cmd)
 
     def test_build_project_image_includes_project_hash(self):
-        """When project_hash is provided, it should be passed as a build arg."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+        """When project_hash is provided, it should be in the generated Containerfile."""
+        captured_cf = []
+
+        def capture_popen(cmd, *a, **kw):
+            cf_path = cmd[cmd.index("--file") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return self._mock_popen()
+
+        with patch("build.subprocess.Popen", side_effect=capture_popen):
             build_project_image(
                 "podman",
                 "/path/to/root/commands.sh",
@@ -451,81 +416,44 @@ class TestBuildProjectImage:
                 project_hash="a1b2c",
                 build_timestamp="2025-01-01T00:00:00Z",
             )
-            cmd = mock_popen.call_args[0][0]
-            assert "--build-arg" in cmd
-            cmd.index("--build-arg")
-            # PROJECT_HASH should appear after LABEL_HASH
-            label_idx = cmd.index("LABEL_HASH=abc123")
-            project_idx = cmd.index("PROJECT_HASH=a1b2c")
-            assert project_idx > label_idx
+            assert len(captured_cf) == 1
+            assert 'LABEL pa-container.project.hash="a1b2c"' in captured_cf[0]
+            assert 'LABEL pa-container.build.time="2025-01-01T00:00:00Z"' in captured_cf[0]
+            assert 'LABEL pa-container.hash="abc123"' in captured_cf[0]
 
-    def test_build_project_image_includes_build_timestamp(self):
-        """When build_timestamp is provided, it should be passed as a build arg."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_project_image(
-                "podman",
-                "/path/to/root/commands.sh",
-                "pa-container-project-a1b2c-d4e5f.local",
-                "abc123",
-                project_hash="a1b2c",
-                build_timestamp="2025-01-01T00:00:00Z",
-            )
-            cmd = mock_popen.call_args[0][0]
-            assert "BUILD_TIMESTAMP=2025-01-01T00:00:00Z" in cmd
+    def test_build_project_image_with_packages(self):
+        """When packages are provided, they should be copied into the image."""
+        captured_cf = []
 
-    def test_build_project_image_includes_type_label(self):
-        """build_project_image should always set pa-container.type=project label."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+        def capture_popen(cmd, *a, **kw):
+            cf_path = cmd[cmd.index("--file") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return self._mock_popen()
+
+        with (
+            patch("build.ensure_package_images") as mock_ensure,
+            patch("build.subprocess.Popen", side_effect=capture_popen),
+        ):
             build_project_image(
                 "podman",
                 "/path/to/root/commands.sh",
                 "test.local",
                 "abc123",
+                packages=["go", "rust"],
             )
-            cmd = mock_popen.call_args[0][0]
-            assert "--label" in cmd
-            label_idx = cmd.index("--label")
-            assert cmd[label_idx + 1] == "pa-container.type=project"
-
-    def test_build_project_image_without_optional_args(self):
-        """build_project_image should work without project_hash or build_timestamp."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_project_image(
-                "podman",
-                "/path/to/root/commands.sh",
-                "test.local",
-                "abc123",
-            )
-            cmd = mock_popen.call_args[0][0]
-            # No PROJECT_HASH or BUILD_TIMESTAMP build args should be present
-            for i, part in enumerate(cmd):
-                if part == "--build-arg":
-                    assert cmd[i + 1] != "PROJECT_HASH="
-                    assert cmd[i + 1] != "BUILD_TIMESTAMP="
-
-    def test_build_project_image_with_tools(self):
-        """When tools are provided, matching WITH_* build args and build contexts should be passed."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_project_image(
-                "podman",
-                "/path/to/root/commands.sh",
-                "test.local",
-                "abc123",
-                tools=["go", "rust", "mold", "ripgrep"],
-            )
-            cmd = mock_popen.call_args[0][0]
-            assert "WITH_GO=true" in cmd
-            assert "WITH_RUST=true" in cmd
-            assert "WITH_MOLD=true" in cmd
-            assert "WITH_RIPGREP=true" in cmd
-            assert "--build-context" in cmd
-            contexts = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--build-context"]
-            assert "tool_mold=docker-image://localhost/pa-container-agent-tool-mold:local" in contexts
-            assert "tool_ripgrep=docker-image://localhost/pa-container-agent-tool-ripgrep:local" in contexts
+            mock_ensure.assert_called_once()
+            called_packages = mock_ensure.call_args[0][0]
+            assert "go" in called_packages
+            assert "rust" in called_packages
+            assert "COPY --from=pa-container-pkg-go:local / /" in captured_cf[0]
+            assert "COPY --from=pa-container-pkg-rust:local / /" in captured_cf[0]
 
     def test_build_project_image_with_desktop(self):
-        """When with_desktop is True, WITH_DESKTOP=true should be passed as a build arg."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+        """When with_desktop is True, base is built with desktop."""
+        with (
+            patch("build.build_agent_base", return_value="pa-container-agent-base-desktop:local") as mock_base,
+            patch("build.subprocess.Popen", return_value=self._mock_popen()),
+        ):
             build_project_image(
                 "podman",
                 "/path/to/root/commands.sh",
@@ -533,12 +461,14 @@ class TestBuildProjectImage:
                 "abc123",
                 with_desktop=True,
             )
-            cmd = mock_popen.call_args[0][0]
-            assert "WITH_DESKTOP=true" in cmd
+            mock_base.assert_called_once_with("podman", with_desktop=True)
 
     def test_build_project_image_without_desktop(self):
-        """When with_desktop is False, WITH_DESKTOP=false should be passed as a build arg."""
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
+        """When with_desktop is False, base is built without desktop."""
+        with (
+            patch("build.build_agent_base", return_value="pa-container-agent-base:local") as mock_base,
+            patch("build.subprocess.Popen", return_value=self._mock_popen()),
+        ):
             build_project_image(
                 "podman",
                 "/path/to/root/commands.sh",
@@ -546,78 +476,36 @@ class TestBuildProjectImage:
                 "abc123",
                 with_desktop=False,
             )
-            cmd = mock_popen.call_args[0][0]
-            assert "WITH_DESKTOP=false" in cmd
+            mock_base.assert_called_once_with("podman", with_desktop=False)
 
 
-class TestBuildTool:
-    @staticmethod
-    def _mock_popen():
-        mock_process = MagicMock()
-        mock_process.stdout = iter([])
-        mock_process.wait.return_value = 0
-        return mock_process
-
-    def test_build_tool_valid(self):
-        from build import build_tool
-
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_tool("podman", "mold")
-            cmd = mock_popen.call_args[0][0]
-            assert cmd[:2] == ["podman", "build"]
-            assert "--target" in cmd
-            assert cmd[cmd.index("--target") + 1] == "stage-mold"
-            assert "--tag" in cmd
-            assert cmd[cmd.index("--tag") + 1] == "pa-container-agent-tool-mold:local"
-            labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
-            assert "pa-container.type=tool" in labels
-            assert "pa-container.tool=mold" in labels
-            assert any(lbl.startswith("pa-container.hash=") for lbl in labels)
-
-    def test_build_tool_invalid(self):
-        import pytest
-
-        from build import build_tool
-
-        with pytest.raises(ValueError, match="Unknown on-demand tool"):
-            build_tool("podman", "invalid-tool")
-
-        # Core tools are not built via build_tool
-        with pytest.raises(ValueError, match="Unknown on-demand tool"):
-            build_tool("podman", "go")
-
-
-class TestMainWithTools:
-    def test_main_with_tools_flag(self):
+class TestMainWithPackages:
+    def test_main_with_packages_flag(self):
         from build import main
 
+        built = []
         with (
             patch("build.validate_environment", return_value="podman"),
             patch("build.check_build_memory", return_value=True),
-            patch("build.build_builder") as mock_builder,
-            patch("build.build_tool") as mock_tool,
+            patch("packages.build_package", side_effect=lambda pkg, **kw: built.append(pkg)),
         ):
-            main(["--tools", "mold,git"])
-            mock_builder.assert_called_once_with("podman")
-            assert mock_tool.call_count == 2
-            mock_tool.assert_any_call("podman", "mold")
-            mock_tool.assert_any_call("podman", "git")
+            main(["--packages", "mold,git"])
+            assert built == ["git", "mold"] or built == ["mold", "git"]
 
-    def test_main_with_tools_all(self):
+    def test_main_with_packages_all(self):
         from build import main
-        from toolchains import ON_DEMAND_TOOLS
+        from packages import discover_packages
 
+        built = []
         with (
             patch("build.validate_environment", return_value="podman"),
             patch("build.check_build_memory", return_value=True),
-            patch("build.build_builder") as mock_builder,
-            patch("build.build_tool") as mock_tool,
+            patch("packages.build_package", side_effect=lambda pkg, **kw: built.append(pkg)),
         ):
-            main(["--tools", "all"])
-            mock_builder.assert_called_once_with("podman")
-            assert mock_tool.call_count == len(ON_DEMAND_TOOLS)
+            main(["--packages", "all"])
+            assert len(built) == len(discover_packages())
 
-    def test_main_with_unknown_tool(self):
+    def test_main_with_unknown_package(self):
         import sys
 
         from build import main
@@ -628,7 +516,7 @@ class TestMainWithTools:
             patch.object(sys, "exit", side_effect=SystemExit(1)),
         ):
             with pytest.raises(SystemExit) as exc_info:
-                main(["--tools", "unknown_tool"])
+                main(["--packages", "unknown_pkg"])
             assert exc_info.value.code == 1
 
 
@@ -760,120 +648,23 @@ class TestPythonBuildArgs:
 
 
 # ---------------------------------------------------------------------------
-# Toolchain pins: Containerfile ARGs vs. what the build scripts require
+# Package declarations: ACP packages validation
 # ---------------------------------------------------------------------------
-#
-# Every version, commit and sha256 lives in coding-agent-builder/Containerfile as
-# an ARG, and the build scripts define no fallbacks — they assert presence with
-# require_env and fail. That is deliberate (a stale pin baked into a script would
-# defeat the point of hoisting them), but it means a renamed or forgotten ARG is a
-# *build-time* failure, minutes into a compile, in a stage that may not even be the
-# one being changed. These tests turn that into a millisecond.
-
-BUILDER_DIR = REPO_ROOT / "coding-agent-builder"
 
 
-def _join_continuations(text: str) -> list[str]:
-    """Collapse backslash-continued lines, in both Containerfiles and shell."""
-    return text.replace("\\\n", " ").splitlines()
+class TestPackageManifestsAreValid:
+    def test_all_discovered_packages_have_valid_manifests(self):
+        from packages import discover_packages
 
-
-def _containerfile_stages() -> dict[str, dict]:
-    """Map each build stage to the ARGs it declares and the scripts it runs.
-
-    A stage's usable ARGs are only the ones it declares itself. A pre-FROM ARG is
-    *not* inherited automatically — a stage must re-declare it (verified against
-    podman), which is exactly the mistake worth catching here.
-    """
-    stages: dict[str, dict] = {}
-    current: dict | None = None
-
-    for line in _join_continuations((BUILDER_DIR / "Containerfile").read_text()):
-        stripped = line.strip()
-        if stripped.startswith("FROM ") and " AS " in stripped:
-            name = stripped.split(" AS ", 1)[1].strip()
-            current = {"args": set(), "scripts": set()}
-            stages[name] = current
-        elif stripped.startswith("ARG ") and current is not None:
-            current["args"].add(stripped[4:].strip().split("=", 1)[0].strip())
-        elif stripped.startswith("RUN ") and current is not None:
-            for token in stripped.split():
-                if token.endswith(".sh"):
-                    if token.startswith("/build/"):
-                        current["scripts"].add(token[len("/build/") :])
-                    else:
-                        current["scripts"].add(Path(token).name)
-
-    return stages
-
-
-def _required_env(script: Path) -> set[str]:
-    """Names passed to require_env anywhere in a shell script."""
-    required: set[str] = set()
-    for line in _join_continuations(script.read_text()):
-        stripped = line.strip()
-        if not stripped.startswith("require_env "):
-            continue
-        required.update(stripped.split()[1:])
-    return required
-
-
-class TestToolchainPinsAreDeclared:
-    def test_every_required_arg_is_declared_on_its_stage(self):
-        """Each script's require_env names must be ARGs on the stage that runs it."""
-        stages = _containerfile_stages()
-
-        checked = 0
-        for stage_name, stage in stages.items():
-            for script_name in stage["scripts"]:
-                script = BUILDER_DIR / script_name
-                assert script.is_file(), f"{stage_name} runs missing script {script_name}"
-
-                required = _required_env(script)
-                missing = required - stage["args"]
-                assert not missing, (
-                    f"stage '{stage_name}' runs {script_name}, which requires "
-                    f"{sorted(missing)} — declare them as ARG on that stage in "
-                    f"coding-agent-builder/Containerfile "
-                    f"(a pre-FROM ARG must be re-declared to be inherited)"
-                )
-                checked += 1
-
-        assert checked >= 6, f"expected to check all component scripts, saw {checked}"
-
-    def test_scripts_hardcode_no_pins(self):
-        """No sha256 or commit-looking literal may sit in a build script."""
-        import re
-
-        # 40 hex = git commit, 64 hex = sha256. Both belong in the Containerfile.
-        literal = re.compile(r"\b[0-9a-f]{40,64}\b")
-        for script in sorted(BUILDER_DIR.glob("*.sh")):
-            hits = literal.findall(script.read_text())
-            assert not hits, (
-                f"{script.name} hardcodes {hits} — hashes and commits belong in "
-                f"coding-agent-builder/Containerfile as ARGs"
-            )
-
-    def test_every_declared_pin_is_actually_used(self):
-        """An ARG no script reads is a pin that silently does nothing."""
-        stages = _containerfile_stages()
-        # Mode/tuning knobs are read directly with a shell default rather than through
-        # require_env, so they are exempt from the "must be required" rule below.
-        knobs = {"PYTHON_OPTIMIZE", "MAKE_JOBS", "NODE_SOURCE"}
-
-        for stage_name, stage in stages.items():
-            if not stage["scripts"]:
-                continue
-            required: set[str] = set()
-            for script_name in stage["scripts"]:
-                script = BUILDER_DIR / script_name
-                required |= _required_env(script)
-
-            unused = stage["args"] - required - knobs
-            assert not unused, (
-                f"stage '{stage_name}' declares ARG {sorted(unused)} that no script "
-                f"it runs requires — remove it, or pass it to require_env"
-            )
+        pkgs = discover_packages()
+        assert len(pkgs) >= 30, f"Expected at least 30 packages, found {len(pkgs)}"
+        for name, manifest in pkgs.items():
+            assert manifest.name == name
+            assert manifest.version
+            assert manifest.description
+            assert manifest.payload.type in ("binary_download", "build_script", "distro_package", "none")
+            if manifest.skill.enabled:
+                assert manifest.skill.source
 
 
 class TestLlamaBuildArgs:

@@ -1,0 +1,32 @@
+schema_version: "2.0.0"
+name: "chromium"
+version: "157.0.8103.38"
+description: "Chrome for Testing browser engine and automation runner"
+category: "browser"
+license: "BSD-3-Clause"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "unzip"
+        - "curl"
+    env:
+        CHROMIUM_VERSION: "157.0.8103.38"
+        CHROMIUM_SHA256_AMD64: "8cdeb344e9b2cefe59f4aea8d1d93d5d93054c03cde217665c16fc1f62e72a66"
+        CHROMIUM_SHA256_ARM64: "5517510e61657ff43ee9ab804ecd1a499b3d5bd3caf72f097516bd6565ba5a17"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+runtime:
+    devices:
+        - "/dev/dri"
+    env:
+        CHROME_DEVEL_SANDBOX: "/usr/local/lib/chromium/chrome-sandbox"
+
+verification:
+    command: "chromium --version"
+    expected_output_contains: "Chrome for Testing"

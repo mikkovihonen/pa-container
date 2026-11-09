@@ -1,0 +1,28 @@
+schema_version: "2.0.0"
+name: "clangd"
+version: "23.1.5"
+description: "LLVM/Clang C/C++ language server (LSP)"
+category: "lsp"
+license: "Apache-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "cmake"
+        - "ninja-build"
+        - "gcc-c++"
+        - "git"
+        - "python3"
+    env:
+        CLANGD_VERSION: "llvmorg-23.1.5"
+        CLANGD_COMMIT: "392dfff97d29b59d77e5cac6d4b6ef2585fe7117"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "clangd --version"
+    expected_output_contains: "clangd"

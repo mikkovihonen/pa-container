@@ -102,19 +102,12 @@ pa build
 
 `pa` runs through `uv`. `uv` creates the `.venv` and installs dependencies from `uv.lock` on first invocation. You do not need a separate setup step. Run `uv sync` to provision the environment ahead of time.
 
-This builds three images, in this order:
+This builds the shared container images:
 
-1. `pa-container-agent-builder:local` — the [toolchain image](design-details.md#toolchain-builder-image). Compiles CPython 3.14 (PGO), podman and netavark/aardvark-dns from source, and stages Node from the official nodejs.org tarball. **A few minutes** on a 9-core/8 GB machine.
+1. `pa-container-agent-proxy:local` — the transparent proxy built from Fedora Minimal, which includes mitmproxy and shares the Python ACP package layer.
+2. `pa-container-agent:local` — the shared agent runner built from Fedora Minimal, dynamically composed with core ACP package layers (Python 3.15 with `uv`, Node.js 26, rootless Podman 6, Netavark/Aardvark-dns).
 
-    `NODE_SOURCE=build pa build` compiles Node from source instead, which takes **about an hour** (measured: ~65 min at 3 compile jobs). It buys a trixie-native build rather than the generic-glibc official one. Node has no build tags worth choosing, so unlike podman there is no correctness argument for it. The default `prebuilt` mode stages byte-for-byte the same Node the old `node:` base image shipped, since that image is this same tarball extracted into `/usr/local`.
-
-    Compile parallelism is capped by available memory rather than core count, so a bigger machine directly shortens this step (`MAKE_JOBS=<n>` overrides the cap). Later builds skip the image entirely unless one of its pinned versions changes, and each component is a separate stage, so bumping podman does not rebuild Node.
-
-    Every version, git commit and SHA-256 it builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-builder/Containerfile). That one file is where you bump a component.
-2. `pa-container-agent-proxy:local` — the transparent proxy, which copies its CPython and `uv` out of the builder image so that it runs [the same Python as the agent](design-details.md#uniform-python-across-both-images).
-3. `pa-container-agent:local` — the main agent, which copies the mitmproxy CA certificate out of the proxy image and its whole toolchain out of the builder image.
-
-The order is not optional: the proxy image `COPY --from`s the builder, and the agent image `COPY --from`s both of the others.
+Individual packages can be built or updated on demand with `pa build --packages <name>` (or `pa build --packages all`). Every package manifest in `packages/<name>/package.yaml` declares its own version, platform download hashes, skills, and configuration.
 
 ### 3. Run the Agent
 

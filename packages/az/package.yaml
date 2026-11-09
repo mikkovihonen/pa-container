@@ -1,0 +1,30 @@
+schema_version: "2.0.0"
+name: "az"
+version: "2.92.0"
+description: "Azure CLI and Azure DevOps extension"
+category: "cloud"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "gcc"
+        - "python3-devel"
+        - "libffi-devel"
+        - "openssl-devel"
+    build_packages:
+        - "python"
+    env:
+        AZ_VERSION: "2.92.0"
+        AZURE_DEVOPS_VERSION: "1.0.10"
+        AZURE_DEVOPS_SHA256: "cb38021f76cf93905f759c9d1b4b441bdeecfc98d4141ce26dd7b299af1aa56e"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "az --version"
+    expected_output_contains: "azure-cli"

@@ -16,6 +16,7 @@ sys.dont_write_bytecode = True
 
 from global_config import load_global_config
 from logging_driver import LogCategory, fail_and_render, get_category_logger, get_log_driver
+from packages import ensure_package_images
 from util import EnvironmentError, validate_environment
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
@@ -87,7 +88,7 @@ def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.Compl
 
 # ─── Build-memory preflight ──────────────────────────────────────────────────
 #
-# The builder image compiles CPython (coding-agent-builder/build-python.sh). A
+# The python package compiles CPython (packages/python/build-python.sh). A
 # PGO compile job peaks near 900 MiB, and the podman machine defaults to 2 GiB total
 # regardless of core count — so on a busy VM the build dies minutes in with
 #   gcc: fatal error: Killed signal terminated program cc1
@@ -95,7 +96,7 @@ def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.Compl
 # running. This check happens BEFORE the build is launched, so the answer arrives
 # immediately.
 #
-# Thresholds mirror MIB_PER_JOB in coding-agent-builder/build-python.sh — keep
+# Thresholds mirror MIB_PER_JOB in packages/python/build-python.sh — keep
 # them in step.
 _MIB_PER_JOB_PGO = 900
 _MIB_PER_JOB_PLAIN = 400
@@ -216,88 +217,15 @@ def _node_build_args() -> list[str]:
     return ["--build-arg", f"NODE_SOURCE={value}"]
 
 
-def build_builder(runtime: str, label: str | None = None) -> None:
-    """Build the base builder image containing CPython, Node.js, and container tools."""
-    from datetime import UTC, datetime
-
-    build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    logger.info(f"Building toolchain image ({runtime}): {BUILDER_IMAGE_TAG}")
-    if os.environ.get("NODE_SOURCE", "").strip().lower() == "build":
-        logger.info(
-            "NODE_SOURCE=build: Node is compiled from source, which takes roughly an hour "
-            "on a 9-core/8 GB podman machine (and longer on 4 GB, where it is limited to "
-            "one compile job). Unset NODE_SOURCE to stage the official tarball instead."
-        )
-    else:
-        logger.info("This compiles CPython, podman and netavark from source; expect several minutes.")
-    _run_command_with_logging(
-        [
-            runtime,
-            "build",
-            "--force-rm",
-            *_build_dns_args(),
-            *_python_build_args(),
-            *_node_build_args(),
-            "--target",
-            "stage",
-            "--label",
-            f"pa-container.build.time={build_ts}",
-            "--label",
-            "pa-container.type=shared",
-            "--tag",
-            BUILDER_IMAGE_TAG,
-            "--file",
-            str(REPO_ROOT / "coding-agent-builder" / "Containerfile"),
-            str(REPO_ROOT),
-        ],
-        label=label or "Building base toolchain image",
-    )
+CORE_PACKAGES: list[str] = ["python", "node", "podman"]
+AGENT_BASE_IMAGE_TAG = "pa-container-agent-base:local"
 
 
-def build_tool(runtime: str, tool: str, label: str | None = None) -> None:
-    """Build a specific on-demand toolchain image from the builder Containerfile."""
-    from datetime import UTC, datetime
+def build_package(package_name: str, runtime: str = "podman", label: str | None = None) -> None:
+    """Build a specific Agent Capability Package image."""
+    from packages import build_package as pkg_build
 
-    from toolchains import (
-        ON_DEMAND_TOOLS,
-        compute_tool_hash,
-        tool_to_image_tag,
-        tool_to_stage_target,
-    )
-
-    if tool not in ON_DEMAND_TOOLS:
-        raise ValueError(f"Unknown on-demand tool '{tool}'. Must be one of {', '.join(sorted(ON_DEMAND_TOOLS))}.")
-
-    build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    tag = tool_to_image_tag(tool)
-    target = tool_to_stage_target(tool)
-    tool_hash = compute_tool_hash(tool, REPO_ROOT)
-
-    logger.info(f"Building on-demand tool '{tool}' ({runtime}): {tag} [target: {target}]")
-    _run_command_with_logging(
-        [
-            runtime,
-            "build",
-            "--force-rm",
-            *_build_dns_args(),
-            "--target",
-            target,
-            "--label",
-            f"pa-container.build.time={build_ts}",
-            "--label",
-            "pa-container.type=tool",
-            "--label",
-            f"pa-container.tool={tool}",
-            "--label",
-            f"pa-container.hash={tool_hash}",
-            "--tag",
-            tag,
-            "--file",
-            str(REPO_ROOT / "coding-agent-builder" / "Containerfile"),
-            str(REPO_ROOT),
-        ],
-        label=label or f"Building toolchain image ({tool})",
-    )
+    pkg_build(package_name, runtime=runtime, repo_root=REPO_ROOT, label=label)
 
 
 def build_proxy(runtime: str, label: str | None = None) -> None:
@@ -305,6 +233,9 @@ def build_proxy(runtime: str, label: str | None = None) -> None:
     from datetime import UTC, datetime
 
     from images import compute_proxy_image_hash
+
+    # Proxy requires python package
+    ensure_package_images(["python"], runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     proxy_hash = compute_proxy_image_hash(REPO_ROOT)
@@ -331,12 +262,13 @@ def build_proxy(runtime: str, label: str | None = None) -> None:
     )
 
 
-def build_agent(runtime: str, label: str | None = None) -> None:
-    """Build the shared default agent container image."""
+def build_agent_base(runtime: str, with_desktop: bool = False, label: str | None = None) -> str:
+    """Build the base runner image from coding-agent/Containerfile."""
     from datetime import UTC, datetime
 
+    base_tag = "pa-container-agent-base-desktop:local" if with_desktop else AGENT_BASE_IMAGE_TAG
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    logger.info(f"Building agent image ({runtime}): {PA_IMAGE_TAG}")
+    logger.info(f"Building agent base image ({runtime}): {base_tag}")
     _run_command_with_logging(
         [
             runtime,
@@ -347,18 +279,68 @@ def build_agent(runtime: str, label: str | None = None) -> None:
             f"root_commands_path={DEFAULT_ROOT_COMMANDS.parent}",
             "--build-arg",
             f"ROOT_COMMANDS_PATH={DEFAULT_ROOT_COMMANDS.name}",
+            "--build-arg",
+            f"WITH_DESKTOP={'true' if with_desktop else 'false'}",
             "--label",
             f"pa-container.build.time={build_ts}",
             "--label",
-            "pa-container.type=shared",
+            "pa-container.type=base",
             "--tag",
-            PA_IMAGE_TAG,
+            base_tag,
             "--file",
             str(REPO_ROOT / "coding-agent" / "Containerfile"),
             str(REPO_ROOT),
         ],
-        label=label or "Building agent container",
+        label=label or f"Building agent base image ({base_tag})",
     )
+    return base_tag
+
+
+def build_agent(runtime: str, label: str | None = None) -> None:
+    """Build the shared default agent container image with core packages."""
+    import tempfile
+    from datetime import UTC, datetime
+
+    from packages import package_to_image_tag
+
+    base_tag = build_agent_base(runtime, with_desktop=False)
+    ensure_package_images(CORE_PACKAGES, runtime=runtime, repo_root=REPO_ROOT)
+
+    build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    logger.info(f"Assembling shared agent image ({runtime}): {PA_IMAGE_TAG}")
+
+    cf_lines = [
+        f"FROM {base_tag}",
+    ]
+    for pkg in CORE_PACKAGES:
+        cf_lines.append(f"COPY --from={package_to_image_tag(pkg)} / /")
+    cf_lines.extend(
+        [
+            "WORKDIR /workspace",
+            'ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]',
+        ]
+    )
+
+    with tempfile.TemporaryDirectory(prefix="pa-agent-build-") as tmpdir:
+        cf_path = Path(tmpdir) / "Containerfile"
+        cf_path.write_text("\n".join(cf_lines) + "\n")
+        _run_command_with_logging(
+            [
+                runtime,
+                "build",
+                "--force-rm",
+                "--label",
+                f"pa-container.build.time={build_ts}",
+                "--label",
+                "pa-container.type=shared",
+                "--tag",
+                PA_IMAGE_TAG,
+                "--file",
+                str(cf_path),
+                str(REPO_ROOT),
+            ],
+            label=label or "Assembling default agent container",
+        )
 
 
 def build_project_image(
@@ -369,70 +351,62 @@ def build_project_image(
     project_hash: str = "",
     project_path: str = "",
     build_timestamp: str = "",
-    tools: list[str] | None = None,
+    packages: list[str] | None = None,
     with_desktop: bool = False,
     label: str | None = None,
+    **kwargs: Any,
 ) -> None:
-    """Build a project-specific agent image with baked-in command scripts and optional tools.
+    """Build a project-specific agent image with baked-in packages and commands.sh."""
+    import tempfile
 
-    Args:
-        runtime: Container runtime (podman).
-        root_commands_path: Absolute path to root/commands.sh on the host.
-        image_tag: Image tag for the project-specific image
-            (e.g., "pa-container-project-<hash>-<hash>.local").
-        label_hash: Content hash to store in the image label for cache invalidation.
-        project_hash: Project identity hash → set as pa-container.project.hash label.
-        project_path: Absolute project directory path → set as pa-container.project.path label.
-        build_timestamp: ISO 8601 timestamp → set as pa-container.build.time label.
-        tools: Optional list of tools to enable (e.g. ["go", "rust"]).
-        with_desktop: Whether to install desktop/GUI packages.
-        label: Custom display label for progress reporting.
-    """
-    logger.info(f"Building project-specific agent image ({runtime}): {image_tag}")
-    cmd = [
-        runtime,
-        "build",
-        "--force-rm",
-        *_build_dns_args(),
-        "--build-context",
-        f"root_commands_path={Path(root_commands_path).parent}",
-        "--build-arg",
-        f"ROOT_COMMANDS_PATH={Path(root_commands_path).name}",
-        "--build-arg",
-        f"LABEL_HASH={label_hash}",
-        "--build-arg",
-        f"WITH_DESKTOP={'true' if with_desktop else 'false'}",
+    from packages import package_to_image_tag
+
+    active_packages = sorted(set(CORE_PACKAGES) | set(packages or kwargs.get("tools") or []))
+    if with_desktop and "virtual-desktop" not in active_packages:
+        active_packages.append("virtual-desktop")
+
+    base_tag = build_agent_base(runtime, with_desktop=with_desktop)
+    ensure_package_images(active_packages, runtime=runtime, repo_root=REPO_ROOT)
+
+    root_cmd = Path(root_commands_path)
+    logger.info(f"Assembling project-specific agent image ({runtime}): {image_tag}")
+
+    cf_lines = [
+        f"FROM {base_tag}",
     ]
-    tools_set = set(tools or [])
-    from toolchains import (
-        ON_DEMAND_TOOLS,
-        tool_to_build_arg,
-        tool_to_context_name,
-        tool_to_image_tag,
+    for pkg in active_packages:
+        cf_lines.append(f"COPY --from={package_to_image_tag(pkg)} / /")
+
+    cf_lines.extend(
+        [
+            f"COPY --from=root_commands_path {root_cmd.name} /root/commands.sh",
+            "RUN chmod +x /root/commands.sh && /root/commands.sh",
+            "WORKDIR /workspace",
+            f'LABEL pa-container.hash="{label_hash}"',
+            f'LABEL pa-container.project.hash="{project_hash}"',
+            f'LABEL pa-container.project.path="{project_path}"',
+            f'LABEL pa-container.build.time="{build_timestamp}"',
+            'ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]',
+        ]
     )
 
-    for tool in sorted(tools_set):
-        cmd += ["--build-arg", f"{tool_to_build_arg(tool)}=true"]
-        if tool in ON_DEMAND_TOOLS:
-            ctx_name = tool_to_context_name(tool)
-            img_tag = tool_to_image_tag(tool)
-            cmd += ["--build-context", f"{ctx_name}=docker-image://localhost/{img_tag}"]
-    if project_hash:
-        cmd += ["--build-arg", f"PROJECT_HASH={project_hash}"]
-    if project_path:
-        cmd += ["--build-arg", f"PROJECT_PATH={project_path}"]
-    if build_timestamp:
-        cmd += ["--build-arg", f"BUILD_TIMESTAMP={build_timestamp}"]
-    cmd += [
-        "--label",
-        "pa-container.type=project",
-        "--tag",
-        image_tag,
-        "--file",
-        str(REPO_ROOT / "coding-agent" / "Containerfile"),
-        str(REPO_ROOT),
-    ]
-    _run_command_with_logging(cmd, label=label or f"Building project agent image: {image_tag}")
+    with tempfile.TemporaryDirectory(prefix="pa-project-build-") as tmpdir:
+        cf_path = Path(tmpdir) / "Containerfile"
+        cf_path.write_text("\n".join(cf_lines) + "\n")
+        cmd = [
+            runtime,
+            "build",
+            "--force-rm",
+            *_build_dns_args(),
+            "--build-context",
+            f"root_commands_path={root_cmd.parent}",
+            "--tag",
+            image_tag,
+            "--file",
+            str(cf_path),
+            str(REPO_ROOT),
+        ]
+        _run_command_with_logging(cmd, label=label or f"Building project agent image: {image_tag}")
 
 
 def run_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int:
@@ -558,51 +532,43 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
         return 1
 
     try:
-        if options.tools:
-            from toolchains import AVAILABLE_TOOLS, CORE_TOOLS, ON_DEMAND_TOOLS
+        if options.packages:
+            from packages import build_package as pkg_build
+            from packages import discover_packages
 
-            if options.tools.strip().lower() == "all":
-                requested = sorted(ON_DEMAND_TOOLS)
+            avail = set(discover_packages().keys())
+            if options.packages.strip().lower() == "all":
+                requested = sorted(avail)
             else:
-                requested = [t.strip() for t in options.tools.split(",") if t.strip()]
-                for t in requested:
-                    if t not in AVAILABLE_TOOLS:
-                        msg = f"Unknown tool '{t}'. Available tools: {', '.join(sorted(AVAILABLE_TOOLS))}"
+                requested = [p.strip() for p in options.packages.split(",") if p.strip()]
+                for p in requested:
+                    if p not in avail:
+                        msg = f"Unknown package '{p}'. Available packages: {', '.join(sorted(avail))}"
                         if log_drv is not None:
                             log_drv.fail_and_render(
                                 LogCategory.BUILD,
-                                "Unknown Toolchain",
+                                "Unknown Package",
                                 msg,
                                 source_logger=logger,
                             )
                         else:
                             fail_and_render(
                                 LogCategory.BUILD,
-                                "Unknown Toolchain",
+                                "Unknown Package",
                                 msg,
                                 source_logger=logger,
                             )
                         return 1
 
-            total_stages = 1 + len(requested)
-            if log_drv is not None:
-                with log_drv.stage(LogCategory.BUILD, f"[1/{total_stages}] Building base toolchain image"):
-                    build_builder(runtime)
-                for idx, t in enumerate(requested, start=2):
-                    if t in ON_DEMAND_TOOLS:
-                        with log_drv.stage(LogCategory.BUILD, f"[{idx}/{total_stages}] Building toolchain ({t})"):
-                            build_tool(runtime, t)
-                    elif t in CORE_TOOLS:
-                        logger.info(f"Tool '{t}' is already included in builder baseline ({BUILDER_IMAGE_TAG}).")
-            else:
-                build_builder(runtime)
-                for t in requested:
-                    if t in ON_DEMAND_TOOLS:
-                        build_tool(runtime, t)
-                    elif t in CORE_TOOLS:
-                        logger.info(f"Tool '{t}' is already included in builder baseline ({BUILDER_IMAGE_TAG}).")
+            total_stages = len(requested)
+            for idx, p in enumerate(requested, start=1):
+                if log_drv is not None:
+                    with log_drv.stage(LogCategory.BUILD, f"[{idx}/{total_stages}] Building package ({p})"):
+                        pkg_build(p, runtime=runtime)
+                else:
+                    pkg_build(p, runtime=runtime)
 
-            logger.info("All requested toolchains built successfully.")
+            logger.info("All requested packages built successfully.")
             if not options.no_prune and global_config.build.prune_dangling:
                 from images import prune_dangling_images
 
@@ -613,20 +579,13 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
                     prune_dangling_images(runtime, purge_cache=global_config.build.purge_build_cache)
             return 0
 
-        # Strict dependency order, not a preference: the proxy image COPYs its CPython
-        # and uv from the toolchain image, and the agent image COPYs from both. The
-        # proxy used to be built first (it is the quick one, and a failure there was
-        # cheaper), but that stopped being possible once it stopped carrying its own
-        # interpreter.
+        # Build proxy and agent images
         if log_drv is not None:
-            with log_drv.stage(LogCategory.BUILD, "[1/3] Building base toolchain image"):
-                build_builder(runtime)
-            with log_drv.stage(LogCategory.BUILD, "[2/3] Building proxy image"):
+            with log_drv.stage(LogCategory.BUILD, "[1/2] Building proxy image"):
                 build_proxy(runtime)
-            with log_drv.stage(LogCategory.BUILD, "[3/3] Building agent container"):
+            with log_drv.stage(LogCategory.BUILD, "[2/2] Building agent container"):
                 build_agent(runtime)
         else:
-            build_builder(runtime)
             build_proxy(runtime)
             build_agent(runtime)
 

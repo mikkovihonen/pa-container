@@ -27,7 +27,7 @@ class AntigravityDriver(AgentDriver):
         return "antigravity"
 
     @property
-    def required_tools(self) -> list[str]:
+    def required_packages(self) -> list[str]:
         return ["antigravity"]
 
     def get_command(self, cli_args: list[str]) -> list[str]:

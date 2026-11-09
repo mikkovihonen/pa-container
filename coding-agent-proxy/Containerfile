@@ -1,87 +1,45 @@
-# The same Debian as the agent image and the toolchain builder, plus the SAME CPython
-# and the SAME uv the agent runs — both compiled/staged in coding-agent-builder/ and
-# copied in below.
-#
-# WHY NOT python:<ver>-slim-trixie
-# That is what this image used to be, with a uv binary pulled separately from
-# ghcr.io/astral-sh/uv by digest. It meant two interpreters and two uv pins across the
-# two images we ship, bumped by hand in different files and free to drift: the proxy
-# could be running a CPython patch release, an OpenSSL, or a uv that the agent had
-# never seen. mitmproxy is the TLS-terminating chokepoint every request crosses, so
-# "which OpenSSL is that, exactly?" is a question worth having one answer to.
-# Now both images take their Python from the same build, pinned in one place
-# (coding-agent-builder/Containerfile).
-FROM debian:13.7-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+# Fedora Minimal base for transparent inspection proxy
+FROM registry.fedoraproject.org/fedora-minimal:41
 
-# Runtime packages. The first block is the proxy's own (entrypoint.sh uses iptables,
-# gosu, expect and jq); the lib* block is what the staged CPython's extension modules
-# link against — the builder compiled them against the -dev packages listed in
-# coding-agent-builder/Containerfile, and without the matching runtime libraries
-# here `import ssl` (or sqlite3, lzma, bz2, readline, ...) fails at first use. The
-# verification step below turns that into a build failure instead.
-#
-# Kept deliberately short of the agent's list: no build-essential, no headers, no
-# Node, no podman. This image runs one Python program.
-RUN apt-get update && apt-get install -y \
+RUN microdnf install -y --nodocs \
     curl \
-    iptables \
-    iproute2 \
+    iptables-nft \
+    iproute \
     ca-certificates \
-    gosu \
-    expect \
-    procps \
+    procps-ng \
     jq \
-    # shared libraries the staged CPython links against
-    libbz2-1.0 \
-    libdb5.3 \
-    libffi8 \
-    libgdbm6 \
-    liblzma5 \
-    libncursesw6 \
-    libreadline8 \
-    libsqlite3-0 \
-    libssl3 \
-    libtinfo6 \
-    libuuid1 \
-    libzstd1 \
-    zlib1g \
-    && rm -rf /var/lib/apt/lists/*
+    shadow-utils \
+    util-linux \
+    bzip2-devel \
+    libffi-devel \
+    libzstd-devel \
+    ncurses-devel \
+    readline-devel \
+    sqlite-devel \
+    openssl-devel \
+    zlib-devel \
+ && microdnf clean all
 
-# CPython + uv (+ pip, and podman-compose, which is inert here). Just the /python/
-# tree: the builder stages each component at its own root precisely so this image does
-# not have to carry Node, podman and netavark to get an interpreter.
-COPY --from=pa-container-agent-builder:local /python/ /
+# gosu for stepping down from root in entrypoint
+RUN ARCH="$(uname -m)" \
+ && case "$ARCH" in x86_64) GOSU_ARCH="amd64" ;; aarch64) GOSU_ARCH="arm64" ;; *) GOSU_ARCH="$ARCH" ;; esac \
+ && curl -fsSL -o /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/1.17/gosu-${GOSU_ARCH}" \
+ && chmod +x /usr/local/bin/gosu \
+ && ln -sf /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 
-# Fail the build here, not at the first request the proxy handles. A staged binary that
-# cannot resolve a shared library — an ABI skew against the builder's base image, or a
-# missing package above — is otherwise invisible until mitmproxy imports the module
-# that needs it, which for `ssl` means at TLS interception time.
+# Unified CPython 3.15 + uv copied directly from the python ACP package
+COPY --from=pa-container-pkg-python:local / /
+
 RUN ldconfig \
- && python --version \
+ && python3 --version \
  && pip --version \
- && uv --version \
- && uvx --version \
- && python -c 'import _zstd, bz2, ctypes, curses, lzma, readline, sqlite3, ssl, zlib' \
- && cat /usr/local/share/pa-container/toolchain-versions.d/*.txt \
-      | sort > /usr/local/share/pa-container/toolchain-versions.txt \
- && cat /usr/local/share/pa-container/toolchain-versions.txt
+ && uv --version
 
-# uv must build the venv on the interpreter copied in above, never on one it downloads:
-# a managed CPython would quietly reintroduce exactly the drift this image removed.
-# UV_PYTHON_DOWNLOADS=never makes an interpreter that cannot be found a build failure.
 ENV UV_PYTHON=/usr/local/bin/python3
 ENV UV_PYTHON_DOWNLOADS=never
 
 RUN useradd -m mitmproxy
 
-# Proxy dependencies come from the main pyproject.toml + uv.lock (frozen).
-#
-# --no-default-groups suppresses [tool.uv] default-groups (src, proxy, dev) and
-# --group proxy adds back the only one this image needs, so the venv gets the
-# project's own dependencies (pyyaml — the allowlist and token_replacer addons
-# import it) plus mitmproxy, and none of the src/dev tooling. NOT --only-group
-# proxy: that installs the group ALONE, omitting pyyaml, and the addons then die
-# on ModuleNotFoundError at their first flow.
 COPY pyproject.toml uv.lock /home/mitmproxy/
 RUN chown mitmproxy:mitmproxy /home/mitmproxy/pyproject.toml /home/mitmproxy/uv.lock
 
@@ -94,41 +52,16 @@ USER root
 COPY coding-agent-proxy/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# mitmproxy addons: allowlist (host/IP filtering), token_replacer (secret
-# redaction), and flow_export (session flow history). Scripts are baked into
-# the image; the YAML configs are baked as fail-closed defaults but are
-# overridden at runtime by the host configs that run.py mounts over
-# /home/mitmproxy/config/*.yaml.
 COPY coding-agent-proxy/addons/allowlist/allowlist.py /home/mitmproxy/scripts/allowlist.py
 COPY coding-agent-proxy/addons/token_replacer/token_replacer.py /home/mitmproxy/scripts/token_replacer.py
 COPY coding-agent-proxy/addons/flow_export/flow_export.py /home/mitmproxy/scripts/flow_export.py
 COPY coding-agent-proxy/addons/allowlist/allowlist_config.yaml /home/mitmproxy/config/allowlist.yaml
 COPY coding-agent-proxy/addons/token_replacer/token_replacer.yaml /home/mitmproxy/config/token_replacer.yaml
-# COPY preserves host file modes (token_replacer.py ships 0600), so ensure the
-# mitmproxy user can read the scripts and configs.
 RUN chmod -R a+rX /home/mitmproxy/scripts /home/mitmproxy/config
-# Create the exports directory (owned by mitmproxy user for write access).
 RUN mkdir -p /home/mitmproxy/exports && chown mitmproxy:mitmproxy /home/mitmproxy/exports
 
-# Tell the addons where their configs live. Baked as image ENV so the value is
-# in the process environment from PID 1 onward and inherited by the gosu'd
-# mitmweb, independent of entrypoint export/gosu propagation.
 ENV ALLOWLIST_CONFIG_PATH=/home/mitmproxy/config/allowlist.yaml
 ENV TOKEN_REPLACER_CONFIG_PATH=/home/mitmproxy/config/token_replacer.yaml
-
-# Start mitmproxy the way the entrypoint does — real addons, real user, real
-# baked configs — and require that it survives. The bare `mitmweb` check above
-# loads no scripts, so it cannot see a dependency the addons need but the venv
-# lacks (pyyaml was exactly that), an unreadable script, or a config that does
-# not parse. Placed after the ENV lines so the addons resolve the same config
-# paths they will at run time. mitmproxy logs the traceback and exits non-zero on
-# any addon error, so the only acceptable outcome is 124: still running when
-# timeout killed it.
-RUN timeout 5s gosu mitmproxy /home/mitmproxy/.venv/bin/mitmdump \
-        -s /home/mitmproxy/scripts/allowlist.py \
-        -s /home/mitmproxy/scripts/token_replacer.py \
-        -s /home/mitmproxy/scripts/flow_export.py \
-    || [ $? -eq 124 ]
 
 EXPOSE 8080 8081
 

@@ -75,11 +75,10 @@ pa build --llama-latest  # query remote repository and build the latest release 
 
 This build strips out irrelevant features (WebUI assets, libcurl, SSL, and example tools) to minimize build time and binary size while targeting hardware acceleration (Apple Silicon Metal, Linux CUDA/ROCm, or native CPU vectorization).
 
-`NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `pa build` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `pa build` forwards only the two knobs above:
+The **component versions themselves** are defined declaratively in Agent Capability Package manifests (`packages/<pkg>/package.yaml`). Bumping podman, Node, CPython, Go, Rust, netavark, or any package is an edit in its respective manifest. Individual packages can be built or verified using `pa build --packages <pkg>`:
 
 ```bash
-podman build --build-arg PODMAN_VERSION=v6.1.0 --build-arg PODMAN_COMMIT=<peeled-sha> \
-    --tag pa-container-agent-builder:local -f coding-agent-builder/Containerfile .
+pa build --packages podman
 ```
 
 A version and its hashes must move together. The build refuses to start if any pin is unset or empty (naming the `ARG`). A mismatched hash fails the download instead of building something unverified.
@@ -355,8 +354,7 @@ proxy:
   open_browser: false         # auto-launch mitmweb in default browser on run: true | false
   max_view_flows: 2000        # max allowed flows in mitmweb RAM (denied flows always kept)
   stream_large_bodies: 10m    # stream bodies > threshold directly (e.g. 10m, off)
-tools:
-  include: []                 # optional builder toolchains: [go, rust]
+packages: []                  # optional agent capability packages (e.g. [go, rust, ripgrep])
 agent:
   env: {}                     # extra --env vars for the agent container
   mounts: []                  # extra bind mounts (absolute host paths)
@@ -688,53 +686,52 @@ The system deliberately makes `PA_CONTAINER` **not** a general "am I in a contai
 
 Two properties worth relying on. The variables are set at the image and `run` layers. They survive `podman exec` and any shell the agent spawns. They do **not** propagate into nested containers. A container the agent starts gets a clean environment. This makes `PA_CONTAINER` mean "I am the agent" rather than "I am somewhere under it".
 
-### Declarative toolchain selection (`tools:`)
+### Declarative package selection (`packages:`)
 
-The shared agent base image includes the core runtime baseline: **Python 3.14 (with `uv`)**, **Node.js 26**, **Podman 6**, and **Netavark/Aardvark-dns**.
+The shared agent base image is built from **Fedora Minimal** and includes the core runtime baseline: **Python 3.15 (with `uv`)**, **Node.js 26**, **Podman 6**, and **Netavark/Aardvark-dns**.
 
-To keep the baseline image lightweight and fast to build, additional toolchains built by `pa-container-agent-builder` are opt-in per workspace under `tools.include` in `.pa-container/config.yaml`:
+To keep the baseline image lightweight and fast to build, additional capabilities are opt-in per workspace as Agent Capability Packages under `packages` in `.pa-container/config.yaml`:
 
 ```yaml
-tools:
-  include:
-    # Build compilers & linkers
-    - go
-    - rust
-    - mold
-    # Search & AST code intelligence
-    - ripgrep
-    - fd
-    - ast-grep
-    - tree-sitter-cli
-    - colgrep
-    # Vector databases & search
-    - qdrant
-    - sqlite-vec
-    # Language Server Protocols (LSPs)
-    - rust-analyzer
-    - gopls
-    - clangd
-    - zls
-    # VCS & language runtimes
-    - git
-    - ruby
-    # Source control & forge CLIs
-    - gh
-    - glab
-    - tea
-    - az
-    - cafe
-    # Agent control panels
-    - t3
-    # Graphical & browser tools
-    - chromium
-    # Coding agent runtimes
-    - opencode
-    - antigravity
-    - claude-code
+packages:
+  # Build compilers & linkers
+  - go
+  - rust
+  - mold
+  # Search & AST code intelligence
+  - ripgrep
+  - fd
+  - ast-grep
+  - tree-sitter-cli
+  - colgrep
+  # Vector databases & search
+  - qdrant
+  - sqlite-vec
+  # Language Server Protocols (LSPs)
+  - rust-analyzer
+  - gopls
+  - clangd
+  - zls
+  # VCS & language runtimes
+  - git
+  - ruby
+  # Source control & forge CLIs
+  - gh
+  - glab
+  - tea
+  - az
+  - cafe
+  # Agent control panels
+  - t3
+  # Graphical & browser tools
+  - chromium
+  # Coding agent runtimes
+  - opencode
+  - antigravity
+  - claude-code
 ```
 
-**Available tools:**
+**Available packages:**
 - **Compilers & Linkers:**
     - `go`: Official Go toolchain (provides `/usr/local/bin/go`, `gofmt`).
     - `rust`: Official Rust toolchain (provides `/usr/local/bin/rustc`, `cargo`, `rustfmt`).
@@ -749,8 +746,8 @@ tools:
     - `qdrant`: Embedded Rust vector database with SIMD distance metrics (provides `/usr/local/bin/qdrant`).
     - `sqlite-vec`: Native C SIMD vector search extension for SQLite (provides `/usr/local/lib/sqlite/vec0.so`).
 - **Language Server Protocols (LSPs):**
-    - `rust-analyzer`: Official Rust language server built against builder's Rust 1.97 and glibc (provides `/usr/local/bin/rust-analyzer`).
-    - `gopls`: Official Go language server built natively with builder's Go 1.26 (provides `/usr/local/bin/gopls`).
+    - `rust-analyzer`: Official Rust language server built against Rust 1.97 and glibc (provides `/usr/local/bin/rust-analyzer`).
+    - `gopls`: Official Go language server built natively with Go 1.26 (provides `/usr/local/bin/gopls`).
     - `clangd`: C/C++ language server from LLVM (provides `/usr/local/bin/clangd`).
     - `zls`: Official Zig language server (provides `/usr/local/bin/zls`).
 - **VCS & Language Runtimes:**
@@ -772,7 +769,7 @@ tools:
     - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (provides `/usr/local/bin/antigravity`, `/usr/local/bin/agy`, `/usr/local/bin/agy_acp_server.par`).
     - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (provides `/usr/local/bin/claude`, `/usr/local/bin/claude-code`).
 
-When `tools.include` is non-empty, pa-container builds or reuses the required tool images and layers them into a project-specific container image in seconds.
+When `packages` is non-empty, pa-container builds or reuses the required package images and layers them into a project-specific container image in seconds.
 
 ### Coding agent configuration (`agents:`)
 
@@ -996,7 +993,7 @@ Project-specific setup is defined in two files under `.pa-container/dependencies
 
 | File | Privilege | Runs | Purpose |
 |------|-----------|------|---------|
-| `.pa-container/dependencies/root/commands.sh` | root | **Build time** | Install system packages (`apt-get`), npm globals, and system config (baked into image) |
+| `.pa-container/dependencies/root/commands.sh` | root | **Build time** | Install system packages (`microdnf`), npm globals, and system config (baked into image) |
 | `.pa-container/dependencies/agent/commands.sh` | agent | **Runtime** (via entrypoint) | Init venvs, clone repos, and workspace setup (runs against bind-mounted workspace) |
 
 **Example `root/commands.sh`:**
@@ -1004,9 +1001,8 @@ Project-specific setup is defined in two files under `.pa-container/dependencies
 #!/bin/bash
 set -e
 # Install system packages
-apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libavcodec-extra
+microdnf install -y \
+    ffmpeg
 
 # Install npm globals
 npm install -g typescript
@@ -1033,7 +1029,7 @@ git clone https://github.com/example/repo.git
 
 **Why two execution times?**
 
-- `root/commands.sh` runs at **build time** because it installs system-wide packages (apt, npm globals) that belong in the image. These persist across container runs.
+- `root/commands.sh` runs at **build time** because it installs system-wide packages (microdnf, npm globals) that belong in the image. These persist across container runs.
 - `agent/commands.sh` runs at **runtime** because it creates workspace-local artifacts (venvs, cloned repos) in the bind-mounted workspace. If these were created at build time, they would be hidden by the bind mount at runtime.
 
 **Image caching and cleanup:**
@@ -1043,17 +1039,17 @@ Project-specific images are cached and reused across runs. pa-container computes
 - `.pa-container/dependencies/agent/commands.sh` (if it exists and is non-empty)
 - `coding-agent/Containerfile` (always)
 - `coding-agent/entrypoint.sh` (always)
-
-The toolchain (`coding-agent-builder/`) is deliberately **not** hashed. The project image consumes it as a built image, not as source. What invalidates a project image there is the builder image's **build time** (see below).
+- Active Agent Capability Packages (`packages: [...]`)
+- Desktop GUI state (`desktop.enabled`)
 
 The hash is stored as the `pa-container.hash` label on the image. The image tag is `pa-container-project-<project-hash>-<image-hash>.local`, where:
 - `<project-hash>` is the first 10 characters of `SHA-256(str(project_dir.resolve()))` — the same hash used for proxy and network naming (`pa-container-proxy-<hash>`, `pa-container-isolated-net-<hash>`).
-- `<image-hash>` is the first 16 characters of the content digest computed from `root/commands.sh`, `agent/commands.sh`, `Containerfile`, and `entrypoint.sh`.
+- `<image-hash>` is the first 16 characters of the content digest computed from `root/commands.sh`, `agent/commands.sh`, definition files, and active packages.
 
 On each run, pa-container:
 1. Enumerates all existing project-specific images (those with the `pa-container.type=project` label).
 2. Removes any images whose `pa-container.project.hash` matches this project but whose `pa-container.hash` differs from the current content hash.
-3. Compares the image's `pa-container.build.time` against the newest build time of the two images it copies content from. These are `pa-container-agent-proxy:local` (the mitmproxy CA certificate) and `pa-container-agent-builder:local` (the toolchain). If either is newer, the copy is stale and the image is rebuilt.
+3. Compares the image's `pa-container.build.time` against the newest build time of `pa-container-agent-proxy:local` (the mitmproxy CA certificate). If the proxy is newer, the image is rebuilt.
 4. If no image matches the current hash, builds a new one.
 5. If an image already matches and is not stale, uses it (no rebuild).
 
@@ -1109,7 +1105,7 @@ The `build_project_image()` function in `src/build.py` accepts the following par
 
 **Key principles:**
 
-- The shared base image carries the language runtimes and tooling every workspace needs: **Node 26**, **CPython 3.14 with `uv`**, the nested-container toolchain (**podman**, `netavark`, `aardvark-dns`), and `podman-compose`. All of those are compiled in the [toolchain builder image](design-details.md#toolchain-builder-image) and copied in. Anything beyond that is project-specific and belongs in `root/commands.sh`.
+- The shared base image carries the language runtimes and tooling every workspace needs: **Node 26**, **CPython 3.15 with `uv`**, the nested-container toolchain (**podman**, `netavark`, `aardvark-dns`), and `podman-compose`. All of those are compiled in the [toolchain builder image](design-details.md#toolchain-builder-image) and copied in. Anything beyond that is project-specific and belongs in `root/commands.sh`.
 - None of it is per-project. Building Python in `root/commands.sh` meant a workspace that left the file at its no-op default had no interpreter at all. Every project-image rebuild recompiled CPython (the slowest and most OOM-prone step in the build). A project-image rebuild now compiles nothing. It copies a prebuilt tree.
 - Both files are optional. If absent, the workspace uses the shared image.
 - Changes to definition files trigger a rebuild on the next `pa run` invocation (detected via image label comparison). Old images are removed automatically.
@@ -1125,7 +1121,7 @@ Current default rules allow:
 - **npm**: `registry.npmjs.org`, `*.npmjs.org`
 - **GitHub**: `github.com`, `api.github.com`, `codeload.github.com`, `objects.githubusercontent.com`, and related subdomains
 - **Yarn**: `registry.yarnpkg.com`
-- **Debian apt**: `deb.debian.org`, `security.debian.org`, `packages.debian.org`
+- **Fedora dnf**: `fedoraproject.org`, `*.fedoraproject.org`, `fedorahosted.org`, `*.fedorahosted.org`
 
 Add new rules for any additional hostnames the agent needs to reach (e.g. internal APIs, private package registries).
 

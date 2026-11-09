@@ -1,15 +1,15 @@
 ---
 name: upgrade-toolchains
-description: Audits and upgrades source-compiled tools and runtimes in coding-agent-builder (Go, Rust, Node, Python, mold, git, ripgrep, AST/LSP tools, vector DBs) to their latest upstream releases. Use when the user asks to "check for tool updates", "upgrade toolchains", "update ripgrep/mold/git", or "upgrade all tools".
+description: Audits and upgrades tools and runtimes in Agent Capability Packages (Go, Rust, Node, Python, mold, git, ripgrep, AST/LSP tools, vector DBs) to their latest upstream releases. Use when the user asks to "check for tool updates", "upgrade toolchains", "update ripgrep/mold/git", or "upgrade all tools".
 ---
 
-# Upgrade Toolchains and Source-Built Runtimes
+# Upgrade Toolchains and Agent Capability Packages
 
 ## When to Use
 
-Use this skill whenever the user asks to inspect, audit, or upgrade any of the tools or runtimes built from source in `coding-agent-builder`. Examples:
+Use this skill whenever the user asks to inspect, audit, or upgrade any of the tools or runtimes in `packages/`. Examples:
 - "Check for toolchain updates"
-- "Are any of our source-built tools outdated?"
+- "Are any of our packages outdated?"
 - "Upgrade ripgrep to the latest version"
 - "Upgrade mold and git"
 - "Upgrade all LSPs"
@@ -30,7 +30,7 @@ Use this skill whenever the user asks to inspect, audit, or upgrade any of the t
 
 ### 1. Audit Available Upgrades (Read-Only)
 
-To audit all 20+ tools and print an aligned comparison table showing Current vs. Upstream releases:
+To audit all 30+ packages and print an aligned comparison table showing Current vs. Upstream releases:
 
 ```bash
 uv run python3 .pi/skills/upgrade-toolchains/scripts/check_upgrades.py --check
@@ -40,7 +40,7 @@ Present the table to the user and highlight which tools have available upgrades.
 
 ### 2. Upgrading a Specific Tool
 
-To upgrade a single tool (e.g. `mold`):
+To upgrade a single package (e.g. `mold`):
 
 ```bash
 uv run python3 .pi/skills/upgrade-toolchains/scripts/check_upgrades.py --upgrade mold --verify
@@ -48,8 +48,8 @@ uv run python3 .pi/skills/upgrade-toolchains/scripts/check_upgrades.py --upgrade
 
 The script will:
 - Query upstream git tags/manifests to resolve the latest version and peeled commit hash.
-- Update the corresponding `ARG MOLD_VERSION=...` and `ARG MOLD_COMMIT=...` in `coding-agent-builder/Containerfile`.
-- Execute `src/tests/test_build.py` (`TestToolchainPinsAreDeclared`) to guarantee all pin contracts are preserved.
+- Update the corresponding version and checksums in `packages/<tool>/package.yaml`.
+- Execute `src/tests/test_packages.py` and `src/tests/test_build.py` to guarantee all package contracts are preserved.
 
 ### 3. Upgrading a Functional Group
 
@@ -68,14 +68,13 @@ uv run python3 .pi/skills/upgrade-toolchains/scripts/check_upgrades.py --upgrade
 ### 5. Verification & Pre-Commit Checks
 
 After applying upgrades:
-1. Verify contract tests pass:
+1. Verify package validation tests pass:
     ```bash
-    uv run pytest src/tests/test_build.py -k TestToolchainPinsAreDeclared
+    uv run pytest src/tests/test_packages.py src/tests/test_build.py -k TestPackageManifestsAreValid
     ```
-2. Verify builder target compilation (e.g. for `sqlite-vec` or the upgraded tool):
+2. Verify package container build (e.g. for the upgraded tool):
     ```bash
-    podman build --target stage-<tool> -t pa-container-agent-tool-<tool>:test -f coding-agent-builder/Containerfile .
-    podman rmi pa-container-agent-tool-<tool>:test
+    pa build --packages <tool>
     ```
 3. Run all workspace pre-commit checks:
     ```bash
@@ -83,15 +82,15 @@ After applying upgrades:
     ```
 4. Commit the changes:
     ```bash
-    git add coding-agent-builder/Containerfile
-    git commit -m "chore(toolchains): upgrade <tool> to <new_version>"
+    git add packages/<tool>/package.yaml
+    git commit -m "chore(packages): upgrade <tool> to <new_version>"
     ```
 
 ## Error Handling & Safety
 
-- **Pin mismatch failure**: If `test_build.py` fails after an upgrade, a build script requires an environment variable that was not updated or vice versa. The upgrade script will automatically revert `Containerfile` if `--verify` fails.
+- **Manifest validation failure**: If `test_packages.py` fails after an upgrade, verify the `package.yaml` syntax matches schema.
 - **Rollback**: To discard changes before committing:
     ```bash
-    git checkout coding-agent-builder/Containerfile
+    git checkout packages/<tool>/package.yaml
     ```
 

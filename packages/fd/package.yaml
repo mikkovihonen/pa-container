@@ -1,0 +1,27 @@
+schema_version: "2.0.0"
+name: "fd"
+version: "10.5.1"
+description: "Simple, fast and user-friendly alternative to find"
+category: "search"
+license: "MIT OR Apache-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "cargo"
+        - "rust"
+        - "gcc"
+        - "git"
+    env:
+        FD_VERSION: "v10.5.1"
+        FD_COMMIT: "193d0df1d0ad455e44506953a2cd80428203ff35"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "fd --version"
+    expected_output_contains: "10.5"

@@ -1,0 +1,47 @@
+schema_version: "2.0.0"
+name: "python"
+version: "3.15.2"
+description: "CPython 3.15.2 runtime with uv, pip, and podman-compose"
+category: "runtimes"
+license: "PSF-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "gcc"
+        - "make"
+        - "bzip2-devel"
+        - "libffi-devel"
+        - "gdbm-devel"
+        - "xz-devel"
+        - "ncurses-devel"
+        - "readline-devel"
+        - "sqlite-devel"
+        - "openssl-devel"
+        - "libuuid-devel"
+        - "libzstd-devel"
+        - "zlib-devel"
+    env:
+        PYTHON_VERSION: "3.15.2"
+        PYTHON_SHA256: "f74e1db0eabd651cd01e4e2a00201bd41866abe74869ab716f9bf33cbbaa0943"
+        UV_VERSION: "0.13.7"
+        PODMAN_COMPOSE_VERSION: "1.6.0"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+runtime:
+    env:
+        UV_SYSTEM_CERTS: "1"
+
+egress:
+    allow_hosts:
+        - "pypi.org"
+        - "files.pythonhosted.org"
+
+verification:
+    command: "python3 --version"
+    expected_output_contains: "Python 3.15"

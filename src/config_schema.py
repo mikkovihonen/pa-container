@@ -35,29 +35,26 @@ SCHEMA_VERSION_MISMATCH = "schema_version mismatch"
 
 # ─── Validation ─────────────────────────────────────────────────────────────
 # All helpers are imported from ``schema_common.py``.
-from toolchains import AVAILABLE_TOOLS
+from packages import discover_packages
 
 
-def _validate_tools(data: dict[str, Any]) -> list[str]:
-    """Validate tools.include items against AVAILABLE_TOOLS."""
+def _validate_packages(data: dict[str, Any]) -> list[str]:
+    """Validate packages list against discovered Agent Capability Packages."""
     errors: list[str] = []
-    tools_section = data.get("tools")
-    if not isinstance(tools_section, dict):
+    packages_list = data.get("packages")
+    if packages_list is None:
+        return errors
+    if not isinstance(packages_list, list):
+        errors.append(f"  packages: expected list, got {type(packages_list).__name__} (value: {packages_list!r})")
         return errors
 
-    include = tools_section.get("include")
-    if include is None:
-        return errors
-    if not isinstance(include, list):
-        errors.append(f"  tools.include: expected list, got {type(include).__name__} (value: {include!r})")
-        return errors
-
-    for item in include:
+    available_packages = set(discover_packages().keys())
+    for item in packages_list:
         if not isinstance(item, str):
-            errors.append(f"  tools.include: expected string tool name, got {type(item).__name__} (value: {item!r})")
-        elif item not in AVAILABLE_TOOLS:
+            errors.append(f"  packages: expected string package name, got {type(item).__name__} (value: {item!r})")
+        elif item not in available_packages:
             errors.append(
-                f"  tools.include: unknown tool '{item}'. Available tools: {', '.join(sorted(AVAILABLE_TOOLS))}"
+                f"  packages: unknown package '{item}'. Available packages: {', '.join(sorted(available_packages))}"
             )
     return errors
 
@@ -112,10 +109,10 @@ def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
     if schema_errors:
         errors.extend(schema_errors)
 
-    # Validate tools
-    tool_errors = _validate_tools(data)
-    if tool_errors:
-        errors.extend(tool_errors)
+    # Validate packages
+    package_errors = _validate_packages(data)
+    if package_errors:
+        errors.extend(package_errors)
 
     # Validate agents
     agent_errors = _validate_agents(data)

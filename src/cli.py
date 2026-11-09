@@ -101,7 +101,7 @@ class InitOptions(GlobalCliOptions):
 class BuildOptions(GlobalCliOptions):
     """Options for the 'build' subcommand."""
 
-    tools: str | None = None
+    packages: str | None = None
     llama: bool = False
     llama_latest: bool = False
     llama_tag: str | None = None
@@ -289,12 +289,12 @@ def create_parser() -> argparse.ArgumentParser:
     build_parser = subparsers.add_parser(
         "build",
         parents=[common_parser],
-        help="Build container images, toolchains, or local llama-server.",
-        description="Compile local toolchains, agent images, proxy images, or llama-server.",
+        help="Build container images, packages, or local llama-server.",
+        description="Compile local packages, agent images, proxy images, or llama-server.",
     )
     build_parser.add_argument(
-        "--tools",
-        help="Comma-separated list of on-demand toolchains to compile (or 'all').",
+        "--packages",
+        help="Comma-separated list of Agent Capability Packages to compile (or 'all').",
     )
     build_parser.add_argument(
         "--llama",
@@ -577,7 +577,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             log_level=log_level,
             log_file=log_file,
             no_color=no_color,
-            tools=getattr(args, "tools", None),
+            packages=getattr(args, "packages", None),
             llama=getattr(args, "llama", False),
             llama_latest=getattr(args, "llama_latest", False),
             llama_tag=getattr(args, "llama_tag", None),

@@ -53,9 +53,9 @@ The key components of the system are
 
 1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pa-container/models.yaml` and resolved against host model definitions at `~/.config/pa-container/models/<model-id>.yaml` or gateways at `~/.config/pa-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/project/` template and default model definitions from `coding-agent/default/global/models/` on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
 
-2. **`pa-container-agent-proxy`** (container): A transparent proxy container based on Debian with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that redacts API keys, bearer tokens, cookies, and JWTs. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
+2. **`pa-container-agent-proxy`** (container): A transparent proxy container based on Fedora Minimal with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that redacts API keys, bearer tokens, cookies, and JWTs. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
 
-3. **`pa-container-agent`** (container): The main agent container. The system builds it from `debian:trixie-slim`. It includes Node 26, Python 3.14.6, `uv` for dependency management, and (for nested containers) rootless podman plus `podman-compose`. The [toolchain builder image](design-details.md#toolchain-builder-image) compiles all of these from source and copies them in. No workspace needs to install them. The agent connects **only** to an internal `isolated-net` network. Its default route and DNS point at the proxy so all traffic goes through it. The proxy reaches the host `llama-server` via `host.containers.internal` on podman for macOS or directly on Linux. This requires no socat. With `nested_containers.enabled`, the agent runs its own rootless podman inside itself. Those containers live in the agent's namespaces. Their traffic also goes through the proxy (see [Nested containers](design-details.md#nested-containers)).
+3. **`pa-container-agent`** (container): The main agent container. The system builds it from Fedora Minimal (`registry.fedoraproject.org/fedora-minimal:45`). It includes Node 26, Python 3.15.2, `uv` for dependency management, and (for nested containers) rootless podman plus `podman-compose`. Agent Capability Packages in `packages/` provide discrete, self-contained capability layers composed dynamically via `COPY --from=pa-container-pkg-<name>:local / /`. No workspace needs to install them. The agent connects **only** to an internal `isolated-net` network. Its default route and DNS point at the proxy so all traffic goes through it. The proxy reaches the host `llama-server` via `host.containers.internal` on podman for macOS or directly on Linux. This requires no socat. With `nested_containers.enabled`, the agent runs its own rootless podman inside itself. Those containers live in the agent's namespaces. Their traffic also goes through the proxy (see [Nested containers](design-details.md#nested-containers)).
 
 <a name="network-topology"></a>
 ## Networking
@@ -160,18 +160,16 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │       ├── test_volumes.py
 │       └── test_yaml_strict.py
 │
-├── coding-agent-builder/          # Toolchain builder image (not shipped; agent + proxy COPY --from it)
-│   ├── Containerfile                 # EVERY version/commit/sha pin (as ARGs) + one stage per component
-│   ├── common.sh                     # Verified fetch/clone, required-ARG check, memory-capped jobs, manifest
-│   ├── build-node.sh                 # Node 26 (official tarball, or from source; replaces the node: image)
-│   ├── build-python.sh               # CPython 3.14 (from source, PGO) + uv + podman-compose
-│   ├── build-go.sh                   # Go compiler toolchain (verified official tarball, staged)
-│   ├── build-rust.sh                 # Rust toolchain (verified official installer, staged)
-│   ├── build-podman.sh               # podman 6.x with an explicit BUILDTAGS set (not Debian's 5.4)
-│   └── build-network.sh              # netavark + aardvark-dns 2.0 (the pair podman 6 requires)
+├── packages/                      # Agent Capability Packages (ACPs)
+│   ├── podman/                       # Podman 6.x nested container engine + Netavark/Aardvark
+│   ├── python/                       # CPython 3.15 (from source, PGO) + uv + podman-compose
+│   ├── node/                         # Node.js 26 binary distribution
+│   ├── go/                           # Go compiler toolchain
+│   ├── rust/                         # Rust compiler toolchain
+│   └── .../                          # 31 packages with package.yaml, skill, MCP, and build recipes
 │
 ├── coding-agent/                  # Main agent container
-│   ├── Containerfile                 # Image definition (apt, toolchain COPY, pi, /etc/containers, CA)
+│   ├── Containerfile                 # Fedora Minimal base definition (microdnf, subuid, CA)
 │   ├── entrypoint.sh                 # Container entrypoint (default route via proxy, git config, uv venv)
 │   └── default/                      # Seed templates (global and project configurations)
 │       ├── global/                   # Seed template for ~/.config/pa-container/

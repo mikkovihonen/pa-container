@@ -120,20 +120,21 @@ allow:
 
 ---
 
-## On-Demand Toolchain Staging
+## Agent Capability Packages (ACPs)
 
-Agent toolchains are packaged as independent recipes in `coding-agent-builder/tools/`:
+Agent runtimes are packaged as independent Agent Capability Packages in `packages/`:
 
-- `coding-agent-builder/tools/opencode/build.sh`
-- `coding-agent-builder/tools/antigravity/build.sh`
-- `coding-agent-builder/tools/claude-code/build.sh`
+- `packages/opencode/package.yaml`
+- `packages/antigravity/package.yaml`
+- `packages/claude-code/package.yaml`
+- `packages/pi/package.yaml`
 
-Each recipe verifies SHA256 checksums across both `amd64` and `arm64` architectures and exports a standalone scratch stage (`stage-<tool>`).
+Each package defines its binary payloads, skills (`skill/SKILL.md`), MCP server configurations, egress allowlists, and verification commands.
 
 When an agent is selected:
-1. `pa-container` checks if the tool image `localhost/pa-container-agent-tool-<agent>:local` exists and matches the content hash of the recipe.
-2. If absent or stale, the tool image is built in seconds.
-3. The tool image is layered into the project-specific agent container image via build-contexts (`--build-context tool_<agent>=docker-image://...`).
+1. `pa-container` checks if the capability image `pa-container-pkg-<agent>:local` exists and matches the content hash of the package directory.
+2. If absent or stale, the package image is built automatically.
+3. The package image is dynamically composed into the project-specific agent container image via `COPY --from=pa-container-pkg-<agent>:local / /`.
 
 ---
 
@@ -142,9 +143,7 @@ When an agent is selected:
 New agents can be integrated into `pa-container` by creating a new `AgentDriver` subclass:
 
 1. Create a driver class inheriting from `agents.base.AgentDriver`:
-    - Implement `name`, `required_tools`, `get_mounts()`, `get_command()`, and `synthesize_config()`.
+    - Implement `name`, `required_packages`, `get_mounts()`, `get_command()`, and `synthesize_config()`.
 2. Register the driver in `src/agents/__init__.py`:
     - Add the class to `_DRIVERS`.
-3. Add the packaging recipe in `coding-agent-builder/tools/<tool>/build.sh`.
-4. Register the tool in `src/toolchains.py`:
-    - Add tool identifier to `ON_DEMAND_TOOLS`.
+3. Add the capability package in `packages/<pkg>/package.yaml` and `packages/<pkg>/skill/SKILL.md`.

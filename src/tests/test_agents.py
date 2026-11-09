@@ -79,7 +79,7 @@ def test_get_agent_driver():
 def test_pi_driver_contracts(tmp_path):
     driver = PiAgentDriver()
     assert driver.name == "pi"
-    assert driver.required_tools == ["pi"]
+    assert driver.required_packages == ["pi"]
     assert driver.get_command(["--foo", "bar"]) == ["--foo", "bar"]
     assert driver.get_environment() == {}
     meta = driver.get_t3_metadata()
@@ -122,7 +122,7 @@ def test_pi_driver_contracts(tmp_path):
 def test_opencode_driver_contracts(tmp_path):
     driver = OpenCodeDriver()
     assert driver.name == "opencode"
-    assert driver.required_tools == ["opencode"]
+    assert driver.required_packages == ["opencode"]
     assert driver.get_command(["run", "main.py"]) == ["run", "main.py"]
     assert driver.get_environment() == {}
     meta = driver.get_t3_metadata()
@@ -167,7 +167,7 @@ def test_opencode_driver_contracts(tmp_path):
 def test_antigravity_driver_contracts(tmp_path):
     driver = AntigravityDriver()
     assert driver.name == "antigravity"
-    assert driver.required_tools == ["antigravity"]
+    assert driver.required_packages == ["antigravity"]
     assert driver.get_command(["--goal", "audit"]) == ["--goal", "audit"]
     assert driver.get_environment()["GEMINI_API_KEY"] == "GEMINI_API_KEY_PLACEHOLDER"
     meta = driver.get_t3_metadata()
@@ -258,7 +258,7 @@ def test_antigravity_driver_contracts(tmp_path):
 def test_claude_driver_contracts(tmp_path):
     driver = ClaudeDriver()
     assert driver.name == "claude"
-    assert driver.required_tools == ["claude-code"]
+    assert driver.required_packages == ["claude-code"]
     assert driver.get_command(["-p", "hello"]) == ["-p", "hello"]
     env = driver.get_environment()
     assert env["ANTHROPIC_API_KEY"] == "ANTHROPIC_API_KEY_PLACEHOLDER"

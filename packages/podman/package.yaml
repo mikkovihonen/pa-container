@@ -1,0 +1,70 @@
+schema_version: "2.0.0"
+name: "podman"
+version: "6.1.4"
+description: "Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, and Docker CLI wrapper"
+category: "virtualization"
+license: "Apache-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "cargo"
+        - "rust"
+        - "make"
+        - "gcc"
+        - "libseccomp-devel"
+        - "sqlite-devel"
+        - "protobuf-compiler"
+    env:
+        PODMAN_VERSION: "v6.1.4"
+        PODMAN_COMMIT: "464c15fec06f0074c916f9eff87c4806869c2833"
+        NETAVARK_VERSION: "v2.1.0"
+        NETAVARK_COMMIT: "8e91ad1d947ed325327b638f0cb906bea1f7d0ab"
+        NETAVARK_VENDOR_SHA256: "532779573b7f4c2606e43f8471132bb9072417feed9ee06a4e309cf3fa066ab8"
+        AARDVARK_VERSION: "v2.1.0"
+        AARDVARK_COMMIT: "cd7417681229219059939bdd9f0b3bd9ac9abb08"
+        AARDVARK_VENDOR_SHA256: "6e6366828d4cd2ccf3cfe07657d8aba083045605696b4f74967c2c8340f51500"
+        BUILDTAGS: "seccomp libsqlite3 containers_image_openpgp exclude_graphdriver_btrfs grpcnotrace"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+mcp:
+    enabled: true
+    server_id: "docker"
+    transport: "stdio"
+    command: "/usr/local/bin/podman"
+    args: ["system", "service", "--time=0"]
+
+runtime:
+    nested_containers: true
+    subuid_ranges:
+        - "agent:1:999"
+        - "agent:1001:64535"
+    file_caps:
+        - path: "/usr/bin/newuidmap"
+          cap: "cap_setuid+ep"
+        - path: "/usr/bin/newgidmap"
+          cap: "cap_setgid+ep"
+    shadow_paths:
+        - "/home/agent/.local/share/containers"
+    env:
+        PA_CONTAINER_NESTED: "true"
+        CONTAINERS_CONF: "/etc/containers/containers.conf.d/50-pa-container.conf"
+
+egress:
+    allow_hosts:
+        - "docker.io"
+        - "registry-1.docker.io"
+        - "auth.docker.io"
+        - "production.cloudflare.docker.com"
+        - "quay.io"
+        - "ghcr.io"
+        - "pkg-containers.githubusercontent.com"
+
+verification:
+    command: "podman --version"
+    expected_output_contains: "podman version 6.1"

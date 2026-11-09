@@ -1,0 +1,25 @@
+schema_version: "2.0.0"
+name: "tea"
+version: "0.16.0"
+description: "Command line tool to interact with Gitea instances"
+category: "devtools"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "curl"
+    env:
+        TEA_VERSION: "0.16.0"
+        TEA_SHA256_AMD64: "9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636"
+        TEA_SHA256_ARM64: "0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "tea --version"
+    expected_output_contains: "tea version 0.16"

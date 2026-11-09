@@ -24,7 +24,7 @@ class PiAgentDriver(AgentDriver):
         return "pi"
 
     @property
-    def required_tools(self) -> list[str]:
+    def required_packages(self) -> list[str]:
         return ["pi"]
 
     def get_command(self, cli_args: list[str]) -> list[str]:

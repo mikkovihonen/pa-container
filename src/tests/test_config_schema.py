@@ -757,15 +757,14 @@ class TestSecuritySchema:
         assert any("blocked_mount_paths" in e for e in errors)
 
 
-class TestToolsSchema:
-    def test_valid_tools_section(self, valid_config: Path):
-        from config_schema import AVAILABLE_TOOLS, validate_config
+class TestPackagesSchema:
+    def test_valid_packages_section(self, valid_config: Path):
+        from config_schema import validate_config
+        from packages import discover_packages
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["tools"] = {
-            "include": sorted(AVAILABLE_TOOLS),
-        }
+        data["packages"] = sorted(discover_packages().keys())
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -773,14 +772,12 @@ class TestToolsSchema:
         assert is_valid is True
         assert errors == []
 
-    def test_empty_tools_include(self, valid_config: Path):
+    def test_empty_packages(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["tools"] = {
-            "include": [],
-        }
+        data["packages"] = []
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -788,44 +785,38 @@ class TestToolsSchema:
         assert is_valid is True
         assert errors == []
 
-    def test_unknown_tool_rejected(self, valid_config: Path):
+    def test_unknown_package_rejected(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["tools"] = {
-            "include": ["unknown_lang"],
-        }
+        data["packages"] = ["unknown_pkg"]
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("unknown tool 'unknown_lang'" in e for e in errors)
+        assert any("unknown package 'unknown_pkg'" in e for e in errors)
 
-    def test_invalid_tools_types(self, valid_config: Path):
+    def test_invalid_packages_types(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["tools"] = {
-            "include": "not_a_list",
-        }
+        data["packages"] = "not_a_list"
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("tools.include" in e for e in errors)
+        assert any("packages: expected list" in e for e in errors)
 
-        data["tools"] = {
-            "include": [123],
-        }
+        data["packages"] = [123]
         valid_config.write_text(yaml.dump(data))
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("expected string tool name" in e for e in errors)
+        assert any("expected string package name" in e for e in errors)
 
     def test_duplicate_key_error_handling(self, tmp_path: Path):
         from config_schema import validate_config

@@ -33,15 +33,11 @@ updates:
       github-actions:
         patterns: ["*"]
 
-  # Base images in the three Containerfiles. Dependabot's docker file fetcher
+  # Base images in the Containerfiles. Dependabot's docker file fetcher
   # matches /dockerfile|containerfile/i, so `Containerfile` is picked up as-is.
-  # Note: the current FROM lines use the floating `debian:trixie-slim` tag, which
-  # has no version for Dependabot to compare against — this entry stays quiet
-  # until an image is pinned to a specific tag or digest.
   - package-ecosystem: "docker"
     directories:
       - "/coding-agent"
-      - "/coding-agent-builder"
       - "/coding-agent-proxy"
     schedule:
       interval: "weekly"

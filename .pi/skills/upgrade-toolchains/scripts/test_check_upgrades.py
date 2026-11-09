@@ -72,7 +72,7 @@ ARG QUOTED_VAL="test-1.0"
             "AARDVARK_VERSION": "v1.14.0",
             "COLGREP_VERSION": "v0.1.0",
             "SQLITE_VEC_VERSION": "v0.1.6",
-            "PYTHON_VERSION": "3.14.6",
+            "PYTHON_VERSION": "3.15.2",
             "PI_VERSION": "1.5.0",
             "OPENCODE_VERSION": "2.2.5",
             "CLAUDE_CODE_VERSION": "2.1.319",
@@ -85,7 +85,7 @@ ARG QUOTED_VAL="test-1.0"
         self.assertEqual(get_current_tool_version("aardvark-dns", args), "v1.14.0")
         self.assertEqual(get_current_tool_version("colgrep", args), "v0.1.0")
         self.assertEqual(get_current_tool_version("sqlite-vec", args), "v0.1.6")
-        self.assertEqual(get_current_tool_version("python", args), "3.14.6")
+        self.assertEqual(get_current_tool_version("python", args), "3.15.2")
         self.assertEqual(get_current_tool_version("pi", args), "1.5.0")
         self.assertEqual(get_current_tool_version("opencode", args), "2.2.5")
         self.assertEqual(get_current_tool_version("claude-code", args), "2.1.319")
@@ -258,11 +258,12 @@ class TestGroupsAndResolvers(unittest.TestCase):
         args = read_containerfile_args(CONTAINERFILE)
         version_args = [k for k in args if k.endswith("_VERSION")]
 
-        # Companion tools resolved jointly with their parent tool:
+        # Companion tools resolved jointly with their parent tool or internal capabilities:
         # ZIG_VERSION -> resolved by zls
         # AZURE_DEVOPS_VERSION -> resolved by az
         # BUN_VERSION -> resolved by cafe
-        companion_args = {"ZIG_VERSION", "AZURE_DEVOPS_VERSION", "BUN_VERSION"}
+        # VIRTUAL_DESKTOP_VERSION -> internal platform package
+        companion_args = {"ZIG_VERSION", "AZURE_DEVOPS_VERSION", "BUN_VERSION", "VIRTUAL_DESKTOP_VERSION"}
 
         # Tools with non-standard version ARG naming:
         special_names = {
@@ -376,15 +377,15 @@ class TestAgentResolvers(unittest.TestCase):
         import json
         from upstreams.language_manifests import resolve_python
 
-        eol_json = json.dumps([{"cycle": "3.14", "latest": "3.14.6"}]).encode("utf-8")
+        eol_json = json.dumps([{"cycle": "3.15", "latest": "3.15.2"}]).encode("utf-8")
         mock_fetch.return_value = eol_json
         mock_args.return_value = {
-            "PYTHON_VERSION": "3.14.6",
+            "PYTHON_VERSION": "3.15.2",
             "PYTHON_SHA256": "pysha256",
         }
         info = resolve_python()
         self.assertEqual(info.tool, "python")
-        self.assertEqual(info.version, "3.14.6")
+        self.assertEqual(info.version, "3.15.2")
         self.assertEqual(info.args["PYTHON_SHA256"], "pysha256")
 
 

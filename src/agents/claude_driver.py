@@ -28,7 +28,7 @@ class ClaudeDriver(AgentDriver):
         return "claude"
 
     @property
-    def required_tools(self) -> list[str]:
+    def required_packages(self) -> list[str]:
         return ["claude-code"]
 
     def get_command(self, cli_args: list[str]) -> list[str]:

@@ -247,7 +247,7 @@ class ProjectConfig(TypedDict, total=False):
     agent: ProjectAgentSectionConfig
     security: SecurityConfig
     source_control: SourceControlConfig
-    tools: ProjectToolsConfig
+    packages: list[str]
     egress: ProjectEgressConfig
     tmpfs: ProjectTmpfsConfig
     volumes: ProjectVolumesConfig

@@ -180,24 +180,13 @@ originally promised. It is the main reason nesting must stay opt-in.
 
 ### 2. Image additions
 
-Added to `coding-agent/Containerfile`. Debian trixie supplies the parts it ships
-at a version podman 6 accepts; `podman`, `netavark` and `aardvark-dns` are compiled
-in `coding-agent-builder/` and copied in (see
-[Toolchain builder image](../design-details.md#toolchain-builder-image) — trixie's
-podman is 5.4.2 and its netavark 1.14.0, which podman 6 does not accept):
+Added to `coding-agent/Containerfile`. Fedora Minimal supplies the base runtime
+packages (`catatonit`, `conmon`, `crun`, `fuse-overlayfs`, `libcap`, `shadow-utils-subid`,
+`nftables`, `passt`); `podman`, `netavark` and `aardvark-dns` are compiled in
+the `packages/podman` ACP package and layered dynamically:
 
 ```dockerfile
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      catatonit conmon crun fuse-overlayfs libcap2-bin libseccomp2 \
-      nftables passt uidmap \
- && rm -rf /var/lib/apt/lists/*
-
-# Node + CPython/uv/podman-compose + podman + netavark + aardvark-dns, prebuilt.
-# One staged tree per component; the proxy image copies /python/ only.
-COPY --from=pa-container-agent-builder:local /python/ /
-COPY --from=pa-container-agent-builder:local /node/ /
-COPY --from=pa-container-agent-builder:local /podman/ /
-COPY --from=pa-container-agent-builder:local /network/ /
+COPY --from=pa-container-pkg-podman:local / /
 
 # Nested subordinate ID ranges for `pi` (uid 1000). These must fall INSIDE the UID
 # range the outer user namespace maps (verified: container UIDs 1..1000000). The
@@ -446,9 +435,8 @@ One operational note surfaced by the baseline. The VM has 2 GiB of RAM while the
 workload most likely to expose it.
 
 Since this design landed, **4 GB is the documented minimum** `podman machine` size. This is not for
-nesting. It is for building the images at all. The CPython compile moved into the
-shared base image. It moved into the toolchain image (`coding-agent-builder/`), which also
-compiles podman and netavark. `pa build` checks available memory
+nesting. It is for building the images at all. The CPython and Podman compiles run as
+ACP packages (`packages/python/` and `packages/podman/`). `pa build` checks available memory
 in the VM before starting a build. It refuses with the fix rather than OOM-killing the
 compiler minutes later. Enabling nesting warrants more again.
 
@@ -780,7 +768,7 @@ Each phase leaves the tree working. The security-relevant surface all lands in p
 | `src/util.py` | `validate_environment()`: podman-only. |
 | `src/schema_common.py` | `SCHEMA` gains `nested_containers` (`enabled`, `storage`, `security`). |
 | `coding-agent/Containerfile` | Nesting runtime packages; `COPY --from` the toolchain image; `/etc/subuid`/`/etc/subgid`; `setcap` on `newuidmap`/`newgidmap`; `docker` shim; `/etc/containers/{policy.json,registries.conf,containers.conf.d/50-pa-container.conf}`. |
-| `coding-agent-builder/` | **New.** Builds podman 6 (explicit `BUILDTAGS`), netavark/aardvark-dns 2.0 and CPython/uv/podman-compose from source, and stages Node 26 (official tarball by default, `NODE_SOURCE=build` to compile) — one independent stage each, under `/out`. Every version, commit and sha256 is an `ARG` in its `Containerfile`; the scripts assert them via `require_env` and default nothing. |
+| `packages/podman/` | Compiles Podman 6 (explicit nested `BUILDTAGS`), netavark/aardvark-dns and container engine configurations under `/out`. Self-contained ACP package layered dynamically via `COPY --from=pa-container-pkg-podman:local / /`. |
 | `coding-agent/entrypoint.sh` | `PA_CONTAINER_NESTED` block creating/chowning `/run/user/1000` and the store. |
 | `coding-agent/default/project/config.yaml` | New `nested_containers` section; bump `schema_version`. |
 | `coding-agent/default/project/allowlist.yaml` | Commented registry allow-rule block. |

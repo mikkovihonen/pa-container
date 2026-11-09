@@ -1,0 +1,34 @@
+schema_version: "2.0.0"
+name: "claude-code"
+version: "2.1.319"
+description: "Anthropic Claude Code agent executable and CLI"
+category: "agents"
+license: "Proprietary"
+
+payload:
+    type: binary_download
+    platforms:
+        x86_64:
+            url: "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.319.tgz"
+            sha256: "9b7b53954b8ffb886fafeefe9ef1e0e9e5c15e8aaf2f54d65ba64d0cca795dc7"
+            extract_map:
+                "package/claude": "/usr/local/bin/claude"
+        aarch64:
+            url: "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.319.tgz"
+            sha256: "f1ce44ea6a383ff39463e82906ad2d9d6fe1bc92976d2ac38da965b15a6f8036"
+            extract_map:
+                "package/claude": "/usr/local/bin/claude"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+egress:
+    allow_hosts:
+        - "api.anthropic.com"
+        - "statsig.anthropic.com"
+
+verification:
+    command: "claude --version"
+    expected_output_contains: "2.1.319"

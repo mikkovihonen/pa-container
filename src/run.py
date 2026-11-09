@@ -73,6 +73,7 @@ from network import (
     scan_tmpfs_paths,
     scan_volume_paths,
 )
+from packages import ensure_package_images
 from runtimes import PodmanRuntime
 from security import read_security_config, validate_mount_paths
 from server import Server
@@ -744,16 +745,18 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
             # ─── Resolve agent image (shared vs. project-specific) ──────
             log_drv.start_stage(LogCategory.BUILD, "Resolving agent container image")
-            driver_tools: list[str] = []
+            driver_packages: list[str] = []
             for d in selected_agent_drivers:
-                for tool in d.required_tools:
-                    if tool not in driver_tools:
-                        driver_tools.append(tool)
-            if is_t3_mode and "t3" not in driver_tools:
-                driver_tools.append("t3")
-            agent_image_tag, is_project_specific = images.resolve_agent_image(PROJECT_DIR, extra_tools=driver_tools)
+                for pkg in d.required_packages:
+                    if pkg not in driver_packages:
+                        driver_packages.append(pkg)
+            if is_t3_mode and "t3" not in driver_packages:
+                driver_packages.append("t3")
+            agent_image_tag, is_project_specific = images.resolve_agent_image(
+                PROJECT_DIR, extra_packages=driver_packages
+            )
             if is_project_specific:
-                label_hash = images.compute_image_hash(PROJECT_DIR, extra_tools=driver_tools)
+                label_hash = images.compute_image_hash(PROJECT_DIR, extra_packages=driver_packages)
                 if label_hash is None:
                     logger.error("Failed to compute project image hash")
                     sys.exit(1)
@@ -792,8 +795,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         root_commands_path = str(root_commands_file)
                     else:
                         root_commands_path = str(DEFAULT_ROOT_COMMANDS)
-                    project_tools = images.read_project_tools(PROJECT_DIR, extra_tools=driver_tools)
-                    images.ensure_tool_images(project_tools, CONTAINER_RUNTIME, repo_root=REPO_ROOT)
+                    project_packages = images.read_project_packages(PROJECT_DIR, extra_packages=driver_packages)
+                    ensure_package_images(project_packages, runtime=CONTAINER_RUNTIME, repo_root=REPO_ROOT)
                     build_project_image(
                         CONTAINER_RUNTIME,
                         root_commands_path,
@@ -802,7 +805,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         project_hash=project_hash,
                         project_path=project_path,
                         build_timestamp=images.now_iso(),
-                        tools=project_tools,
+                        packages=project_packages,
                         with_desktop=desktop_cfg["enabled"],
                     )
                     if global_config.build.prune_dangling:

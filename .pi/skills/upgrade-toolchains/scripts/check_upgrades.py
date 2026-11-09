@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Toolchain upgrade and audit automation for coding-agent-builder."""
+"""Package upgrade and audit automation for Agent Capability Packages."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ sys.dont_write_bytecode = True
 # Add scripts directory to path to import upstreams
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[3]
-BUILDER_DIR = REPO_ROOT / "coding-agent-builder"
-CONTAINERFILE = BUILDER_DIR / "Containerfile"
+PACKAGES_DIR = REPO_ROOT / "packages"
+CONTAINERFILE = PACKAGES_DIR
 
 sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -54,10 +54,33 @@ GROUPS: dict[str, list[str]] = {
 
 
 def read_containerfile_args(path: Path) -> dict[str, str]:
-    """Parse all ARG declarations from Containerfile into a dictionary."""
+    """Parse all version declarations from packages or Containerfile into a dictionary."""
+    if path.is_dir():
+        import yaml
+
+        args: dict[str, str] = {}
+        for pkg_dir in sorted(path.iterdir()):
+            manifest = pkg_dir / "package.yaml"
+            if manifest.is_file():
+                data = yaml.safe_load(manifest.read_text())
+                if isinstance(data, dict):
+                    pkg_data = data.get("package", {})
+                    v = str(pkg_data.get("version", ""))
+                    name = str(pkg_data.get("name", pkg_dir.name))
+                    if name == "tree-sitter-cli":
+                        args["TREE_SITTER_VERSION"] = v
+                    elif name == "aardvark-dns":
+                        args["AARDVARK_VERSION"] = v
+                    else:
+                        args[f"{name.replace('-', '_').upper()}_VERSION"] = v
+        return args
+    if not path.is_file():
+        target = path.parents[0] / "packages" if path.name == "Containerfile" else REPO_ROOT / "packages"
+        if target.is_dir():
+            return read_containerfile_args(target)
+        return {}
     content = path.read_text()
     args: dict[str, str] = {}
-    # Match ARG NAME=VALUE or multi-line quoted values
     pattern = re.compile(r"^ARG\s+([A-Za-z0-9_]+)=(.*)$", re.MULTILINE)
     for m in pattern.finditer(content):
         name = m.group(1).strip()

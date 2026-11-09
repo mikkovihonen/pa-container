@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import images
+import packages
 from config import PA_IMAGE_TAG
 
 sys.dont_write_bytecode = True
@@ -127,7 +128,7 @@ class TestComputeImageHash:
         result = images.compute_image_hash(repo)
         assert result is None
 
-    def test_tools_inclusion_changes_hash(self, tmp_path):
+    def test_packages_inclusion_changes_hash(self, tmp_path):
         desktop_block = "desktop:\n  enabled: false\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -136,58 +137,58 @@ class TestComputeImageHash:
         hash_none = images.compute_image_hash(repo)
         assert hash_none is not None
 
-        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go']\n" + desktop_block)
+        (cfg_dir / "config.yaml").write_text("packages: ['go']\n" + desktop_block)
         hash_go = images.compute_image_hash(repo)
         assert hash_go != hash_none
 
-        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go', 'rust']\n" + desktop_block)
+        (cfg_dir / "config.yaml").write_text("packages: ['go', 'rust']\n" + desktop_block)
         hash_go_rust = images.compute_image_hash(repo)
         assert hash_go_rust != hash_go
 
-    def test_read_project_tools(self, tmp_path):
+    def test_read_project_packages(self, tmp_path):
         repo = tmp_path / "repo"
         repo.mkdir()
-        assert images.read_project_tools(repo) == []
+        assert images.read_project_packages(repo) == []
 
         cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['rust', 'go']\n")
-        assert images.read_project_tools(repo) == ["go", "rust"]
+        (cfg_dir / "config.yaml").write_text("packages: ['rust', 'go']\n")
+        assert images.read_project_packages(repo) == ["go", "rust"]
 
         (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['opencode']\n")
-        assert images.read_project_tools(repo) == ["opencode"]
+        assert images.read_project_packages(repo) == ["opencode"]
 
         (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['antigravity']\n")
-        assert images.read_project_tools(repo) == ["antigravity"]
+        assert images.read_project_packages(repo) == ["antigravity"]
 
         (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['claude']\n")
-        assert images.read_project_tools(repo) == ["claude-code"]
+        assert images.read_project_packages(repo) == ["claude-code"]
 
         (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - pi\n")
-        assert images.read_project_tools(repo) == ["pi"]
+        assert images.read_project_packages(repo) == ["pi"]
 
         (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - opencode\n")
-        assert images.read_project_tools(repo) == ["opencode"]
+        assert images.read_project_packages(repo) == ["opencode"]
 
         (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - pi\n    - claude\n")
-        assert images.read_project_tools(repo) == ["claude-code", "pi"]
+        assert images.read_project_packages(repo) == ["claude-code", "pi"]
 
-        assert images.read_project_tools(repo, extra_tools=["opencode"]) == ["claude-code", "opencode", "pi"]
+        assert images.read_project_packages(repo, extra_packages=["opencode"]) == ["claude-code", "opencode", "pi"]
 
-    def test_resolve_agent_image_with_tools_only(self, tmp_path):
+    def test_resolve_agent_image_with_packages_only(self, tmp_path):
         desktop_block = "desktop:\n  enabled: false\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
         repo = tmp_path / "repo"
         repo.mkdir()
         tag, is_project = images.resolve_agent_image(repo)
         assert is_project is False
 
-        tag_cli, is_project_cli = images.resolve_agent_image(repo, extra_tools=["opencode"])
+        tag_cli, is_project_cli = images.resolve_agent_image(repo, extra_packages=["opencode"])
         assert is_project_cli is True
         assert "pa-container-project-" in tag_cli
 
         cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("tools:\n  include: ['go']\n" + desktop_block)
+        (cfg_dir / "config.yaml").write_text("packages: ['go']\n" + desktop_block)
         tag, is_project = images.resolve_agent_image(repo)
         assert is_project is True
         assert "pa-container-project-" in tag
@@ -272,37 +273,32 @@ class TestProxyImageIsCurrent:
         assert images.proxy_image_is_current() is True
 
 
-class TestToolImageIsCurrent:
+class TestPackageImageIsCurrent:
     def test_returns_false_when_image_missing(self, monkeypatch):
-        monkeypatch.setattr(images, "image_exists", lambda *a, **kw: False)
-        assert images.tool_image_is_current("mold") is False
-
-    def test_returns_false_when_label_missing(self, monkeypatch):
-        monkeypatch.setattr(images, "image_exists", lambda *a, **kw: True)
-        monkeypatch.setattr(images, "get_image_label", lambda *a, **kw: None)
-        assert images.tool_image_is_current("mold") is False
+        monkeypatch.setattr(
+            "packages.builder.subprocess.check_output", lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError())
+        )
+        assert packages.package_image_is_current("mold") is False
 
     def test_returns_false_when_hash_mismatch(self, monkeypatch):
-        monkeypatch.setattr(images, "image_exists", lambda *a, **kw: True)
-        monkeypatch.setattr(images, "get_image_label", lambda *a, **kw: "oldhash12345678")
-        monkeypatch.setattr("toolchains.compute_tool_hash", lambda *a, **kw: "newhash12345678")
-        assert images.tool_image_is_current("mold") is False
+        monkeypatch.setattr("packages.builder.subprocess.check_output", lambda *a, **kw: "oldhash12345678\n")
+        monkeypatch.setattr("packages.builder.compute_package_hash", lambda *a, **kw: "newhash12345678")
+        assert packages.package_image_is_current("mold") is False
 
     def test_returns_true_when_hash_matches(self, monkeypatch):
-        monkeypatch.setattr(images, "image_exists", lambda *a, **kw: True)
-        monkeypatch.setattr(images, "get_image_label", lambda *a, **kw: "matchhash123456")
-        monkeypatch.setattr("toolchains.compute_tool_hash", lambda *a, **kw: "matchhash123456")
-        assert images.tool_image_is_current("mold") is True
+        monkeypatch.setattr("packages.builder.subprocess.check_output", lambda *a, **kw: "matchhash123456\n")
+        monkeypatch.setattr("packages.builder.compute_package_hash", lambda *a, **kw: "matchhash123456")
+        assert packages.package_image_is_current("mold") is True
 
 
-class TestEnsureToolImages:
-    def test_builds_missing_on_demand_tools(self, monkeypatch):
+class TestEnsurePackageImages:
+    def test_builds_missing_on_demand_packages(self, monkeypatch):
         built = []
-        monkeypatch.setattr("build.build_tool", lambda runtime, tool: built.append(tool))
-        monkeypatch.setattr(images, "tool_image_is_current", lambda tool, **kw: tool == "git")
+        monkeypatch.setattr("packages.builder.build_package", lambda pkg, **kw: built.append(pkg))
+        monkeypatch.setattr("packages.builder.package_image_is_current", lambda pkg, **kw: pkg == "git")
 
-        images.ensure_tool_images(["mold", "git", "go"], runtime="podman")
-        assert built == ["mold"]
+        packages.ensure_package_images(["mold", "git", "go"], runtime="podman")
+        assert built == ["go", "mold"]
 
 
 class TestHasDependencyFiles:

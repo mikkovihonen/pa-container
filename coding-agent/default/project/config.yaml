@@ -69,11 +69,9 @@ desktop:
   gpu:
     enabled: auto
 
-# Toolchains staged by coding-agent-builder to include in the agent container.
-# By default, only the core baseline (Python 3.14, Node 26, Podman 6, Netavark)
-# is included. Add extra toolchains here (e.g. "go", "rust") to include them:
-tools:
-  include: []
+# Agent Capability Packages to include in the agent container.
+# Core baseline (Python 3.15, Node 26, Podman 6) is always included.
+packages: []
 
 # Supported AI coding agent engines for this workspace.
 # At least one agent must be enabled.

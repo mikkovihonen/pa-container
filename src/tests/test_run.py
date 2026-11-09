@@ -809,14 +809,14 @@ class TestT3AdvertiseHostResolution:
         res = subprocess.run(["node", "-e", node_script], capture_output=True, text=True, check=False)
         assert res.returncode == 0, f"Node script failed: {res.stderr}"
 
-    def test_agent_driver_required_tools_access(self):
-        """Verify that driver.required_tools property is accessed without being called as a function."""
+    def test_agent_driver_required_packages_access(self):
+        """Verify that driver.required_packages property is accessed without being called as a function."""
         from agents import get_agent_driver
 
         for agent_name in ("pi", "opencode", "antigravity", "claude"):
             driver = get_agent_driver(agent_name)
-            tools = driver.required_tools
-            assert isinstance(tools, list)
+            packages = driver.required_packages
+            assert isinstance(packages, list)
 
     def test_cli_agent_disabled_exits_with_error(self, tmp_path, monkeypatch):
         import yaml

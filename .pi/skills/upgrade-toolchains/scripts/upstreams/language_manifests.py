@@ -211,14 +211,15 @@ def resolve_cafe() -> ToolReleaseInfo:
 
 
 def resolve_python() -> ToolReleaseInfo:
-    """Resolve latest Python release within the active 3.14 cycle and its CPython sha256."""
-    eol_data = json.loads(_fetch_url("https://endoflife.date/api/python.json").decode("utf-8"))
-    c314 = next((c for c in eol_data if c.get("cycle") == "3.14"), None)
-    ver = c314["latest"] if c314 else "3.14.6"
-
+    """Resolve latest Python release within the active cycle and its CPython sha256."""
     current_args = get_containerfile_args()
     curr_ver = current_args.get("PYTHON_VERSION", "").strip('"').strip("'")
     curr_sha = current_args.get("PYTHON_SHA256", "").strip('"').strip("'")
+    curr_cycle = ".".join(curr_ver.split(".")[:2]) if curr_ver else "3.15"
+
+    eol_data = json.loads(_fetch_url("https://endoflife.date/api/python.json").decode("utf-8"))
+    c_target = next((c for c in eol_data if c.get("cycle") == curr_cycle), None)
+    ver = c_target["latest"] if c_target else (curr_ver or "3.15.2")
 
     sha = ""
     if curr_ver == ver and curr_sha:

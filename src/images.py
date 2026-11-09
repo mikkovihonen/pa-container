@@ -39,22 +39,20 @@ def now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) -> list[str]:
-    """Read the list of tools enabled in .pa-container/config.yaml plus any driver-requested tools."""
+def read_project_packages(project_dir: Path, extra_packages: list[str] | None = None) -> list[str]:
+    """Read the list of packages enabled in .pa-container/config.yaml plus any driver-requested packages."""
     cfg_path = project_dir / ".pa-container" / "config.yaml"
-    tools: set[str] = set()
-    if extra_tools:
-        tools.update(t for t in extra_tools if isinstance(t, str))
+    pkgs: set[str] = set()
+    if extra_packages:
+        pkgs.update(p for p in extra_packages if isinstance(p, str))
     if not cfg_path.exists():
-        return sorted(tools)
+        return sorted(pkgs)
     try:
         raw = load_yaml_strict(cfg_path.read_text())
         data = raw if isinstance(raw, dict) else {}
-        tools_sec = data.get("tools")
-        if isinstance(tools_sec, dict):
-            include = tools_sec.get("include")
-            if isinstance(include, list):
-                tools.update(t for t in include if isinstance(t, str))
+        pkgs_list = data.get("packages")
+        if isinstance(pkgs_list, list):
+            pkgs.update(p for p in pkgs_list if isinstance(p, str))
         agents_sec = data.get("agents")
         if isinstance(agents_sec, dict):
             enabled = agents_sec.get("enabled")
@@ -65,18 +63,18 @@ def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) 
                     if isinstance(ag, str):
                         try:
                             drv = get_agent_driver(ag)
-                            tools.update(drv.required_tools)
+                            pkgs.update(drv.required_packages)
                         except Exception as e:
                             logger.debug(f"Could not resolve driver for '{ag}': {e}")
     except Exception as e:
-        logger.debug(f"Could not resolve project tools from config: {e}")
-    return sorted(tools)
+        logger.debug(f"Could not resolve project packages from config: {e}")
+    return sorted(pkgs)
 
 
 def compute_image_hash(
     project_dir: Path,
     repo_root: Path | None = None,
-    extra_tools: list[str] | None = None,
+    extra_packages: list[str] | None = None,
 ) -> str | None:
     """Compute content hash for files affecting the project-specific container image."""
     r_root = repo_root or REPO_ROOT
@@ -94,7 +92,7 @@ def compute_image_hash(
         if cmd_path.exists() and cmd_path.stat().st_size > 0:
             files_to_hash.append(cmd_file)
 
-    tools = read_project_tools(project_dir, extra_tools=extra_tools)
+    packages = read_project_packages(project_dir, extra_packages=extra_packages)
     desktop_active = False
     if (project_dir / ".pa-container" / "config.yaml").exists():
         from desktop import read_desktop_config
@@ -102,7 +100,7 @@ def compute_image_hash(
         desktop_cfg = read_desktop_config(project_dir / ".pa-container")
         desktop_active = bool(desktop_cfg.get("enabled", False))
 
-    if not files_to_hash and not tools and not desktop_active:
+    if not files_to_hash and not packages and not desktop_active:
         return None
 
     files_to_hash.sort()
@@ -113,14 +111,13 @@ def compute_image_hash(
         file_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
         combined_hash.update(file_hash.encode())
 
-    if tools:
-        combined_hash.update(f"tools:{','.join(tools)}".encode())
-        from toolchains import ON_DEMAND_TOOLS, compute_tool_hash
+    if packages:
+        from packages import compute_package_hash
 
-        for t in tools:
-            if t in ON_DEMAND_TOOLS:
-                tool_hash = compute_tool_hash(t, r_root)
-                combined_hash.update(f"tool:{t}:{tool_hash}".encode())
+        combined_hash.update(f"packages:{','.join(packages)}".encode())
+        for p in packages:
+            pkg_hash = compute_package_hash(p, r_root)
+            combined_hash.update(f"pkg:{p}:{pkg_hash}".encode())
 
     if desktop_active:
         combined_hash.update(b"desktop:enabled:true")
@@ -169,39 +166,6 @@ def proxy_image_is_current(repo_root: Path | str | None = None, runtime: str | N
     return stored_hash == current_hash
 
 
-def tool_image_is_current(tool: str, repo_root: Path | str | None = None, runtime: str | None = None) -> bool:
-    """Check if the on-demand tool image exists and matches current recipe hashes."""
-    from toolchains import compute_tool_hash, tool_to_image_tag
-
-    r_root = Path(repo_root) if repo_root else REPO_ROOT
-    tag = tool_to_image_tag(tool)
-    if not image_exists(tag, runtime=runtime):
-        return False
-
-    stored_hash = get_image_label(tag, "pa-container.hash", runtime=runtime)
-    if stored_hash is None:
-        return False
-
-    current_hash = compute_tool_hash(tool, r_root)
-    return stored_hash == current_hash
-
-
-def ensure_tool_images(
-    tools: list[str] | set[str] | frozenset[str],
-    runtime: str,
-    repo_root: Path | str | None = None,
-) -> None:
-    """Ensure all required on-demand tool images are built and current."""
-    from build import build_tool
-    from toolchains import ON_DEMAND_TOOLS
-
-    r_root = Path(repo_root) if repo_root else REPO_ROOT
-    for tool in sorted(tools):
-        if tool in ON_DEMAND_TOOLS and not tool_image_is_current(tool, repo_root=r_root, runtime=runtime):
-            logger.info(f"Tool image for '{tool}' is missing or stale; building...")
-            build_tool(runtime, tool)
-
-
 def has_dependency_files(project_dir: Path) -> bool:
     """Check if the project has non-empty dependency definition command files."""
     deps_root = project_dir / ".pa-container" / "dependencies"
@@ -215,7 +179,7 @@ def has_dependency_files(project_dir: Path) -> bool:
 def resolve_agent_image(
     project_dir: Path,
     repo_root: Path | None = None,
-    extra_tools: list[str] | None = None,
+    extra_packages: list[str] | None = None,
 ) -> tuple[str, bool]:
     """Resolve the agent container image tag for this workspace."""
     desktop_enabled = False
@@ -226,13 +190,13 @@ def resolve_agent_image(
         desktop_enabled = bool(desktop_cfg.get("enabled", False))
 
     has_deps = has_dependency_files(project_dir)
-    tools = read_project_tools(project_dir, extra_tools=extra_tools)
-    if not has_deps and not tools and not desktop_enabled:
+    packages = read_project_packages(project_dir, extra_packages=extra_packages)
+    if not has_deps and not packages and not desktop_enabled:
         return PA_IMAGE_TAG, False
 
     project_hash, _ = project.project_scope(project_dir)
     key = project_hash.removeprefix("pa-container-proxy-")
-    image_hash = compute_image_hash(project_dir, repo_root=repo_root, extra_tools=extra_tools)
+    image_hash = compute_image_hash(project_dir, repo_root=repo_root, extra_packages=extra_packages)
     project_image_tag = f"pa-container-project-{key}-{image_hash}.local"
     return project_image_tag, True
 

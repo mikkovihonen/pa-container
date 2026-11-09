@@ -1,0 +1,35 @@
+schema_version: "2.0.0"
+name: "go"
+version: "1.27.3"
+description: "Go programming language toolchain (compiler, stdlib, tools)"
+category: "toolchains"
+license: "BSD-3-Clause"
+
+payload:
+    type: binary_download
+    platforms:
+        x86_64:
+            url: "https://go.dev/dl/go1.27.3.linux-amd64.tar.gz"
+            sha256: "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"
+            extract_map:
+                "go/bin/go": "/usr/local/bin/go"
+                "go/bin/gofmt": "/usr/local/bin/gofmt"
+                "go/pkg": "/usr/local/pkg"
+                "go/src": "/usr/local/src"
+        aarch64:
+            url: "https://go.dev/dl/go1.27.3.linux-arm64.tar.gz"
+            sha256: "a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"
+            extract_map:
+                "go/bin/go": "/usr/local/bin/go"
+                "go/bin/gofmt": "/usr/local/bin/gofmt"
+                "go/pkg": "/usr/local/pkg"
+                "go/src": "/usr/local/src"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "go version"
+    expected_output_contains: "go1.27"

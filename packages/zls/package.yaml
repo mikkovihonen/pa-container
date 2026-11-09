@@ -1,0 +1,27 @@
+schema_version: "2.0.0"
+name: "zls"
+version: "0.17.0"
+description: "Zig language server (LSP)"
+category: "lsp"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+        - "xz"
+        - "git"
+    env:
+        ZLS_VERSION: "0.17.0"
+        ZLS_COMMIT: "542462c4ddf045493fa9ca028ee6bc3f38b2754a"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "zls --version"
+    expected_output_contains: "0.17"

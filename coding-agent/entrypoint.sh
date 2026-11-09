@@ -3,21 +3,23 @@ set -e
 
 # Inject the default route to the proxy FIRST — the isolated network has no
 # gateway of its own, so without this the container can reach nothing (including
-# the apt mirrors below, which egress through the proxy).
+# package mirrors below, which egress through the proxy).
 if [ -n "$DEFAULT_ROUTE" ]; then
     ip route replace default via $DEFAULT_ROUTE
 fi
 
 # ─── IPv6 policy (IPV6_ENABLED, injected by run.py) ───────────────────────
 # Off (default): explicitly disable IPv6 so no tool silently tries an AAAA
-# record and dead-ends (the proxy stack is IPv4-only), and force apt onto IPv4.
-# On: add the IPv6 default route to the proxy (DEFAULT_ROUTE6) and leave apt
+# record and dead-ends (the proxy stack is IPv4-only), and force dnf onto IPv4.
+# On: add the IPv6 default route to the proxy (DEFAULT_ROUTE6) and leave dnf
 # free to use v6.
 if [ "${IPV6_ENABLED}" = "true" ]; then
     if [ -n "$DEFAULT_ROUTE6" ]; then
         ip -6 route replace default via "$DEFAULT_ROUTE6" || echo "WARNING: could not set IPv6 default route"
     fi
-    rm -f /etc/apt/apt.conf.d/99force-ipv4
+    if [ -f /etc/dnf/dnf.conf ]; then
+        sed -i '/^ip_resolve=/d' /etc/dnf/dnf.conf 2>/dev/null || true
+    fi
 else
     # Disable IPv6 so no tool silently tries an AAAA record and dead-ends (the
     # proxy stack is IPv4-only). podman already sets this at run time via
@@ -31,7 +33,13 @@ else
     if [ -e "$_v6_all" ] && [ "$(cat "$_v6_all" 2>/dev/null)" != "1" ]; then
         echo "WARNING: could not disable IPv6 (all)"
     fi
-    printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99force-ipv4
+    if [ -f /etc/dnf/dnf.conf ]; then
+        if grep -q '^\[main\]' /etc/dnf/dnf.conf; then
+            sed -i '/^ip_resolve=/d; /^\[main\]/a ip_resolve=4' /etc/dnf/dnf.conf 2>/dev/null || true
+        else
+            printf '[main]\nip_resolve=4\n' >> /etc/dnf/dnf.conf
+        fi
+    fi
 fi
 
 if ! getent group nobody >/dev/null 2>&1; then
@@ -242,13 +250,16 @@ exec gosu agent bash -c '
         done
 
         # Start websockify in background (serves noVNC web client and proxies to wayvnc)
-        websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1 &
+        if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
+            websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1 &
+        fi
 
         # Provision virtual-desktop skill for active coding agents
         if [ -d /usr/local/share/pa-container/skills/virtual-desktop ]; then
             for _skill_dir in \
                 /home/agent/.pi/agent/skills/virtual-desktop \
                 /home/agent/.gemini/antigravity/skills/virtual-desktop \
+                /home/agent/.claude/skills/virtual-desktop \
                 /home/agent/.config/opencode/skills/virtual-desktop
             do
                 mkdir -p "$(dirname "$_skill_dir")"
@@ -260,8 +271,28 @@ exec gosu agent bash -c '
         # Prune virtual-desktop skill when desktop is disabled
         rm -rf /home/agent/.pi/agent/skills/virtual-desktop \
                /home/agent/.gemini/antigravity/skills/virtual-desktop \
+               /home/agent/.claude/skills/virtual-desktop \
                /home/agent/.config/opencode/skills/virtual-desktop 2>/dev/null || true
     fi
+
+    # ─── Dynamic Skill Projection Engine ───────────────────────────────────────
+    # Automatically project installed skills from ACP packages into active agent directories
+    for _pkg_skill in /usr/local/share/pa-container/packages/*/skill/SKILL.md /usr/local/share/pa-container/skills/*/SKILL.md; do
+        [ -f "$_pkg_skill" ] || continue
+        _dir_part="$(dirname "$_pkg_skill")"
+        _skill_name="$(basename "$_dir_part")"
+        if [ "$_skill_name" = "skill" ]; then
+            _skill_name="$(basename "$(dirname "$_dir_part")")"
+        fi
+        for _agent_skills in \
+            /home/agent/.pi/agent/skills \
+            /home/agent/.gemini/antigravity/skills \
+            /home/agent/.claude/skills \
+            /home/agent/.config/opencode/skills; do
+            mkdir -p "$_agent_skills/$_skill_name"
+            cp -a "$_pkg_skill" "$_agent_skills/$_skill_name/SKILL.md" 2>/dev/null || true
+        done
+    done
 
     # ─── Source control credential helpers (SETUP_GIT_CREDENTIALS) ────────────
     if [ "${SETUP_GIT_CREDENTIALS}" = "true" ]; then
@@ -284,7 +315,7 @@ exec gosu agent bash -c '
     if [ "$PA_CONTAINER_MODE" = "t3" ]; then
         if ! command -v t3 >/dev/null 2>&1; then
             echo "ERROR: t3 CLI is not installed in the container." >&2
-            echo "Install it via tools.include: [\"t3\"], npm install -g t3, or .pa-container/dependencies/root/commands.sh." >&2
+            echo "Install it via packages: [\"t3\"], npm install -g t3, or .pa-container/dependencies/root/commands.sh." >&2
             exit 1
         fi
 

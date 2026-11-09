@@ -1,0 +1,27 @@
+schema_version: "2.0.0"
+name: "rust"
+version: "1.99.1"
+description: "Rust programming language toolchain (rustc, cargo, standard library)"
+category: "toolchains"
+license: "MIT OR Apache-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+    env:
+        RUST_VERSION: "1.99.1"
+        RUST_DIST_DATE: "2026-10-15"
+        RUST_SHA256_X86_64: "aded4e6c1d580415e7b594a3080d8e23e9cbe06f159f97e300aa6875211f71bf"
+        RUST_SHA256_AARCH64: "703b190f0d723ae68985797f3bb5f62f01b1723f138464c6f30f32b766eb0abf"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "cargo --version"
+    expected_output_contains: "cargo 1.99"

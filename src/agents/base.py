@@ -48,8 +48,8 @@ class AgentDriver(ABC):
         ...
 
     @property
-    def required_tools(self) -> list[str]:
-        """List of on-demand builder tools required by this agent."""
+    def required_packages(self) -> list[str]:
+        """List of Agent Capability Packages required by this agent."""
         return []
 
     def get_command(self, cli_args: list[str]) -> list[str]:

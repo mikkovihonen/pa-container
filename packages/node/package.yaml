@@ -1,0 +1,43 @@
+schema_version: "2.0.0"
+name: "node"
+version: "26.13.0"
+description: "Node.js 26 JavaScript runtime with npm and npx"
+category: "runtimes"
+license: "MIT"
+
+payload:
+    type: binary_download
+    platforms:
+        x86_64:
+            url: "https://nodejs.org/dist/v26.13.0/node-v26.13.0-linux-x64.tar.xz"
+            sha256: "d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997"
+            extract_map:
+                "node-v26.13.0-linux-x64/bin/node": "/usr/local/bin/node"
+                "node-v26.13.0-linux-x64/bin/npm": "/usr/local/bin/npm"
+                "node-v26.13.0-linux-x64/bin/npx": "/usr/local/bin/npx"
+                "node-v26.13.0-linux-x64/lib/node_modules": "/usr/local/lib/node_modules"
+        aarch64:
+            url: "https://nodejs.org/dist/v26.13.0/node-v26.13.0-linux-arm64.tar.xz"
+            sha256: "406fe3fbde1c054adff8b297c16fdb5af6659db327c1ac8acd46b56ef1af9a92"
+            extract_map:
+                "node-v26.13.0-linux-arm64/bin/node": "/usr/local/bin/node"
+                "node-v26.13.0-linux-arm64/bin/npm": "/usr/local/bin/npm"
+                "node-v26.13.0-linux-arm64/bin/npx": "/usr/local/bin/npx"
+                "node-v26.13.0-linux-arm64/lib/node_modules": "/usr/local/lib/node_modules"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+runtime:
+    env:
+        NODE_USE_SYSTEM_CA: "1"
+
+egress:
+    allow_hosts:
+        - "registry.npmjs.org"
+
+verification:
+    command: "node --version"
+    expected_output_contains: "v26.13"

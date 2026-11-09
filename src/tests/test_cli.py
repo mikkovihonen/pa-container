@@ -139,7 +139,7 @@ class TestCliParser:
         cmd, options = parse_cli_args(
             [
                 "build",
-                "--tools",
+                "--packages",
                 "go,rust",
                 "--llama",
                 "--llama-backend",
@@ -156,7 +156,7 @@ class TestCliParser:
         )
         assert cmd == "build"
         assert isinstance(options, BuildOptions)
-        assert options.tools == "go,rust"
+        assert options.packages == "go,rust"
         assert options.llama is True
         assert options.llama_backend == "metal"
         assert options.llama_tag == "v0.9.0"

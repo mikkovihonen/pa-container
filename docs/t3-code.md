@@ -154,9 +154,9 @@ T3 Code integrates with the agent architecture through provider isolation and po
 
 ### Source Control Provider Toolchains
 
-T3 Code includes integrated PR review, issue tracking, and repository operations for 6 Git hosting providers. You can enable their matching CLI tools in `tools.include`:
+T3 Code includes integrated PR review, issue tracking, and repository operations for 6 Git hosting providers. You can enable their matching CLI packages in `packages`:
 
-| Provider | Mechanism | Optional Tool | Description |
+| Provider | Mechanism | Optional Package | Description |
 | :--- | :--- | :--- | :--- |
 | **GitHub** | CLI (`gh`) | `gh` | Official GitHub CLI for pull requests and repo discovery. |
 | **GitLab** | CLI (`glab`) | `glab` | Official GitLab CLI for merge requests and issue tracking. |
@@ -168,14 +168,13 @@ T3 Code includes integrated PR review, issue tracking, and repository operations
 To enable specific source control CLIs in your workspace, declare them in `.pa-container/config.yaml`:
 
 ```yaml
-tools:
-  include:
-    - t3
-    - gh
-    - glab
-    - tea
-    - az
-    - cafe
+packages:
+  - t3
+  - gh
+  - glab
+  - tea
+  - az
+  - cafe
 ```
 
 

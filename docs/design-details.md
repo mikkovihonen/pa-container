@@ -89,21 +89,18 @@ were hard requirements of the inner runtime. Nesting is opt-in and off by defaul
 surface and the full trade-off. See `docs/design/nested-containers.md` for the
 design and its verification log.
 
-## Toolchain builder image
+## Agent Capability Packages (ACP) and build architecture
 
-The system compiles three of the agent image's components from source in a separate image,
-`pa-container-agent-builder:local`. It then copies them into the prebuilt image files:
+The platform compiles components and runtimes in isolated package images (`packages/<name>/` tagged `pa-container-pkg-<name>:local`) and projects them into the agent image:
 
-| Component | Otherwise | Built here | Why |
+| Component | Upstream / Distro | Built here | Why |
 | --- | --- | --- | --- |
-| Node.js | the `node:<ver>-trixie-slim` base image | 26.6.0 (official tarball, or `NODE_SOURCE=build` compiles it) | The base image tag chose the version, not this repo. And `v26.5.1` was a security release that the pinned tag predated. |
-| CPython + `uv` + `podman-compose` | Debian has no `python3` in this image | 3.14.6 (PGO) | The workspace targets 3.14. Debian's would be a second interpreter tree at 3.13. The **proxy image takes this tree too** (see below) |
-| `podman` | Debian trixie: 5.4.2 (Mar 2025) | 6.0.2 | Build tags, then version (see below) |
-| `netavark`, `aardvark-dns` | Debian trixie: 1.14.0 | 2.0.0 | podman 6.0.0 "must be used with Netavark and Aardvark v2.0.0" |
+| Node.js | distro node | 26.6.0 (official tarball, or `NODE_SOURCE=build` compiles it) | Clean, reproducible Node.js runtime staged into `/usr/local` |
+| CPython + `uv` + `podman-compose` | distro python | 3.15.2 (PGO) | The workspace targets 3.15. The **proxy image takes this tree too** (see below) |
+| `podman` | Fedora 45 | 6.0.2 | Build tags, then version (see below) |
+| `netavark`, `aardvark-dns` | distro version | 2.0.0 | podman 6.0.0 "must be used with Netavark and Aardvark v2.0.0" |
 
-The agent image's base is plain `debian:trixie-slim` because it builds Node here. The
-`node:` images *are* `debian:trixie-slim` plus a Node tarball. This image uses the same
-Debian with the tarball replaced by a build. Nothing else rides along on that tag.
+The base image for both agent and proxy is plain `registry.fedoraproject.org/fedora-minimal:45`. Required capability packages (`packages: [...]`) are assembled dynamically onto the base image using multi-stage copy layers.
 
 The build-tag argument is the substantive one. podman's Makefile *derives* its
 `BUILDTAGS` by probing the build host for installed `-dev` headers. The feature
@@ -177,7 +174,7 @@ agent makes needs a single answer to the question "which OpenSSL is that, exactl
 Both images now take Python from the same build, and both refuse to start a build
 without it:
 
-- The proxy's base is plain `debian:trixie-slim` plus the runtime shared libraries the
+- The proxy's base is plain `registry.fedoraproject.org/fedora-minimal:41` plus the runtime shared libraries the
   staged CPython's extension modules link against. A missing one causes a **build**
   failure. `python -c 'import bz2, ctypes, curses, lzma, readline, sqlite3, ssl,
   zlib'` runs right after the `COPY`. This catches the failure early instead of letting `import ssl` fail at
@@ -186,13 +183,13 @@ without it:
   build the mitmproxy venv on the interpreter that you copied in. Without them a
   managed CPython download quietly reintroduces the drift.
 
-Both images now carry the same CPython install. Every megabyte of it costs twice. `build-python.sh` trims the staged tree of what neither image can
+Both images now carry the same CPython install. Every megabyte of it costs twice. The Python package build (`packages/python/package.yaml`) trims the staged tree of what neither image can
 reach. It takes it from 474 MB to 175 MB:
 
 | Removed | Size | Why it is dead here |
 | --- | --- | --- |
-| `lib/python3.14/test/` | 157 MB | CPython's own regression suite. Only `python -m test` reaches it |
-| `libpython3.14.a` (two copies, not hardlinks) | 134 MB | Needed only to *embed* CPython in a C program. Building a native wheel links nothing. An extension resolves its Python symbols from the interpreter that loads it |
+| `lib/python3.15/test/` | 157 MB | CPython's own regression suite. Only `python -m test` reaches it |
+| `libpython3.15.a` (two copies, not hardlinks) | 134 MB | Needed only to *embed* CPython in a C program. Building a native wheel links nothing. An extension resolves its Python symbols from the interpreter that loads it |
 | `idlelib`, `tkinter`, `turtledemo` | 10 MB | `tk-dev` is not installed. `_tkinter` was never built. `import tkinter` already fails |
 
 This is the trim the official `python:` images make as well, minus their `*.pyc`
@@ -201,13 +198,13 @@ would never be regenerated. Every import would re-parse source for the life of t
 image.
 
 What it gives up is **embedding CPython in a C/C++ program**. `python-config --ldflags
---embed` still advertises `-lpython3.14` (sysconfig reports what the build configured,
-not what is on disk). An embed link fails at `cannot find -lpython3.14`. Plain
+--embed` still advertises `-lpython3.15` (sysconfig reports what the build configured,
+not what is on disk). An embed link fails at `cannot find -lpython3.15`. Plain
 `--ldflags` (the extension-module case) does not name it and is unaffected.
 
 There is no **shared** `libpython` here either, and never was. `./configure` runs
 without `--enable-shared`. `Py_ENABLE_SHARED` is `0`. The build links
-the interpreter core into the `python3.14` binary. Tools that require one could not work in this image before the trim and
+the interpreter core into the `python3.15` binary. Tools that require one could not work in this image before the trim and
 cannot now. These tools include PyInstaller, Nuitka, and `dlopen`-based embedding. Restoring the static archive would not change that. Making them work needs an
 `--enable-shared` rebuild. That costs every workload a slightly slower interpreter to
 serve a case that neither shipped image has.
@@ -227,19 +224,11 @@ expected **commit** (tags are mutable; the peeled commit sha is the real pin). T
 tarball (CPython, Node, Go, Rust, the Rust vendor trees) against a SHA-256.
 `pa build` builds this image. Nothing else does.
 
-**Every pin lives in `coding-agent-builder/Containerfile`**, as an `ARG` on the stage
-that consumes it (versions, git commits, tarball SHA-256s, and the pip hash lists alike).
-The build scripts read them from the environment (podman exports build args to `RUN`). No script defaults any of them. `require_env` in `common.sh` fails the build and names
-the missing `ARG`. The build does not fall back to a stale value baked into a script. So
-you bump a component with one edit. `git log -p coding-agent-builder/Containerfile`
-is the toolchain's version history. Any pin can be overridden for a one-off build:
+**Every capability lives in `packages/<name>/package.yaml`** as an Agent Capability Package (ACP).
+Manifests define versions, platform tarball URLs, SHA256 checksums, skill prompts, MCP servers, and egress policies.
+Packages build into discrete capability images `pa-container-pkg-<name>:local` and are dynamically composed into agent images.
+You can bump a package by editing its `package.yaml` or rebuild a specific package with:
 
 ```bash
-podman build --build-arg PODMAN_VERSION=v6.1.0 --build-arg PODMAN_COMMIT=<sha> \
-    -f coding-agent-builder/Containerfile .
+pa build --packages <name>
 ```
-
-The Rust pin is declared *before* the first `FROM` because multiple stages and build
-scripts rely on it (the `rust` stage, `netavark`/`aardvark-dns`, and Node 26 Temporal).
-The `rust` stage inherits `ARG RUST_VERSION` with no default, maintaining a single pin
-source of truth across the toolchain.

@@ -128,16 +128,13 @@ global:
         - "*.yarnpkg.com"
       ip_ranges: []
 
-    - name: "debian-apt-allow"
+    - name: "fedora-dnf-allow"
       mode: "allow"
       hostnames:
-        - "debian.map.fastlydns.net"
-        - "deb.debian.org"
-        - "*.deb.debian.org"
-        - "security.debian.org"
-        - "*.security.debian.org"
-        - "packages.debian.org"
-        - "*.packages.debian.org"
+        - "fedoraproject.org"
+        - "*.fedoraproject.org"
+        - "fedorahosted.org"
+        - "*.fedorahosted.org"
       ip_ranges: []
 ```
 
@@ -278,8 +275,8 @@ global:
 
 ### Example 2: Flat allowlist (production-style)
 
-A flat allowlist for a development environment that permits Python, npm, Debian
-apt, and GitHub traffic without named rules:
+A flat allowlist for a development environment that permits Python, npm, Fedora
+dnf, and GitHub traffic without named rules:
 
 ```yaml
 global:
@@ -299,14 +296,11 @@ global:
     - "registry.npmjs.org"
     - "*.registry.npmjs.org"
     - "*.npmjs.org"
-    # Debian/Ubuntu
-    - "debian.map.fastlydns.net"
-    - "deb.debian.org"
-    - "*.deb.debian.org"
-    - "security.debian.org"
-    - "*.security.debian.org"
-    - "packages.debian.org"
-    - "*.packages.debian.org"
+    # Fedora dnf
+    - "fedoraproject.org"
+    - "*.fedoraproject.org"
+    - "fedorahosted.org"
+    - "*.fedorahosted.org"
     # GitHub
     - "github.com"
     - "api.github.com"

@@ -24,7 +24,7 @@ class OpenCodeDriver(AgentDriver):
         return "opencode"
 
     @property
-    def required_tools(self) -> list[str]:
+    def required_packages(self) -> list[str]:
         return ["opencode"]
 
     def get_command(self, cli_args: list[str]) -> list[str]:
