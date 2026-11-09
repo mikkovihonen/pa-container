@@ -135,11 +135,15 @@ class ClaudeDriver(AgentDriver):
         else:
             model_name = "claude-sonnet-5-5"
 
-        config_data: dict[str, str] = {
+        config_data: dict[str, object] = {
             "model": model_name,
         }
         if base_url:
             config_data["baseUrl"] = base_url
+
+        mcp_servers = self.get_package_mcp_servers(project_dir)
+        if mcp_servers:
+            config_data["mcpServers"] = mcp_servers
 
         with config_file.open("w") as f:
             json.dump(config_data, f, indent=2)
@@ -149,6 +153,8 @@ class ClaudeDriver(AgentDriver):
         }
         if base_url:
             settings_data["env"] = {"ANTHROPIC_BASE_URL": base_url}
+        if mcp_servers:
+            settings_data["mcpServers"] = mcp_servers
 
         with settings_file.open("w") as f:
             json.dump(settings_data, f, indent=2)

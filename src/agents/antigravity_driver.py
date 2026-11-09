@@ -170,6 +170,12 @@ class AntigravityDriver(AgentDriver):
         with settings_file.open("w") as f:
             json.dump(settings_data, f, indent=2)
 
+        mcp_servers = self.get_package_mcp_servers(project_dir)
+        if mcp_servers:
+            mcp_file = agy_dir / "mcp_config.json"
+            with mcp_file.open("w") as f:
+                json.dump({"mcpServers": mcp_servers}, f, indent=2)
+
     def get_t3_metadata(self) -> T3DriverMetadata:
         return T3DriverMetadata(
             driver_kind="antigravity",

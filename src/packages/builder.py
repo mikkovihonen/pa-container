@@ -40,6 +40,8 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
                 "FROM scratch",
             ]
         )
+        if (package_dir / "package.yaml").is_file():
+            lines.append(f"COPY package.yaml /usr/local/share/pa-container/packages/{pkg_name}/package.yaml")
         if (package_dir / "skill" / "SKILL.md").is_file():
             lines.append(f"COPY skill/SKILL.md /usr/local/share/pa-container/packages/{pkg_name}/skill/SKILL.md")
         if (package_dir / "mcp").is_dir():
@@ -78,11 +80,12 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
             lines.append("        rm -rf /tmp/pkg.tar /tmp/extracted; \\")
             lines.append("    fi; \\")
 
-        # Copy skill and MCP configs into /out
+        # Copy skill, manifest, and MCP configs into /out
         lines.extend(
             [
                 f'    mkdir -p "/out/usr/local/share/pa-container/packages/{pkg_name}/skill"; \\',
                 f'    if [ -f /build/skill/SKILL.md ]; then cp -a /build/skill/SKILL.md "/out/usr/local/share/pa-container/packages/{pkg_name}/skill/"; fi; \\',
+                f'    if [ -f /build/package.yaml ]; then cp -a /build/package.yaml "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi; \\',
                 f'    if [ -d /build/mcp ]; then cp -a /build/mcp "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi; \\',
                 "    true",
                 "FROM scratch",
@@ -128,6 +131,7 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
                 f"RUN mkdir -p /out && bash /build/{script_name}",
                 f'RUN mkdir -p "/out/usr/local/share/pa-container/packages/{pkg_name}/skill" \\',
                 f' && if [ -f /build/skill/SKILL.md ]; then cp -a /build/skill/SKILL.md "/out/usr/local/share/pa-container/packages/{pkg_name}/skill/"; fi \\',
+                f' && if [ -f /build/package.yaml ]; then cp -a /build/package.yaml "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi \\',
                 f' && if [ -d /build/mcp ]; then cp -a /build/mcp "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi',
                 "FROM scratch",
                 "COPY --from=builder /out/ /",

@@ -136,6 +136,9 @@ class OpenCodeDriver(AgentDriver):
             "enabled_providers": list(providers.keys()),
             "providers": providers,
         }
+        mcp_servers = self.get_package_mcp_servers(project_dir)
+        if mcp_servers:
+            config_data["mcpServers"] = mcp_servers
 
         with config_file.open("w") as f:
             json.dump(config_data, f, indent=2)

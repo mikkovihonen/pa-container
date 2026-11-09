@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 import pytest
 
@@ -671,3 +675,35 @@ def test_t3_sync_antigravity_script(tmp_path, monkeypatch):
     assert json.loads(t3_cli_token.read_text())["refresh_token"] == "ref_456"
     assert json.loads(t3_cli_token.read_text())["client_id"] == mock_id
     assert json.loads(t3_cli_token.read_text())["client_secret"] == mock_sec
+
+
+def test_synthesize_config_projects_package_mcp_servers(tmp_path: Path):
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir(parents=True)
+    cfg_dir = project_dir / ".pa-container"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.yaml").write_text("packages:\n  - gh\n  - podman\n")
+
+    # Claude Code
+    claude = ClaudeDriver()
+    claude.synthesize_config([], [], "claude-3-7-sonnet", project_dir)
+    claude_settings = json.loads((claude.get_state_dir(project_dir) / "settings.json").read_text())
+    assert "mcpServers" in claude_settings
+    assert "github" in claude_settings["mcpServers"]
+    assert "docker" in claude_settings["mcpServers"]
+
+    # OpenCode
+    opencode = OpenCodeDriver()
+    opencode.synthesize_config([], [], "test-model", project_dir)
+    opencode_cfg = json.loads((opencode.get_state_dir(project_dir) / "opencode.json").read_text())
+    assert "mcpServers" in opencode_cfg
+    assert "github" in opencode_cfg["mcpServers"]
+
+    # Antigravity
+    antigravity = AntigravityDriver()
+    antigravity.synthesize_config([], [], "gemini-2.5-pro", project_dir)
+    mcp_file = antigravity.get_state_dir(project_dir) / "mcp_config.json"
+    assert mcp_file.is_file()
+    agy_mcp = json.loads(mcp_file.read_text())
+    assert "mcpServers" in agy_mcp
+    assert "docker" in agy_mcp["mcpServers"]

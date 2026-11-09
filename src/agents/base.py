@@ -12,6 +12,10 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
+from logging_driver import LogCategory, get_category_logger
+
+logger = get_category_logger(__name__, LogCategory.AGENT)
+
 """Base classes and data structures for coding agent runtime drivers."""
 
 
@@ -118,6 +122,20 @@ class AgentDriver(ABC):
     ) -> None:
         """Synthesize agent-specific configuration from active models and gateways."""
         return None
+
+    def get_package_mcp_servers(self, project_dir: Path) -> dict[str, dict[str, Any]]:
+        """Retrieve aggregated MCP server configurations for packages active in project_dir."""
+        try:
+            from images import read_project_packages
+            from packages import discover_packages, get_mcp_servers_dict
+
+            active_pkgs = read_project_packages(project_dir, extra_packages=self.required_packages)
+            all_manifests = discover_packages()
+            active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
+            return get_mcp_servers_dict(active_manifests)
+        except Exception as e:
+            logger.debug(f"Failed to resolve package MCP servers: {e}")
+            return {}
 
     def get_t3_metadata(self) -> T3DriverMetadata | None:
         """Return the T3 Code provider metadata and configuration if supported, else None."""
