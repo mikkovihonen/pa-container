@@ -238,7 +238,7 @@ def validate_models(
         errors.extend(schema_errors)
         return False, errors
 
-    yaml_errors = _validate_models_yaml(data, models_dir=models_dir, gateways_dir=gateways_dir)
+    yaml_errors = _validate_models_yaml(data, gateways_dir=gateways_dir)
     if yaml_errors:
         errors.extend(yaml_errors)
 

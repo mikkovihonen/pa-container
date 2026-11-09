@@ -17,24 +17,23 @@ pa-container automatically seeds a global configuration file at `~/.config/pa-co
 
 ### Host & Run Configuration
 
-Global configuration properties can be edited in `~/.config/pa-container/config.yaml` or overridden on the command line via direct environment variables:
+Global configuration properties can be edited in `~/.config/pa-container/config.yaml`:
 
-| Global Config YAML Property | Canonical Environment Variable | Description | Default |
-|-----------------------------|--------------------------------|-------------|---------|
-| `build.images.agent` | `PA_IMAGE_TAG` | The tag of the pi container image to run | `pa-container-agent:local` |
-| `build.images.proxy` | `PROXY_IMAGE_TAG` | The tag of the proxy container image to run | `pa-container-agent-proxy:local` |
-| `build.images.builder` | `BUILDER_IMAGE_TAG` | Toolchain image that the agent image copies from | `pa-container-agent-builder:local` |
-| `llama.bin` | `LLAMA_BIN` | Path to the `llama-server` executable | `~/.cache/pa-container/bin/llama-server` or `llama-server` |
-| `runtime.bridge_interface` | `BRIDGE_INTERFACE` | Host bridge interface for container networking | `null` (`podman0` on Linux, none on macOS) |
-| `runtime.proxy_upstream_network` | `PROXY_UPSTREAM_NETWORK` | Upstream network the proxy connects to for internet access | `podman` |
-| `runtime.log_level` | `LOG_LEVEL` | Log level | `INFO` |
-| `logging.log_level` | `LOG_LEVEL` | Default logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
-| `logging.retention.max_days` | - | Maximum age in days to retain project logs (null/0 disables) | `14` |
-| `logging.retention.max_launches` | - | Maximum historical launch logs to retain (null/0 disables) | `10` |
-| `build.dns` | `BUILD_DNS` | Upstream DNS resolver for container builds | `1.1.1.1` |
-| `build.node_source` | `NODE_SOURCE` | `build` compiles Node from source (~1 hour); `prebuilt` stages official tarball | `prebuilt` |
-| `build.python_optimize` | `PYTHON_OPTIMIZE` | `0` skips PGO CPython build: faster build, ~10-20% slower Python | `1` (PGO on) |
-| `build.memory_preflight` | `PA_MEMORY_PREFLIGHT` | `0` skips pre-build memory validation | `1` (check on) |
+| Global Config YAML Property | Description | Default |
+|-----------------------------|-------------|---------|
+| `build.images.agent` | The tag of the pi container image to run | `pa-container-agent:local` |
+| `build.images.proxy` | The tag of the proxy container image to run | `pa-container-agent-proxy:local` |
+| `build.images.builder` | Toolchain image that the agent image copies from | `pa-container-agent-builder:local` |
+| `llama.bin` | Path to the `llama-server` executable (overridable via `LLAMA_BIN`) | `~/.cache/pa-container/bin/llama-server` or `llama-server` |
+| `runtime.proxy_upstream_network` | Upstream network the proxy connects to for internet access | `podman` |
+| `runtime.log_level` | Log level | `INFO` |
+| `logging.log_level` | Default logging level (DEBUG, INFO, WARNING, ERROR, overridable via `LOG_LEVEL`) | `INFO` |
+| `logging.retention.max_days` | Maximum age in days to retain project logs (null/0 disables) | `14` |
+| `logging.retention.max_launches` | Maximum historical launch logs to retain (null/0 disables) | `10` |
+| `build.dns` | Upstream DNS resolver for container builds (overridable via `BUILD_DNS`) | `1.1.1.1` |
+| `build.node_source` | `build` compiles Node from source (~1 hour); `prebuilt` stages official tarball (overridable via `NODE_SOURCE`) | `prebuilt` |
+| `build.python_optimize` | `0` skips PGO CPython build: faster build, ~10-20% slower Python (overridable via `PYTHON_OPTIMIZE`) | `1` (PGO on) |
+| `build.memory_preflight` | `0` skips pre-build memory validation (overridable via `PA_MEMORY_PREFLIGHT`) | `1` (check on) |
 
 ### Logging and Log Retention
 
@@ -75,8 +74,6 @@ pa build --llama-latest  # query remote repository and build the latest release 
 ```
 
 This build strips out irrelevant features (WebUI assets, libcurl, SSL, and example tools) to minimize build time and binary size while targeting hardware acceleration (Apple Silicon Metal, Linux CUDA/ROCm, or native CPU vectorization).
-
-`BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` have per-runtime defaults. They rarely need setting. Provide them only to override the default for your host.
 
 `NODE_SOURCE` and `PYTHON_OPTIMIZE` are the two toolchain knobs that `pa build` forwards as build args. The **component versions themselves** are not environment variables. Every version, git commit, and SHA-256 the toolchain image builds from is an `ARG` in [`coding-agent-builder/Containerfile`](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-builder/Containerfile). The declaration lives on the stage that uses it. Bumping podman, Node, CPython, Go, Rust, netavark, or any pip pin is an edit in that one file. Overriding one for a one-off build means calling podman directly. `pa build` forwards only the two knobs above:
 
@@ -839,7 +836,7 @@ nested_containers:
 | Key | Values | Meaning |
 |-----|--------|---------|
 | `enabled` | `false` (default) / `true` | When false, no extra run flags, no volume, and no entrypoint work. The only cost is the toolchain's ~150 MB in the image. |
-| `storage` | `volume` (default) / `tmpfs` | Where nested image layers live. `volume` is a persistent per-project named volume (`pi-nested-<project-hash>`) that survives runs. This avoids re-pulling base images every session. `tmpfs` is a volatile RAM disk. It needs a large `podman machine` and re-pulls each run. |
+| `storage` | `volume` (default) / `tmpfs` | Where nested image layers live. `volume` is a persistent per-project named volume (`pa-container-nested-<project-hash>`) that survives runs. This avoids re-pulling base images every session. `tmpfs` is a volatile RAM disk. It needs a large `podman machine` and re-pulls each run. |
 | `security` | `disable` (default) / `engine_t` | The agent container's SELinux label (see below). |
 | `ports.publish` | `[]` (default) | Host ports for UIs served by nested containers (see below). |
 | `ports.expose` | `localhost` (default) / `lan` | Whether those ports bind `127.0.0.1` only, or every interface. |
@@ -987,7 +984,7 @@ The check reads `MemAvailable` (reclaimable page cache counts). On a warm builde
 
 The compilers are also capped by *memory* rather than core count. `make -j`, `go build -p`, and `cargo --jobs` each get `MemAvailable / peak-RSS-per-job` jobs. They never get more than `nproc`. Giving the VM more memory automatically raises the cap. `MAKE_JOBS` overrides it for CPython.
 
-**Storage lifecycle.** The `pi-nested-<project-hash>` volume carries the same labels as project-specific images (`pa-container.type=nested-storage`, `pa-container.project.hash`, `pa-container.project.path`). The same orphan-cleanup pass reclaims it when the project directory is deleted or moved (see [Orphan detection](#orphan-detection)). As with images, a volume any container still holds open is skipped rather than removed. A later run reclaims it once that container is gone. Concurrent runs in one workspace share the volume (that is what makes the layer cache shared). They interlock through containers/storage's own lockfiles (which live inside the shared graph root). Each run keeps its own podman run root under its private `XDG_RUNTIME_DIR`.
+**Storage lifecycle.** The `pa-container-nested-<project-hash>` volume carries the same labels as project-specific images (`pa-container.type=nested-storage`, `pa-container.project.hash`, `pa-container.project.path`). The same orphan-cleanup pass reclaims it when the project directory is deleted or moved (see [Orphan detection](#orphan-detection)). As with images, a volume any container still holds open is skipped rather than removed. A later run reclaims it once that container is gone. Concurrent runs in one workspace share the volume (that is what makes the layer cache shared). They interlock through containers/storage's own lockfiles (which live inside the shared graph root). Each run keeps its own podman run root under its private `XDG_RUNTIME_DIR`.
 
 **`docker` and `compose` both work out of the box.** A `docker` to `podman` shim is installed at `/usr/local/bin/docker`. Tools that shell out to `docker` by name work (`docker build`, `docker run`, `docker ps`, …). **`podman-compose`** ships as the compose provider. `docker compose up` and `podman compose up` work with no per-project setup. The provider is pinned in `containers.conf` (`compose_providers = ["podman-compose"]`). Without that pin podman would try `docker-compose` first and report it missing instead of using the provider that is installed.
 
@@ -1050,7 +1047,7 @@ Project-specific images are cached and reused across runs. pa-container computes
 The toolchain (`coding-agent-builder/`) is deliberately **not** hashed. The project image consumes it as a built image, not as source. What invalidates a project image there is the builder image's **build time** (see below).
 
 The hash is stored as the `pa-container.hash` label on the image. The image tag is `pa-container-project-<project-hash>-<image-hash>.local`, where:
-- `<project-hash>` is the first 10 characters of `SHA-256(str(project_dir.resolve()))` — the same hash used for proxy and network naming (`pi-proxy-<hash>`, `pi-isolated-net-<hash>`).
+- `<project-hash>` is the first 10 characters of `SHA-256(str(project_dir.resolve()))` — the same hash used for proxy and network naming (`pa-container-proxy-<hash>`, `pa-container-isolated-net-<hash>`).
 - `<image-hash>` is the first 16 characters of the content digest computed from `root/commands.sh`, `agent/commands.sh`, `Containerfile`, and `entrypoint.sh`.
 
 On each run, pa-container:

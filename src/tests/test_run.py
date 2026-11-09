@@ -171,12 +171,12 @@ class TestVolumeMountOptions:
     def test_shadow_volumes_have_nodev_nosuid(self):
         from runtimes import PodmanRuntime
 
-        vol_name = "pi-shadow-12345"
+        vol_name = "pa-container-shadow-12345"
         dest_path = "/workspace/.venv"
         arg = PodmanRuntime().volume_subpath_args(vol_name, dest_path, "workspace/.venv")
         assert arg == [
             "--mount",
-            "type=volume,src=pi-shadow-12345,dst=/workspace/.venv,subpath=workspace/.venv,nodev,nosuid",
+            "type=volume,src=pa-container-shadow-12345,dst=/workspace/.venv,subpath=workspace/.venv,nodev,nosuid",
         ]
 
 
@@ -953,7 +953,6 @@ class TestExecuteRunFatalErrors:
         monkeypatch.setattr(run, "PROJECT_DIR", proj)
         monkeypatch.setattr(run, "_init_runtime", lambda: None)
         monkeypatch.setattr(run.project, "ensure_project_config", lambda *args, **kwargs: pa_dir)
-        monkeypatch.setattr(run, "resolve_models_file", lambda d: pa_dir / "models.yaml")
         monkeypatch.setattr(run, "validate_config", lambda p: (True, [], "0.6.6"))
         monkeypatch.setattr(run, "validate_project_yaml", lambda d: [])
         monkeypatch.setattr(run, "validate_models", lambda p: (True, []))
@@ -968,7 +967,7 @@ class TestExecuteRunFatalErrors:
         monkeypatch.setattr(run, "resolve_source_control_tokens", lambda d, log: {})
         monkeypatch.setattr(run, "validate_mount_paths", lambda m, b: [])
         monkeypatch.setattr(run, "read_enabled_agents", lambda d: ["pi"])
-        monkeypatch.setattr(run, "read_agent_type", lambda d: "pi")
+        monkeypatch.setattr(run, "read_default_agent", lambda d: "pi")
         monkeypatch.setattr(run, "read_desktop_config", lambda d: {"enabled": False})
         mock_driver_obj = MagicMock()
         mock_driver_obj.get_sessions_dir.return_value = tmp_path / "sessions"

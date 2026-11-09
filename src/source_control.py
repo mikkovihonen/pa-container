@@ -102,7 +102,7 @@ def read_source_control_config(config_dir: Path | None = None) -> SourceControlC
     """Read and normalize the ``source_control`` section from config.yaml."""
     config = load_project_config(config_dir)
     raw_section = config.get("source_control")
-    section: dict[str, object] = raw_section if isinstance(raw_section, dict) else {}
+    section: dict[str, Any] = dict(raw_section) if isinstance(raw_section, dict) else {}
 
     for key in ("enabled", "auto_detect_host_cli", "setup_git_credentials"):
         if key in section and not isinstance(section[key], bool):

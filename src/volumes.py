@@ -168,7 +168,7 @@ def cleanup_orphaned_nested_volumes(runtime: str) -> list[str]:
 
 def project_shadow_volume_name(project_key: str) -> str:
     """Derive the deterministic named volume name for a project's unified shadow volume."""
-    return f"pi-shadow-{project_key}"
+    return f"pa-container-shadow-{project_key}"
 
 
 def destination_to_subpath(dest_path: str) -> str:

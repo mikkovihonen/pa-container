@@ -31,15 +31,6 @@ and `~/.config/pa-container/gateways/`.
 """
 
 
-def resolve_models_file(pa_container_dir: Path) -> Path | None:
-    """Find the project models configuration file (.pa-container/models.yaml)."""
-    candidate = pa_container_dir / "models.yaml"
-    if candidate.is_file():
-        return candidate
-
-    return None
-
-
 def extract_models_from_yaml(
     data: dict[str, Any],
     models_dir: Path | None = None,
@@ -179,10 +170,9 @@ def load_project_models(
     Returns:
         (synthetic_models_data, server_configs, llama_hostnames, gateway_configs, default_model, models_file_path)
     """
-    models_path = resolve_models_file(pa_container_dir)
-    if models_path is None:
-        expected = pa_container_dir / "models.yaml"
-        raise FileNotFoundError(f"No models configuration found in {pa_container_dir}. Expected {expected.name}.")
+    models_path = pa_container_dir / "models.yaml"
+    if not models_path.is_file():
+        raise FileNotFoundError(f"No models configuration found in {pa_container_dir}. Expected models.yaml.")
 
     raw = load_yaml_strict(models_path.read_text())
     data = raw if isinstance(raw, dict) else {}

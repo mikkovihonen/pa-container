@@ -225,7 +225,7 @@ def get_project_desktop(
         names = c.get("Names") or []
         if isinstance(names, str):
             names = [names]
-        container_name = names[0].lstrip("/") if names else f"pi-agent-{proj_hash}"
+        container_name = names[0].lstrip("/") if names else f"pa-container-agent-{proj_hash}"
 
         novnc_port = query_container_port(runtime_bin, container_name, 6080)
         vnc_port = query_container_port(runtime_bin, container_name, 5900)

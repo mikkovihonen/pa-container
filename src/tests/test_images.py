@@ -154,13 +154,13 @@ class TestComputeImageHash:
         (cfg_dir / "config.yaml").write_text("tools:\n  include: ['rust', 'go']\n")
         assert images.read_project_tools(repo) == ["go", "rust"]
 
-        (cfg_dir / "config.yaml").write_text("agent:\n  type: opencode\n")
+        (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['opencode']\n")
         assert images.read_project_tools(repo) == ["opencode"]
 
-        (cfg_dir / "config.yaml").write_text("agent:\n  type: antigravity\n")
+        (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['antigravity']\n")
         assert images.read_project_tools(repo) == ["antigravity"]
 
-        (cfg_dir / "config.yaml").write_text("agent:\n  type: claude\n")
+        (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['claude']\n")
         assert images.read_project_tools(repo) == ["claude-code"]
 
         (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - pi\n")

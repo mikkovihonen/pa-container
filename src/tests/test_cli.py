@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 sys.dont_write_bytecode = True
 
@@ -49,15 +47,22 @@ class TestCliParser:
         parser = create_parser()
         assert parser.prog == "pa"
 
+    def test_parser_version_missing_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("cli.get_git_tag_version", lambda r: None)
+        with pytest.raises(RuntimeError, match="Unable to determine pa-container version"):
+            create_parser()
+
     def test_zero_arguments_displays_help(self, capsys: pytest.CaptureFixture[str]) -> None:
-        cmd, _ = parse_cli_args([])
-        assert cmd == ""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_cli_args([])
+        assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert "usage: pa" in captured.out
         assert "positional arguments:" in captured.out
 
     def test_missing_subcommand_with_flags_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args(["--verbose"])
+        with pytest.raises(SystemExit):
+            parse_cli_args(["--verbose"])
         captured = capsys.readouterr()
         assert "the following arguments are required: <command>" in captured.err
 
@@ -76,10 +81,6 @@ class TestCliParser:
                 "--t3-tunnel",
                 "cloudflare",
                 "--t3-tunnel-quick",
-                "--log-retention-days",
-                "7",
-                "--log-retention-launches",
-                "5",
                 "--open-browser",
                 "--verbose",
                 "--log-level",
@@ -95,8 +96,6 @@ class TestCliParser:
         assert options.t3_advertise_host == "192.168.1.10"
         assert options.t3_tunnel == "cloudflare"
         assert options.t3_tunnel_quick is True
-        assert options.log_retention_days == 7
-        assert options.log_retention_launches == 5
         assert options.open_browser is True
         assert options.verbose is True
         assert options.log_level == "DEBUG"
@@ -108,7 +107,8 @@ class TestCliParser:
         assert options.open_browser is True
 
     def test_run_no_open_browser_flag_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args(["run", "--no-open-browser"])
+        with pytest.raises(SystemExit):
+            parse_cli_args(["run", "--no-open-browser"])
         captured = capsys.readouterr()
         assert "unrecognized arguments: --no-open-browser" in captured.err
 
@@ -130,9 +130,10 @@ class TestCliParser:
         assert options.container_argv == ["--help", "-c", "custom_arg"]
 
     def test_implicit_run_with_flags_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args(["--agent", "claude", "--t3"])
+        with pytest.raises(SystemExit):
+            parse_cli_args(["--agent", "claude", "--t3"])
         captured = capsys.readouterr()
-        assert "unrecognized arguments: --agent claude --t3" in captured.err
+        assert "invalid choice: 'claude'" in captured.err
 
     def test_build_options_parsing(self) -> None:
         cmd, options = parse_cli_args(
@@ -447,6 +448,46 @@ class TestCliMain:
             assert mock_render.called
             assert any("Global configuration invalid" in r.getMessage() for r in caplog.records)
 
+    def test_main_resolves_project_logging_retention(self, tmp_path: Path, monkeypatch) -> None:
+        import yaml
+
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        pa_dir = tmp_path / ".pa-container"
+        pa_dir.mkdir()
+        (pa_dir / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "agents": {"enabled": ["pi"], "default": "pi"},
+                    "logging": {"retention": {"max_days": 3, "max_launches": 2}},
+                }
+            )
+        )
+        with (
+            patch("cli.init_log_driver") as mock_init_log,
+            patch("run.execute_run", return_value=0),
+            patch("sys.exit") as mock_exit,
+        ):
+            main(["run"])
+            mock_exit.assert_called_once_with(0)
+            mock_init_log.assert_called_once()
+            _, kwargs = mock_init_log.call_args
+            assert kwargs["max_days"] == 3
+            assert kwargs["max_launches"] == 2
+
+    def test_main_falls_back_to_global_logging_retention(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        with (
+            patch("cli.init_log_driver") as mock_init_log,
+            patch("run.execute_run", return_value=0),
+            patch("sys.exit") as mock_exit,
+        ):
+            main(["run"])
+            mock_exit.assert_called_once_with(0)
+            mock_init_log.assert_called_once()
+            _, kwargs = mock_init_log.call_args
+            assert kwargs["max_days"] == 14
+            assert kwargs["max_launches"] == 10
+
 
 class TestProxyCli:
     def test_proxy_options_parsing(self) -> None:
@@ -459,7 +500,8 @@ class TestProxyCli:
         assert options.json is True
 
     def test_proxies_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args(["proxies", "--all"])
+        with pytest.raises(SystemExit):
+            parse_cli_args(["proxies", "--all"])
         captured = capsys.readouterr()
         assert "invalid choice: 'proxies'" in captured.err
 
@@ -472,7 +514,7 @@ class TestProxyCli:
             project_name="test-project",
             project_path=tmp_path,
             project_hash="1234567890",
-            container_name="pi-proxy-1234567890",
+            container_name="pa-container-proxy-1234567890",
             mitmweb_port=49152,
             mitmweb_url="http://127.0.0.1:49152",
             is_healthy=True,
@@ -509,7 +551,7 @@ class TestProxyCli:
             project_name="test-project",
             project_path=tmp_path,
             project_hash="1234567890",
-            container_name="pi-proxy-1234567890",
+            container_name="pa-container-proxy-1234567890",
             mitmweb_port=49152,
             mitmweb_url="http://127.0.0.1:49152",
             is_healthy=True,
@@ -534,7 +576,7 @@ class TestProxyCli:
             project_name="test-project",
             project_path=tmp_path,
             project_hash="1234567890",
-            container_name="pi-proxy-1234567890",
+            container_name="pa-container-proxy-1234567890",
             mitmweb_port=49152,
             mitmweb_url="http://127.0.0.1:49152",
             is_healthy=True,
@@ -560,7 +602,7 @@ class TestProxyCli:
             project_name="test-project",
             project_path=tmp_path,
             project_hash="1234567890",
-            container_name="pi-proxy-1234567890",
+            container_name="pa-container-proxy-1234567890",
             mitmweb_port=49152,
             mitmweb_url="http://127.0.0.1:49152",
             is_healthy=True,
@@ -594,7 +636,7 @@ class TestProxyCli:
                 project_name="p1",
                 project_path=Path("/tmp/p1"),
                 project_hash="1111111111",
-                container_name="pi-proxy-1111111111",
+                container_name="pa-container-proxy-1111111111",
                 mitmweb_port=50001,
                 mitmweb_url="http://127.0.0.1:50001",
                 is_healthy=True,
@@ -604,7 +646,7 @@ class TestProxyCli:
                 project_name="p2",
                 project_path=Path("/tmp/p2"),
                 project_hash="2222222222",
-                container_name="pi-proxy-2222222222",
+                container_name="pa-container-proxy-2222222222",
                 mitmweb_port=50002,
                 mitmweb_url="http://127.0.0.1:50002",
                 is_healthy=False,
@@ -642,17 +684,20 @@ class TestDesktopCli:
         assert options.json is True
 
     def test_desktops_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args(["desktops", "--all"])
+        with pytest.raises(SystemExit):
+            parse_cli_args(["desktops", "--all"])
         captured = capsys.readouterr()
         assert "invalid choice: 'desktops'" in captured.err
 
     def test_vnc_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args(["vnc", "--open"])
+        with pytest.raises(SystemExit):
+            parse_cli_args(["vnc", "--open"])
         captured = capsys.readouterr()
         assert "invalid choice: 'vnc'" in captured.err
 
     def test_gui_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        parse_cli_args(["gui", "--url"])
+        with pytest.raises(SystemExit):
+            parse_cli_args(["gui", "--url"])
         captured = capsys.readouterr()
         assert "invalid choice: 'gui'" in captured.err
 
@@ -829,7 +874,7 @@ class TestDesktopCli:
                 project_name="d1",
                 project_path=Path("/tmp/d1"),
                 project_hash="1111111111",
-                container_name="pi-agent-1111111111",
+                container_name="pa-container-agent-1111111111",
                 novnc_port=6080,
                 novnc_url="http://127.0.0.1:6080",
                 vnc_port=5900,
@@ -842,7 +887,7 @@ class TestDesktopCli:
                 project_name="d2",
                 project_path=Path("/tmp/d2"),
                 project_hash="2222222222",
-                container_name="pi-agent-2222222222",
+                container_name="pa-container-agent-2222222222",
                 novnc_port=6081,
                 novnc_url="http://127.0.0.1:6081",
                 vnc_port=5901,

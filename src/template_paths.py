@@ -56,13 +56,11 @@ def check_chat_template_paths(
                 continue
 
             try:
-                resolved = resolve_chat_template_path(
+                resolve_chat_template_path(
                     template_path,
                     repo_root=repo_root,
                     global_templates_dir=global_templates_dir,
                 )
-                if not resolved.exists():
-                    errors.append(f"flags[{i}]: --chat-template-file path does not exist: {resolved}")
             except FileNotFoundError as e:
                 errors.append(f"flags[{i}]: --chat-template-file path does not exist: {e}")
     return errors

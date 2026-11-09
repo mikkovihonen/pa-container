@@ -452,10 +452,10 @@ class TestSweepOrphanedProxies:
         monkeypatch.setattr(
             containers.ContainerNetworkManager,
             "cleanup_orphaned_proxies",
-            lambda runtime, lock_dir: called_with.append((runtime, lock_dir)) or ["pi-proxy-1234567890"],
+            lambda runtime, lock_dir: called_with.append((runtime, lock_dir)) or ["pa-container-proxy-1234567890"],
         )
         res = containers.sweep_orphaned_proxies("podman", tmp_path)
-        assert res == ["pi-proxy-1234567890"]
+        assert res == ["pa-container-proxy-1234567890"]
         assert called_with == [("podman", tmp_path)]
 
 

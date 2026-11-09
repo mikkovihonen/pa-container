@@ -42,7 +42,7 @@ def get_project_logs_dir(project_dir: Path) -> Path:
 def project_scope(project_dir: Path) -> tuple[str, str]:
     """Return ``(proxy_name, network_name)`` unique to this workspace."""
     key = project_key(project_dir)
-    return f"pi-proxy-{key}", f"pi-isolated-net-{key}"
+    return f"pa-container-proxy-{key}", f"pa-container-isolated-net-{key}"
 
 
 def init_project_config(project_dir: Path | None = None, repo_root: Path | None = None) -> Path:
@@ -94,7 +94,7 @@ def init_project_config(project_dir: Path | None = None, repo_root: Path | None 
     return project_root
 
 
-def ensure_project_config(project_dir: Path | None = None, repo_root: Path | None = None) -> Path:
+def ensure_project_config(project_dir: Path | None = None) -> Path:
     """Verify that per-project ``.pa-container`` exists and is initialized.
 
     Returns the project configuration directory (``{project_dir}/.pa-container``).

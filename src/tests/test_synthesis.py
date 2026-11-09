@@ -10,26 +10,8 @@ if TYPE_CHECKING:
 from agents.synthesis import (
     extract_models_from_yaml,
     load_project_models,
-    resolve_models_file,
 )
 from config_schema import validate_models
-
-
-def test_resolve_models_file(tmp_path):
-    pa_dir = tmp_path / ".pa-container"
-    pa_dir.mkdir()
-    assert resolve_models_file(pa_dir) is None
-
-    # models.yaml
-    yaml_path = pa_dir / "models.yaml"
-    yaml_path.write_text("allow: []")
-    assert resolve_models_file(pa_dir) == yaml_path
-
-    yaml_path.unlink()
-    # models.yml is NOT supported
-    yml_path = pa_dir / "models.yml"
-    yml_path.write_text("allow: []")
-    assert resolve_models_file(pa_dir) is None
 
 
 def test_extract_models_from_yaml_with_registries(tmp_path):

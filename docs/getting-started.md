@@ -62,14 +62,14 @@ Use the following hardware to run this environment comfortably, especially with 
 ### Linux / WSL2
 
 - **Container runtime**: podman (auto-detected).
-- **Network**: The default bridge interface is `podman0` and the proxy upstream network defaults to `podman`. Override via `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` in `~/.config/pa-container/config.yaml` or environment variables if needed.
+- **Network**: The proxy upstream network defaults to `podman` (configured via `runtime.proxy_upstream_network` in `~/.config/pa-container/config.yaml`).
 - **LLaMA backend**: The `llama-server` binary runs natively on Linux/WSL2. For GPU acceleration on Linux, build llama.cpp with CUDA or ROCm support.
 - **WSL2**: Ensure WSL2 is properly configured with a Linux distro. podman runs inside it.
 
 ### macOS
 
 - **Container runtime**: podman.
-- **Network**: The defaults apply automatically. You need `BRIDGE_INTERFACE` and `PROXY_UPSTREAM_NETWORK` only to override them.
+- **Network**: The defaults apply automatically.
 - **LLaMA backend**: Runs natively using Apple's Metal GPU acceleration.
 - **podman on macOS**: containers run inside a Linux VM (no `podman0` bridge exists on the host). The system does not use `socat`. The proxy reaches host `llama-server` via `host.containers.internal` (gvproxy). The isolated network is created `--internal --disable-dns`. The proxy's interfaces are pinned (`interface_name=eth0` / `interface_name=eth1`) so the isolated network is deterministically `eth1`. See [`src/runtimes.py`](https://github.com/mikkovihonen/pa-container/blob/main/src/runtimes.py).
 - **Machine sizing**: **4 GB is the minimum** (`podman machine set --memory 4096`). The 2 GiB default cannot build the toolchain image. `resources.agent.memory` defaults to `16g`, which the VM can never actually provide. Raise the machine further before enabling [nested containers](configuration.md#nested-containers). Do this especially before `storage: tmpfs`.

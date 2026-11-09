@@ -66,17 +66,6 @@ def read_project_tools(project_dir: Path, extra_tools: list[str] | None = None) 
                             tools.update(drv.required_tools)
                         except Exception as e:
                             logger.debug(f"Could not resolve driver for '{ag}': {e}")
-        agent_sec = data.get("agent")
-        if isinstance(agent_sec, dict):
-            agent_type = str(agent_sec.get("type") or "").strip().lower()
-            if agent_type == "pi":
-                tools.add("pi")
-            elif agent_type == "opencode":
-                tools.add("opencode")
-            elif agent_type == "antigravity":
-                tools.add("antigravity")
-            elif agent_type == "claude":
-                tools.add("claude-code")
     except Exception as e:
         logger.debug(f"Could not resolve project tools from config: {e}")
     return sorted(tools)
@@ -240,7 +229,7 @@ def resolve_agent_image(
         return PA_IMAGE_TAG, False
 
     project_hash, _ = project.project_scope(project_dir)
-    key = project_hash.split("pi-proxy-")[1]
+    key = project_hash.removeprefix("pa-container-proxy-")
     image_hash = compute_image_hash(project_dir, repo_root=repo_root, extra_tools=extra_tools)
     project_image_tag = f"pa-container-project-{key}-{image_hash}.local"
     return project_image_tag, True

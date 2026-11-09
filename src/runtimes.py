@@ -226,7 +226,7 @@ class PodmanRuntime:
     @staticmethod
     def nested_volume_name(project_hash: str) -> str:
         """Return the deterministic volume name for a project's nested image store."""
-        return f"pi-nested-{project_hash}"
+        return f"pa-container-nested-{project_hash}"
 
     @staticmethod
     def _nested_security_opt(security: str) -> str:

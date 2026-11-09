@@ -26,11 +26,6 @@ DEFAULT_GLOBAL_CONFIG_DIR: Path = Path.home() / ".config" / "pa-container"
 DEFAULT_GLOBAL_CONFIG_FILE: Path = DEFAULT_GLOBAL_CONFIG_DIR / "config.yaml"
 
 
-def get_repo_root() -> Path:
-    """Return repository root path relative to this script."""
-    return Path(__file__).resolve().parent.parent
-
-
 def init_global_config(config_dir: Path | None = None, repo_root: Path | None = None) -> Path:
     """Explicitly seed global ~/.config/pa-container/config.yaml from template.
 
@@ -38,7 +33,12 @@ def init_global_config(config_dir: Path | None = None, repo_root: Path | None = 
     """
     target_dir = config_dir if config_dir is not None else DEFAULT_GLOBAL_CONFIG_DIR
     target_file = target_dir / "config.yaml"
-    r_root = repo_root if repo_root is not None else get_repo_root()
+    if repo_root is not None:
+        r_root = repo_root
+    else:
+        from config import REPO_ROOT
+
+        r_root = REPO_ROOT
 
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / "models").mkdir(parents=True, exist_ok=True)
@@ -62,7 +62,7 @@ def init_global_config(config_dir: Path | None = None, repo_root: Path | None = 
     return target_file
 
 
-def ensure_global_config(config_dir: Path | None = None, repo_root: Path | None = None) -> Path:
+def ensure_global_config(config_dir: Path | None = None) -> Path:
     """Verify that global configuration exists. Fails hard if absent."""
     target_dir = config_dir if config_dir is not None else DEFAULT_GLOBAL_CONFIG_DIR
     target_file = target_dir / "config.yaml"
@@ -81,9 +81,9 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
     cfg_file = config_file
     if cfg_file is None:
         target_dir = DEFAULT_GLOBAL_CONFIG_DIR
-        cfg_file = ensure_global_config(config_dir=target_dir, repo_root=repo_root)
+        cfg_file = ensure_global_config(config_dir=target_dir)
     elif not cfg_file.exists():
-        ensure_global_config(config_dir=cfg_file.parent, repo_root=repo_root)
+        ensure_global_config(config_dir=cfg_file.parent)
 
     is_valid, errors, schema_version = validate_global_config(cfg_file, repo_root=repo_root)
     if not is_valid:
@@ -98,7 +98,6 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
     raw_rt = data["runtime"]
     runtime_cfg = RuntimeGlobalConfig(
         log_level=str(raw_rt["log_level"]),
-        bridge_interface=raw_rt.get("bridge_interface"),
         proxy_upstream_network=str(raw_rt["proxy_upstream_network"]),
         open_browser=bool(raw_rt["open_browser"]),
     )

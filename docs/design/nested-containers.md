@@ -123,7 +123,7 @@ flowchart TB
             c1["postgres"]
             c2["compose svc"]
         end
-        store["nested image store<br/>volume: pi-nested-&lt;project-hash&gt;<br/>driver: overlay"]
+        store["nested image store<br/>volume: pa-container-nested-&lt;project-hash&gt;<br/>driver: overlay"]
     end
     style agent fill:none,text-align:left
     style inner fill:none,text-align:left
@@ -150,7 +150,7 @@ Added to the agent `podman run` when nesting is enabled:
 | `--security-opt label=disable` | Required on an SELinux-enforcing host — see [SELinux](#5-selinux-the-one-real-concession) |
 | `--security-opt unmask=ALL` | **Correction, measured during implementation.** Podman bind-mounts parts of `/proc` read-only and masks others in the agent container; those mounts are *locked* in the nested user namespace. Without this, the inner runtime dies with `crun: open /proc/sys/net/ipv4/ping_group_range: Read-only file system`. |
 | `--cap-add SYS_ADMIN` | **Correction, measured during implementation.** Podman's default seccomp profile permits `mount`/`sethostname`/`umount2`/`pivot_root` only when `CAP_SYS_ADMIN` is in the container's capability set, and a seccomp filter cannot be relaxed from inside a nested userns. Without this, the inner runtime dies with `crun: sethostname: Operation not permitted`. |
-| `--volume pi-nested-<project-hash>:/home/agent/.local/share/containers` | Persistent nested image store |
+| `--volume pa-container-nested-<project-hash>:/home/agent/.local/share/containers` | Persistent nested image store |
 | `--env XDG_RUNTIME_DIR=/run/user/1000` | Rootless podman's lock/pid directory |
 | `--env PA_CONTAINER_NESTED=true` | Entrypoint gate (see below) |
 
@@ -272,7 +272,7 @@ Nested image storage **cannot** live on the agent's default paths:
 - The container's own rootfs is overlayfs, and overlay-on-overlay is unsupported —
   podman would degrade to the `vfs` driver, which copies every layer in full.
 
-So a named volume `pi-nested-<project-hash>` is mounted at
+So a named volume `pa-container-nested-<project-hash>` is mounted at
 `/home/agent/.local/share/containers`. Verified: the volume mounts correctly *nested under*
 the existing `--mount type=tmpfs,…,destination=/home/agent/`, and the nested podman
 resolves to the native **`overlay`** driver on it — not `vfs`.
@@ -801,7 +801,7 @@ Each phase leaves the tree working. The security-relevant surface all lands in p
    against the live registries. It needs re-checking when one moves its CDN, as Docker
    Hub did (Cloudflare → CloudFront).
 2. **Concurrent runs sharing one nested-storage volume.** Two agents in the same
-   workspace both mount `pi-nested-<hash>`. Each has its own `XDG_RUNTIME_DIR`. podman's storage locks don't see each other. This is a plausible route to a corrupted store.
+   workspace both mount `pa-container-nested-<hash>`. Each has its own `XDG_RUNTIME_DIR`. podman's storage locks don't see each other. This is a plausible route to a corrupted store.
    Options: per-run volumes (loses cache sharing), a run-scoped subdirectory inside the
    shared volume (keeps the layer cache separate but the disk shared), or refcount the
    volume like the proxy already is. Needs a decision before phase 3. The subdirectory

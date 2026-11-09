@@ -27,7 +27,6 @@ from agents import (
     AgentMount,
     get_agent_driver,
     load_project_models,
-    resolve_models_file,
     resolve_selected_agent_names,
 )
 from build import DEFAULT_ROOT_COMMANDS, build_agent, build_project_image, build_proxy
@@ -59,7 +58,7 @@ from network import (
     read_agent_extras,
     read_agent_mode,
     read_agent_ports,
-    read_agent_type,
+    read_default_agent,
     read_enabled_agents,
     read_flow_export_enabled,
     read_git_config,
@@ -221,9 +220,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         return 1
 
     warn_missing_gitignore(PROJECT_DIR, preflight_logger)
-    models_path: Path | None = resolve_models_file(pa_container_dir)
-    if models_path is None or not models_path.exists():
-        err = f"Config file not found: expected {pa_container_dir / 'models.yaml'}"
+    models_path: Path = pa_container_dir / "models.yaml"
+    if not models_path.is_file():
+        err = f"Config file not found: expected {models_path}"
         log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
             "Missing Models Configuration",
@@ -370,7 +369,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
     is_t3_mode = cli_t3 or (read_agent_mode(pa_container_dir) == "t3")
     enabled_agents = read_enabled_agents(pa_container_dir)
-    default_agent = read_agent_type(pa_container_dir)
+    default_agent = read_default_agent(pa_container_dir)
     try:
         active_agent_name, selected_agent_names = resolve_selected_agent_names(
             cli_agent=cli_agent,

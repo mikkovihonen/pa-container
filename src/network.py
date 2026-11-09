@@ -1,8 +1,4 @@
-import sys
-
-sys.dont_write_bytecode = True
-
-"""Container network and proxy container lifecycle management."""
+from __future__ import annotations
 
 import contextlib
 import fcntl
@@ -10,15 +6,20 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from config import ADMIN_PASSWORD, CONFIG_DIR, PROJECT_DIR, PROXY_LOCK_DIR
+sys.dont_write_bytecode = True
+
+"""Container network and proxy container lifecycle management."""
+
+from config import ADMIN_PASSWORD, PROJECT_DIR, PROXY_LOCK_DIR
 from runtimes import PodmanRuntime
 from util import (
     get_free_port,
@@ -32,6 +33,7 @@ from util import (
 
 if TYPE_CHECKING:
     import types
+    from collections.abc import Mapping
 
     from config_types import (
         AgentExtrasConfig,
@@ -43,6 +45,8 @@ if TYPE_CHECKING:
         NestedContainersConfig,
         NetworkConfig,
         PortPublishConfig,
+        ProjectAgentSectionConfig,
+        ProjectConfig,
         ProxyConfig,
         ResourceLimits,
     )
@@ -67,11 +71,11 @@ _PROXY_FORWARD_PORTS = {
 }
 
 
-def load_project_config(config_dir: Path | None = None) -> dict[str, Any]:
+def load_project_config(config_dir: Path | None = None) -> ProjectConfig:
     """Load and parse `.pa-container/config.yaml`, failing hard if missing or invalid."""
     from yaml_strict import load_yaml_file
 
-    config_path = (config_dir or CONFIG_DIR) / "config.yaml"
+    config_path = (config_dir or (PROJECT_DIR / ".pa-container")) / "config.yaml"
     if not config_path.exists():
         raise FileNotFoundError(f"Project config not found at {config_path}")
 
@@ -81,7 +85,7 @@ def load_project_config(config_dir: Path | None = None) -> dict[str, Any]:
         raise ValueError(f"Invalid YAML in project config at {config_path}: {e}") from e
     if not isinstance(loaded, dict):
         raise ValueError(f"Project config at {config_path} must be a YAML mapping")
-    return loaded
+    return cast("ProjectConfig", loaded)
 
 
 def scan_tmpfs_paths(config_dir: Path | None = None) -> list[str]:
@@ -120,8 +124,13 @@ def read_proxy_forward_env(config_dir: Path | None = None) -> dict[str, str]:
         if allow.get(key) is True:
             env[var] = "true"
     for key, var in _PROXY_FORWARD_PORTS.items():
-        ports = allow.get(key) or []
-        joined = ports.strip() if isinstance(ports, str) else ",".join(str(p).strip() for p in ports if str(p).strip())
+        ports = allow.get(key)
+        if isinstance(ports, str):
+            joined = ports.strip()
+        elif isinstance(ports, (list, tuple)):
+            joined = ",".join(str(p).strip() for p in ports if str(p).strip())
+        else:
+            joined = ""
         if joined:
             env[var] = joined
     return env
@@ -248,7 +257,7 @@ def _parse_port_mapping(entry: object) -> tuple[int, int]:
     return host, agent
 
 
-def _read_ports_section(section: dict[str, Any], section_name: str = "ports") -> PortPublishConfig:
+def _read_ports_section(section: Mapping[str, Any], section_name: str = "ports") -> PortPublishConfig:
     """Read a ``ports`` sub-section → ``{"expose", "publish"}``."""
     ports = section.get("ports")
     if ports is None:
@@ -278,7 +287,7 @@ def _read_ports_section(section: dict[str, Any], section_name: str = "ports") ->
     return {"expose": expose, "publish": publish}
 
 
-def _read_nested_ports(section: dict[str, Any]) -> PortPublishConfig:
+def _read_nested_ports(section: Mapping[str, Any]) -> PortPublishConfig:
     """The ``nested_containers.ports`` sub-section → ``{"expose", "publish"}``."""
     return _read_ports_section(section, "nested_containers.ports")
 
@@ -322,7 +331,7 @@ def read_agent_extras(config_dir: Path | None = None) -> AgentExtrasConfig:
     Returns ``{"env": {NAME: value, ...}, "mounts": ["host:container[:ro]", ...], "capabilities": ["CAP_NAME", ...], "devices": ["host:container[:mode]", ...]}``
     — passed through verbatim as ``--env``/``--volume``/``--cap-add``/``--device`` flags. Use absolute host paths for mounts and devices. Empty when the section is absent.
     """
-    section = load_project_config(config_dir).get("agent") or {}
+    section: ProjectAgentSectionConfig = load_project_config(config_dir).get("agent") or {}
     env = section.get("env") or {}
     mounts = section.get("mounts") or []
     capabilities = section.get("capabilities") or []
@@ -351,7 +360,7 @@ def read_agent_ports(config_dir: Path | None = None) -> PortPublishConfig:
 
     Returns ``{"expose": "localhost"|"lan", "publish": [(host, agent), ...]}``.
     """
-    section = load_project_config(config_dir).get("agent") or {}
+    section: ProjectAgentSectionConfig = load_project_config(config_dir).get("agent") or {}
     return _read_ports_section(section, "agent.ports")
 
 
@@ -419,7 +428,7 @@ def resolve_t3_port(
 
 def read_agent_mode(config_dir: Path | None = None) -> str:
     """Execution mode for the agent container from config.yaml ``agent.mode`` (e.g. 'cli', 't3')."""
-    section = load_project_config(config_dir).get("agent") or {}
+    section: ProjectAgentSectionConfig = load_project_config(config_dir).get("agent") or {}
     mode = str(section.get("mode") or "cli").strip().lower()
     return mode or "cli"
 
@@ -436,7 +445,7 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
     return [str(x).strip().lower() for x in enabled]
 
 
-def read_agent_type(config_dir: Path | None = None) -> str:
+def read_default_agent(config_dir: Path | None = None) -> str:
     """Agent engine type from config.yaml ``agents.default``."""
     cfg = load_project_config(config_dir)
     agents_sec = cfg.get("agents")
@@ -472,9 +481,11 @@ def read_logging_config(config_dir: Path | None = None) -> LoggingProjectConfig:
     ret = sec.get("retention")
     ret_dict: LogRetentionConfig = {}
     if isinstance(ret, dict):
+        max_d = ret.get("max_days")
+        max_l = ret.get("max_launches")
         ret_dict = {
-            "max_days": int(ret["max_days"]) if ret.get("max_days") is not None else None,
-            "max_launches": int(ret["max_launches"]) if ret.get("max_launches") is not None else None,
+            "max_days": int(max_d) if max_d is not None else None,
+            "max_launches": int(max_l) if max_l is not None else None,
         }
     return {
         "log_level": str(sec["log_level"]) if sec.get("log_level") is not None else None,
@@ -549,11 +560,11 @@ class ContainerNetworkManager:
         self.network_name: str = network_name
         self.proxy_image: str = proxy_image
         self.proxy_name: str = proxy_name
-        self.config_dir: Path = config_dir or CONFIG_DIR
+        self.config_dir: Path = config_dir or (PROJECT_DIR / ".pa-container")
         self.project_dir: Path = (
             project_dir or (self.config_dir.parent if self.config_dir.name == ".pa-container" else PROJECT_DIR)
         ).resolve()
-        self.project_hash: str = self.proxy_name.removeprefix("pi-proxy-")
+        self.project_hash: str = self.proxy_name.removeprefix("pa-container-proxy-")
         self.llama_ports: str | None = llama_ports
         self.llama_hostnames: str | None = llama_hostnames
         self.ipv6: bool = ipv6
@@ -689,7 +700,7 @@ class ContainerNetworkManager:
             )
             return {}
 
-        from secret_store import resolve_secret
+        from secret_store import get_keyring_secret
         from yaml_strict import load_yaml_file
 
         loaded = load_yaml_file(effective_replacer_path)
@@ -702,7 +713,7 @@ class ContainerNetworkManager:
 
         secrets: dict[str, str] = {}
         for var in required_vars:
-            value = resolve_secret(var)
+            value = get_keyring_secret(var)
             if value:
                 secrets[var] = value
                 os.environ[var] = value
@@ -866,7 +877,7 @@ class ContainerNetworkManager:
             if not name.startswith("."):
                 continue
             parts = name[1:].split(".")
-            if parts and parts[0].startswith("pi-proxy-"):
+            if parts and parts[0].startswith("pa-container-proxy-"):
                 seen_proxies.add(parts[0])
 
         for proxy_name in sorted(seen_proxies):
@@ -893,8 +904,8 @@ class ContainerNetworkManager:
                                 label=f"remove orphaned proxy container {proxy_name}",
                                 logger=logger,
                             )
-                            project_hash = proxy_name.removeprefix("pi-proxy-")
-                            network_name = f"pi-isolated-net-{project_hash}"
+                            project_hash = proxy_name.removeprefix("pa-container-proxy-")
+                            network_name = f"pa-container-isolated-net-{project_hash}"
                             logger.info(f"Removing orphaned proxy network {network_name}...")
                             run_quiet(
                                 [runtime_bin, "network", "rm", network_name],
@@ -1279,7 +1290,7 @@ def get_project_proxy(
     from project import project_key
 
     proj_hash = project_key(project_dir)
-    container_name = f"pi-proxy-{proj_hash}"
+    container_name = f"pa-container-proxy-{proj_hash}"
 
     # Verify if container is running
     try:
@@ -1324,10 +1335,10 @@ def list_active_proxies(
     proxies: list[ActiveProxyInfo] = []
     seen_containers: set[str] = set()
 
-    # 1. Query running containers matching name=pi-proxy-
+    # 1. Query running containers matching name=pa-container-proxy-
     try:
         proc = subprocess.run(
-            [runtime_bin, "ps", "--filter", "name=pi-proxy-", "--format", "json"],
+            [runtime_bin, "ps", "--filter", "name=pa-container-proxy-", "--format", "json"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -1346,7 +1357,7 @@ def list_active_proxies(
                 if not names:
                     continue
                 name = names[0].lstrip("/")
-                if not name.startswith("pi-proxy-"):
+                if not name.startswith("pa-container-proxy-"):
                     continue
                 seen_containers.add(name)
 
@@ -1354,7 +1365,7 @@ def list_active_proxies(
                 if not isinstance(labels, dict):
                     labels = {}
 
-                proj_hash = labels.get("pa-container.project.hash") or name.removeprefix("pi-proxy-")
+                proj_hash = labels.get("pa-container.project.hash") or name.removeprefix("pa-container-proxy-")
                 proj_name = labels.get("pa-container.project.name") or proj_hash
                 proj_path_raw = labels.get("pa-container.project.path")
                 proj_path = Path(proj_path_raw) if proj_path_raw else None
@@ -1387,7 +1398,7 @@ def list_active_proxies(
     # 2. Fallback to lock files for any proxy container not caught above
     if actual_lock_dir.exists():
         for entry in actual_lock_dir.iterdir():
-            if entry.name.startswith(".pi-proxy-") and entry.name.endswith(".clients.json"):
+            if entry.name.startswith(".pa-container-proxy-") and entry.name.endswith(".clients.json"):
                 name = entry.name[1:].removesuffix(".clients.json")
                 if name in seen_containers:
                     continue
@@ -1395,7 +1406,7 @@ def list_active_proxies(
                 if port is None:
                     continue
                 seen_containers.add(name)
-                proj_hash = name.removeprefix("pi-proxy-")
+                proj_hash = name.removeprefix("pa-container-proxy-")
                 clients = len(read_live_clients(entry))
                 url = f"http://127.0.0.1:{port}"
                 is_healthy = check_proxy_health(url)

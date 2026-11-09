@@ -18,7 +18,10 @@ class TestEnsureNestedVolume:
             raise AssertionError("volume create must not run for an existing volume")
 
         monkeypatch.setattr(volumes.subprocess, "run", unexpected)
-        assert volumes.ensure_nested_volume("podman", "pi-nested-abc", "pi-proxy-abc", "/tmp/proj") is True
+        assert (
+            volumes.ensure_nested_volume("podman", "pa-container-nested-abc", "pa-container-proxy-abc", "/tmp/proj")
+            is True
+        )
 
     def test_creates_with_project_labels(self, monkeypatch):
         monkeypatch.setattr(volumes, "volume_exists", lambda rt, name: False)
@@ -29,14 +32,17 @@ class TestEnsureNestedVolume:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr(volumes.subprocess, "run", mock_run)
-        assert volumes.ensure_nested_volume("podman", "pi-nested-abc", "pi-proxy-abc", "/tmp/proj") is True
+        assert (
+            volumes.ensure_nested_volume("podman", "pa-container-nested-abc", "pa-container-proxy-abc", "/tmp/proj")
+            is True
+        )
 
         cmd = calls[0]
         assert cmd[:3] == ["podman", "volume", "create"]
-        assert cmd[-1] == "pi-nested-abc"
+        assert cmd[-1] == "pa-container-nested-abc"
         # Labelled like project images, so the same orphan rule reclaims it.
         assert "pa-container.type=nested-storage" in cmd
-        assert "pa-container.project.hash=pi-proxy-abc" in cmd
+        assert "pa-container.project.hash=pa-container-proxy-abc" in cmd
         assert "pa-container.project.path=/tmp/proj" in cmd
 
     def test_returns_false_when_create_fails(self, monkeypatch):
@@ -46,7 +52,10 @@ class TestEnsureNestedVolume:
             "run",
             lambda cmd, **kw: MagicMock(returncode=125, stdout="", stderr="out of space"),
         )
-        assert volumes.ensure_nested_volume("podman", "pi-nested-abc", "pi-proxy-abc", "/tmp/proj") is False
+        assert (
+            volumes.ensure_nested_volume("podman", "pa-container-nested-abc", "pa-container-proxy-abc", "/tmp/proj")
+            is False
+        )
 
 
 class TestUnusedVolumes:
@@ -94,7 +103,7 @@ class TestCleanupOrphanedNestedVolumes:
         monkeypatch.setattr(volumes.subprocess, "run", _run)
 
     def test_removes_volume_with_missing_path(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-nested-abc1234567\n")
+        self._mock_ls(monkeypatch, "pa-container-nested-abc1234567\n")
         monkeypatch.setattr(
             volumes,
             "get_volume_label",
@@ -103,11 +112,11 @@ class TestCleanupOrphanedNestedVolumes:
         removed: list[str] = []
         monkeypatch.setattr(volumes, "remove_volume", lambda rt, name: removed.append(name) or True)
 
-        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pi-nested-abc1234567"]
-        assert removed == ["pi-nested-abc1234567"]
+        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pa-container-nested-abc1234567"]
+        assert removed == ["pa-container-nested-abc1234567"]
 
     def test_keeps_volume_with_existing_path(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-nested-abc1234567\n")
+        self._mock_ls(monkeypatch, "pa-container-nested-abc1234567\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: str(Path(__file__).parent))
 
         def unexpected(rt, name):
@@ -117,20 +126,20 @@ class TestCleanupOrphanedNestedVolumes:
         assert volumes.cleanup_orphaned_nested_volumes("podman") == []
 
     def test_removes_volume_without_path_label(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-nested-abc1234567\n")
+        self._mock_ls(monkeypatch, "pa-container-nested-abc1234567\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: None)
         monkeypatch.setattr(volumes, "remove_volume", lambda rt, name: True)
-        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pi-nested-abc1234567"]
+        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pa-container-nested-abc1234567"]
 
     def test_removes_volume_with_blank_path_label(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-nested-abc1234567\n")
+        self._mock_ls(monkeypatch, "pa-container-nested-abc1234567\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "")
         monkeypatch.setattr(volumes, "remove_volume", lambda rt, name: True)
-        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pi-nested-abc1234567"]
+        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pa-container-nested-abc1234567"]
 
     def test_keeps_orphaned_volume_still_in_use(self, monkeypatch):
         # Listed, but absent from the dangling set — something references it.
-        self._mock_ls(monkeypatch, "pi-nested-abc1234567\n", dangling="")
+        self._mock_ls(monkeypatch, "pa-container-nested-abc1234567\n", dangling="")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "/nonexistent/path")
 
         def unexpected(rt, name):
@@ -145,15 +154,15 @@ class TestCleanupOrphanedNestedVolumes:
         def _run(cmd, **kw):
             if "dangling=true" in cmd:
                 raise sp.TimeoutExpired("cmd", 10)
-            return MagicMock(returncode=0, stdout="pi-nested-abc1234567\n", stderr="")
+            return MagicMock(returncode=0, stdout="pa-container-nested-abc1234567\n", stderr="")
 
         monkeypatch.setattr(volumes.subprocess, "run", _run)
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "/nonexistent/path")
         monkeypatch.setattr(volumes, "remove_volume", lambda rt, name: True)
-        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pi-nested-abc1234567"]
+        assert volumes.cleanup_orphaned_nested_volumes("podman") == ["pa-container-nested-abc1234567"]
 
     def test_removal_failure_is_not_fatal(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-nested-abc1234567\n")
+        self._mock_ls(monkeypatch, "pa-container-nested-abc1234567\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "/nonexistent/path")
         monkeypatch.setattr(volumes, "remove_volume", lambda rt, name: False)
         assert volumes.cleanup_orphaned_nested_volumes("podman") == []
@@ -170,7 +179,7 @@ class TestCleanupOrphanedNestedVolumes:
 
 class TestProjectVolumeName:
     def test_shadow_volume_name(self):
-        assert volumes.project_shadow_volume_name("abc1234567") == "pi-shadow-abc1234567"
+        assert volumes.project_shadow_volume_name("abc1234567") == "pa-container-shadow-abc1234567"
 
     def test_destination_to_subpath(self):
         assert volumes.destination_to_subpath("/workspace/node_modules") == "workspace/node_modules"
@@ -183,8 +192,8 @@ class TestEnsureProjectVolume:
         assert (
             volumes.ensure_project_volume(
                 "podman",
-                "pi-shadow-test",
-                "pi-proxy-test",
+                "pa-container-shadow-test",
+                "pa-container-proxy-test",
                 "/host/path",
             )
             is True
@@ -201,8 +210,8 @@ class TestEnsureProjectVolume:
         monkeypatch.setattr(volumes.subprocess, "run", _run)
         success = volumes.ensure_project_volume(
             "podman",
-            "pi-shadow-test",
-            "pi-proxy-test",
+            "pa-container-shadow-test",
+            "pa-container-proxy-test",
             "/host/path",
             subpaths=["workspace/node_modules"],
             image="pa-container-agent:local",
@@ -212,9 +221,9 @@ class TestEnsureProjectVolume:
         create_cmd = recorded[0]
         assert "volume" in create_cmd and "create" in create_cmd
         assert "pa-container.type=project-shadow" in create_cmd
-        assert "pa-container.project.hash=pi-proxy-test" in create_cmd
+        assert "pa-container.project.hash=pa-container-proxy-test" in create_cmd
         assert "pa-container.project.path=/host/path" in create_cmd
-        assert "pi-shadow-test" in create_cmd
+        assert "pa-container-shadow-test" in create_cmd
 
         mkdir_cmd = recorded[1]
         assert "run" in mkdir_cmd and "/bin/mkdir" in mkdir_cmd
@@ -230,8 +239,8 @@ class TestEnsureProjectVolume:
         assert (
             volumes.ensure_project_volume(
                 "podman",
-                "pi-shadow-test",
-                "pi-proxy-test",
+                "pa-container-shadow-test",
+                "pa-container-proxy-test",
                 "/host/path",
             )
             is False
@@ -247,17 +256,17 @@ class TestCleanupOrphanedProjectVolumes:
         monkeypatch.setattr(volumes.subprocess, "run", _run)
 
     def test_removes_orphaned_volume(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-shadow-proj-11111111\n")
+        self._mock_ls(monkeypatch, "pa-container-shadow-proj-11111111\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: "/nonexistent/path")
         removed = []
         monkeypatch.setattr(volumes, "remove_volume", lambda rt, name, **kw: removed.append(name) or True)
 
         result = volumes.cleanup_orphaned_project_volumes("podman")
-        assert result == ["pi-shadow-proj-11111111"]
-        assert removed == ["pi-shadow-proj-11111111"]
+        assert result == ["pa-container-shadow-proj-11111111"]
+        assert removed == ["pa-container-shadow-proj-11111111"]
 
     def test_keeps_active_project_volume(self, monkeypatch):
-        self._mock_ls(monkeypatch, "pi-shadow-proj-11111111\n")
+        self._mock_ls(monkeypatch, "pa-container-shadow-proj-11111111\n")
         monkeypatch.setattr(volumes, "get_volume_label", lambda rt, name, label: str(Path(__file__).parent))
         monkeypatch.setattr(
             volumes,
@@ -272,11 +281,11 @@ class TestCleanupOrphanedProjectVolumes:
 class TestVolumeHelpers:
     def test_volume_exists_true_on_success(self, monkeypatch):
         monkeypatch.setattr(volumes.subprocess, "run", lambda cmd, **kw: MagicMock(returncode=0, stdout="[{}]"))
-        assert volumes.volume_exists("podman", "pi-nested-abc") is True
+        assert volumes.volume_exists("podman", "pa-container-nested-abc") is True
 
     def test_volume_exists_false_on_failure(self, monkeypatch):
         monkeypatch.setattr(volumes.subprocess, "run", lambda cmd, **kw: MagicMock(returncode=125, stdout=""))
-        assert volumes.volume_exists("podman", "pi-nested-abc") is False
+        assert volumes.volume_exists("podman", "pa-container-nested-abc") is False
 
     def test_get_volume_label_reads_value(self, monkeypatch):
         monkeypatch.setattr(volumes.subprocess, "run", lambda cmd, **kw: MagicMock(returncode=0, stdout="/tmp/proj\n"))
@@ -293,4 +302,4 @@ class TestVolumeHelpers:
             "run",
             lambda cmd, **kw: MagicMock(returncode=2, stdout="", stderr="volume is being used"),
         )
-        assert volumes.remove_volume("podman", "pi-nested-abc") is False
+        assert volumes.remove_volume("podman", "pa-container-nested-abc") is False

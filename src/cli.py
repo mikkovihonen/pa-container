@@ -65,8 +65,6 @@ class RunOptions(GlobalCliOptions):
     t3_tunnel_keyring_account: str | None = None
     t3_tunnel_tailscale_mode: str | None = None
     t3_public_url: str | None = None
-    log_retention_days: int | None = None
-    log_retention_launches: int | None = None
     open_browser: bool | None = None
     container_argv: list[str] = field(default_factory=list)
 
@@ -159,7 +157,9 @@ def _parse_duration(duration_str: str) -> float:
 
 def create_parser() -> argparse.ArgumentParser:
     """Construct the unified pa CLI argument parser."""
-    version = get_git_tag_version(REPO_ROOT) or "0.6.6"
+    version = get_git_tag_version(REPO_ROOT)
+    if not version:
+        raise RuntimeError("Unable to determine pa-container version from git tags.")
 
     # Shared global flags inherited across root and subcommands
     common_parser = argparse.ArgumentParser(add_help=False)
@@ -277,16 +277,6 @@ def create_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--t3-public-url",
         help="Pre-existing public HTTPS URL override for T3 pairing link.",
-    )
-    run_parser.add_argument(
-        "--log-retention-days",
-        type=int,
-        help="Maximum age in days to retain project logs (overrides config).",
-    )
-    run_parser.add_argument(
-        "--log-retention-launches",
-        type=int,
-        help="Maximum number of historical launch logs to retain (overrides config).",
     )
     run_parser.add_argument(
         "--open-browser",
@@ -541,7 +531,6 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
     if not raw_args:
         parser.print_help()
         sys.exit(0)
-        return ("", None)
 
     args, unknown = parser.parse_known_args(raw_args)
 
@@ -576,8 +565,6 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             t3_tunnel_keyring_account=getattr(args, "t3_tunnel_keyring_account", None),
             t3_tunnel_tailscale_mode=getattr(args, "t3_tunnel_tailscale_mode", None),
             t3_public_url=getattr(args, "t3_public_url", None),
-            log_retention_days=getattr(args, "log_retention_days", None),
-            log_retention_launches=getattr(args, "log_retention_launches", None),
             open_browser=getattr(args, "open_browser", None),
             container_argv=passthrough_args,
         )
@@ -778,7 +765,7 @@ def handle_proxy_command(options: ProxyOptions) -> int:
 
         key = project_key(PROJECT_DIR)
         console.print(
-            f"[yellow]No active proxy container running for project '{PROJECT_DIR.name}' (pi-proxy-{key}).[/yellow]"
+            f"[yellow]No active proxy container running for project '{PROJECT_DIR.name}' (pa-container-proxy-{key}).[/yellow]"
         )
         console.print("[dim]Run 'pa run' to start this project or use '--all' to view all proxies.[/dim]")
         return 1
@@ -1117,14 +1104,34 @@ def main(argv: Sequence[str] | None = None) -> None:
             sys.exit(1)
             return
 
+        project_logging: dict[str, Any] = {}
+        pa_container_dir = PROJECT_DIR / ".pa-container"
+        if (pa_container_dir / "config.yaml").is_file():
+            try:
+                from network import read_logging_config
+
+                project_logging = dict(read_logging_config(pa_container_dir))
+            except Exception:
+                project_logging = {}
+
+        proj_retention = project_logging.get("retention") or {}
+        eff_max_days = (
+            proj_retention.get("max_days")
+            if proj_retention.get("max_days") is not None
+            else global_cfg.logging.retention.max_days
+        )
+        eff_max_launches = (
+            proj_retention.get("max_launches")
+            if proj_retention.get("max_launches") is not None
+            else global_cfg.logging.retention.max_launches
+        )
         eff_log_level = (
             getattr(options, "log_level", None)
             or os.environ.get("LOG_LEVEL")
+            or project_logging.get("log_level")
             or global_cfg.logging.log_level
             or global_cfg.runtime.log_level
         )
-        eff_max_days = getattr(options, "log_retention_days", None) or global_cfg.logging.retention.max_days
-        eff_max_launches = getattr(options, "log_retention_launches", None) or global_cfg.logging.retention.max_launches
 
         driver = init_log_driver(
             PROJECT_DIR,

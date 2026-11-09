@@ -43,7 +43,7 @@ flowchart TB
             c1["postgres"]
             c2["compose svc"]
         end
-        store["nested image store<br/>volume: pi-nested-&lt;project-hash&gt;<br/>driver: overlay"]
+        store["nested image store<br/>volume: pa-container-nested-&lt;project-hash&gt;<br/>driver: overlay"]
     end
     style agent fill:none,text-align:left
     style inner fill:none,text-align:left

@@ -167,7 +167,7 @@ if is_project_specific:
 agent_image_tag, is_project_specific = _resolve_agent_image(PROJECT_DIR)
 if is_project_specific:
     current_hash = _compute_image_hash(PROJECT_DIR)
-    project_hash = _project_scope(PROJECT_DIR)[0].split("pi-proxy-")[1]
+    project_hash = _project_scope(PROJECT_DIR)[0].removeprefix("pa-container-proxy-")
     # 1. Cleanup orphaned images from deleted projects.
     orphaned = _cleanup_orphaned_project_images(CONTAINER_RUNTIME)
     if orphaned:

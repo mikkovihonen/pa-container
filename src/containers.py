@@ -66,7 +66,7 @@ def cleanup_orphaned_agent_containers(runtime: str) -> list[str]:
         else:
             name = str(container.get("Id") or "")[:12]
         name = str(name).lstrip("/")
-        if not name or not name.startswith(("pa-container-agent-", "coding-agent-")):
+        if not name or not name.startswith("pa-container-agent-"):
             continue
 
         labels = container.get("Labels") or {}

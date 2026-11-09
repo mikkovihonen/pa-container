@@ -109,13 +109,17 @@ class TestTmpfsArgs:
 
     def test_volume_subpath_args(self):
         rt = PodmanRuntime()
-        assert rt.volume_subpath_args("pi-shadow-test", "/workspace/node_modules", "workspace/node_modules") == [
+        assert rt.volume_subpath_args(
+            "pa-container-shadow-test", "/workspace/node_modules", "workspace/node_modules"
+        ) == [
             "--mount",
-            "type=volume,src=pi-shadow-test,dst=/workspace/node_modules,subpath=workspace/node_modules,nodev,nosuid",
+            "type=volume,src=pa-container-shadow-test,dst=/workspace/node_modules,subpath=workspace/node_modules,nodev,nosuid",
         ]
-        assert rt.volume_subpath_args("pi-shadow-test", "/workspace/.venv", "workspace/.venv", read_only=True) == [
+        assert rt.volume_subpath_args(
+            "pa-container-shadow-test", "/workspace/.venv", "workspace/.venv", read_only=True
+        ) == [
             "--mount",
-            "type=volume,src=pi-shadow-test,dst=/workspace/.venv,subpath=workspace/.venv,nodev,nosuid,ro",
+            "type=volume,src=pa-container-shadow-test,dst=/workspace/.venv,subpath=workspace/.venv,nodev,nosuid,ro",
         ]
 
 
@@ -279,7 +283,7 @@ class TestNestedContainerArgs:
 
     def test_volume_storage_mounts_named_volume(self):
         args = PodmanRuntime().nested_container_args(_nested(storage="volume"), "abcdef1234")
-        assert args[args.index("--volume") + 1] == f"pi-nested-abcdef1234:{_STORE}"
+        assert args[args.index("--volume") + 1] == f"pa-container-nested-abcdef1234:{_STORE}"
         assert "--mount" not in args
 
     def test_tmpfs_storage_mounts_tmpfs(self):
@@ -300,7 +304,7 @@ class TestNestedContainerArgs:
         assert args[args.index("--security-opt") + 1] == "label=disable"
 
     def test_volume_name_is_per_project(self):
-        assert PodmanRuntime.nested_volume_name("abcdef1234") == "pi-nested-abcdef1234"
+        assert PodmanRuntime.nested_volume_name("abcdef1234") == "pa-container-nested-abcdef1234"
         assert PodmanRuntime.nested_volume_name("0123456789") != PodmanRuntime.nested_volume_name("abcdef1234")
 
 

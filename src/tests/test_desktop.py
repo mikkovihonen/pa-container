@@ -99,7 +99,7 @@ def test_get_project_desktop(tmp_path: Path):
     ps_output = json.dumps(
         [
             {
-                "Names": ["pi-agent-test1234"],
+                "Names": ["pa-container-agent-test1234"],
                 "Created": "2026-11-07T20:00:00Z",
             }
         ]
@@ -125,7 +125,7 @@ def test_get_project_desktop(tmp_path: Path):
         desktop_info = get_project_desktop(proj_dir, runtime="podman")
         assert desktop_info is not None
         assert desktop_info.project_name == "my_project"
-        assert desktop_info.container_name == "pi-agent-test1234"
+        assert desktop_info.container_name == "pa-container-agent-test1234"
         assert desktop_info.novnc_port == 49152
         assert desktop_info.vnc_port == 49153
         assert "49152" in desktop_info.novnc_url
@@ -133,11 +133,27 @@ def test_get_project_desktop(tmp_path: Path):
         assert desktop_info.is_healthy is True
 
 
+def test_get_project_desktop_names_empty_fallback(tmp_path: Path):
+    proj_dir = tmp_path / "my_project"
+    proj_dir.mkdir()
+    ps_output = json.dumps([{"Names": [], "Created": "2026-11-07T20:00:00Z"}])
+    with (
+        patch("subprocess.run") as mock_run,
+        patch("desktop.query_container_port", return_value=49152),
+        patch("desktop.check_desktop_health", return_value=True),
+        patch("project.project_key", return_value="test1234"),
+    ):
+        mock_run.return_value = MagicMock(returncode=0, stdout=ps_output)
+        desktop_info = get_project_desktop(proj_dir, runtime="podman")
+        assert desktop_info is not None
+        assert desktop_info.container_name == "pa-container-agent-test1234"
+
+
 def test_list_active_desktops():
     ps_output = json.dumps(
         [
             {
-                "Names": ["pi-agent-proj1"],
+                "Names": ["pa-container-agent-proj1"],
                 "Labels": {
                     "pa-container.project.name": "Project1",
                     "pa-container.project.hash": "hash1",
@@ -145,7 +161,7 @@ def test_list_active_desktops():
                 "Created": "2026-11-07T20:00:00Z",
             },
             {
-                "Names": ["pi-agent-proj2"],
+                "Names": ["pa-container-agent-proj2"],
                 "Labels": {
                     "pa-container.project.name": "Project2",
                     "pa-container.project.hash": "hash2",

@@ -31,7 +31,7 @@ class TestGlobalConfigSeeding:
         assert again == target_file
 
         # ensure_global_config succeeds now
-        assert ensure_global_config(config_dir=target_dir, repo_root=repo_root) == target_file
+        assert ensure_global_config(config_dir=target_dir) == target_file
 
     def test_ensure_global_config_fails_when_absent(self, tmp_path: Path):
         target_dir = tmp_path / ".config" / "pa-container"
@@ -85,7 +85,6 @@ class TestLoadGlobalConfig:
         expected_version = str(template_cfg.get("schema_version"))
 
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
-        monkeypatch.setenv("BRIDGE_INTERFACE", "br0")
         monkeypatch.setenv("PROXY_UPSTREAM_NETWORK", "custom_net")
 
         with patch("config_schema.get_app_version", return_value=expected_version):

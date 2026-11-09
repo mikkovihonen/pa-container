@@ -12,7 +12,6 @@ from agents.pi_driver import PiAgentDriver
 from agents.synthesis import (
     extract_models_from_yaml,
     load_project_models,
-    resolve_models_file,
 )
 from agents.t3 import synthesize_t3_policy, synthesize_t3_settings
 
@@ -104,7 +103,6 @@ __all__ = [
     "extract_models_from_yaml",
     "get_agent_driver",
     "load_project_models",
-    "resolve_models_file",
     "resolve_selected_agent_names",
     "synthesize_t3_policy",
     "synthesize_t3_settings",

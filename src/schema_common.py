@@ -276,7 +276,6 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
         "type": dict,
         "keys": {
             "log_level": {"type": str},
-            "bridge_interface": {"type": (str, type(None)), "required": False},
             "proxy_upstream_network": {"type": str},
             "open_browser": {"type": bool},
         },
@@ -337,7 +336,6 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
 
 def _validate_models_yaml(
     data: dict[str, Any],
-    models_dir: Path | None = None,
     gateways_dir: Path | None = None,
 ) -> list[str]:
     """Validate project-level models.yaml allowlist structure."""

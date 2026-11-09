@@ -136,7 +136,7 @@ class TestContainerNetworkManagerPullSecrets:
 
         config_file.write_text(yaml.dump(config))
 
-        with patch("secret_store.resolve_secret", return_value="s3cret"):
+        with patch("secret_store.get_keyring_secret", return_value="s3cret"):
             mgr = self._make_manager(tmp_path)
             secrets = mgr._pull_secrets_from_config()
 
@@ -223,7 +223,7 @@ class TestContainerNetworkManagerPullSecrets:
         allow_data = yaml.safe_load(eff_allow.read_text())
         assert any("api.anthropic.com" in r.get("hostnames", []) for r in allow_data["global"]["rules"])
 
-        with patch("secret_store.resolve_secret", return_value="sk-ant-12345"):
+        with patch("secret_store.get_keyring_secret", return_value="sk-ant-12345"):
             secrets = mgr._pull_secrets_from_config()
             assert secrets["ANTHROPIC_API_KEY"] == "sk-ant-12345"
 
@@ -376,7 +376,7 @@ class TestCleanupOrphanedProxies:
 
         lock_dir = tmp_path / ".locks"
         lock_dir.mkdir(parents=True)
-        proxy_name = "pi-proxy-abcdef1234"
+        proxy_name = "pa-container-proxy-abcdef1234"
         (lock_dir / f".{proxy_name}.lock").touch()
         write_clients(lock_dir / f".{proxy_name}.clients.json", [{"pid": 88888}])
 
@@ -390,8 +390,13 @@ class TestCleanupOrphanedProxies:
         assert mock_run_quiet.call_count == 2
         # First call: rm -f proxy_name
         assert mock_run_quiet.call_args_list[0][0][0] == ["podman", "rm", "-f", proxy_name]
-        # Second call: network rm pi-isolated-net-abcdef1234
-        assert mock_run_quiet.call_args_list[1][0][0] == ["podman", "network", "rm", "pi-isolated-net-abcdef1234"]
+        # Second call: network rm pa-container-isolated-net-abcdef1234
+        assert mock_run_quiet.call_args_list[1][0][0] == [
+            "podman",
+            "network",
+            "rm",
+            "pa-container-isolated-net-abcdef1234",
+        ]
         assert not (lock_dir / f".{proxy_name}.clients.json").exists()
         assert not (lock_dir / f".{proxy_name}.lock").exists()
         assert not lock_dir.exists()
@@ -399,7 +404,7 @@ class TestCleanupOrphanedProxies:
     def test_cleans_stale_lock_without_clients_file(self, tmp_path):
         lock_dir = tmp_path / ".locks"
         lock_dir.mkdir(parents=True)
-        proxy_name = "pi-proxy-abcdef1234"
+        proxy_name = "pa-container-proxy-abcdef1234"
         lock_file = lock_dir / f".{proxy_name}.lock"
         lock_file.touch()
 
@@ -418,7 +423,7 @@ class TestCleanupOrphanedProxies:
 
         lock_dir = tmp_path / ".locks"
         lock_dir.mkdir(parents=True)
-        proxy_name = "pi-proxy-abcdef1234"
+        proxy_name = "pa-container-proxy-abcdef1234"
         (lock_dir / f".{proxy_name}.lock").touch()
         write_clients(lock_dir / f".{proxy_name}.clients.json", [{"pid": os.getpid()}])
 
@@ -436,7 +441,7 @@ class TestCleanupOrphanedProxies:
 
         lock_dir = tmp_path / ".locks"
         lock_dir.mkdir(parents=True)
-        proxy_name = "pi-proxy-abcdef1234"
+        proxy_name = "pa-container-proxy-abcdef1234"
         (lock_dir / f".{proxy_name}.lock").touch()
 
         def mock_flock(fd, op):
@@ -499,18 +504,18 @@ class TestPerProjectProxy:
     def _make_manager(self, proxy_name):
         return ContainerNetworkManager(
             container_runtime="podman",
-            network_name="pi-isolated-net-abc",
+            network_name="pa-container-isolated-net-abc",
             proxy_image="proxy:latest",
             proxy_name=proxy_name,
         )
 
     def test_client_and_lock_files_keyed_by_proxy_name(self):
         """Two projects' managers must not share client or lock files."""
-        a = self._make_manager("pi-proxy-aaaaaaaaaa")
-        b = self._make_manager("pi-proxy-bbbbbbbbbb")
+        a = self._make_manager("pa-container-proxy-aaaaaaaaaa")
+        b = self._make_manager("pa-container-proxy-bbbbbbbbbb")
         assert a.paths["clients_file"] != b.paths["clients_file"]
         assert a.paths["ref_count_lock"] != b.paths["ref_count_lock"]
-        assert "pi-proxy-aaaaaaaaaa" in a.paths["clients_file"].name
+        assert "pa-container-proxy-aaaaaaaaaa" in a.paths["clients_file"].name
         # Lock dir itself is shared (kept out of user workspaces).
         assert a.paths["lock_dir"] == b.paths["lock_dir"]
 
@@ -532,19 +537,19 @@ class TestPerProjectProxy:
         assert 1024 <= port <= 65535
 
     def test_mitmweb_url_uses_known_port(self):
-        mgr = self._make_manager("pi-proxy-aaaaaaaaaa")
+        mgr = self._make_manager("pa-container-proxy-aaaaaaaaaa")
         mgr.mitmweb_port = 49732
         assert mgr.mitmweb_url() == "http://127.0.0.1:49732"
 
     def test_mitmweb_url_queries_when_port_unknown(self):
-        mgr = self._make_manager("pi-proxy-aaaaaaaaaa")
+        mgr = self._make_manager("pa-container-proxy-aaaaaaaaaa")
         completed = MagicMock(returncode=0, stdout="127.0.0.1:55001\n")
         with patch("subprocess.run", return_value=completed):
             assert mgr.mitmweb_url() == "http://127.0.0.1:55001"
         assert mgr.mitmweb_port == 55001
 
     def test_mitmweb_url_none_when_unresolvable(self):
-        mgr = self._make_manager("pi-proxy-aaaaaaaaaa")
+        mgr = self._make_manager("pa-container-proxy-aaaaaaaaaa")
         completed = MagicMock(returncode=1, stdout="")
         with patch("subprocess.run", return_value=completed):
             assert mgr.mitmweb_url() is None
@@ -779,7 +784,7 @@ class TestReadProxyUiExpose:
             container_runtime="podman",
             network_name="net",
             proxy_image="proxy:latest",
-            proxy_name="pi-proxy-x",
+            proxy_name="pa-container-proxy-x",
             config_dir=tmp_path,
         )
         mgr.mitmweb_port = 49999
@@ -1132,7 +1137,7 @@ class TestTokenReplacerSecretsResolution:
         (tmp_path / "token_replacer.yaml").write_text(
             "rules:\n  - match: {header: 'X-Key'}\n    replace_with:\n      value: '${ENV:MY_SECRET}'\n"
         )
-        monkeypatch.setattr("secret_store.resolve_secret", lambda var: "secret-val-99")
+        monkeypatch.setattr("secret_store.get_keyring_secret", lambda var: "secret-val-99")
         mgr = self._make_mgr(tmp_path)
         secrets = mgr._pull_secrets_from_config()
         assert secrets == {"MY_SECRET": "secret-val-99"}
@@ -1143,7 +1148,7 @@ class TestTokenReplacerSecretsResolution:
         (tmp_path / "token_replacer.yaml").write_text(
             "rules:\n  - match: {header: 'X-Key'}\n    replace_with:\n      value: '${ENV:UNSET_SECRET}'\n"
         )
-        monkeypatch.setattr("secret_store.resolve_secret", lambda var: None)
+        monkeypatch.setattr("secret_store.get_keyring_secret", lambda var: None)
         mgr = self._make_mgr(tmp_path)
         secrets = mgr._pull_secrets_from_config()
         assert secrets == {}
@@ -1178,7 +1183,7 @@ class TestPreflightIpv6Egress:
             container_runtime="podman",
             network_name="test-net",
             proxy_image="proxy:latest",
-            proxy_name="pi-proxy-test",
+            proxy_name="pa-container-proxy-test",
         )
         return mgr
 
@@ -1220,7 +1225,7 @@ class TestWarnIfProxyLacksIpv6Egress:
             container_runtime="podman",
             network_name="test-net",
             proxy_image="proxy:latest",
-            proxy_name="pi-proxy-test",
+            proxy_name="pa-container-proxy-test",
         )
         return mgr
 
@@ -1575,31 +1580,31 @@ class TestReadAgentsConfig:
         (tmp_path / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["opencode", "claude"]}}))
         assert read_enabled_agents(tmp_path) == ["opencode", "claude"]
 
-    def test_read_agent_type_with_default(self, tmp_path):
+    def test_read_default_agent_with_default(self, tmp_path):
         import yaml
 
-        from network import read_agent_type
+        from network import read_default_agent
 
         (tmp_path / "config.yaml").write_text(
             yaml.dump({"agents": {"enabled": ["pi", "opencode"], "default": "opencode"}})
         )
-        assert read_agent_type(tmp_path) == "opencode"
+        assert read_default_agent(tmp_path) == "opencode"
 
-    def test_read_agent_type_missing_raises(self, tmp_path):
+    def test_read_default_agent_missing_raises(self, tmp_path):
         import yaml
 
-        from network import read_agent_type
+        from network import read_default_agent
 
         (tmp_path / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["claude", "pi"]}}))
         with pytest.raises(ValueError, match="Missing required 'agents.default'"):
-            read_agent_type(tmp_path)
+            read_default_agent(tmp_path)
 
-    def test_read_agent_type_empty_config_raises(self, tmp_path):
-        from network import read_agent_type
+    def test_read_default_agent_empty_config_raises(self, tmp_path):
+        from network import read_default_agent
 
         (tmp_path / "config.yaml").write_text("{}\n")
         with pytest.raises(ValueError, match="Missing required 'agents.default'"):
-            read_agent_type(tmp_path)
+            read_default_agent(tmp_path)
 
 
 class TestProxyDiscovery:
@@ -1662,7 +1667,7 @@ class TestProxyDiscovery:
 
         fake_ps = [
             {
-                "Names": ["pi-proxy-abcdef1234"],
+                "Names": ["pa-container-proxy-abcdef1234"],
                 "Labels": {
                     "pa-container.type": "proxy",
                     "pa-container.project.hash": "abcdef1234",
@@ -1705,7 +1710,7 @@ class TestProxyDiscovery:
             container_runtime="podman",
             network_name="test-net",
             proxy_image="test-proxy:latest",
-            proxy_name="pi-proxy-test1234",
+            proxy_name="pa-container-proxy-test1234",
             config_dir=tmp_path,
         )
         mgr._wait_for_proxy_health = MagicMock()
@@ -1717,7 +1722,7 @@ class TestProxyDiscovery:
         ):
             mgr._actually_start()
 
-        run_cmds = [cmd for cmd in recorded_cmds if "run" in cmd and "pi-proxy-test1234" in cmd]
+        run_cmds = [cmd for cmd in recorded_cmds if "run" in cmd and "pa-container-proxy-test1234" in cmd]
         assert len(run_cmds) == 1
         cmd = run_cmds[0]
         assert "--label" in cmd

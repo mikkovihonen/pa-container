@@ -176,6 +176,65 @@ class DesktopConfig(TypedDict, total=False):
     gpu: DesktopGpuConfig
 
 
+class ProjectAgentsConfig(TypedDict, total=False):
+    """Configuration for enabled agents and default agent."""
+
+    enabled: list[str]
+    default: str
+
+
+class ProjectToolsConfig(TypedDict, total=False):
+    """Optional tools configuration."""
+
+    include: list[str]
+
+
+class ProjectGitConfig(TypedDict, total=False):
+    """Project-level git safety configuration."""
+
+    safe_directory: bool
+    rewrite_ssh_to_https: bool
+
+
+class ProjectFlowExportConfig(TypedDict, total=False):
+    """Flow export addon configuration."""
+
+    enabled: bool
+
+
+class ProjectEgressConfig(TypedDict, total=False):
+    """Egress policy configuration."""
+
+    allow: dict[str, object]
+
+
+class ProjectTmpfsConfig(TypedDict, total=False):
+    """Tmpfs mounts configuration."""
+
+    paths: list[str]
+
+
+class ProjectVolumesConfig(TypedDict, total=False):
+    """Named volume mounts configuration."""
+
+    paths: list[str]
+
+
+class ProjectAgentSectionConfig(TypedDict, total=False):
+    """Configuration section for the agent in .pa-container/config.yaml."""
+
+    type: str
+    command: list[str] | str | None
+    options: dict[str, object]
+    env: dict[str, str]
+    mounts: list[str]
+    capabilities: list[str]
+    devices: list[str]
+    read_only_pa_container: bool
+    mode: str
+    ports: dict[str, object]
+
+
 class ProjectConfig(TypedDict, total=False):
     """Top-level parsed representation of .pa-container/config.yaml."""
 
@@ -185,16 +244,16 @@ class ProjectConfig(TypedDict, total=False):
     network: NetworkConfig
     proxy: ProxyConfig
     nested_containers: NestedContainersConfig
-    agent: AgentExtrasConfig
+    agent: ProjectAgentSectionConfig
     security: SecurityConfig
     source_control: SourceControlConfig
-    tools: dict[str, list[str]]
-    egress: dict[str, object]
-    tmpfs: dict[str, object]
-    volumes: dict[str, object]
-    flow_export: dict[str, object]
-    git: dict[str, object]
-    agents: dict[str, object]
+    tools: ProjectToolsConfig
+    egress: ProjectEgressConfig
+    tmpfs: ProjectTmpfsConfig
+    volumes: ProjectVolumesConfig
+    flow_export: ProjectFlowExportConfig
+    git: ProjectGitConfig
+    agents: ProjectAgentsConfig
     logging: LoggingProjectConfig
     desktop: DesktopConfig
 
@@ -223,7 +282,6 @@ class RuntimeGlobalConfig:
     """Runtime container engine and host networking parameters."""
 
     log_level: str = "INFO"
-    bridge_interface: str | None = None
     proxy_upstream_network: str = "podman"
     open_browser: bool = False
 
@@ -273,7 +331,7 @@ class BuildGlobalConfig:
 class GlobalConfig:
     """Top-level parsed representation of ~/.config/pa-container/config.yaml."""
 
-    schema_version: str = "0.6.6"
+    schema_version: str
     runtime: RuntimeGlobalConfig = field(default_factory=RuntimeGlobalConfig)
     llama: LlamaGlobalConfig = field(default_factory=LlamaGlobalConfig)
     build: BuildGlobalConfig = field(default_factory=BuildGlobalConfig)

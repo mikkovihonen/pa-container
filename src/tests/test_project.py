@@ -23,11 +23,11 @@ class TestProjectScope:
 
     def test_name_format(self, tmp_path):
         proxy_name, network_name = project.project_scope(tmp_path)
-        assert proxy_name.startswith("pi-proxy-")
-        assert network_name.startswith("pi-isolated-net-")
+        assert proxy_name.startswith("pa-container-proxy-")
+        assert network_name.startswith("pa-container-isolated-net-")
         # Shared 10-hex-char project key across both names.
-        assert proxy_name.split("pi-proxy-")[1] == network_name.split("pi-isolated-net-")[1]
-        assert re.fullmatch(r"[0-9a-f]{10}", proxy_name.split("pi-proxy-")[1])
+        assert proxy_name.split("pa-container-proxy-")[1] == network_name.split("pa-container-isolated-net-")[1]
+        assert re.fullmatch(r"[0-9a-f]{10}", proxy_name.split("pa-container-proxy-")[1])
 
 
 class TestProjectKey:
@@ -35,8 +35,8 @@ class TestProjectKey:
         key = project.project_key(tmp_path)
         proxy_name, network_name = project.project_scope(tmp_path)
         assert re.fullmatch(r"[0-9a-f]{10}", key)
-        assert proxy_name == f"pi-proxy-{key}"
-        assert network_name == f"pi-isolated-net-{key}"
+        assert proxy_name == f"pa-container-proxy-{key}"
+        assert network_name == f"pa-container-isolated-net-{key}"
 
     def test_differs_across_dirs(self, tmp_path):
         a, b = tmp_path / "a", tmp_path / "b"

@@ -5,7 +5,6 @@ schema_version: "0.7.0"
 # Host container runtime and orchestration logging
 runtime:
   log_level: INFO
-  bridge_interface: null
   proxy_upstream_network: podman
   open_browser: false
 

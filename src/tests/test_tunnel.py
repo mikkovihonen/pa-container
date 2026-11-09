@@ -383,7 +383,7 @@ class TestCloudflareTunnelManager:
                         "run",
                         "--rm",
                         "--name",
-                        "pi-t3-tunnel-cf-abc12345",
+                        "pa-container-tunnel-cf-abc12345",
                         "--network",
                         "host",
                         "docker.io/cloudflare/cloudflared:latest",
@@ -397,7 +397,7 @@ class TestCloudflareTunnelManager:
                 )
             mock_proc.terminate.assert_called_once()
             mock_run.assert_called_once_with(
-                ["podman", "rm", "-f", "pi-t3-tunnel-cf-abc12345"],
+                ["podman", "rm", "-f", "pa-container-tunnel-cf-abc12345"],
                 capture_output=True,
                 check=False,
                 timeout=5,
@@ -457,7 +457,7 @@ class TestCloudflareTunnelManager:
             assert adv_host == "charlie-delta.trycloudflare.com"
             cmd = mock_popen.call_args[0][0]
             assert "podman" in cmd
-            assert "pi-t3-tunnel-cf-quick99" in cmd
+            assert "pa-container-tunnel-cf-quick99" in cmd
 
     def test_quick_tunnel_url_not_found_fallback(self):
         mgr = CloudflareTunnelManager(

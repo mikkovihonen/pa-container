@@ -136,7 +136,7 @@ def validate_tunnel_prerequisites(
                     ],
                 )
             )
-        _validate_tailscale_prerequisites(tailscale_mode=tailscale_mode or "serve")
+        _validate_tailscale_prerequisites()
     elif ttype == "cloudflare":
         if tailscale_mode:
             raise TunnelValidationError(
@@ -156,7 +156,7 @@ def validate_tunnel_prerequisites(
         )
 
 
-def _validate_tailscale_prerequisites(tailscale_mode: str = "serve") -> None:
+def _validate_tailscale_prerequisites() -> None:
     """Validate host Tailscale installation and daemon state."""
     tailscale_bin = shutil.which("tailscale")
     if not tailscale_bin:
@@ -427,7 +427,7 @@ class CloudflareTunnelManager:
         self.runtime = runtime
         self.run_id = run_id or "default"
         self._proc: subprocess.Popen[str] | subprocess.Popen[bytes] | None = None
-        self._container_name = f"pi-t3-tunnel-cf-{self.run_id}"
+        self._container_name = f"pa-container-tunnel-cf-{self.run_id}"
 
     def start(self, stack: ExitStack) -> tuple[str, str]:
         """Start Cloudflare tunnel process and register teardown with ExitStack.
