@@ -6,6 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+- **Cloud gateway DNS resolution loop in proxy.** Excluded external cloud gateway endpoints from `llama_hostnames` during model synthesis so their public hostnames (such as `api.anthropic.com`) are not mapped to the proxy's internal address (`ETH1_IP`) in `/etc/hosts`. This fixes the "Claude API unknown" error in T3 Code and prevents connection looping on external APIs.
+
 ## [0.7.0] - 2026-11-08
 
 ### Added

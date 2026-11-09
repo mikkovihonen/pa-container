@@ -132,10 +132,6 @@ def extract_models_from_yaml(
                 "api": gw_def.gateway_type,
                 "apiKey": f"{provider_name.upper().replace('-', '_')}_API_KEY_PLACEHOLDER",
             }
-            if effective_base_url:
-                parsed_host = urlparse(effective_base_url).hostname
-                if parsed_host and parsed_host not in ("localhost", "127.0.0.1", "::1"):
-                    llama_hostnames.add(parsed_host)
             continue
 
         # 2. Check if model_id is a registered local llama-server model

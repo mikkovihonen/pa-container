@@ -80,7 +80,7 @@ def test_extract_models_from_yaml_with_registries(tmp_path):
     assert gateways[0]["baseUrl"] == "https://api.gateway.example"
 
     assert "llama" in hostnames
-    assert "api.gateway.example" in hostnames
+    assert "api.gateway.example" not in hostnames
 
     # Unknown model in allowlist raises ValueError
     bad_data = {"allow": ["unknown-model"]}
