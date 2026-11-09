@@ -9,7 +9,7 @@ def get_git_tag_version(repo_root: Path) -> str | None:
     """Return the version string from the latest ``v*`` git tag on the current branch."""
     try:
         result = subprocess.run(
-            ["git", "tag", "--sort=-v:refname"],
+            ["git", "tag", "-l", "v*", "--sort=-v:refname"],
             cwd=repo_root,
             capture_output=True,
             text=True,
