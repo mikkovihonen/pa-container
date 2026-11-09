@@ -65,28 +65,28 @@ def test_load_gateway_def_oidc_discovery(tmp_path: Path):
     gw_dir.mkdir(parents=True)
 
     gw_yaml = """
-id: nitor
-description: "Nitor Corporate Gateway"
-type: nitor
-baseUrl: "https://gw.nitor.app/v1"
+id: corp
+description: "Corporate Gateway"
+type: corp
+baseUrl: "https://gw.example.com/v1"
 auth:
   type: openid
-  discoveryUrl: "https://auth.nitor.app/.well-known/openid-configuration"
+  discoveryUrl: "https://auth.example.com/.well-known/openid-configuration"
   clientId: "pa-container"
   scopes:
     - "openid"
     - "profile"
 """
-    (gw_dir / "nitor.yaml").write_text(gw_yaml)
+    (gw_dir / "corp.yaml").write_text(gw_yaml)
 
-    gw_def = load_gateway_def("nitor", gw_dir)
+    gw_def = load_gateway_def("corp", gw_dir)
     assert gw_def is not None
     assert isinstance(gw_def, GatewayDef)
-    assert gw_def.id == "nitor"
-    assert gw_def.base_url == "https://gw.nitor.app/v1"
+    assert gw_def.id == "corp"
+    assert gw_def.base_url == "https://gw.example.com/v1"
     assert gw_def.auth is not None
     assert gw_def.auth.type == "openid"
-    assert gw_def.auth.discovery_url == "https://auth.nitor.app/.well-known/openid-configuration"
+    assert gw_def.auth.discovery_url == "https://auth.example.com/.well-known/openid-configuration"
     assert gw_def.auth.client_id == "pa-container"
     assert "openid" in gw_def.auth.scopes
 

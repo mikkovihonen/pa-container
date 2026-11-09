@@ -215,21 +215,21 @@ Two authentication schemes are supported:
 
 ##### A. OpenID Connect (`type: openid`)
 
-Used for corporate gateways (e.g. Nitor Gateway) requiring interactive user authentication with PKCE:
+Used for corporate gateways requiring interactive user authentication with PKCE:
 
 ```yaml
-# ~/.config/pa-container/gateways/nitor.yaml
-id: nitor
-description: "Nitor Corporate Model Gateway"
-type: nitor
-baseUrl: "https://gw.nitor.app/v1"
+# ~/.config/pa-container/gateways/corporate.yaml
+id: corporate
+description: "Corporate Model Gateway"
+type: corporate
+baseUrl: "https://gw.example.com/v1"
 
 auth:
   type: openid
-  discoveryUrl: "https://auth.nitor.app/.well-known/openid-configuration"
+  discoveryUrl: "https://auth.example.com/.well-known/openid-configuration"
   # Or explicit endpoints if discoveryUrl is omitted:
-  # authorizationUrl: "https://auth.nitor.app/oauth/authorize"
-  # tokenUrl: "https://auth.nitor.app/oauth/token"
+  # authorizationUrl: "https://auth.example.com/oauth/authorize"
+  # tokenUrl: "https://auth.example.com/oauth/token"
   clientId: "pa-container"
   scopes:
     - "openid"

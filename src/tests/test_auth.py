@@ -80,7 +80,7 @@ def test_token_cache_rw(tmp_path: Path):
 
 
 def test_ensure_gateway_auth_returns_valid_cached(tmp_path: Path):
-    cache_file = tmp_path / "tokens" / "nitor.json"
+    cache_file = tmp_path / "tokens" / "corp.json"
     auth.write_cached_token(
         cache_file,
         {"access_token": "valid_token_123", "expires_at": time.time() + 1000},
@@ -93,12 +93,12 @@ def test_ensure_gateway_auth_returns_valid_cached(tmp_path: Path):
         token_url="https://auth.example.com/token",
     )
 
-    token = auth.ensure_gateway_auth("nitor", gw_auth)
+    token = auth.ensure_gateway_auth("corp", gw_auth)
     assert token == "valid_token_123"
 
 
 def test_ensure_gateway_auth_refreshes_expired_token(tmp_path: Path):
-    cache_file = tmp_path / "tokens" / "nitor.json"
+    cache_file = tmp_path / "tokens" / "corp.json"
     auth.write_cached_token(
         cache_file,
         {
@@ -126,7 +126,7 @@ def test_ensure_gateway_auth_refreshes_expired_token(tmp_path: Path):
     mock_resp.__enter__.return_value = mock_resp
 
     with patch("urllib.request.urlopen", return_value=mock_resp):
-        token = auth.ensure_gateway_auth("nitor", gw_auth)
+        token = auth.ensure_gateway_auth("corp", gw_auth)
         assert token == "new_fresh_token"
 
         # Verify cache was updated

@@ -59,7 +59,7 @@ class GatewayAuth:
 
 @dataclass(frozen=True)
 class GatewayDef:
-    """Definition for an external model gateway (e.g. Opper, Nitor Gateway)."""
+    """Definition for an external model gateway (e.g. Opper, corporate gateway)."""
 
     id: str
     base_url: str
