@@ -100,7 +100,7 @@ The platform compiles components and runtimes in isolated package images (`packa
 | `podman` | Fedora 45 | 6.0.2 | Build tags, then version (see below) |
 | `netavark`, `aardvark-dns` | distro version | 2.0.0 | podman 6.0.0 "must be used with Netavark and Aardvark v2.0.0" |
 
-The base image for both agent and proxy is plain `registry.fedoraproject.org/fedora-minimal:45`. Required capability packages (`packages: [...]`) are assembled dynamically onto the base image using multi-stage copy layers.
+The base image for both agent and proxy is plain `registry.fedoraproject.org/fedora-minimal:41`. Required capability packages (`packages: [...]`) are assembled dynamically onto the base image using multi-stage copy layers.
 
 The build-tag argument is the substantive one. podman's Makefile *derives* its
 `BUILDTAGS` by probing the build host for installed `-dev` headers. The feature

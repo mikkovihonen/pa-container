@@ -75,7 +75,7 @@ The addon reads from a YAML config file (`allowlist_config.yaml`) and supports r
 
 ```yaml
 # Only permit Python package servers (pypi.org / files.pythonhosted.org),
-# npm package registries, and Debian/Ubuntu apt infrastructure. All other
+# npm package registries, and Fedora package infrastructure. All other
 # traffic is blocked by default.
 global:
   mode: "allow"                                 # "allow" or "block"
