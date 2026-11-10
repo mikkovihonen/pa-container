@@ -36,4 +36,10 @@ if [ -d /build/bin ]; then
     cp -a /build/bin/* "${PA_STAGE}/usr/local/share/pa-container/"
 fi
 
+if [ -d /build/modes ]; then
+    mkdir -p "${PA_STAGE}/usr/local/share/pa-container/modes"
+    cp -a /build/modes/* "${PA_STAGE}/usr/local/share/pa-container/modes/"
+    chmod +x "${PA_STAGE}/usr/local/share/pa-container/modes/"*.sh 2>/dev/null || true
+fi
+
 stage_record "t3" "${T3_VERSION}"

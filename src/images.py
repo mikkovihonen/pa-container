@@ -17,9 +17,6 @@ logger = get_category_logger(__name__, LogCategory.BUILD)
 _IMAGE_DEFINITION_FILES = (
     "Containerfile",
     "entrypoint.sh",
-    "t3-policy.json",
-    "labwc/menu.xml",
-    "labwc/rc.xml",
 )
 _PROXY_IMAGE_DEFINITION_FILES = ("Containerfile", "entrypoint.sh")
 _SHARED_SOURCE_IMAGES = (PROXY_IMAGE_TAG, AGENT_BASE_IMAGE_TAG)
@@ -120,18 +117,7 @@ def compute_image_hash(
             files_to_hash.append(cmd_file)
 
     packages_map = resolve_project_packages(project_dir, extra_packages=extra_packages)
-    desktop_active = False
-    if (project_dir / ".pa-container" / "config.yaml").exists():
-        try:
-            from packages.loader import get_package_host_module
-
-            desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-            desktop_cfg = desktop_mod.read_desktop_config(project_dir / ".pa-container")
-            desktop_active = bool(desktop_cfg.get("enabled", False))
-        except Exception:
-            pass
-
-    if not files_to_hash and not packages_map and not desktop_active:
+    if not files_to_hash and not packages_map:
         return None
 
     files_to_hash.sort()
@@ -148,9 +134,6 @@ def compute_image_hash(
         for p, feats in sorted(packages_map.items()):
             pkg_hash = compute_package_hash(p, r_root, features=feats)
             combined_hash.update(f"pkg:{p}:{','.join(feats)}:{pkg_hash}".encode())
-
-    if desktop_active:
-        combined_hash.update(b"desktop:enabled:true")
 
     return combined_hash.hexdigest()[:16]
 
@@ -212,20 +195,9 @@ def resolve_agent_image(
     extra_packages: list[str] | None = None,
 ) -> tuple[str, bool]:
     """Resolve the agent container image tag for this workspace."""
-    desktop_enabled = False
-    if (project_dir / ".pa-container" / "config.yaml").exists():
-        try:
-            from packages.loader import get_package_host_module
-
-            desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-            desktop_cfg = desktop_mod.read_desktop_config(project_dir / ".pa-container")
-            desktop_enabled = bool(desktop_cfg.get("enabled", False))
-        except Exception:
-            pass
-
     has_deps = has_dependency_files(project_dir)
     packages = read_project_packages(project_dir, extra_packages=extra_packages)
-    if not has_deps and not packages and not desktop_enabled:
+    if not has_deps and not packages:
         return PA_IMAGE_TAG, False
 
     project_hash, _ = project.project_scope(project_dir)

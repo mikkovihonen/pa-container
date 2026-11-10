@@ -6,7 +6,7 @@ from unittest.mock import patch
 from pa_packages.podman.host.plugin import PodmanPlugin
 
 from cli import RunOptions
-from packages.plugin import ContainerRunSpec
+from packages.plugin import ContainerRunSpec, RunContext
 
 
 def test_podman_plugin_configure(tmp_path: Path):
@@ -16,7 +16,15 @@ def test_podman_plugin_configure(tmp_path: Path):
 
     plugin = PodmanPlugin(manifest=None, package_dir=Path("."), project_dir=tmp_path)  # type: ignore[arg-type]
     spec = ContainerRunSpec()
+    ctx = RunContext(
+        project_dir=tmp_path,
+        container_name="test-agent",
+        network_name="test-net",
+        proxy_url=None,
+        options=RunOptions(),
+        config={},  # type: ignore[arg-type]
+    )
 
     with patch("volumes.ensure_nested_volume", return_value=True):
-        plugin.on_container_configure(spec, {}, RunOptions())  # type: ignore[arg-type]
+        plugin.on_container_configure(spec, ctx)
         assert isinstance(spec.extra_run_args, list)

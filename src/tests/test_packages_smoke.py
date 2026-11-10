@@ -197,7 +197,7 @@ def test_ensure_base_image_builds_when_missing():
         from packages.verification import ensure_base_image
 
         ensure_base_image("podman")
-        mock_build.assert_called_once_with("podman", with_desktop=False)
+        mock_build.assert_called_once_with("podman")
 
 
 def test_ensure_base_image_handles_exception_and_builds():
@@ -205,7 +205,7 @@ def test_ensure_base_image_handles_exception_and_builds():
         from packages.verification import ensure_base_image
 
         ensure_base_image("podman")
-        mock_build.assert_called_once_with("podman", with_desktop=False)
+        mock_build.assert_called_once_with("podman")
 
 
 def test_verify_package_build_failure(tmp_path: Path):

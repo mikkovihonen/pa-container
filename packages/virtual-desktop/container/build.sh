@@ -12,6 +12,18 @@ if [ -d /build/config/labwc ]; then
     cp -a /build/config/labwc/* "${PA_STAGE}/etc/xdg/labwc/"
 fi
 
+if [ -d /build/entrypoint.d/root ]; then
+    mkdir -p "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/root"
+    cp -a /build/entrypoint.d/root/* "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/root/"
+    chmod +x "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/root/"*.sh 2>/dev/null || true
+fi
+
+if [ -d /build/entrypoint.d/agent ]; then
+    mkdir -p "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/agent"
+    cp -a /build/entrypoint.d/agent/* "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/agent/"
+    chmod +x "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/agent/"*.sh 2>/dev/null || true
+fi
+
 # Stage labwc, wayvnc, novnc, and Xwayland binaries
 for bin in labwc wayvnc Xwayland wlr-randr grim slurp websockify; do
     p="$(command -v "$bin" || true)"

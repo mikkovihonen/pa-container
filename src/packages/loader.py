@@ -121,6 +121,34 @@ def load_active_plugins(
     return plugins
 
 
+def load_project_plugins(
+    project_dir: Path | None,
+    extra_packages: list[str] | None = None,
+    repo_root: Path | None = None,
+) -> dict[str, ACPPlugin]:
+    """Load all ACP plugins active for the specified project directory.
+
+    Args:
+        project_dir: Active project directory, or None.
+        extra_packages: Optional list of additional package names to activate.
+        repo_root: Optional root of repository containing packages/.
+
+    Returns:
+        Mapping of package name to active ACPPlugin instances.
+    """
+    from images import read_project_packages
+    from packages.discovery import discover_packages, get_packages_dir
+
+    if project_dir is not None:
+        active_pkgs = read_project_packages(project_dir, extra_packages=extra_packages)
+    else:
+        active_pkgs = list(extra_packages or [])
+    manifests = discover_packages(repo_root)
+    packages_dir = get_packages_dir(repo_root)
+    active_manifests = {p: manifests[p] for p in active_pkgs if p in manifests}
+    return load_active_plugins(active_manifests, packages_dir=packages_dir, project_dir=project_dir)
+
+
 def get_package_host_module(package_name: str, module_name: str, packages_dir: Path | None = None) -> Any:
     """Load an ACP package and return a specific host module (e.g. ('virtual-desktop', 'desktop'))."""
     from packages.discovery import discover_packages

@@ -220,37 +220,6 @@ SCHEMA: dict[str, Any] = {
             },
         },
     },
-    "desktop": {
-        "type": dict,
-        "keys": {
-            "enabled": {"type": bool},
-            "resolution": {"type": str},
-            "compositor": {"type": str},
-            "open_browser": {"type": bool},
-            "vnc": {
-                "type": dict,
-                "keys": {
-                    "enabled": {"type": bool},
-                    "port": {"type": (int, str)},
-                    "expose": {"type": str},
-                },
-            },
-            "novnc": {
-                "type": dict,
-                "keys": {
-                    "enabled": {"type": bool},
-                    "port": {"type": (int, str)},
-                    "expose": {"type": str},
-                },
-            },
-            "gpu": {
-                "type": dict,
-                "keys": {
-                    "enabled": {"type": (bool, str)},
-                },
-            },
-        },
-    },
 }
 
 

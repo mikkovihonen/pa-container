@@ -4,8 +4,7 @@ from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from tunnel import (
+from pa_packages.t3.host.tunnel import (
     CloudflareTunnelManager,
     TailscaleTunnelManager,
     TunnelValidationError,
@@ -79,12 +78,12 @@ class TestErrorBoxFormatting:
 
 class TestKeyringTokenResolution:
     def test_resolves_from_keyring(self):
-        with patch("tunnel.get_keyring_secret", return_value="test_cf_token_123"):
+        with patch("pa_packages.t3.host.tunnel.get_keyring_secret", return_value="test_cf_token_123"):
             token = resolve_tunnel_token(account="MY_TUNNEL_TOKEN", service="pa-container")
             assert token == "test_cf_token_123"
 
     def test_returns_none_if_missing(self):
-        with patch("tunnel.get_keyring_secret", return_value=None):
+        with patch("pa_packages.t3.host.tunnel.get_keyring_secret", return_value=None):
             token = resolve_tunnel_token(account="MISSING_TOKEN")
             assert token is None
 
@@ -147,7 +146,7 @@ class TestTunnelPrerequisitesValidation:
 
     def test_cloudflare_missing_keyring_token(self):
         with (
-            patch("tunnel.resolve_tunnel_token", return_value=None),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value=None),
             pytest.raises(TunnelValidationError, match="Cloudflare Tunnel Token not found in OS Keyring"),
         ):
             validate_tunnel_prerequisites(
@@ -159,7 +158,7 @@ class TestTunnelPrerequisitesValidation:
 
     def test_cloudflare_invalid_runner(self):
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="valid_token"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="valid_token"),
             pytest.raises(TunnelValidationError, match="Invalid Tunnel Runner 'invalid'"),
         ):
             validate_tunnel_prerequisites(
@@ -171,7 +170,7 @@ class TestTunnelPrerequisitesValidation:
 
     def test_cloudflare_host_runner_missing_binary(self):
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="valid_token"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="valid_token"),
             patch("shutil.which", return_value=None),
             pytest.raises(TunnelValidationError, match="Host binary 'cloudflared' not found"),
         ):
@@ -184,7 +183,7 @@ class TestTunnelPrerequisitesValidation:
 
     def test_cloudflare_container_runner_missing_runtime(self):
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="valid_token"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="valid_token"),
             patch("shutil.which", return_value=None),
             pytest.raises(TunnelValidationError, match="Container runtime 'podman' not found"),
         ):
@@ -198,7 +197,7 @@ class TestTunnelPrerequisitesValidation:
 
     def test_cloudflare_auto_runner_missing_both(self):
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="valid_token"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="valid_token"),
             patch("shutil.which", return_value=None),
             pytest.raises(TunnelValidationError, match="Unable to run cloudflared"),
         ):
@@ -215,7 +214,7 @@ class TestTunnelPrerequisitesValidation:
             return "/usr/bin/podman" if binary == "podman" else None
 
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="valid_token"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="valid_token"),
             patch("shutil.which", side_effect=mock_which),
         ):
             validate_tunnel_prerequisites(
@@ -340,7 +339,7 @@ class TestCloudflareTunnelManager:
         mock_proc.poll.return_value = None
 
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="tok_123"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="tok_123"),
             patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
         ):
             with ExitStack() as stack:
@@ -369,7 +368,7 @@ class TestCloudflareTunnelManager:
         mock_proc.poll.return_value = None
 
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="tok_456"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="tok_456"),
             patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
             patch("subprocess.run") as mock_run,
         ):
@@ -426,7 +425,7 @@ class TestCloudflareTunnelManager:
     def test_named_tunnel_missing_token_raises(self):
         mgr = CloudflareTunnelManager(domain="t3.example.com", quick=False)
         with (
-            patch("tunnel.resolve_tunnel_token", return_value=None),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value=None),
             ExitStack() as stack,
             pytest.raises(TunnelValidationError, match="Tunnel token 'CLOUDFLARE_TUNNEL_TOKEN' not found"),
         ):
@@ -481,7 +480,7 @@ class TestCloudflareTunnelManager:
         mock_proc.wait.side_effect = subprocess.TimeoutExpired("cmd", 3)
 
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="tok_123"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="tok_123"),
             patch("subprocess.Popen", return_value=mock_proc),
         ):
             with ExitStack() as stack:
@@ -494,7 +493,7 @@ class TestCloudflareTunnelManager:
         mock_proc.poll.return_value = None
 
         with (
-            patch("tunnel.resolve_tunnel_token", return_value="tok_123"),
+            patch("pa_packages.t3.host.tunnel.resolve_tunnel_token", return_value="tok_123"),
             patch("subprocess.Popen", return_value=mock_proc),
             patch("subprocess.run", side_effect=RuntimeError("podman rm error")),
             ExitStack() as stack,

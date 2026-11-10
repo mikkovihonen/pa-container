@@ -6,7 +6,7 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from config_types import DesktopConfig, DesktopGpuConfig, NestedContainersConfig, PortPublishConfig
+    from config_types import NestedContainersConfig, PortPublishConfig
 
 sys.dont_write_bytecode = True
 
@@ -179,49 +179,6 @@ class PodmanRuntime:
         if not cfg.get("enabled"):
             return []
         return self.port_publish_args(cfg.get("ports") or {"expose": "localhost", "publish": []})
-
-    # ── Virtual desktop & GPU passthrough ───────────────────────────────
-    def opportunistic_gpu_args(self, gpu_cfg: DesktopGpuConfig | None = None) -> list[str]:
-        """Return DRI device flags if GPU is enabled and /dev/dri exists on host."""
-        from pathlib import Path
-
-        mode = (gpu_cfg or {}).get("enabled", "auto")
-        if mode is False or str(mode).lower() in ("false", "0", "off", "no"):
-            return []
-
-        if Path("/dev/dri").exists():
-            return ["--device", "/dev/dri", "--group-add", "keep-groups"]
-        elif mode is True or str(mode).lower() in ("true", "1", "yes", "on"):
-            logger.warning(
-                "/dev/dri requested by config but does not exist on host; falling back to software rasterizer."
-            )
-        return []
-
-    def desktop_run_args(self, cfg: DesktopConfig, novnc_port: int, vnc_port: int) -> list[str]:
-        """Return runtime flags publishing desktop ports and setting Wayland/X11 environment."""
-        if not cfg.get("enabled"):
-            return []
-        novnc_cfg = cfg.get("novnc") or {}
-        vnc_cfg = cfg.get("vnc") or {}
-        novnc_bind = "" if novnc_cfg.get("expose") == "lan" else "127.0.0.1:"
-        vnc_bind = "" if vnc_cfg.get("expose") == "lan" else "127.0.0.1:"
-        resolution = cfg.get("resolution", "1920x1080")
-        return [
-            "-p",
-            f"{novnc_bind}{novnc_port}:6080",
-            "-p",
-            f"{vnc_bind}{vnc_port}:5900",
-            "--env",
-            "PA_CONTAINER_DESKTOP=true",
-            "--env",
-            "DISPLAY=:0",
-            "--env",
-            "WAYLAND_DISPLAY=wayland-0",
-            "--env",
-            "XDG_RUNTIME_DIR=/run/user/1000",
-            "--env",
-            f"PA_DESKTOP_RESOLUTION={resolution}",
-        ]
 
     @staticmethod
     def nested_volume_name(project_hash: str) -> str:

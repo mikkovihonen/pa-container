@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from agents.base import AgentDriver, AgentMount, T3DriverMetadata
+from agents.base import AgentDriver, AgentMount, OrchestratorProviderMetadata
 
 """Runtime driver for the OpenCode agent."""
 
@@ -143,9 +143,11 @@ class OpenCodeDriver(AgentDriver):
         with config_file.open("w") as f:
             json.dump(config_data, f, indent=2)
 
-    def get_t3_metadata(self) -> T3DriverMetadata:
-        return T3DriverMetadata(
-            driver_kind="opencode",
-            instance_id="opencode",
-            settings={"binaryPath": "opencode", "serverUrl": "", "serverPassword": ""},
-        )
+    def get_orchestrator_metadata(self, orchestrator: str) -> OrchestratorProviderMetadata | None:
+        if orchestrator == "t3":
+            return OrchestratorProviderMetadata(
+                provider_kind="opencode",
+                instance_id="opencode",
+                settings={"binaryPath": "opencode", "serverUrl": "", "serverPassword": ""},
+            )
+        return None

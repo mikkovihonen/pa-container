@@ -56,12 +56,12 @@ def test_t3_plugin_configure(tmp_path: Path):
         container_name="test-agent",
         network_name="test-net",
         proxy_url=None,
-        is_t3_mode=True,
         options=RunOptions(),
         config={"agent": {"mode": "t3"}},  # type: ignore[arg-type]
     )
+    ctx.add_mode("t3")
 
-    plugin.on_container_configure(spec, {"agent": {"mode": "t3"}}, RunOptions())  # type: ignore[arg-type]
+    plugin.on_container_configure(spec, ctx)
     assert any("/home/agent/.t3" in arg for arg in spec.extra_run_args)
     assert spec.env["PA_CONTAINER_MODE"] == "t3"
     assert spec.env["T3_PORT"] == "3773"
@@ -272,3 +272,158 @@ def test_t3_sync_antigravity_script(tmp_path: Path, monkeypatch):
     assert json.loads(t3_cli_token.read_text())["refresh_token"] == "ref_456"
     assert json.loads(t3_cli_token.read_text())["client_id"] == mock_id
     assert json.loads(t3_cli_token.read_text())["client_secret"] == mock_sec
+
+
+def test_t3_register_cli_args():
+    import argparse
+
+    from pa_packages.t3.host.plugin import T3Plugin
+
+    parser = argparse.ArgumentParser()
+    plugin = T3Plugin(manifest=None, package_dir=Path("."), project_dir=None)  # type: ignore[arg-type]
+    plugin.register_cli_args(parser)
+
+    parsed = parser.parse_args(["--t3", "--t3-port", "3773", "--t3-lan", "--t3-tunnel", "cloudflare"])
+    assert parsed.t3 is True
+    assert parsed.t3_port == "3773"
+    assert parsed.t3_lan is True
+    assert parsed.t3_tunnel == "cloudflare"
+
+
+def test_t3_preflight_running_container(tmp_path: Path):
+    from unittest.mock import patch
+
+    import pytest
+    from pa_packages.t3.host.containers import RunningT3ContainerInfo
+    from pa_packages.t3.host.plugin import T3Plugin
+
+    from cli import RunOptions
+
+    plugin = T3Plugin(manifest=None, package_dir=Path("."), project_dir=tmp_path)  # type: ignore[arg-type]
+    ctx = RunContext(
+        project_dir=tmp_path,
+        options=RunOptions(),
+        config={},  # type: ignore[arg-type]
+    )
+    ctx.add_mode("t3")
+
+    with (
+        patch(
+            "pa_packages.t3.host.plugin.find_running_t3_container",
+            return_value=RunningT3ContainerInfo(
+                container_name="test-c",
+                container_id="123",
+                project_hash="hash",
+                launcher_pid=9999,
+            ),
+        ),
+        pytest.raises(RuntimeError, match="A T3 mode pa-container is already running"),
+    ):
+        plugin.on_preflight(ctx)
+
+
+def test_t3_tunnel_url_normalization():
+    from urllib.parse import urlparse
+
+    from pa_packages.t3.host.tunnel import normalize_tunnel_url
+
+    raw_url = "http://t3.example.com:3773"
+    public_url = normalize_tunnel_url(raw_url)
+    assert public_url == "https://t3.example.com"
+    assert ":3773" not in public_url
+    assert urlparse(public_url).hostname == "t3.example.com"
+
+
+def test_t3_tunnel_inference():
+    from unittest.mock import patch
+
+    from cli import RunOptions
+
+    plugin = T3Plugin(manifest=None, package_dir=Path("."), project_dir=Path("."))  # type: ignore[arg-type]
+
+    # Quick flag infers cloudflare
+    ctx = RunContext(
+        project_dir=Path("."),
+        options=RunOptions(extra_options={"t3_tunnel_quick": True}),
+        config={},  # type: ignore[arg-type]
+    )
+    ctx.add_mode("t3")
+    with (
+        patch("pa_packages.t3.host.plugin.find_running_t3_container", return_value=None),
+        patch("pa_packages.t3.host.plugin.validate_tunnel_prerequisites") as mock_val,
+    ):
+        plugin.on_preflight(ctx)
+        assert mock_val.call_args[1]["tunnel_type"] == "cloudflare"
+
+    # Tailscale mode infers tailscale
+    ctx_ts = RunContext(
+        project_dir=Path("."),
+        options=RunOptions(extra_options={"t3_tunnel_tailscale_mode": "serve"}),
+        config={},  # type: ignore[arg-type]
+    )
+    ctx_ts.add_mode("t3")
+    with (
+        patch("pa_packages.t3.host.plugin.find_running_t3_container", return_value=None),
+        patch("pa_packages.t3.host.plugin.validate_tunnel_prerequisites") as mock_val_ts,
+    ):
+        plugin.on_preflight(ctx_ts)
+        assert mock_val_ts.call_args[1]["tunnel_type"] == "tailscale"
+
+
+def test_t3_advertise_host_shim_app_link_and_pairing_rewrite():
+    import subprocess
+
+    from config import REPO_ROOT
+
+    shim_path = REPO_ROOT / "packages" / "t3" / "container" / "bin" / "t3-advertise-host.cjs"
+    if not shim_path.is_file():
+        return
+    node_script = f"""
+    process.env.T3_PUBLIC_URL = "https://rick-symbols-trains-radar.trycloudflare.com";
+    process.env.T3_ADVERTISE_HOST = "rick-symbols-trains-radar.trycloudflare.com";
+    require("{shim_path}");
+
+    let captured = [];
+    const origWrite = process.stdout.write;
+    process.stdout.write = (chunk) => {{
+        captured.push(chunk.toString());
+        return true;
+    }};
+
+    console.log("App link: t3code://pair?pairingUrl=http%3A%2F%2Flocalhost%3A3773%2Fpair%23token%3Dsecret123");
+    console.log("Pairing URL: http://localhost:3773/pair#token=secret123");
+
+    const out = captured.join("");
+    if (!out.includes("https%3A%2F%2Frick-symbols-trains-radar.trycloudflare.com%2Fpair%23token%3Dsecret123")) {{
+        throw new Error("App link was not properly rewritten: " + out);
+    }}
+    if (!out.includes("Pairing URL: https://rick-symbols-trains-radar.trycloudflare.com/pair#token=secret123")) {{
+        throw new Error("Pairing URL was not properly rewritten: " + out);
+    }}
+    """
+    res = subprocess.run(["node", "-e", node_script], capture_output=True, text=True, check=False)
+    assert res.returncode == 0, f"Node script failed: {res.stderr}"
+
+
+def test_t3_mode_runner_decoupling():
+    import os
+
+    from config import REPO_ROOT
+
+    # 1. T3 mode launcher exists and is executable in packages/t3/container/modes/t3.sh
+    mode_script = REPO_ROOT / "packages" / "t3" / "container" / "modes" / "t3.sh"
+    assert mode_script.is_file()
+    assert os.access(mode_script, os.X_OK)
+
+    script_content = mode_script.read_text()
+    assert "t3 serve" in script_content
+    assert "t3-sync-antigravity.py" in script_content
+    assert "t3-advertise-host.cjs" in script_content
+
+    # 2. coding-agent/entrypoint.sh has zero hardcoded T3 logic
+    entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
+    assert "t3 serve" not in entrypoint
+    assert "T3_ADVERTISE_HOST" not in entrypoint
+    assert "t3-sync-antigravity.py" not in entrypoint
+    assert "t3-advertise-host.cjs" not in entrypoint
+    assert "/usr/local/share/pa-container/modes/${PA_CONTAINER_MODE}.sh" in entrypoint

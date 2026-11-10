@@ -11,13 +11,11 @@ sys.dont_write_bytecode = True
 from cli import (
     BuildOptions,
     CleanOptions,
-    DesktopOptions,
     LogsOptions,
     ProxyOptions,
     RunOptions,
     _parse_duration,
     create_parser,
-    handle_desktop_command,
     handle_logs_command,
     handle_proxy_command,
     main,
@@ -72,15 +70,6 @@ class TestCliParser:
                 "run",
                 "--agent",
                 "opencode",
-                "--t3",
-                "--t3-lan",
-                "--t3-port",
-                "8080",
-                "--t3-advertise-host",
-                "192.168.1.10",
-                "--t3-tunnel",
-                "cloudflare",
-                "--t3-tunnel-quick",
                 "--open-browser",
                 "--verbose",
                 "--log-level",
@@ -90,15 +79,51 @@ class TestCliParser:
         assert cmd == "run"
         assert isinstance(options, RunOptions)
         assert options.agent == "opencode"
+        assert options.open_browser is True
+        assert options.verbose is True
+        assert options.log_level == "DEBUG"
+
+    def test_run_options_with_package_plugin(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        pa_dir = tmp_path / ".pa-container"
+        pa_dir.mkdir()
+        (pa_dir / "config.yaml").write_text("packages:\n  - t3\n")
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+
+        cmd, options = parse_cli_args(
+            [
+                "run",
+                "--agent",
+                "opencode",
+                "--t3",
+                "--t3-lan",
+                "--t3-port",
+                "8080",
+                "--t3-advertise-host",
+                "192.168.1.10",
+                "--t3-tunnel",
+                "cloudflare",
+                "--t3-tunnel-quick",
+            ]
+        )
+        assert cmd == "run"
+        assert isinstance(options, RunOptions)
         assert options.t3 is True
         assert options.t3_lan is True
         assert options.t3_port == "8080"
         assert options.t3_advertise_host == "192.168.1.10"
         assert options.t3_tunnel == "cloudflare"
         assert options.t3_tunnel_quick is True
-        assert options.open_browser is True
-        assert options.verbose is True
-        assert options.log_level == "DEBUG"
+
+    def test_unconfigured_package_flag_remediation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        with pytest.raises(SystemExit) as exc_info:
+            parse_cli_args(["run", "--t3"])
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "The '--t3' option requires the 't3' capability package" in captured.err
+        assert "packages:\n        - t3" in captured.err
 
     def test_run_open_browser_flag(self) -> None:
         cmd, options = parse_cli_args(["run", "--open-browser"])
@@ -131,7 +156,7 @@ class TestCliParser:
 
     def test_implicit_run_with_flags_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit):
-            parse_cli_args(["--agent", "claude", "--t3"])
+            parse_cli_args(["--agent", "claude", "--verbose"])
         captured = capsys.readouterr()
         assert "invalid choice: 'claude'" in captured.err
 
@@ -672,292 +697,14 @@ class TestProxyCli:
             mock_exit.assert_called_once_with(0)
 
 
-class TestDesktopCli:
-    def test_desktop_options_parsing(self) -> None:
-        cmd, options = parse_cli_args(["desktop", "--all", "--open", "--url", "--vnc", "--json"])
-        assert cmd == "desktop"
-        assert isinstance(options, DesktopOptions)
-        assert options.all is True
-        assert options.open is True
-        assert options.url is True
-        assert options.vnc is True
-        assert options.json is True
-
-    def test_desktops_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit):
-            parse_cli_args(["desktops", "--all"])
-        captured = capsys.readouterr()
-        assert "invalid choice: 'desktops'" in captured.err
-
-    def test_vnc_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit):
-            parse_cli_args(["vnc", "--open"])
-        captured = capsys.readouterr()
-        assert "invalid choice: 'vnc'" in captured.err
-
-    def test_gui_alias_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit):
-            parse_cli_args(["gui", "--url"])
-        captured = capsys.readouterr()
-        assert "invalid choice: 'gui'" in captured.err
-
-    def test_desktop_command_missing_package_error(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        cfg_dir = tmp_path / ".pa-container"
-        cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['python']\n")
-        with patch("rich.console.Console.print") as mock_print:
-            code = handle_desktop_command(DesktopOptions())
-            assert code == 1
-            output = "".join(str(call) for call in mock_print.call_args_list)
-            assert "The 'desktop' subcommand requires the 'virtual-desktop' capability package" in output
-
-    def test_desktop_active_project(self, tmp_path: Path, monkeypatch) -> None:
+class TestDynamicPackageCommands:
+    def test_main_package_subcommand_dispatches(self, tmp_path: Path, monkeypatch) -> None:
         from packages.loader import get_package_host_module
 
         desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
-
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        cfg_dir = tmp_path / ".pa-container"
-        cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
-        fake_desktop = ActiveDesktopInfo(
-            project_name="gui-project",
-            project_path=tmp_path,
-            project_hash="abcdef1234",
-            container_name="pa-container-agent-gui-abcdef1234",
-            novnc_port=6080,
-            novnc_url="http://127.0.0.1:6080",
-            vnc_port=5900,
-            vnc_endpoint="127.0.0.1:5900",
-            display=":0",
-            is_healthy=True,
-            created_at="2026-11-07T12:00:00Z",
-        )
-        with (
-            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
-            patch("rich.console.Console.print") as mock_print,
-        ):
-            code = handle_desktop_command(DesktopOptions())
-            assert code == 0
-            output = "".join(str(call) for call in mock_print.call_args_list)
-            assert "gui-project" in output
-            assert "6080" in output
-            assert "5900" in output
-
-    def test_desktop_inactive_project(self, tmp_path: Path, monkeypatch) -> None:
-        from packages.loader import get_package_host_module
-
-        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        cfg_dir = tmp_path / ".pa-container"
-        cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
-        with (
-            patch.object(desktop_mod, "get_project_desktop", return_value=None),
-            patch("rich.console.Console.print") as mock_print,
-        ):
-            code = handle_desktop_command(DesktopOptions())
-            assert code == 1
-            output = "".join(str(call) for call in mock_print.call_args_list)
-            assert "No active virtual desktop running" in output
-
-    def test_desktop_url_flag(self, tmp_path: Path, monkeypatch) -> None:
-        from packages.loader import get_package_host_module
-
-        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
-
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        cfg_dir = tmp_path / ".pa-container"
-        cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
-        fake_desktop = ActiveDesktopInfo(
-            project_name="gui-project",
-            project_path=tmp_path,
-            project_hash="abcdef1234",
-            container_name="pa-container-agent-gui-abcdef1234",
-            novnc_port=6080,
-            novnc_url="http://127.0.0.1:6080",
-            vnc_port=5900,
-            vnc_endpoint="127.0.0.1:5900",
-            display=":0",
-            is_healthy=True,
-            created_at="2026-11-07T12:00:00Z",
-        )
-        with (
-            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
-            patch("rich.console.Console.print") as mock_print,
-        ):
-            code = handle_desktop_command(DesktopOptions(url=True))
-            assert code == 0
-            mock_print.assert_called_once_with("http://127.0.0.1:6080")
-
-    def test_desktop_vnc_flag(self, tmp_path: Path, monkeypatch) -> None:
-        from packages.loader import get_package_host_module
-
-        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
-
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        cfg_dir = tmp_path / ".pa-container"
-        cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
-        fake_desktop = ActiveDesktopInfo(
-            project_name="gui-project",
-            project_path=tmp_path,
-            project_hash="abcdef1234",
-            container_name="pa-container-agent-gui-abcdef1234",
-            novnc_port=6080,
-            novnc_url="http://127.0.0.1:6080",
-            vnc_port=5900,
-            vnc_endpoint="127.0.0.1:5900",
-            display=":0",
-            is_healthy=True,
-            created_at="2026-11-07T12:00:00Z",
-        )
-        with (
-            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
-            patch("rich.console.Console.print") as mock_print,
-        ):
-            code = handle_desktop_command(DesktopOptions(vnc=True))
-            assert code == 0
-            mock_print.assert_called_once_with("127.0.0.1:5900")
-
-    def test_desktop_json_flag(self, tmp_path: Path, monkeypatch) -> None:
-        import json
-
-        from packages.loader import get_package_host_module
-
-        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
-
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        cfg_dir = tmp_path / ".pa-container"
-        cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
-        fake_desktop = ActiveDesktopInfo(
-            project_name="gui-project",
-            project_path=tmp_path,
-            project_hash="abcdef1234",
-            container_name="pa-container-agent-gui-abcdef1234",
-            novnc_port=6080,
-            novnc_url="http://127.0.0.1:6080",
-            vnc_port=5900,
-            vnc_endpoint="127.0.0.1:5900",
-            display=":0",
-            is_healthy=True,
-            created_at="2026-11-07T12:00:00Z",
-        )
-        with (
-            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
-            patch("rich.console.Console.print") as mock_print,
-        ):
-            code = handle_desktop_command(DesktopOptions(json=True))
-            assert code == 0
-            printed_raw = mock_print.call_args[0][0]
-            data = json.loads(printed_raw)
-            assert data["status"] == "running"
-            assert data["novnc_port"] == 6080
-            assert data["vnc_port"] == 5900
-
-    def test_desktop_open_flag(self, tmp_path: Path, monkeypatch) -> None:
-        from packages.loader import get_package_host_module
-
-        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
-
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        cfg_dir = tmp_path / ".pa-container"
-        cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
-        fake_desktop = ActiveDesktopInfo(
-            project_name="gui-project",
-            project_path=tmp_path,
-            project_hash="abcdef1234",
-            container_name="pa-container-agent-gui-abcdef1234",
-            novnc_port=6080,
-            novnc_url="http://127.0.0.1:6080",
-            vnc_port=5900,
-            vnc_endpoint="127.0.0.1:5900",
-            display=":0",
-            is_healthy=True,
-            created_at="2026-11-07T12:00:00Z",
-        )
-        with (
-            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
-            patch("webbrowser.open") as mock_open,
-            patch("rich.console.Console.print"),
-        ):
-            code = handle_desktop_command(DesktopOptions(open=True))
-            assert code == 0
-            mock_open.assert_called_once_with("http://127.0.0.1:6080")
-
-    def test_desktop_all_empty(self, tmp_path: Path, monkeypatch) -> None:
-        from packages.loader import get_package_host_module
-
-        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         with (
-            patch.object(desktop_mod, "list_active_desktops", return_value=[]),
-            patch("rich.console.Console.print") as mock_print,
-        ):
-            code = handle_desktop_command(DesktopOptions(all=True))
-            assert code == 0
-            mock_print.assert_called_once_with(
-                "[dim]No active pa-container virtual desktops found on this system.[/dim]"
-            )
-
-    def test_desktop_all_with_desktops(self, tmp_path: Path, monkeypatch) -> None:
-        from packages.loader import get_package_host_module
-
-        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
-
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        desktops = [
-            ActiveDesktopInfo(
-                project_name="d1",
-                project_path=Path("/tmp/d1"),
-                project_hash="1111111111",
-                container_name="pa-container-agent-1111111111",
-                novnc_port=6080,
-                novnc_url="http://127.0.0.1:6080",
-                vnc_port=5900,
-                vnc_endpoint="127.0.0.1:5900",
-                display=":0",
-                is_healthy=True,
-                created_at="2026-11-07T10:00:00Z",
-            ),
-            ActiveDesktopInfo(
-                project_name="d2",
-                project_path=Path("/tmp/d2"),
-                project_hash="2222222222",
-                container_name="pa-container-agent-2222222222",
-                novnc_port=6081,
-                novnc_url="http://127.0.0.1:6081",
-                vnc_port=5901,
-                vnc_endpoint="127.0.0.1:5901",
-                display=":0",
-                is_healthy=False,
-                created_at="2026-11-07T11:00:00Z",
-            ),
-        ]
-        with (
-            patch.object(desktop_mod, "list_active_desktops", return_value=desktops),
-            patch("rich.console.Console.print") as mock_print,
-        ):
-            code = handle_desktop_command(DesktopOptions(all=True))
-            assert code == 0
-            assert mock_print.called
-
-    def test_main_desktop_dispatches(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        with (
-            patch("cli.handle_desktop_command", return_value=0) as mock_handle,
+            patch.object(desktop_mod, "handle_desktop_command", return_value=0) as mock_handle,
             patch("sys.exit") as mock_exit,
         ):
             main(["desktop", "--all"])

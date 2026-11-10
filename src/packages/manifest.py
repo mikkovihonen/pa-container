@@ -207,6 +207,16 @@ class PackageManifest:
     extension: ExtensionConfig = field(default_factory=ExtensionConfig)
     hooks: LifecycleHooksConfig = field(default_factory=LifecycleHooksConfig)
     integration: IntegrationConfig = field(default_factory=IntegrationConfig)
+    cli_flags: list[str] = field(default_factory=list)
+
+    @property
+    def all_cli_flags(self) -> list[str]:
+        """All CLI flags contributed by this package (from cli_flags or extension.flags)."""
+        flags = list(self.cli_flags)
+        for fl in self.extension.flags:
+            if fl.name not in flags:
+                flags.append(fl.name)
+        return flags
 
 
 def _parse_payload(payload_data: dict[str, Any]) -> PayloadConfig:
@@ -468,6 +478,7 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         extension=extension,
         hooks=hooks,
         integration=integration,
+        cli_flags=[str(f) for f in (data.get("cli_flags") or []) if isinstance(f, (str, int, float))],
     )
 
 

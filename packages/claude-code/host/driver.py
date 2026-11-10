@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from agents.base import AgentDriver, AgentMount, T3DriverMetadata
+from agents.base import AgentDriver, AgentMount, OrchestratorProviderMetadata
 from logging_driver import LogCategory, get_category_logger
 
 logger = get_category_logger(__name__, LogCategory.AGENT)
@@ -159,9 +159,11 @@ class ClaudeDriver(AgentDriver):
         with settings_file.open("w") as f:
             json.dump(settings_data, f, indent=2)
 
-    def get_t3_metadata(self) -> T3DriverMetadata:
-        return T3DriverMetadata(
-            driver_kind="claudeAgent",
-            instance_id="claudeAgent",
-            settings={"binaryPath": "claude", "homePath": "/home/agent/.claude", "launchArgs": ""},
-        )
+    def get_orchestrator_metadata(self, orchestrator: str) -> OrchestratorProviderMetadata | None:
+        if orchestrator == "t3":
+            return OrchestratorProviderMetadata(
+                provider_kind="claudeAgent",
+                instance_id="claudeAgent",
+                settings={"binaryPath": "claude", "homePath": "/home/agent/.claude", "launchArgs": ""},
+            )
+        return None

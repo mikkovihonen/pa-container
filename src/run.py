@@ -56,7 +56,6 @@ from network import (
     ContainerNetworkManager,
     load_project_config,
     read_agent_extras,
-    read_agent_mode,
     read_agent_ports,
     read_default_agent,
     read_enabled_agents,
@@ -68,14 +67,13 @@ from network import (
     read_proxy_config,
     read_read_only_pa_container,
     read_resource_limits,
-    resolve_t3_port,
     resource_limit_args,
     scan_tmpfs_paths,
     scan_volume_paths,
 )
 from packages import ensure_package_images
-from packages.loader import load_active_plugins
-from packages.plugin import ACPPlugin, ContainerRunSpec, RunContext
+from packages.loader import load_project_plugins
+from packages.plugin import ContainerRunSpec, RunContext
 from runtimes import PodmanRuntime
 from security import read_security_config, validate_mount_paths
 from server import Server
@@ -83,7 +81,6 @@ from source_control import read_source_control_config, resolve_source_control_to
 from util import (
     EnvironmentError,
     extract_ipv4_from_ip_addr,
-    get_host_external_ip,
     get_sanitized_git_config_json,
     handle_signal,
     run_quiet,
@@ -302,83 +299,43 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         )
         return 1
 
-    cli_agent = options.agent
-    cli_t3 = options.t3
-    cli_lan = options.t3_lan
-    cli_t3_port = options.t3_port
-    cli_t3_advertise_host = options.t3_advertise_host
-    cli_t3_tunnel = options.t3_tunnel
-    cli_t3_tunnel_domain = options.t3_tunnel_domain
-    cli_t3_tunnel_quick = options.t3_tunnel_quick
-    cli_t3_tunnel_runner = options.t3_tunnel_runner
-    cli_t3_tunnel_keyring_account = options.t3_tunnel_keyring_account
-    cli_t3_tunnel_tailscale_mode = options.t3_tunnel_tailscale_mode
-    cli_t3_public_url = options.t3_public_url
     container_argv = options.container_argv
+    project_raw_cfg = load_project_config(pa_container_dir)
+    active_pkgs = images.read_project_packages(PROJECT_DIR)
+    active_plugins = load_project_plugins(PROJECT_DIR)
 
-    if not cli_t3_tunnel:
-        has_cf = bool(
-            cli_t3_tunnel_quick or cli_t3_tunnel_domain or cli_t3_tunnel_runner or cli_t3_tunnel_keyring_account
+    ctx = RunContext(
+        project_dir=PROJECT_DIR,
+        options=options,
+        config=project_raw_cfg,
+        runtime=CONTAINER_RUNTIME,
+        active_packages=active_pkgs,
+    )
+
+    for plugin in active_plugins.values():
+        plugin.on_run_init(ctx)
+
+    try:
+        for plugin in active_plugins.values():
+            plugin.on_preflight(ctx)
+    except Exception as preflight_err:
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Preflight Check Failed",
+            str(preflight_err),
+            exc=preflight_err,
+            source_logger=preflight_logger,
         )
-        has_ts = bool(cli_t3_tunnel_tailscale_mode)
-        if has_cf and not has_ts:
-            cli_t3_tunnel = "cloudflare"
-        elif has_ts and not has_cf:
-            cli_t3_tunnel = "tailscale"
+        return 1
 
-    if (
-        cli_t3_tunnel
-        or cli_t3_port
-        or cli_t3_public_url
-        or cli_t3_advertise_host
-        or cli_lan
-        or cli_t3_tunnel_quick
-        or cli_t3_tunnel_domain
-        or cli_t3_tunnel_runner
-        or cli_t3_tunnel_keyring_account
-        or cli_t3_tunnel_tailscale_mode
-    ):
-        cli_t3 = True
-
-    if (
-        cli_t3_tunnel
-        or cli_t3_tunnel_quick
-        or cli_t3_tunnel_domain
-        or cli_t3_tunnel_runner
-        or cli_t3_tunnel_keyring_account
-        or cli_t3_tunnel_tailscale_mode
-    ):
-        from tunnel import TunnelValidationError, validate_tunnel_prerequisites
-
-        try:
-            validate_tunnel_prerequisites(
-                tunnel_type=cli_t3_tunnel,
-                domain=cli_t3_tunnel_domain,
-                quick=cli_t3_tunnel_quick,
-                runner=cli_t3_tunnel_runner,
-                keyring_account=cli_t3_tunnel_keyring_account,
-                tailscale_mode=cli_t3_tunnel_tailscale_mode,
-                runtime=CONTAINER_RUNTIME,
-            )
-        except TunnelValidationError as tunnel_err:
-            log_drv.fail_and_render(
-                LogCategory.PREFLIGHT,
-                "Tunnel Prerequisites Failed",
-                str(tunnel_err),
-                exc=tunnel_err,
-                source_logger=preflight_logger,
-            )
-            return 1
-
-    is_t3_mode = cli_t3 or (read_agent_mode(pa_container_dir) == "t3")
     enabled_agents = read_enabled_agents(pa_container_dir)
     default_agent = read_default_agent(pa_container_dir)
     try:
         active_agent_name, selected_agent_names = resolve_selected_agent_names(
-            cli_agent=cli_agent,
+            cli_agent=options.agent,
             enabled_agents=enabled_agents,
             default_agent=default_agent,
-            is_t3_mode=is_t3_mode,
+            multi_agent=ctx.has_mode("multi-agent"),
         )
         agent_driver = get_agent_driver(active_agent_name)
         selected_agent_drivers = [get_agent_driver(name) for name in selected_agent_names]
@@ -388,11 +345,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             for pkg in d.required_packages:
                 if pkg not in driver_packages:
                     driver_packages.append(pkg)
-        if is_t3_mode and "t3" not in driver_packages:
-            driver_packages.append("t3")
 
         pkg_privileges: dict[str, Any] = {}
-        active_plugins: dict[str, ACPPlugin] = {}
         try:
             from packages import aggregate_runtime_privileges, discover_packages
 
@@ -408,11 +362,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 )
             if pkg_privileges.get("env"):
                 agent_extras["env"].update(pkg_privileges["env"])
-
-            active_manifests_map = {p: all_manifests[p] for p in active_pkgs if p in all_manifests}
-            active_plugins = load_active_plugins(
-                active_manifests_map, packages_dir=REPO_ROOT / "packages", project_dir=PROJECT_DIR
-            )
         except Exception as e:
             logger.debug(f"Could not aggregate package runtime privileges: {e}")
     except ValueError as e:
@@ -440,26 +389,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             )
     except Exception as e:
         logger.warning(f"Error during crash recovery cleanup: {e}", exc_info=True)
-
-    if is_t3_mode:
-        running_t3 = containers.find_running_t3_container(PROJECT_DIR, runtime=CONTAINER_RUNTIME)
-        if running_t3:
-            pid_info = f" (launcher PID: {running_t3.launcher_pid})" if running_t3.launcher_pid else ""
-            log_drv.fail_and_render(
-                LogCategory.PREFLIGHT,
-                "T3 Container Already Running",
-                (
-                    f"A T3 mode pa-container is already running for this workspace: {running_t3.container_name}{pid_info}\n"
-                    f"Only one T3 mode container can run per workspace at a time because T3 Code requires "
-                    f"exclusive ownership of the workspace's T3 state."
-                ),
-                hints=[
-                    f"To stop the existing container, run: {CONTAINER_RUNTIME} rm -f {running_t3.container_name}",
-                    "Or attach to the existing T3 session in the terminal where it was started.",
-                ],
-                source_logger=preflight_logger,
-            )
-            return 1
 
     nested_cfg = read_nested_containers_config(pa_container_dir)
     if pkg_privileges.get("nested_containers"):
@@ -522,53 +451,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             f"nested_containers.enabled is false; nothing is published."
         )
 
-    is_t3_mode = cli_t3 or (read_agent_mode(pa_container_dir) == "t3")
-    raw_adv_host = cli_t3_advertise_host or os.environ.get("T3_ADVERTISE_HOST") or "localhost"
-    if raw_adv_host.strip().lower() in ("external", "external_ip", "auto"):
-        t3_advertise_host = get_host_external_ip()
-    else:
-        t3_advertise_host = raw_adv_host.strip()
-
     agent_ports = read_agent_ports(pa_container_dir)
-    if cli_lan:
-        agent_ports["expose"] = "lan"
-
-    project_raw_cfg = load_project_config(pa_container_dir)
-    desktop_enabled = project_raw_cfg.get("desktop", {}).get("enabled", False)
-    if desktop_enabled and "virtual-desktop" not in active_pkgs:
-        log_drv.fail_and_render(
-            LogCategory.PREFLIGHT,
-            "Missing Package: virtual-desktop",
-            (
-                "The configuration has virtual desktop enabled ('desktop.enabled: true'), "
-                "but the configuration is missing the 'virtual-desktop' capability package that would provide this capability.\n\n"
-                "To enable virtual desktop, add 'virtual-desktop' to your packages list in .pa-container/config.yaml:\n"
-                "    packages:\n"
-                "        - virtual-desktop"
-            ),
-            hints=[
-                "Add 'virtual-desktop' to .pa-container/config.yaml under 'packages:'.",
-                "Or set 'desktop.enabled: false' if virtual desktop is not needed.",
-            ],
-            source_logger=preflight_logger,
-        )
-        return 1
-
-    t3_port = 3773
-    if is_t3_mode:
-        t3_port = resolve_t3_port(agent_ports, cli_port=cli_t3_port)
-        has_active_tunnel = bool(cli_t3_tunnel or cli_t3_public_url)
-        if (
-            not has_active_tunnel
-            and t3_advertise_host not in ("localhost", "127.0.0.1", "::1")
-            and agent_ports.get("expose") != "lan"
-        ):
-            logger.warning(
-                f"T3 Code advertised host is an external address ({t3_advertise_host}), "
-                f"but agent.ports.expose is 'localhost'. Inbound connections from other devices "
-                f"or external links may be refused unless agent.ports.expose is set to 'lan' in config.yaml "
-                f"or --t3-lan is passed."
-            )
 
     if agent_ports["publish"]:
         taken = containers.unavailable_host_ports(agent_ports["publish"], agent_ports["expose"])
@@ -592,16 +475,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             + f"{bind}: "
             + ", ".join(f"{host}→agent {agent}" for host, agent in agent_ports["publish"])
             + "."
-        )
-
-    if is_t3_mode:
-        t3_bind = "127.0.0.1" if agent_ports["expose"] != "lan" else "0.0.0.0"
-        logger.info(
-            f"T3 Code mode enabled (https://t3.codes):"
-            f"\n  Inbound server port: {t3_bind}:{t3_port}"
-            f"\n  Advertised host: {t3_advertise_host}"
-            f"\n  Starting T3 Code server for {agent_driver.name} inside container..."
-            f"\n  Once initialized, open https://t3.codes and use the pairing link displayed below."
         )
 
     (
@@ -654,53 +527,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             run_id = uuid.uuid4().hex[:12]
             agent_container_name = f"pa-container-agent-{run_id}"
             proxy_name, network_name = project.project_scope(PROJECT_DIR)
-
-            t3_public_url = cli_t3_public_url
-            if is_t3_mode and cli_t3_tunnel:
-                ttype = cli_t3_tunnel.strip().lower()
-                if ttype == "tailscale":
-                    from tunnel import TailscaleTunnelManager
-
-                    ts_mgr = TailscaleTunnelManager(mode=cli_t3_tunnel_tailscale_mode, port=t3_port)
-                    pub_url, adv_host = ts_mgr.start(stack)
-                    t3_public_url = t3_public_url or pub_url
-                    if not cli_t3_advertise_host:
-                        t3_advertise_host = adv_host
-                elif ttype == "cloudflare":
-                    from tunnel import CloudflareTunnelManager
-
-                    cf_mgr = CloudflareTunnelManager(
-                        domain=cli_t3_tunnel_domain,
-                        quick=cli_t3_tunnel_quick,
-                        runner=cli_t3_tunnel_runner,
-                        keyring_account=cli_t3_tunnel_keyring_account,
-                        port=t3_port,
-                        runtime=CONTAINER_RUNTIME,
-                        run_id=run_id,
-                    )
-                    pub_url, adv_host = cf_mgr.start(stack)
-                    t3_public_url = t3_public_url or pub_url
-                    if not cli_t3_advertise_host:
-                        t3_advertise_host = adv_host
-
-            if is_t3_mode and t3_public_url:
-                from tunnel import normalize_tunnel_url
-
-                t3_public_url = normalize_tunnel_url(t3_public_url)
-                if not cli_t3_advertise_host and not cli_t3_tunnel:
-                    t3_advertise_host = urlparse(t3_public_url).hostname or t3_advertise_host
-
-                logger.info(
-                    f"\n=================================================================="
-                    f"\n  T3 Code Remote Access Tunnel Active"
-                    f"\n  Public URL: {t3_public_url}"
-                    f"\n  Protocol:   HTTPS (WSS) - Standard Port (443)"
-                    f"\n=================================================================="
-                )
-                if not log_drv.quiet:
-                    log_drv.console.print(
-                        f"  [dim cyan][{LogCategory.NETWORK}][/dim cyan] T3 Tunnel URL: [link={t3_public_url}]{t3_public_url}[/link] 🔗 (click to open)"
-                    )
 
             ensure_proxy_image(CONTAINER_RUNTIME, repo_root=REPO_ROOT)
 
@@ -841,7 +667,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         project_path=project_path,
                         build_timestamp=images.now_iso(),
                         packages=project_packages,
-                        with_desktop="virtual-desktop" in active_pkgs,
                     )
                     if global_config.build.prune_dangling:
                         images.prune_dangling_images(CONTAINER_RUNTIME, purge_cache=False)
@@ -952,7 +777,14 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 d_gateways = [gw for gw in gateway_configs if d.is_gateway_enabled_for_agent(gw)]
                 merged_driver_env.update(d.get_environment(agent_extras, gateway_configs=d_gateways))
             driver_env = [flag for k, v in merged_driver_env.items() for flag in ("--env", f"{k}={v}")]
-            t3_chown: list[str] = ["/home/agent/.t3"] if is_t3_mode else []
+            ctx.container_name = agent_container_name
+            ctx.network_name = network_name
+            ctx.proxy_url = f"http://{proxy_isolated_ip}:8080" if proxy_isolated_ip else None
+            ctx.exit_stack = stack
+
+            plugin_spec = ContainerRunSpec()
+            for plugin in active_plugins.values():
+                plugin.on_container_configure(plugin_spec, ctx)
 
             driver_mount_chown: list[str] = []
             for m in selected_mounts:
@@ -971,7 +803,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     tmpfs_paths
                     + shadow_destinations
                     + ["/workspace/.pa-container/exports"]
-                    + t3_chown
+                    + plugin_spec.chown_paths
                     + driver_mount_chown
                 )
             )
@@ -984,22 +816,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     active_devices.append(dev)
                 else:
                     logger.debug(f"Device '{dev}' does not exist on host; skipping.")
-
-            ctx = RunContext(
-                project_dir=PROJECT_DIR,
-                container_name=agent_container_name,
-                network_name=network_name,
-                proxy_url=f"http://{proxy_isolated_ip}:8080" if proxy_isolated_ip else None,
-                is_t3_mode=is_t3_mode,
-                options=options,
-                config=project_raw_cfg,
-                runtime=CONTAINER_RUNTIME,
-                active_packages=active_pkgs,
-            )
-
-            plugin_spec = ContainerRunSpec()
-            for plugin in active_plugins.values():
-                plugin.on_container_configure(plugin_spec, project_raw_cfg, options)
 
             PA_CONTAINER_cmd = [
                 CONTAINER_RUNTIME,
@@ -1016,8 +832,11 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 f"pa-container.project.name={PROJECT_DIR.name}",
                 "--label",
                 f"pa-container.project.path={PROJECT_DIR.resolve()}",
-                "--label",
-                f"pa-container.mode={'t3' if is_t3_mode else 'cli'}",
+                *(
+                    ["--label", "pa-container.mode=cli"]
+                    if not any("pa-container.mode=" in arg for arg in plugin_spec.extra_run_args)
+                    else []
+                ),
                 "--label",
                 f"pa-container.launcher_pid={os.getpid()}",
                 "--label",

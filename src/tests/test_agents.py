@@ -25,50 +25,50 @@ def test_available_agents():
 def test_resolve_selected_agent_names():
     enabled = ["pi", "opencode", "claude-code"]
 
-    # Non-T3 mode: default when omitted
-    assert resolve_selected_agent_names(None, enabled, "pi", is_t3_mode=False) == ("pi", ["pi"])
-    assert resolve_selected_agent_names(None, enabled, "opencode", is_t3_mode=False) == ("opencode", ["opencode"])
+    # Single-agent mode: default when omitted
+    assert resolve_selected_agent_names(None, enabled, "pi", multi_agent=False) == ("pi", ["pi"])
+    assert resolve_selected_agent_names(None, enabled, "opencode", multi_agent=False) == ("opencode", ["opencode"])
 
-    # T3 mode: all enabled agents when omitted
-    assert resolve_selected_agent_names(None, enabled, "pi", is_t3_mode=True) == (
+    # Multi-agent mode: all enabled agents when omitted
+    assert resolve_selected_agent_names(None, enabled, "pi", multi_agent=True) == (
         "pi",
         ["pi", "opencode", "claude-code"],
     )
-    assert resolve_selected_agent_names(None, ["opencode"], "pi", is_t3_mode=True) == ("opencode", ["opencode"])
+    assert resolve_selected_agent_names(None, ["opencode"], "pi", multi_agent=True) == ("opencode", ["opencode"])
 
     # 'all' keyword
-    assert resolve_selected_agent_names("all", enabled, "pi", is_t3_mode=False) == (
+    assert resolve_selected_agent_names("all", enabled, "pi", multi_agent=False) == (
         "pi",
         ["pi", "opencode", "claude-code"],
     )
-    assert resolve_selected_agent_names("ALL", enabled, "opencode", is_t3_mode=True) == (
+    assert resolve_selected_agent_names("ALL", enabled, "opencode", multi_agent=True) == (
         "opencode",
         ["pi", "opencode", "claude-code"],
     )
 
     # Single agent
-    assert resolve_selected_agent_names("opencode", enabled, "pi", is_t3_mode=True) == ("opencode", ["opencode"])
-    assert resolve_selected_agent_names("pi", enabled, "opencode", is_t3_mode=False) == ("pi", ["pi"])
+    assert resolve_selected_agent_names("opencode", enabled, "pi", multi_agent=True) == ("opencode", ["opencode"])
+    assert resolve_selected_agent_names("pi", enabled, "opencode", multi_agent=False) == ("pi", ["pi"])
 
     # Comma-separated list with trimming and deduplication
-    assert resolve_selected_agent_names("opencode, pi", enabled, "claude-code", is_t3_mode=True) == (
+    assert resolve_selected_agent_names("opencode, pi", enabled, "claude-code", multi_agent=True) == (
         "opencode",
         ["opencode", "pi"],
     )
-    assert resolve_selected_agent_names("pi, opencode, pi", enabled, "claude-code", is_t3_mode=False) == (
+    assert resolve_selected_agent_names("pi, opencode, pi", enabled, "claude-code", multi_agent=False) == (
         "pi",
         ["pi", "opencode"],
     )
 
     # Errors: empty, unknown agent, disabled agent
     with pytest.raises(ValueError, match="Invalid empty"):
-        resolve_selected_agent_names("", enabled, "pi", is_t3_mode=False)
+        resolve_selected_agent_names("", enabled, "pi", multi_agent=False)
     with pytest.raises(ValueError, match="Unknown agent"):
-        resolve_selected_agent_names("unknown", enabled, "pi", is_t3_mode=False)
+        resolve_selected_agent_names("unknown", enabled, "pi", multi_agent=False)
     with pytest.raises(ValueError, match="Unknown agent"):
-        resolve_selected_agent_names("opencode,foobar", enabled, "pi", is_t3_mode=False)
+        resolve_selected_agent_names("opencode,foobar", enabled, "pi", multi_agent=False)
     with pytest.raises(ValueError, match="is not enabled"):
-        resolve_selected_agent_names("antigravity", enabled, "pi", is_t3_mode=False)
+        resolve_selected_agent_names("antigravity", enabled, "pi", multi_agent=False)
 
 
 def test_get_agent_driver():

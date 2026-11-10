@@ -22,9 +22,9 @@ def test_antigravity_driver_contracts(tmp_path: Path):
     assert driver.required_packages == ["antigravity"]
     assert driver.get_command(["--goal", "audit"]) == ["--goal", "audit"]
     assert driver.get_environment()["GEMINI_API_KEY"] == "GEMINI_API_KEY_PLACEHOLDER"
-    meta = driver.get_t3_metadata()
+    meta = driver.get_orchestrator_metadata("t3")
     assert meta is not None
-    assert meta.driver_kind == "antigravity"
+    assert meta.provider_kind == "antigravity"
     assert meta.instance_id == "antigravity"
     assert meta.settings == {"authMethod": "oauth-personal"}
 

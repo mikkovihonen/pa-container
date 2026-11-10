@@ -46,7 +46,7 @@ def ensure_base_image(runtime: str = "podman") -> None:
     logger.info(f"Base agent image {BASE_AGENT_IMAGE} missing. Building...")
     from build import build_agent_base
 
-    build_agent_base(runtime, with_desktop=False)
+    build_agent_base(runtime)
 
 
 def verify_package(

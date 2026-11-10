@@ -1048,97 +1048,74 @@ class TestReadAgentPorts:
         }
 
 
-class TestReadAgentMode:
-    def test_default_mode(self, tmp_path):
-        from network import read_agent_mode
-
-        (tmp_path / "config.yaml").write_text("agent: {}\n")
-        assert read_agent_mode(tmp_path) == "cli"
-
-    def test_t3_mode(self, tmp_path):
-        from network import read_agent_mode
-
-        (tmp_path / "config.yaml").write_text("agent:\n  mode: t3\n")
-        assert read_agent_mode(tmp_path) == "t3"
-
-
-class TestResolveT3Port:
+class TestResolveServicePort:
     def test_default_available(self):
         from unittest.mock import patch
 
-        from network import resolve_t3_port
+        from network import resolve_service_port
 
-        agent_ports = {"expose": "localhost", "publish": []}
         with patch("network.is_port_available", return_value=True):
-            port = resolve_t3_port(agent_ports)
+            port = resolve_service_port(default_port=3773)
             assert port == 3773
-            assert agent_ports["publish"] == [(3773, 3773)]
 
     def test_default_in_use_allocates_ephemeral(self):
         from unittest.mock import patch
 
-        from network import resolve_t3_port
+        from network import resolve_service_port
 
-        agent_ports = {"expose": "localhost", "publish": []}
         with patch("network.is_port_available", return_value=False), patch("network.get_free_port", return_value=51234):
-            port = resolve_t3_port(agent_ports)
+            port = resolve_service_port(default_port=3773)
             assert port == 51234
-            assert agent_ports["publish"] == [(51234, 51234)]
 
     def test_cli_auto(self):
         from unittest.mock import patch
 
-        from network import resolve_t3_port
+        from network import resolve_service_port
 
-        agent_ports = {"expose": "localhost", "publish": []}
         with patch("network.get_free_port", return_value=55000):
-            port = resolve_t3_port(agent_ports, cli_port="auto")
+            port = resolve_service_port(requested_port="auto")
             assert port == 55000
-            assert agent_ports["publish"] == [(55000, 55000)]
 
     def test_cli_explicit_available(self):
         from unittest.mock import patch
 
-        from network import resolve_t3_port
+        from network import resolve_service_port
 
-        agent_ports = {"expose": "localhost", "publish": []}
         with patch("network.is_port_available", return_value=True):
-            port = resolve_t3_port(agent_ports, cli_port=8080)
+            port = resolve_service_port(requested_port=8080)
             assert port == 8080
-            assert agent_ports["publish"] == [(8080, 8080)]
 
     def test_cli_explicit_in_use_allocates_ephemeral(self):
         from unittest.mock import patch
 
-        from network import resolve_t3_port
+        from network import resolve_service_port
 
-        agent_ports = {"expose": "localhost", "publish": []}
         with patch("network.is_port_available", return_value=False), patch("network.get_free_port", return_value=59999):
-            port = resolve_t3_port(agent_ports, cli_port=8080)
+            port = resolve_service_port(requested_port=8080)
             assert port == 59999
-            assert agent_ports["publish"] == [(59999, 59999)]
 
-    def test_custom_mapping_in_publish_preserved_and_updated(self):
+    def test_cli_explicit_in_use_without_fallback_raises(self):
         from unittest.mock import patch
 
-        from network import resolve_t3_port
+        import pytest
 
-        agent_ports = {"expose": "localhost", "publish": [(13773, 3773)]}
-        with patch("network.is_port_available", return_value=True):
-            port = resolve_t3_port(agent_ports)
-            assert port == 13773
-            assert agent_ports["publish"] == [(13773, 13773)]
+        from network import resolve_service_port
+
+        with (
+            patch("network.is_port_available", return_value=False),
+            pytest.raises(ValueError, match="already in use"),
+        ):
+            resolve_service_port(requested_port=8080, fallback_to_ephemeral=False)
 
     def test_invalid_cli_port_raises(self):
         import pytest
 
-        from network import resolve_t3_port
+        from network import resolve_service_port
 
-        agent_ports = {"expose": "localhost", "publish": []}
-        with pytest.raises(ValueError, match="Invalid T3 Code port"):
-            resolve_t3_port(agent_ports, cli_port="not-a-port")
+        with pytest.raises(ValueError, match="Invalid service port"):
+            resolve_service_port(requested_port="not-a-port")
         with pytest.raises(ValueError, match="out of range"):
-            resolve_t3_port(agent_ports, cli_port=70000)
+            resolve_service_port(requested_port=70000)
 
 
 class TestTokenReplacerSecretsResolution:

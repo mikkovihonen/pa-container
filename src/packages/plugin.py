@@ -3,10 +3,11 @@ from __future__ import annotations
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import argparse
+    from contextlib import ExitStack
     from pathlib import Path
 
     from agents.base import AgentDriver, AgentMount
@@ -28,22 +29,41 @@ class ContainerRunSpec:
     cap_add: list[str] = field(default_factory=list)
     sysctl: dict[str, str] = field(default_factory=dict)
     ports: list[str] = field(default_factory=list)
+    chown_paths: list[str] = field(default_factory=list)
     extra_run_args: list[str] = field(default_factory=list)
 
 
-@dataclass(frozen=True)
+@dataclass
 class RunContext:
-    """Immutable execution context provided to ACP lifecycle hooks."""
+    """Execution context provided to ACP lifecycle hooks."""
 
     project_dir: Path
-    container_name: str
-    network_name: str
-    proxy_url: str | None
-    is_t3_mode: bool
     options: RunOptions
     config: ProjectConfig
     runtime: str = "podman"
     active_packages: list[str] = field(default_factory=list)
+    container_name: str = ""
+    network_name: str = ""
+    proxy_url: str | None = None
+    modes: set[str] = field(default_factory=set)
+    attributes: dict[str, Any] = field(default_factory=dict)
+    exit_stack: ExitStack | None = None
+
+    def add_mode(self, mode: str) -> None:
+        """Register an active operational mode (e.g. 't3', 'multi-agent')."""
+        self.modes.add(mode)
+
+    def has_mode(self, mode: str) -> bool:
+        """Check if an operational mode is active."""
+        return mode in self.modes
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        """Store an arbitrary context attribute."""
+        self.attributes[key] = value
+
+    def get_attribute(self, key: str, default: Any = None) -> Any:
+        """Retrieve an arbitrary context attribute."""
+        return self.attributes.get(key, default)
 
 
 @dataclass(frozen=True)
@@ -71,27 +91,38 @@ class ACPPlugin:
         self.container_dir = package_dir / "container"
         self.project_dir = project_dir
 
-    def register_cli_commands(self, subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    def register_cli_commands(
+        self,
+        subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+        common_parser: argparse.ArgumentParser | None = None,
+    ) -> None:
         """Register subcommands contributed by this package."""
         pass
 
-    def register_cli_flags(self, run_parser: argparse.ArgumentParser) -> None:
+    def register_cli_args(self, run_parser: argparse.ArgumentParser) -> None:
         """Register CLI argument flags contributed by this package."""
         pass
 
-    def contribute_config_schema(self) -> type[object] | None:
-        """Return the dataclass or schema type for validating the package config section."""
+    def contribute_config_schema(self) -> type[object] | dict[str, Any] | None:
+        """Return the dataclass or schema type/dict for validating the package config section."""
         return None
 
     def get_secret_mappings(self, config: ProjectConfig) -> list[SecretTokenMapping]:
         """Contribute secret mappings linking OS keyring credentials to proxy token replacer rules."""
         return []
 
+    def on_run_init(self, context: RunContext) -> None:
+        """Early initialization hook called right after RunContext is constructed."""
+        pass
+
+    def on_preflight(self, context: RunContext) -> None:
+        """Preflight hook for verifying dependencies, single-instance locks, and preconditions."""
+        pass
+
     def on_container_configure(
         self,
         spec: ContainerRunSpec,
-        config: ProjectConfig,
-        options: RunOptions,
+        context: RunContext,
     ) -> None:
         """Inject container runtime arguments (mounts, env vars, ports, capabilities, devices)."""
         pass

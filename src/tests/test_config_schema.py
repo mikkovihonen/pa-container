@@ -947,6 +947,7 @@ class TestDesktopSchema:
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
+        data["packages"].append("virtual-desktop")
         data["desktop"] = {
             "enabled": True,
             "resolution": "1920x1080",
@@ -962,6 +963,19 @@ class TestDesktopSchema:
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is True
         assert errors == []
+
+    def test_desktop_enabled_without_package_fails(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["desktop"] = {"enabled": True}
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("virtual-desktop" in e for e in errors)
 
     def test_desktop_invalid_type_fails(self, valid_config: Path):
         from config_schema import validate_config

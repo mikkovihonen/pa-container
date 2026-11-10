@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from agents.base import AgentDriver, AgentMount, T3DriverMetadata
+from agents.base import AgentDriver, AgentMount, OrchestratorProviderMetadata
 from agents.synthesis import (
     extract_models_from_yaml,
     load_project_models,
@@ -73,7 +73,7 @@ def resolve_selected_agent_names(
     cli_agent: str | None,
     enabled_agents: list[str],
     default_agent: str,
-    is_t3_mode: bool,
+    multi_agent: bool = False,
     repo_root: Path | None = None,
 ) -> tuple[str, list[str]]:
     """Resolve the active agent name and full list of selected agent names.
@@ -82,14 +82,14 @@ def resolve_selected_agent_names(
         cli_agent: CLI --agent flag argument (None, single agent, comma-separated list, or 'all').
         enabled_agents: List of agents enabled in this workspace config.
         default_agent: Workspace default agent.
-        is_t3_mode: Whether T3 Code web mode is enabled.
+        multi_agent: Whether multi-agent orchestration mode is enabled.
         repo_root: Optional repository root path.
 
     Returns:
         A tuple of (active_agent_name, list_of_selected_agent_names).
     """
     if cli_agent is None:
-        if is_t3_mode:
+        if multi_agent:
             active = default_agent if default_agent in enabled_agents else enabled_agents[0]
             return active, list(enabled_agents)
         return default_agent, [default_agent]
@@ -127,7 +127,7 @@ __all__ = [
     "AVAILABLE_AGENTS",
     "AgentDriver",
     "AgentMount",
-    "T3DriverMetadata",
+    "OrchestratorProviderMetadata",
     "discover_available_agents",
     "extract_models_from_yaml",
     "get_agent_driver",

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from agents.base import AgentDriver, AgentMount, T3DriverMetadata
+from agents.base import AgentDriver, AgentMount, OrchestratorProviderMetadata
 from logging_driver import LogCategory, get_category_logger
 
 logger = get_category_logger(__name__, LogCategory.AGENT)
@@ -176,9 +176,11 @@ class AntigravityDriver(AgentDriver):
             with mcp_file.open("w") as f:
                 json.dump({"mcpServers": mcp_servers}, f, indent=2)
 
-    def get_t3_metadata(self) -> T3DriverMetadata:
-        return T3DriverMetadata(
-            driver_kind="antigravity",
-            instance_id="antigravity",
-            settings={"authMethod": "oauth-personal"},
-        )
+    def get_orchestrator_metadata(self, orchestrator: str) -> OrchestratorProviderMetadata | None:
+        if orchestrator == "t3":
+            return OrchestratorProviderMetadata(
+                provider_kind="antigravity",
+                instance_id="antigravity",
+                settings={"authMethod": "oauth-personal"},
+            )
+        return None

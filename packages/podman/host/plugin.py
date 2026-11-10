@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 sys.dont_write_bytecode = True
 
@@ -10,12 +9,8 @@ import project
 import volumes
 from logging_driver import LogCategory, get_category_logger
 from network import read_nested_containers_config
-from packages.plugin import ACPPlugin, ContainerRunSpec
+from packages.plugin import ACPPlugin, ContainerRunSpec, RunContext
 from runtimes import get_runtime
-
-if TYPE_CHECKING:
-    from cli import RunOptions
-    from config_types import ProjectConfig
 
 logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
@@ -26,8 +21,7 @@ class PodmanPlugin(ACPPlugin):
     def on_container_configure(
         self,
         spec: ContainerRunSpec,
-        config: ProjectConfig,
-        options: RunOptions,
+        context: RunContext,
     ) -> None:
         """Configure runtime arguments and volumes for nested containers."""
         pa_dir = (self.project_dir / ".pa-container") if self.project_dir else None

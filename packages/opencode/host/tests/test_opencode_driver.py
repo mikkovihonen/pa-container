@@ -22,9 +22,9 @@ def test_opencode_driver_contracts(tmp_path: Path):
     assert driver.required_packages == ["opencode"]
     assert driver.get_command(["run", "main.py"]) == ["run", "main.py"]
     assert driver.get_environment() == {}
-    meta = driver.get_t3_metadata()
+    meta = driver.get_orchestrator_metadata("t3")
     assert meta is not None
-    assert meta.driver_kind == "opencode"
+    assert meta.provider_kind == "opencode"
     assert meta.instance_id == "opencode"
     assert meta.settings == {"binaryPath": "opencode", "serverUrl": "", "serverPassword": ""}
 

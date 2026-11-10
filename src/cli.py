@@ -54,19 +54,22 @@ class RunOptions(GlobalCliOptions):
     """Options for the 'run' subcommand."""
 
     agent: str | None = None
-    t3: bool = False
-    t3_lan: bool = False
-    t3_port: str | None = None
-    t3_advertise_host: str | None = None
-    t3_tunnel: str | None = None
-    t3_tunnel_domain: str | None = None
-    t3_tunnel_quick: bool = False
-    t3_tunnel_runner: str | None = None
-    t3_tunnel_keyring_account: str | None = None
-    t3_tunnel_tailscale_mode: str | None = None
-    t3_public_url: str | None = None
     open_browser: bool | None = None
     container_argv: list[str] = field(default_factory=list)
+    extra_options: dict[str, Any] = field(default_factory=dict)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Retrieve a core or package-contributed option value."""
+        if hasattr(self, key):
+            val = getattr(self, key)
+            if val is not None:
+                return val
+        return self.extra_options.get(key, default)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self.extra_options:
+            return self.extra_options[name]
+        raise AttributeError(f"'RunOptions' object has no attribute '{name}'")
 
 
 @dataclass
@@ -76,17 +79,6 @@ class ProxyOptions(GlobalCliOptions):
     all: bool = False
     open: bool = False
     url: bool = False
-    json: bool = False
-
-
-@dataclass
-class DesktopOptions(GlobalCliOptions):
-    """Options for the 'desktop' subcommand."""
-
-    all: bool = False
-    open: bool = False
-    url: bool = False
-    vnc: bool = False
     json: bool = False
 
 
@@ -230,62 +222,9 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "Coding agent driver(s) to launch. Accepts a single agent (e.g. 'opencode'), "
             "a comma-separated list (e.g. 'opencode,pi'), or 'all'. "
-            "In T3 mode, defaults to all enabled agents if omitted. "
+            "In multi-agent orchestration mode, defaults to all enabled agents if omitted. "
             "In standard CLI mode, launches the first agent interactively with secondary agents provisioned."
         ),
-    )
-    run_parser.add_argument(
-        "--t3",
-        action="store_true",
-        help="Enable T3 Code web server mode inside the agent container.",
-    )
-    run_parser.add_argument(
-        "--t3-lan",
-        action="store_true",
-        help="Allow T3 Code inbound connections from LAN devices (binds 0.0.0.0).",
-    )
-    run_parser.add_argument(
-        "--t3-port",
-        help="Port for T3 Code web server (integer or 'auto'). Defaults to 3773 or next available port if in use.",
-    )
-    run_parser.add_argument(
-        "--t3-advertise-host",
-        help="Hostname or IP address to advertise for T3 pairing (e.g. 'external' or IP).",
-    )
-    run_parser.add_argument(
-        "--t3-tunnel",
-        choices=["tailscale", "cloudflare"],
-        help="Automated secure tunnel provider for remote T3 pairing.",
-    )
-    run_parser.add_argument(
-        "--t3-tunnel-domain",
-        help="Custom public hostname for Cloudflare tunnel.",
-    )
-    run_parser.add_argument(
-        "--t3-tunnel-quick",
-        action="store_true",
-        help="Use a quick ephemeral trycloudflare tunnel without pre-created credentials.",
-    )
-    run_parser.add_argument(
-        "--t3-tunnel-runner",
-        choices=["auto", "container", "host"],
-        default=None,
-        help="Runner environment for cloudflared tunnel daemon.",
-    )
-    run_parser.add_argument(
-        "--t3-tunnel-keyring-account",
-        default=None,
-        help="OS keyring credential account holding the Cloudflare tunnel token.",
-    )
-    run_parser.add_argument(
-        "--t3-tunnel-tailscale-mode",
-        choices=["serve", "funnel"],
-        default=None,
-        help="Tailscale exposure mode: 'serve' (tailnet-only) or 'funnel' (public internet).",
-    )
-    run_parser.add_argument(
-        "--t3-public-url",
-        help="Pre-existing public HTTPS URL override for T3 pairing link.",
     )
     run_parser.add_argument(
         "--open-browser",
@@ -293,6 +232,17 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Automatically open mitmweb UI in the default web browser on launch.",
     )
+
+    # Dynamic CLI argument contributions from active capability packages
+    if (PROJECT_DIR / ".pa-container" / "config.yaml").is_file():
+        try:
+            from packages.loader import load_project_plugins
+
+            active_plugins = load_project_plugins(PROJECT_DIR)
+            for plugin in active_plugins.values():
+                plugin.register_cli_args(run_parser)
+        except Exception as e:
+            cli_logger.debug(f"Could not load active plugins for CLI args: {e}")
 
     # ─── 'build' subcommand ──────────────────────────────────────────────────
     build_parser = subparsers.add_parser(
@@ -480,39 +430,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output proxy metadata in JSON format.",
     )
 
-    # ─── 'desktop' subcommand ────────────────────────────────────────────────
-    desktop_parser = subparsers.add_parser(
-        "desktop",
-        parents=[common_parser],
-        help="Inspect active virtual desktop containers, noVNC web UIs, and VNC endpoints.",
-        description="Query active virtual desktop sessions for this project or globally, showing clickable links and status.",
-    )
-    desktop_parser.add_argument(
-        "--all",
-        action="store_true",
-        help="List all active virtual desktop containers across all projects.",
-    )
-    desktop_parser.add_argument(
-        "--open",
-        action="store_true",
-        help="Open the noVNC web UI in the default OS web browser.",
-    )
-    desktop_parser.add_argument(
-        "--url",
-        action="store_true",
-        help="Print only the noVNC web UI URL (for shell scripts or piping).",
-    )
-    desktop_parser.add_argument(
-        "--vnc",
-        action="store_true",
-        help="Print only the VNC endpoint host:port (for VNC clients).",
-    )
-    desktop_parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Output virtual desktop metadata in JSON format.",
-    )
-
     # ─── 'init' subcommand ───────────────────────────────────────────────────
     init_parser = subparsers.add_parser(
         "init",
@@ -526,6 +443,21 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Initialize global configuration (~/.config/pa-container/config.yaml) instead of local project.",
     )
+
+    # Dynamic CLI subcommand contributions from discovered capability packages
+    try:
+        from packages.discovery import discover_packages, get_package_dir
+        from packages.loader import load_acp_plugin
+
+        manifests = discover_packages(REPO_ROOT)
+        for manifest in manifests.values():
+            if manifest.extension.commands or manifest.extension.entrypoint:
+                pkg_dir = get_package_dir(manifest.name, repo_root=REPO_ROOT)
+                loaded_plugin = load_acp_plugin(manifest, pkg_dir, project_dir=PROJECT_DIR)
+                if loaded_plugin is not None:
+                    loaded_plugin.register_cli_commands(subparsers, common_parser=common_parser)
+    except Exception as e:
+        cli_logger.debug(f"Could not load package subcommands: {e}")
 
     return parser
 
@@ -568,6 +500,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
     args, unknown = parser.parse_known_args(raw_args)
 
     if unknown:
+        _check_unconfigured_flag_remediation(unknown, PROJECT_DIR)
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     cmd = args.command
@@ -580,6 +513,10 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
     no_color: bool = bool(getattr(args, "no_color", False))
 
     if cmd == "run":
+        from dataclasses import fields
+
+        known_fields = {f.name for f in fields(RunOptions)}
+        extra_options = {k: v for k, v in vars(args).items() if k not in known_fields and not k.startswith("_")}
         options = RunOptions(
             verbose=verbose,
             quiet=quiet,
@@ -587,19 +524,9 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             log_file=log_file,
             no_color=no_color,
             agent=getattr(args, "agent", None),
-            t3=getattr(args, "t3", False),
-            t3_lan=getattr(args, "t3_lan", False),
-            t3_port=getattr(args, "t3_port", None),
-            t3_advertise_host=getattr(args, "t3_advertise_host", None),
-            t3_tunnel=getattr(args, "t3_tunnel", None),
-            t3_tunnel_domain=getattr(args, "t3_tunnel_domain", None),
-            t3_tunnel_quick=getattr(args, "t3_tunnel_quick", False),
-            t3_tunnel_runner=getattr(args, "t3_tunnel_runner", None),
-            t3_tunnel_keyring_account=getattr(args, "t3_tunnel_keyring_account", None),
-            t3_tunnel_tailscale_mode=getattr(args, "t3_tunnel_tailscale_mode", None),
-            t3_public_url=getattr(args, "t3_public_url", None),
             open_browser=getattr(args, "open_browser", None),
             container_argv=passthrough_args,
+            extra_options=extra_options,
         )
         return "run", options
 
@@ -682,21 +609,6 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             json=bool(getattr(args, "json", False)),
         )
         return cmd, p_options
-
-    if cmd == "desktop":
-        d_options = DesktopOptions(
-            verbose=verbose,
-            quiet=quiet,
-            log_level=log_level,
-            log_file=log_file,
-            no_color=no_color,
-            all=bool(getattr(args, "all", False)),
-            open=bool(getattr(args, "open", False)),
-            url=bool(getattr(args, "url", False)),
-            vnc=bool(getattr(args, "vnc", False)),
-            json=bool(getattr(args, "json", False)),
-        )
-        return cmd, d_options
 
     if cmd == "init":
         i_options = InitOptions(
@@ -842,164 +754,6 @@ def handle_proxy_command(options: ProxyOptions) -> int:
     return 0
 
 
-def handle_desktop_command(options: DesktopOptions) -> int:
-    """Execute the 'desktop' / 'desktops' subcommand actions."""
-    import json as json_module
-    import webbrowser
-
-    from packages.loader import get_package_host_module
-
-    desktop_mod = get_package_host_module("virtual-desktop", "desktop")
-    get_project_desktop = desktop_mod.get_project_desktop
-    list_active_desktops = desktop_mod.list_active_desktops
-
-    console = Console(no_color=options.no_color)
-    is_in_project = (PROJECT_DIR / ".pa-container").exists() or (PROJECT_DIR / "config.yaml").exists()
-
-    # If --all is requested, or if executed outside of any project workspace, list all active desktops
-    if options.all or not is_in_project:
-        desktops = list_active_desktops()
-
-        if options.json:
-            data = [
-                {
-                    "project_name": d.project_name,
-                    "project_path": str(d.project_path) if d.project_path else None,
-                    "project_hash": d.project_hash,
-                    "container_name": d.container_name,
-                    "novnc_port": d.novnc_port,
-                    "novnc_url": d.novnc_url,
-                    "vnc_port": d.vnc_port,
-                    "vnc_endpoint": d.vnc_endpoint,
-                    "display": d.display,
-                    "is_healthy": d.is_healthy,
-                    "created_at": d.created_at,
-                }
-                for d in desktops
-            ]
-            console.print(json_module.dumps(data, indent=2))
-            return 0
-
-        if options.url:
-            for d in desktops:
-                if d.novnc_url:
-                    console.print(d.novnc_url)
-            return 0
-
-        if options.vnc:
-            for d in desktops:
-                if d.vnc_endpoint:
-                    console.print(d.vnc_endpoint)
-            return 0
-
-        if not desktops:
-            console.print("[dim]No active pa-container virtual desktops found on this system.[/dim]")
-            return 0
-
-        table = Table(title="Active pa-container Desktops", box=None)
-        table.add_column("Project", style="bold cyan")
-        table.add_column("Container")
-        table.add_column("Status")
-        table.add_column("noVNC Web UI")
-        table.add_column("VNC Endpoint")
-
-        for d in desktops:
-            status_str = "[green]Healthy[/green]" if d.is_healthy else "[yellow]Unreachable[/yellow]"
-            url_str = f"[link={d.novnc_url}]{d.novnc_url}[/link] [dim]🔗[/dim]" if d.novnc_url else "[dim]None[/dim]"
-            vnc_str = f"[bold]{d.vnc_endpoint}[/bold]" if d.vnc_endpoint else "[dim]None[/dim]"
-            table.add_row(
-                d.project_name,
-                d.container_name,
-                status_str,
-                url_str,
-                vnc_str,
-            )
-
-        console.print(table)
-
-        if options.open:
-            for d in desktops:
-                if d.novnc_url:
-                    webbrowser.open(d.novnc_url)
-        return 0
-
-    # Project-specific query
-    from images import read_project_packages
-
-    active_pkgs = read_project_packages(PROJECT_DIR)
-    if "virtual-desktop" not in active_pkgs:
-        console.print(
-            "[bold red]Error:[/bold red] The 'desktop' subcommand requires the 'virtual-desktop' capability package, but it is not enabled in .pa-container/config.yaml.\n\n"
-            "To enable this capability, add 'virtual-desktop' to the 'packages:' list in your .pa-container/config.yaml:\n"
-            "    packages:\n"
-            "        - virtual-desktop"
-        )
-        return 1
-
-    desktop_info = get_project_desktop(PROJECT_DIR)
-
-    if options.json:
-        if not desktop_info:
-            console.print(json_module.dumps({"status": "inactive", "project": PROJECT_DIR.name}))
-            return 1
-        data_single = {
-            "status": "running",
-            "project_name": desktop_info.project_name,
-            "project_path": str(desktop_info.project_path) if desktop_info.project_path else None,
-            "project_hash": desktop_info.project_hash,
-            "container_name": desktop_info.container_name,
-            "novnc_port": desktop_info.novnc_port,
-            "novnc_url": desktop_info.novnc_url,
-            "vnc_port": desktop_info.vnc_port,
-            "vnc_endpoint": desktop_info.vnc_endpoint,
-            "display": desktop_info.display,
-            "is_healthy": desktop_info.is_healthy,
-        }
-        console.print(json_module.dumps(data_single, indent=2))
-        return 0
-
-    if options.url:
-        if desktop_info and desktop_info.novnc_url:
-            console.print(desktop_info.novnc_url)
-            return 0
-        console.print("[red]noVNC port not published[/red]")
-        return 1
-
-    if options.vnc:
-        if desktop_info and desktop_info.vnc_endpoint:
-            console.print(desktop_info.vnc_endpoint)
-            return 0
-        console.print("[red]VNC port not published[/red]")
-        return 1
-
-    if not desktop_info:
-        console.print(f"[yellow]No active virtual desktop running for project '{PROJECT_DIR.name}'.[/yellow]")
-        console.print(
-            "[dim]Ensure 'desktop.enabled: true' in .pa-container/config.yaml and run 'pa run' to start.[/dim]"
-        )
-        return 1
-
-    status_str = "[green]Healthy[/green]" if desktop_info.is_healthy else "[yellow]Unreachable[/yellow]"
-    url_str = (
-        f"[bold cyan][link={desktop_info.novnc_url}]{desktop_info.novnc_url}[/link][/bold cyan] [dim]🔗 (click to open)[/dim]"
-        if desktop_info.novnc_url
-        else "[dim]Not published[/dim]"
-    )
-    vnc_str = f"[bold]{desktop_info.vnc_endpoint}[/bold]" if desktop_info.vnc_endpoint else "[dim]Not published[/dim]"
-
-    console.print(f"[bold]Project:[/bold]       {desktop_info.project_name} ([dim]{desktop_info.project_path}[/dim])")
-    console.print(f"[bold]Container:[/bold]     {desktop_info.container_name} ([green]running[/green])")
-    console.print(f"[bold]Display:[/bold]       {desktop_info.display}")
-    console.print(f"[bold]noVNC Web UI:[/bold]  {url_str}")
-    console.print(f"[bold]VNC Endpoint:[/bold]  {vnc_str}")
-    console.print(f"[bold]Health:[/bold]        {status_str}")
-
-    if options.open and desktop_info.novnc_url:
-        webbrowser.open(desktop_info.novnc_url)
-
-    return 0
-
-
 def handle_logs_command(options: LogsOptions) -> int:
     """Execute the 'logs' subcommand actions."""
     console = Console(no_color=options.no_color)
@@ -1114,6 +868,34 @@ def handle_init_command(options: InitOptions) -> int:
         return 1
 
 
+def _check_unconfigured_flag_remediation(unknown: list[str], project_dir: Path) -> None:
+    """Check if any unknown argument belongs to an unconfigured capability package and suggest remediation."""
+    from images import read_project_packages
+    from packages.discovery import discover_packages
+
+    try:
+        active_pkgs = read_project_packages(project_dir)
+    except Exception:
+        active_pkgs = []
+
+    try:
+        manifests = discover_packages()
+    except Exception:
+        return
+
+    for arg in unknown:
+        flag = arg.split("=")[0]
+        for pkg_name, manifest in manifests.items():
+            if pkg_name not in active_pkgs and flag in manifest.all_cli_flags:
+                Console(stderr=True).print(
+                    f"[bold red]Error:[/bold red] The '{flag}' option requires the '{pkg_name}' capability package, but it is not enabled in .pa-container/config.yaml.\n\n"
+                    f"To enable this capability, add '{pkg_name}' to the 'packages:' list in your .pa-container/config.yaml:\n"
+                    "    packages:\n"
+                    f"        - {pkg_name}"
+                )
+                sys.exit(1)
+
+
 def _check_unconfigured_command_remediation(argv: Sequence[str] | None) -> None:
     """Check if the invoked subcommand is provided by an unconfigured package and suggest remediation."""
     args_list = list(sys.argv[1:] if argv is None else argv)
@@ -1169,39 +951,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             sys.exit(handle_proxy_command(options))
             return
 
-        if cmd == "desktop":
-            sys.exit(handle_desktop_command(options))
+        if hasattr(options, "_acp_handler") and callable(options._acp_handler):
+            sys.exit(options._acp_handler(options))
             return
-
-        if cmd == "run":
-            t3_requested = any(
-                [
-                    getattr(options, "t3", False),
-                    getattr(options, "t3_lan", False),
-                    getattr(options, "t3_port", None) is not None,
-                    getattr(options, "t3_advertise_host", None) is not None,
-                    getattr(options, "t3_tunnel", None) is not None,
-                    getattr(options, "t3_tunnel_domain", None) is not None,
-                    getattr(options, "t3_tunnel_quick", False),
-                    getattr(options, "t3_tunnel_runner", None) is not None,
-                    getattr(options, "t3_tunnel_keyring_account", None) is not None,
-                    getattr(options, "t3_tunnel_tailscale_mode", None) is not None,
-                    getattr(options, "t3_public_url", None) is not None,
-                ]
-            )
-            if t3_requested:
-                from images import read_project_packages
-
-                active_pkgs = read_project_packages(PROJECT_DIR)
-                if "t3" not in active_pkgs:
-                    Console(stderr=True).print(
-                        "[bold red]Error:[/bold red] The '--t3' option requires the 't3' capability package, but it is not enabled in .pa-container/config.yaml.\n\n"
-                        "To enable this capability, add 't3' to the 'packages:' list in your .pa-container/config.yaml:\n"
-                        "    packages:\n"
-                        "        - t3"
-                    )
-                    sys.exit(1)
-                    return
 
         # Initialize log driver for 'run' and 'build' commands
         from global_config import load_global_config

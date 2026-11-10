@@ -34,10 +34,10 @@ class AgentMount:
 
 
 @dataclass(frozen=True)
-class T3DriverMetadata:
-    """T3 Code provider metadata and instance configuration."""
+class OrchestratorProviderMetadata:
+    """Metadata for an agent provider configuration within an orchestrator (e.g. T3)."""
 
-    driver_kind: str
+    provider_kind: str
     instance_id: str
     settings: dict[str, Any] = field(default_factory=dict)
 
@@ -137,6 +137,6 @@ class AgentDriver(ABC):
             logger.debug(f"Failed to resolve package MCP servers: {e}")
             return {}
 
-    def get_t3_metadata(self) -> T3DriverMetadata | None:
-        """Return the T3 Code provider metadata and configuration if supported, else None."""
+    def get_orchestrator_metadata(self, orchestrator: str) -> OrchestratorProviderMetadata | None:
+        """Return provider metadata and configuration for the given orchestrator (e.g. 't3')."""
         return None

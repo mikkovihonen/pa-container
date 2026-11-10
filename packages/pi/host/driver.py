@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from agents.base import AgentDriver, AgentMount, T3DriverMetadata
+from agents.base import AgentDriver, AgentMount, OrchestratorProviderMetadata
 
 """Runtime driver for the Pi coding agent (@earendil-works/pi-coding-agent)."""
 
@@ -76,9 +76,11 @@ class PiAgentDriver(AgentDriver):
         with models_json_path.open("w") as f:
             json.dump({"providers": providers}, f, indent=2)
 
-    def get_t3_metadata(self) -> T3DriverMetadata:
-        return T3DriverMetadata(
-            driver_kind="pi",
-            instance_id="pi",
-            settings={"binaryPath": "pi", "launchArgs": ""},
-        )
+    def get_orchestrator_metadata(self, orchestrator: str) -> OrchestratorProviderMetadata | None:
+        if orchestrator == "t3":
+            return OrchestratorProviderMetadata(
+                provider_kind="pi",
+                instance_id="pi",
+                settings={"binaryPath": "pi", "launchArgs": ""},
+            )
+        return None

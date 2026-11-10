@@ -29,6 +29,19 @@ runtime:
 extension:
     entrypoint: "host.plugin:T3Plugin"
 
+cli_flags:
+    - "--t3"
+    - "--t3-lan"
+    - "--t3-port"
+    - "--t3-advertise-host"
+    - "--t3-tunnel"
+    - "--t3-tunnel-domain"
+    - "--t3-tunnel-quick"
+    - "--t3-tunnel-runner"
+    - "--t3-tunnel-keyring-account"
+    - "--t3-tunnel-tailscale-mode"
+    - "--t3-public-url"
+
 verification:
     command: "t3 --version"
     expected_output_contains: "0.1.7"

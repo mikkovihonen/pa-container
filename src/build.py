@@ -267,7 +267,7 @@ def build_proxy(runtime: str, label: str | None = None) -> None:
     )
 
 
-def build_agent_base(runtime: str, with_desktop: bool = False, label: str | None = None) -> str:
+def build_agent_base(runtime: str, label: str | None = None) -> str:
     """Build the uniform base runner image from coding-agent/Containerfile."""
     from datetime import UTC, datetime
 
@@ -306,7 +306,7 @@ def build_agent(runtime: str, label: str | None = None) -> None:
 
     from packages import package_to_image_tag
 
-    base_tag = build_agent_base(runtime, with_desktop=False)
+    base_tag = build_agent_base(runtime)
     ensure_package_images(CORE_PACKAGES, runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -355,7 +355,6 @@ def build_project_image(
     project_path: str = "",
     build_timestamp: str = "",
     packages: list[str] | None = None,
-    with_desktop: bool = False,
     label: str | None = None,
     **kwargs: Any,
 ) -> None:
@@ -384,10 +383,7 @@ def build_project_image(
     for cp in CORE_PACKAGES:
         resolved_specs.setdefault(cp, [])
 
-    if with_desktop:
-        resolved_specs.setdefault("virtual-desktop", [])
-
-    base_tag = build_agent_base(runtime, with_desktop=with_desktop)
+    base_tag = build_agent_base(runtime)
     ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
 
     root_cmd = Path(root_commands_path)

@@ -20,6 +20,7 @@ from packages.discovery import (
 from packages.loader import (
     load_acp_plugin,
     load_active_plugins,
+    load_project_plugins,
 )
 from packages.manifest import (
     PackageManifest,
@@ -61,6 +62,7 @@ __all__ = [
     "SecretTokenMapping",
     "load_acp_plugin",
     "load_active_plugins",
+    "load_project_plugins",
     "discover_packages",
     "get_packages_dir",
     "get_package_dir",

@@ -71,6 +71,49 @@ def _validate_packages(data: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _validate_package_configs(data: dict[str, Any]) -> list[str]:
+    """Validate package-specific root configuration sections contributed by ACPs."""
+    errors: list[str] = []
+    manifests = discover_packages()
+    from packages.discovery import get_package_dir
+    from packages.loader import load_acp_plugin
+
+    packages_list = data.get("packages") or []
+    active_pkg_names = {p for p in packages_list if isinstance(p, str)}
+
+    for manifest in manifests.values():
+        config_key = manifest.extension.config_key
+        if not config_key or config_key not in data:
+            continue
+
+        section = data[config_key]
+        if not isinstance(section, dict):
+            errors.append(f"  {config_key}: expected dict, got {type(section).__name__}")
+            continue
+
+        is_enabled = bool(section.get("enabled", False))
+        if is_enabled and manifest.name not in active_pkg_names:
+            errors.append(
+                f"  {config_key}: section is enabled ('enabled: true'), but package '{manifest.name}' "
+                f"is missing from 'packages:'. Add '{manifest.name}' to 'packages:' in .pa-container/config.yaml."
+            )
+
+        pkg_dir = get_package_dir(manifest.name)
+        try:
+            plugin = load_acp_plugin(manifest, pkg_dir)
+            if plugin is not None:
+                schema_contrib = plugin.contribute_config_schema()
+                if isinstance(schema_contrib, dict):
+                    sub_keys = schema_contrib.get("keys", {})
+                    if sub_keys:
+                        sub_errors = _validate_schema(section, sub_keys, config_key)
+                        errors.extend(sub_errors)
+        except Exception as e:
+            errors.append(f"  {config_key}: error validating package configuration: {e}")
+
+    return errors
+
+
 def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
     """Validate `config.yaml` structure, required fields, and schema version against git release tag.
 
@@ -130,6 +173,11 @@ def validate_config(config_path: Path) -> tuple[bool, list[str], str | None]:
     agent_errors = _validate_agents(data)
     if agent_errors:
         errors.extend(agent_errors)
+
+    # Validate package configurations
+    package_config_errors = _validate_package_configs(data)
+    if package_config_errors:
+        errors.extend(package_config_errors)
 
     is_valid = len(errors) == 0
     return is_valid, errors, schema_version_str

@@ -140,7 +140,7 @@ class TestBuildAgentBase:
         import build as build_mod
 
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            tag = build_mod.build_agent_base("podman", with_desktop=False)
+            tag = build_mod.build_agent_base("podman")
             assert tag == build_mod.AGENT_BASE_IMAGE_TAG
             cmd = mock_popen.call_args[0][0]
             assert cmd[:2] == ["podman", "build"]
@@ -151,7 +151,7 @@ class TestBuildAgentBase:
         import build as build_mod
 
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            build_mod.build_agent_base("podman", with_desktop=False)
+            build_mod.build_agent_base("podman")
             cmd = mock_popen.call_args[0][0]
             labels = [cmd[i + 1] for i, c in enumerate(cmd) if c == "--label"]
             assert any(lbl.startswith("pa-container.build.time=") for lbl in labels)
@@ -160,11 +160,9 @@ class TestBuildAgentBase:
     def test_uniform_base_image_tag(self):
         import build as build_mod
 
-        with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
-            tag = build_mod.build_agent_base("podman", with_desktop=True)
+        with patch("build.subprocess.Popen", return_value=self._mock_popen()):
+            tag = build_mod.build_agent_base("podman")
             assert tag == build_mod.AGENT_BASE_IMAGE_TAG
-            cmd = mock_popen.call_args[0][0]
-            assert "WITH_DESKTOP" not in " ".join(cmd)
 
 
 class TestNodeBuildArgs:
@@ -448,23 +446,8 @@ class TestBuildProjectImage:
             assert "COPY --from=pa-container-pkg-go:local / /" in captured_cf[0]
             assert "COPY --from=pa-container-pkg-rust:local / /" in captured_cf[0]
 
-    def test_build_project_image_with_desktop(self):
-        """When with_desktop is True, base is built with desktop."""
-        with (
-            patch("build.build_agent_base", return_value="pa-container-agent-base-desktop:local") as mock_base,
-            patch("build.subprocess.Popen", return_value=self._mock_popen()),
-        ):
-            build_project_image(
-                "podman",
-                "/path/to/root/commands.sh",
-                "test.local",
-                "abc123",
-                with_desktop=True,
-            )
-            mock_base.assert_called_once_with("podman", with_desktop=True)
-
-    def test_build_project_image_without_desktop(self):
-        """When with_desktop is False, base is built without desktop."""
+    def test_build_project_image_builds_base(self):
+        """build_project_image ensures base image is built."""
         with (
             patch("build.build_agent_base", return_value="pa-container-agent-base:local") as mock_base,
             patch("build.subprocess.Popen", return_value=self._mock_popen()),
@@ -474,9 +457,8 @@ class TestBuildProjectImage:
                 "/path/to/root/commands.sh",
                 "test.local",
                 "abc123",
-                with_desktop=False,
             )
-            mock_base.assert_called_once_with("podman", with_desktop=False)
+            mock_base.assert_called_once_with("podman")
 
 
 class TestMainWithPackages:

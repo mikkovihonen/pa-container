@@ -24,9 +24,9 @@ def test_claude_driver_contracts(tmp_path: Path):
     env = driver.get_environment()
     assert env["ANTHROPIC_API_KEY"] == "ANTHROPIC_API_KEY_PLACEHOLDER"
     assert env["CLAUDE_CONFIG_DIR"] == "/home/agent/.claude"
-    meta = driver.get_t3_metadata()
+    meta = driver.get_orchestrator_metadata("t3")
     assert meta is not None
-    assert meta.driver_kind == "claudeAgent"
+    assert meta.provider_kind == "claudeAgent"
     assert meta.instance_id == "claudeAgent"
     assert meta.settings == {
         "binaryPath": "claude",

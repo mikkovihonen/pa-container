@@ -364,73 +364,46 @@ def read_agent_ports(config_dir: Path | None = None) -> PortPublishConfig:
     return _read_ports_section(section, "agent.ports")
 
 
-def resolve_t3_port(
-    agent_ports: PortPublishConfig,
-    cli_port: int | str | None = None,
+def resolve_service_port(
+    requested_port: int | str | None = None,
     default_port: int = 3773,
+    host: str = "127.0.0.1",
+    fallback_to_ephemeral: bool = True,
+    service_name: str = "service",
 ) -> int:
-    """Resolve the host and container port for T3 Code server.
+    """Resolve an available host TCP port for a service.
 
-    If an explicit port is provided via CLI or configured in agent.ports.publish,
-    it is preferred (falling back to an ephemeral port if occupied or if 'auto').
-    If default port 3773 is free, it is selected; otherwise an ephemeral port
-    is allocated to avoid host port collisions across multiple instances.
-
-    The published port mapping (t3_port, t3_port) is added or updated in agent_ports.
+    - If requested_port is provided (integer or 'auto'), it is validated.
+    - If 'auto', allocates an ephemeral free port.
+    - If an explicit port or default_port is free on host, returns it.
+    - If busy and fallback_to_ephemeral is True, logs a warning and allocates
+      a free port via get_free_port().
+    - If busy and fallback_to_ephemeral is False, raises ValueError.
     """
-    host = "127.0.0.1" if agent_ports.get("expose") != "lan" else "0.0.0.0"
-
-    publish = agent_ports.get("publish", [])
-    existing_idx: int | None = None
-    for idx, (h_port, c_port) in enumerate(publish):
-        if c_port == default_port or h_port == default_port:
-            existing_idx = idx
-            break
-
-    target: int | str
-    if cli_port is not None:
-        raw = str(cli_port).strip().lower()
-        if raw == "auto":
-            target = "auto"
-        else:
+    target_int: int | None = None
+    if requested_port is not None:
+        raw = str(requested_port).strip().lower()
+        if raw != "auto":
             try:
-                target = int(raw)
+                target_int = int(raw)
             except ValueError as e:
-                raise ValueError(f"Invalid T3 Code port {cli_port!r}: expected integer or 'auto'") from e
-            if not (1 <= target <= 65535):
-                raise ValueError(f"T3 Code port {target} out of range (must be 1..65535)")
-    elif existing_idx is not None:
-        target = publish[existing_idx][0]
+                raise ValueError(f"Invalid {service_name} port {requested_port!r}: expected integer or 'auto'") from e
+            if not (1 <= target_int <= 65535):
+                raise ValueError(f"{service_name} port {target_int} out of range (must be 1..65535)")
     else:
-        target = default_port
+        target_int = default_port
 
-    if target == "auto":
-        t3_port = get_free_port()
-    elif isinstance(target, int):
-        if is_port_available(target, host=host):
-            t3_port = target
-        else:
-            logger.warning(f"Configured or default T3 Code port {target} is in use; allocating ephemeral port.")
-            t3_port = get_free_port()
-    else:
-        t3_port = get_free_port()
+    if target_int is None:
+        return get_free_port()
 
-    publish_list = list(publish)
-    if existing_idx is not None:
-        publish_list[existing_idx] = (t3_port, t3_port)
-    else:
-        if not any(h == t3_port and c == t3_port for h, c in publish_list):
-            publish_list.append((t3_port, t3_port))
-    agent_ports["publish"] = publish_list
+    if is_port_available(target_int, host=host):
+        return target_int
 
-    return t3_port
+    if fallback_to_ephemeral:
+        logger.warning(f"Configured or default {service_name} port {target_int} is in use; allocating ephemeral port.")
+        return get_free_port()
 
-
-def read_agent_mode(config_dir: Path | None = None) -> str:
-    """Execution mode for the agent container from config.yaml ``agent.mode`` (e.g. 'cli', 't3')."""
-    section: ProjectAgentSectionConfig = load_project_config(config_dir).get("agent") or {}
-    mode = str(section.get("mode") or "cli").strip().lower()
-    return mode or "cli"
+    raise ValueError(f"{service_name} port {target_int} is already in use on {host}")
 
 
 def read_enabled_agents(config_dir: Path | None = None) -> list[str]:

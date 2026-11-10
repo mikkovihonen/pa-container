@@ -139,7 +139,7 @@ def synthesize_t3_settings(
 
     selected_instance_ids: set[str] = set()
     for driver in enabled_drivers:
-        meta = driver.get_t3_metadata()
+        meta = driver.get_orchestrator_metadata("t3")
         if meta is None:
             continue
         selected_instance_ids.add(meta.instance_id)
@@ -152,7 +152,7 @@ def synthesize_t3_settings(
         merged_config = {**existing_config, **meta.settings}
         provider_instances[meta.instance_id] = {
             **existing,
-            "driver": meta.driver_kind,
+            "driver": meta.provider_kind,
             "enabled": True,
             "config": merged_config,
             **meta.settings,
@@ -163,7 +163,7 @@ def synthesize_t3_settings(
         if inst_id not in selected_instance_ids and isinstance(inst_data, dict):
             inst_data["enabled"] = False
 
-    active_meta = active_driver.get_t3_metadata()
+    active_meta = active_driver.get_orchestrator_metadata("t3")
     if active_meta is not None:
         if active_meta.instance_id in provider_instances:
             provider_instances[active_meta.instance_id]["enabled"] = True
@@ -188,9 +188,9 @@ def synthesize_t3_policy(
 
     allowed_drivers: list[str] = []
     for driver in enabled_drivers:
-        meta = driver.get_t3_metadata()
-        if meta is not None and meta.driver_kind not in allowed_drivers:
-            allowed_drivers.append(meta.driver_kind)
+        meta = driver.get_orchestrator_metadata("t3")
+        if meta is not None and meta.provider_kind not in allowed_drivers:
+            allowed_drivers.append(meta.provider_kind)
 
     # If no drivers matched, allow at least the default four
     if not allowed_drivers:

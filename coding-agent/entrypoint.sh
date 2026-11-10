@@ -86,52 +86,13 @@ if [ "${PA_CONTAINER_NESTED}" = "true" ]; then
     done
 fi
 
-# ─── Virtual Desktop environment & nested container forwarding ──────────────
-if [ "${PA_CONTAINER_DESKTOP}" = "true" ]; then
-    mkdir -p /run/user/1000 /tmp/.X11-unix
-    chown agent:agent /run/user/1000
-    chmod 700 /run/user/1000
-    chmod 1777 /tmp/.X11-unix
-
-    # Forward desktop resources into nested containers if containers.conf directory exists
-    if [ -d /etc/containers/containers.conf.d ]; then
-        _dri_mount=""
-        if [ -e /dev/dri ]; then
-            _dri_mount=', "type=bind,source=/dev/dri,destination=/dev/dri"'
-        fi
-        cat <<EOF > /etc/containers/containers.conf.d/60-pa-container-desktop.conf
-[containers]
-mounts = [
-  "type=bind,source=/run/user/1000/wayland-0,destination=/run/user/1000/wayland-0",
-  "type=bind,source=/tmp/.X11-unix,destination=/tmp/.X11-unix",
-  "type=bind,source=/dev/shm,destination=/dev/shm"${_dri_mount}
-]
-env = [
-  "DISPLAY=:0",
-  "WAYLAND_DISPLAY=wayland-0",
-  "XDG_RUNTIME_DIR=/run/user/1000"
-]
-EOF
-    fi
-
-    # Managed Chromium policy: disable DoH, trust system / local CAs
-    mkdir -p /etc/chromium/policies/managed
-    cat <<'EOF' > /etc/chromium/policies/managed/00-pa-container.json
-{
-  "DnsOverHttpsMode": "off",
-  "BuiltInDnsClientEnabled": false,
-  "PromptForDownloadLocation": false
-}
-EOF
-
-    # Configure NSS DB system-wide if certutil is available
-    if command -v certutil >/dev/null 2>&1; then
-        mkdir -p /etc/pki/nssdb
-        certutil -d "sql:/etc/pki/nssdb" -N --empty-password >/dev/null 2>&1 || true
-        if [ -f /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt ]; then
-            certutil -d "sql:/etc/pki/nssdb" -A -t "C,," -n "mitmproxy" -i /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt >/dev/null 2>&1 || true
-        fi
-    fi
+# ─── Execute Root Package Entrypoint Hooks ─────────────────────────────────
+if [ -d /usr/local/share/pa-container/entrypoint.d/root ]; then
+    for _hook in /usr/local/share/pa-container/entrypoint.d/root/*.sh; do
+        [ -f "$_hook" ] || continue
+        [ -x "$_hook" ] || chmod +x "$_hook"
+        "$_hook"
+    done
 fi
 
 # ─── Git workspace safety & protocol rewriting (config.yaml git.*) ───────────
@@ -172,120 +133,17 @@ fi
 exec gosu agent bash -c '
     set -a; source /etc/environment; set +a;
 
-    # ─── Virtual Desktop compositor & VNC/noVNC streaming ─────────────────────
-    if [ "${PA_CONTAINER_DESKTOP}" = "true" ]; then
-        if [ ! -e /dev/dri ]; then
-            export GALLIUM_DRIVER=llvmpipe
-            export LP_NUM_THREADS=$(nproc 2>/dev/null || echo 4)
-            export MESA_GL_VERSION_OVERRIDE=4.5
-            export MESA_GLSL_VERSION_OVERRIDE=450
-            export LIBGL_ALWAYS_SOFTWARE=1
-        fi
-
-        # Initialize agent user NSS DB
-        if command -v certutil >/dev/null 2>&1; then
-            mkdir -p /home/agent/.pki/nssdb
-            certutil -d "sql:/home/agent/.pki/nssdb" -N --empty-password >/dev/null 2>&1 || true
-            if [ -f /etc/pa-container-ca.crt ]; then
-                certutil -d "sql:/home/agent/.pki/nssdb" -A -t "C,," -n "mitmproxy" -i /etc/pa-container-ca.crt >/dev/null 2>&1 || true
-            elif [ -f /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt ]; then
-                certutil -d "sql:/home/agent/.pki/nssdb" -A -t "C,," -n "mitmproxy" -i /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt >/dev/null 2>&1 || true
-            fi
-        fi
-
-        export WLR_BACKENDS=headless
-        export WLR_LIBINPUT_NO_DEVICES=1
-        export WAYLAND_DISPLAY=wayland-0
-        export DISPLAY=:0
-        export XDG_RUNTIME_DIR=/run/user/1000
-
-        # Seed labwc user configuration from /etc/xdg/labwc if not present
-        mkdir -p /home/agent/.config/labwc
-        if [ -d /etc/xdg/labwc ]; then
-            cp -n /etc/xdg/labwc/* /home/agent/.config/labwc/ 2>/dev/null || true
-        fi
-
-        _res="${PA_DESKTOP_RESOLUTION:-1920x1080}"
-        _wayvnc_gpu_arg=""
-        if [ -e /dev/dri ]; then
-            _wayvnc_gpu_arg="--gpu"
-        fi
-
-        # Supervise labwc and wayvnc so desktop session automatically recovers if exited
-        (
-            while true; do
-                rm -f "$XDG_RUNTIME_DIR/wayland-0" "$XDG_RUNTIME_DIR/wayland-0.lock" 2>/dev/null || true
-                labwc -s /bin/true >/dev/null 2>&1 &
-                _labwc_pid=$!
-
-                # Wait up to 5 seconds for wayland-0 socket to become available
-                for _ in $(seq 1 50); do
-                    if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
-                        break
-                    fi
-                    sleep 0.1
-                done
-
-                # Configure headless output resolution
-                if command -v wlr-randr >/dev/null 2>&1; then
-                    wlr-randr --output HEADLESS-1 --mode "${_res}@60Hz" 2>/dev/null || \
-                    wlr-randr --output HEADLESS-1 --custom-mode "${_res}@60Hz" 2>/dev/null || true
-                fi
-
-                # Start wayvnc attached to compositor
-                wayvnc --render-cursor ${_wayvnc_gpu_arg} 127.0.0.1 5900 >/dev/null 2>&1 &
-                _wayvnc_pid=$!
-
-                # Monitor compositor and VNC server; restart both if either terminates
-                while kill -0 "$_labwc_pid" 2>/dev/null && kill -0 "$_wayvnc_pid" 2>/dev/null; do
-                    sleep 1
-                done
-
-                kill "$_labwc_pid" 2>/dev/null || true
-                kill "$_wayvnc_pid" 2>/dev/null || true
-                wait "$_labwc_pid" 2>/dev/null || true
-                wait "$_wayvnc_pid" 2>/dev/null || true
-                sleep 0.5
-            done
-        ) &
-
-        # Wait up to 5 seconds for wayland-0 socket to become initially available
-        for _ in $(seq 1 50); do
-            if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
-                break
-            fi
-            sleep 0.1
+    # ─── Execute Agent Package Entrypoint Hooks ────────────────────────────────
+    if [ -d /usr/local/share/pa-container/entrypoint.d/agent ]; then
+        for _hook in /usr/local/share/pa-container/entrypoint.d/agent/*.sh; do
+            [ -f "$_hook" ] || continue
+            . "$_hook"
         done
-
-        # Start websockify in background (serves noVNC web client and proxies to wayvnc)
-        if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
-            websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1 &
-        fi
-
-        # Provision virtual-desktop skill for active coding agents
-        if [ -d /usr/local/share/pa-container/skills/virtual-desktop ]; then
-            for _skill_dir in \
-                /home/agent/.pi/agent/skills/virtual-desktop \
-                /home/agent/.gemini/antigravity/skills/virtual-desktop \
-                /home/agent/.claude/skills/virtual-desktop \
-                /home/agent/.config/opencode/skills/virtual-desktop
-            do
-                mkdir -p "$(dirname "$_skill_dir")"
-                rm -rf "$_skill_dir"
-                cp -a /usr/local/share/pa-container/skills/virtual-desktop "$_skill_dir"
-            done
-        fi
-    else
-        # Prune virtual-desktop skill when desktop is disabled
-        rm -rf /home/agent/.pi/agent/skills/virtual-desktop \
-               /home/agent/.gemini/antigravity/skills/virtual-desktop \
-               /home/agent/.claude/skills/virtual-desktop \
-               /home/agent/.config/opencode/skills/virtual-desktop 2>/dev/null || true
     fi
 
     # ─── Dynamic Skill Projection Engine ───────────────────────────────────────
     # Automatically project installed skills from ACP packages into active agent directories
-    for _pkg_skill in /usr/local/share/pa-container/packages/*/skill/SKILL.md /usr/local/share/pa-container/skills/*/SKILL.md; do
+    for _pkg_skill in /usr/local/share/pa-container/packages/*/skill/SKILL.md; do
         [ -f "$_pkg_skill" ] || continue
         _dir_part="$(dirname "$_pkg_skill")"
         _skill_name="$(basename "$_dir_part")"
@@ -320,88 +178,27 @@ exec gosu agent bash -c '
         .pa-container/dependencies/agent/commands.sh
     fi
 
-    if [ "$PA_CONTAINER_MODE" = "t3" ]; then
-        if ! command -v t3 >/dev/null 2>&1; then
-            echo "ERROR: t3 CLI is not installed in the container." >&2
-            echo "Install it via packages: [\"t3\"], npm install -g t3, or .pa-container/dependencies/root/commands.sh." >&2
-            exit 1
-        fi
-
-        # Seed pre-installed T3 managed runtimes into /home/agent/.t3/tools if available
-        if [ -d "/usr/local/share/t3/tools/antigravity-acp" ]; then
-            mkdir -p /home/agent/.t3/tools
-            cp -a /usr/local/share/t3/tools/antigravity-acp /home/agent/.t3/tools/ 2>/dev/null || true
-        fi
-
-        # Preflight login check for agent-native authenticated agents in T3 mode
-        if [[ ",${PA_CONTAINER_ENABLED_AGENTS:-$PA_CONTAINER_AGENT}," == *",claude,"* ]] && [ -z "${ANTHROPIC_API_KEY}" ]; then
-            if command -v claude >/dev/null 2>&1; then
-                _auth_status=$(CLAUDE_CONFIG_DIR=/home/agent/.claude claude auth status --json 2>/dev/null || true)
-                if ! echo "$_auth_status" | grep -q "\"loggedIn\"[[:space:]]*:[[:space:]]*true"; then
-                    echo "=================================================================="
-                    echo "  Claude Code requires authentication before starting T3."
-                    echo "  Starting interactive login..."
-                    echo "=================================================================="
-                    CLAUDE_CONFIG_DIR=/home/agent/.claude claude auth login
-                fi
-            fi
-        fi
-
-        if [[ ",${PA_CONTAINER_ENABLED_AGENTS:-$PA_CONTAINER_AGENT}," == *",antigravity,"* ]] && [ -z "${GEMINI_API_KEY}" ]; then
-            if command -v agy >/dev/null 2>&1; then
-                if [ ! -f /home/agent/.gemini/antigravity-cli/antigravity-oauth-token ]; then
-                    echo "=================================================================="
-                    echo "  Antigravity requires authentication before starting T3."
-                    echo "  Starting interactive login..."
-                    echo "=================================================================="
-                    agy --dangerously-skip-permissions -p "Authentication check" || true
-                fi
-            fi
-        fi
-
-        # Sync Antigravity OAuth tokens to T3 ACP credentials store
-        if [ -f /home/agent/.gemini/antigravity-cli/antigravity-oauth-token ]; then
-            if [ -f /usr/local/share/pa-container/t3-sync-antigravity.py ]; then
-                python3 /usr/local/share/pa-container/t3-sync-antigravity.py 2>/dev/null || true
-            fi
-        fi
-
-        echo "=================================================================="
-        echo "  Starting T3 Code server for ${PA_CONTAINER_AGENT} inside pa-container..."
-        echo "  Web UI: https://t3.codes"
-        if [ -n "${T3_PUBLIC_URL}" ]; then
-            echo "  Tunnel URL: ${T3_PUBLIC_URL}"
-        fi
-        echo "=================================================================="
-        _shim="/usr/local/share/pa-container/t3-advertise-host.cjs"
-        if [ -f "$_shim" ]; then
-            export NODE_OPTIONS="${NODE_OPTIONS:+${NODE_OPTIONS} }--require ${_shim}"
-        fi
-        export T3_ADVERTISE_HOST="${T3_ADVERTISE_HOST}"
-        extra_args=()
-        if [ "${T3_LAN}" = "true" ]; then
-            extra_args+=("--lan")
-        fi
-
-        exec t3 serve --base-dir /home/agent/.t3 --host 0.0.0.0 --port "${T3_PORT:-3773}" "${extra_args[@]}" "$@"
-    else
-        case "${PA_CONTAINER_AGENT}" in
-            pi)
-                exec pi "$@"
-                ;;
-            opencode)
-                exec opencode "$@"
-                ;;
-            antigravity)
-                exec agy "$@"
-                ;;
-            claude)
-                exec claude "$@"
-                ;;
-            *)
-                echo "ERROR: Unknown agent \"${PA_CONTAINER_AGENT}\". Supported agents: pi, opencode, antigravity, claude" >&2
-                exit 1
-                ;;
-        esac
+    # ─── Package Run Mode Execution (Orchestrators / Alternative Modes) ───────
+    if [ -n "$PA_CONTAINER_MODE" ] && [ -x "/usr/local/share/pa-container/modes/${PA_CONTAINER_MODE}.sh" ]; then
+        exec "/usr/local/share/pa-container/modes/${PA_CONTAINER_MODE}.sh" "$@"
     fi
+
+    case "${PA_CONTAINER_AGENT}" in
+        pi)
+            exec pi "$@"
+            ;;
+        opencode)
+            exec opencode "$@"
+            ;;
+        antigravity)
+            exec agy "$@"
+            ;;
+        claude)
+            exec claude "$@"
+            ;;
+        *)
+            echo "ERROR: Unknown agent \"${PA_CONTAINER_AGENT}\". Supported agents: pi, opencode, antigravity, claude" >&2
+            exit 1
+            ;;
+    esac
 ' -- "$@"

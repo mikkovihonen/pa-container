@@ -22,9 +22,9 @@ def test_pi_driver_contracts(tmp_path: Path):
     assert driver.required_packages == ["pi"]
     assert driver.get_command(["--foo", "bar"]) == ["--foo", "bar"]
     assert driver.get_environment() == {}
-    meta = driver.get_t3_metadata()
+    meta = driver.get_orchestrator_metadata("t3")
     assert meta is not None
-    assert meta.driver_kind == "pi"
+    assert meta.provider_kind == "pi"
     assert meta.instance_id == "pi"
     assert meta.settings == {"binaryPath": "pi", "launchArgs": ""}
 

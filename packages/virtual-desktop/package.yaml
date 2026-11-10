@@ -50,6 +50,7 @@ runtime:
 
 extension:
     entrypoint: "host.plugin:VirtualDesktopPlugin"
+    config_key: "desktop"
     commands:
         - name: "desktop"
           help: "Inspect active virtual desktop containers, noVNC web UIs, and VNC endpoints"

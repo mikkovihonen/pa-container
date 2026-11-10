@@ -5,8 +5,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from pa_packages.virtual_desktop.host.desktop import (
+    ActiveDesktopInfo,
+    DesktopOptions,
     check_desktop_health,
     get_project_desktop,
+    handle_desktop_command,
     list_active_desktops,
     read_desktop_config,
     resolve_desktop_ports,
@@ -250,13 +253,13 @@ def test_agent_desktop_cli_structure():
 
     from config import REPO_ROOT
 
-    agent_desktop = REPO_ROOT / "coding-agent" / "agent-desktop"
+    agent_desktop = REPO_ROOT / "packages" / "virtual-desktop" / "container" / "agent-desktop"
     assert agent_desktop.is_file()
     assert os.access(agent_desktop, os.X_OK)
 
-    # Legacy pi-desktop must not exist
-    PA_DESKTOP = REPO_ROOT / "coding-agent" / "pi-desktop"
-    assert not PA_DESKTOP.exists()
+    # Legacy coding-agent/agent-desktop and pi-desktop must not exist
+    assert not (REPO_ROOT / "coding-agent" / "agent-desktop").exists()
+    assert not (REPO_ROOT / "coding-agent" / "pi-desktop").exists()
 
     content = agent_desktop.read_text()
     assert "Usage: agent-desktop <command> [args...]" in content
@@ -288,12 +291,13 @@ def test_in_container_virtual_desktop_skill():
     from config import REPO_ROOT
     from yaml_strict import load_yaml_strict
 
-    # Root repository must NOT have .pi/skills/virtual-desktop
+    # Root repository must NOT have .pi/skills/virtual-desktop or coding-agent/skills
     host_skill = REPO_ROOT / ".pi" / "skills" / "virtual-desktop"
     assert not host_skill.exists()
+    assert not (REPO_ROOT / "coding-agent" / "skills").exists()
 
-    # In-container skill must exist in coding-agent/skills/virtual-desktop/SKILL.md
-    container_skill = REPO_ROOT / "coding-agent" / "skills" / "virtual-desktop" / "SKILL.md"
+    # In-container skill must exist in packages/virtual-desktop/container/skill/SKILL.md
+    container_skill = REPO_ROOT / "packages" / "virtual-desktop" / "container" / "skill" / "SKILL.md"
     assert container_skill.is_file()
 
     content = container_skill.read_text()
@@ -321,6 +325,8 @@ def test_containerfile_and_entrypoint_desktop_skill_integration():
     from images import _IMAGE_DEFINITION_FILES
 
     assert "pi-desktop" not in _IMAGE_DEFINITION_FILES
+    assert "labwc/menu.xml" not in _IMAGE_DEFINITION_FILES
+    assert "labwc/rc.xml" not in _IMAGE_DEFINITION_FILES
 
     # packages/virtual-desktop owns agent-desktop deployment in container payload
     pkg_vd = REPO_ROOT / "packages" / "virtual-desktop"
@@ -328,36 +334,38 @@ def test_containerfile_and_entrypoint_desktop_skill_integration():
     assert (pkg_vd / "container" / "build.sh").is_file()
     assert "agent-desktop" in (pkg_vd / "container" / "build.sh").read_text()
 
-    # Base Containerfile deploys skills but is decoupled from desktop
+    # Base Containerfile is decoupled from desktop and static skills
     containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
-    assert "COPY coding-agent/skills /usr/local/share/pa-container/skills" in containerfile
+    assert "COPY coding-agent/skills" not in containerfile
     assert "pi-desktop" not in containerfile
     assert "WITH_DESKTOP" not in containerfile
 
-    # entrypoint.sh dynamic provisioning and cleanup
+    # entrypoint.sh has modular hook execution and no hardcoded desktop references
     entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
-    assert "/home/agent/.pi/agent/skills/virtual-desktop" in entrypoint
-    assert "/usr/local/share/pa-container/skills/virtual-desktop" in entrypoint
-    assert "rm -rf /home/agent/.pi/agent/skills/virtual-desktop" in entrypoint
+    assert "virtual-desktop" not in entrypoint
+    assert "PA_CONTAINER_DESKTOP" not in entrypoint
+    assert "entrypoint.d/root" in entrypoint
+    assert "entrypoint.d/agent" in entrypoint
 
 
 def test_desktop_exit_prevention_and_supervisor():
     from config import REPO_ROOT
     from images import _IMAGE_DEFINITION_FILES
 
-    # 1. Config tracking
-    assert "labwc/menu.xml" in _IMAGE_DEFINITION_FILES
-    assert "labwc/rc.xml" in _IMAGE_DEFINITION_FILES
+    # 1. Config tracking: core does not track labwc xmls in base image definition
+    assert "labwc/menu.xml" not in _IMAGE_DEFINITION_FILES
+    assert "labwc/rc.xml" not in _IMAGE_DEFINITION_FILES
 
     # 2. labwc menu.xml must not offer Exit or Poweroff
-    menu_path = REPO_ROOT / "coding-agent" / "labwc" / "menu.xml"
+    assert not (REPO_ROOT / "coding-agent" / "labwc").exists()
+    menu_path = REPO_ROOT / "packages" / "virtual-desktop" / "container" / "config" / "labwc" / "menu.xml"
     assert menu_path.is_file()
     menu_content = menu_path.read_text()
     assert '<action name="Exit"' not in menu_content
     assert "poweroff" not in menu_content.lower()
 
     # 3. labwc rc.xml must disable exit shortcuts
-    rc_path = REPO_ROOT / "coding-agent" / "labwc" / "rc.xml"
+    rc_path = REPO_ROOT / "packages" / "virtual-desktop" / "container" / "config" / "labwc" / "rc.xml"
     assert rc_path.is_file()
     rc_content = rc_path.read_text()
     assert 'key="W-F4"' in rc_content
@@ -370,11 +378,20 @@ def test_desktop_exit_prevention_and_supervisor():
     assert "mandatory.json" in pkg_vd_build
     assert '"reconnect": true' in pkg_vd_build
 
-    # 5. entrypoint.sh must seed config and run the auto-recovery supervisor loop
+    # 5. agent hook seeds config and runs the auto-recovery supervisor loop
+    agent_hook_path = (
+        REPO_ROOT / "packages" / "virtual-desktop" / "container" / "entrypoint.d" / "agent" / "60-desktop.sh"
+    )
+    assert agent_hook_path.is_file()
+    agent_hook = agent_hook_path.read_text()
+    assert "/etc/xdg/labwc/* /home/agent/.config/labwc/" in agent_hook
+    assert 'kill -0 "$_labwc_pid"' in agent_hook
+    assert 'kill -0 "$_wayvnc_pid"' in agent_hook
+
+    # Base entrypoint must NOT contain labwc or wayvnc
     entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
-    assert "/etc/xdg/labwc/* /home/agent/.config/labwc/" in entrypoint
-    assert 'kill -0 "$_labwc_pid"' in entrypoint
-    assert 'kill -0 "$_wayvnc_pid"' in entrypoint
+    assert "labwc" not in entrypoint
+    assert "wayvnc" not in entrypoint
 
 
 def test_virtual_desktop_plugin(tmp_path: Path):
@@ -396,10 +413,260 @@ def test_virtual_desktop_plugin(tmp_path: Path):
         container_name="test-agent",
         network_name="test-net",
         proxy_url=None,
-        is_t3_mode=False,
         options=RunOptions(),
         config={},  # type: ignore[arg-type]
     )
-    plugin.on_container_configure(spec, {}, RunOptions())  # type: ignore[arg-type]
+    plugin.on_container_configure(spec, ctx)
+    assert ctx.has_mode("desktop")
+    assert spec.env["PA_CONTAINER_DESKTOP"] == "true"
+    assert spec.env["PA_DESKTOP_RESOLUTION"] == "1280x720"
+    assert any(":6080" in p for p in spec.ports)
+    assert any(":5900" in p for p in spec.ports)
     assert any("pa-container.desktop.enabled=true" in arg for arg in spec.extra_run_args)
     plugin.post_start(ctx)
+
+
+def test_virtual_desktop_gpu_passthrough(tmp_path: Path):
+    from cli import RunOptions
+    from packages.plugin import ContainerRunSpec, RunContext
+
+    pa_dir = tmp_path / ".pa-container"
+    pa_dir.mkdir(parents=True)
+    (pa_dir / "config.yaml").write_text(
+        "desktop:\n  enabled: true\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n"
+        "  vnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
+        "  novnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
+        "  gpu:\n    enabled: auto\n"
+    )
+    plugin = VirtualDesktopPlugin(manifest=None, package_dir=Path("."), project_dir=tmp_path)  # type: ignore[arg-type]
+    spec = ContainerRunSpec()
+    ctx = RunContext(
+        project_dir=tmp_path,
+        container_name="test-agent",
+        network_name="test-net",
+        proxy_url=None,
+        options=RunOptions(),
+        config={},  # type: ignore[arg-type]
+    )
+
+    with patch("pathlib.Path.exists", return_value=True):
+        plugin.on_container_configure(spec, ctx)
+        assert "/dev/dri" in spec.devices
+        assert "--group-add" in spec.extra_run_args
+        assert "keep-groups" in spec.extra_run_args
+
+
+class TestDesktopCli:
+    def test_desktop_command_missing_package_error(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['python']\n")
+        with patch("rich.console.Console.print") as mock_print:
+            code = handle_desktop_command(DesktopOptions())
+            assert code == 1
+            output = "".join(str(call) for call in mock_print.call_args_list)
+            assert "The 'desktop' subcommand requires the 'virtual-desktop' capability package" in output
+
+    def test_desktop_active_project(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
+        fake_desktop = ActiveDesktopInfo(
+            project_name=tmp_path.name,
+            project_path=tmp_path,
+            project_hash="abc1234567",
+            container_name="pa-container-agent-abc1234567",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T10:00:00Z",
+        )
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions())
+            assert code == 0
+            output = "".join(str(call) for call in mock_print.call_args_list)
+            assert "http://127.0.0.1:6080" in output
+            assert "127.0.0.1:5900" in output
+            assert "Healthy" in output
+
+    def test_desktop_inactive_project(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.get_project_desktop", return_value=None),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions())
+            assert code == 1
+            output = "".join(str(call) for call in mock_print.call_args_list)
+            assert "No active virtual desktop running" in output
+
+    def test_desktop_url_flag(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
+        fake_desktop = ActiveDesktopInfo(
+            project_name=tmp_path.name,
+            project_path=tmp_path,
+            project_hash="abc1234567",
+            container_name="pa-container-agent-abc1234567",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T10:00:00Z",
+        )
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(url=True))
+            assert code == 0
+            mock_print.assert_called_once_with("http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale")
+
+    def test_desktop_vnc_flag(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
+        fake_desktop = ActiveDesktopInfo(
+            project_name=tmp_path.name,
+            project_path=tmp_path,
+            project_hash="abc1234567",
+            container_name="pa-container-agent-abc1234567",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T10:00:00Z",
+        )
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(vnc=True))
+            assert code == 0
+            mock_print.assert_called_once_with("127.0.0.1:5900")
+
+    def test_desktop_json_flag(self, tmp_path: Path, monkeypatch) -> None:
+        import json as json_mod
+
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
+        fake_desktop = ActiveDesktopInfo(
+            project_name=tmp_path.name,
+            project_path=tmp_path,
+            project_hash="abc1234567",
+            container_name="pa-container-agent-abc1234567",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T10:00:00Z",
+        )
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.get_project_desktop", return_value=fake_desktop),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(json=True))
+            assert code == 0
+            raw_json = mock_print.call_args[0][0]
+            data = json_mod.loads(raw_json)
+            assert data["status"] == "running"
+            assert data["novnc_port"] == 6080
+            assert data["vnc_port"] == 5900
+
+    def test_desktop_open_flag(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
+        fake_desktop = ActiveDesktopInfo(
+            project_name=tmp_path.name,
+            project_path=tmp_path,
+            project_hash="abc1234567",
+            container_name="pa-container-agent-abc1234567",
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale",
+            vnc_port=5900,
+            vnc_endpoint="127.0.0.1:5900",
+            display=":0",
+            is_healthy=True,
+            created_at="2026-11-07T10:00:00Z",
+        )
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.get_project_desktop", return_value=fake_desktop),
+            patch("webbrowser.open") as mock_open,
+            patch("rich.console.Console.print"),
+        ):
+            code = handle_desktop_command(DesktopOptions(open=True))
+            assert code == 0
+            mock_open.assert_called_once_with(fake_desktop.novnc_url)
+
+    def test_desktop_all_empty(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.list_active_desktops", return_value=[]),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(all=True))
+            assert code == 0
+            output = "".join(str(call) for call in mock_print.call_args_list)
+            assert "[dim]No active pa-container virtual desktops found on this system.[/dim]" in output
+
+    def test_desktop_all_with_desktops(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("PROJECT_DIR", str(tmp_path))
+        desktops = [
+            ActiveDesktopInfo(
+                project_name="d1",
+                project_path=Path("/tmp/d1"),
+                project_hash="1111111111",
+                container_name="pa-container-agent-1111111111",
+                novnc_port=6080,
+                novnc_url="http://127.0.0.1:6080",
+                vnc_port=5900,
+                vnc_endpoint="127.0.0.1:5900",
+                display=":0",
+                is_healthy=True,
+                created_at="2026-11-07T10:00:00Z",
+            ),
+            ActiveDesktopInfo(
+                project_name="d2",
+                project_path=Path("/tmp/d2"),
+                project_hash="2222222222",
+                container_name="pa-container-agent-2222222222",
+                novnc_port=6081,
+                novnc_url="http://127.0.0.1:6081",
+                vnc_port=5901,
+                vnc_endpoint="127.0.0.1:5901",
+                display=":0",
+                is_healthy=False,
+                created_at="2026-11-07T11:00:00Z",
+            ),
+        ]
+        with (
+            patch("pa_packages.virtual_desktop.host.desktop.list_active_desktops", return_value=desktops),
+            patch("rich.console.Console.print") as mock_print,
+        ):
+            code = handle_desktop_command(DesktopOptions(all=True))
+            assert code == 0
+            assert mock_print.called
