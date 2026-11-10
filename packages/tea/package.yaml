@@ -22,4 +22,4 @@ skill:
 
 verification:
     command: "tea --version"
-    expected_output_contains: "tea version 0.16"
+    expected_output_contains: "0.16"

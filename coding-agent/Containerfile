@@ -23,6 +23,7 @@ RUN microdnf install -y --nodocs \
     util-linux \
     wget \
     xz \
+    jemalloc \
     # Runtime libraries for building native Python wheels & C extensions
     bzip2-devel \
     glibc-devel \

@@ -22,6 +22,8 @@ cd "${src}"
     --disable-install-doc
 make -j "$(mem_capped_jobs 400)"
 make install
+mkdir -p "${PA_STAGE}/usr/lib64"
+cp -a /usr/lib64/libjemalloc.so* "${PA_STAGE}/usr/lib64/"
 rm -rf "${src}"
 
 "${PA_STAGE}/usr/local/bin/ruby" --version

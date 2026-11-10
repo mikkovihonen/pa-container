@@ -11,6 +11,8 @@ payload:
     build_deps:
         - "gcc"
         - "make"
+        - "rust"
+        - "jemalloc-devel"
         - "openssl-devel"
         - "readline-devel"
         - "zlib-devel"
