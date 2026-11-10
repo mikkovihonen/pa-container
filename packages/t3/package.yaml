@@ -22,6 +22,10 @@ skill:
     source: "skill/SKILL.md"
     target_agents: ["all"]
 
+runtime:
+    dependencies:
+        - "node"
+
 verification:
     command: "t3 --version"
     expected_output_contains: "0.1.7"

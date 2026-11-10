@@ -27,6 +27,12 @@ from packages.projection import (
     aggregate_token_replacers,
     get_mcp_servers_dict,
 )
+from packages.verification import (
+    PackageVerificationResult,
+    render_verification_results,
+    verify_package,
+    verify_packages,
+)
 
 __all__ = [
     "PackageManifest",
@@ -44,4 +50,8 @@ __all__ = [
     "aggregate_egress_hosts",
     "aggregate_token_replacers",
     "aggregate_runtime_privileges",
+    "PackageVerificationResult",
+    "verify_package",
+    "verify_packages",
+    "render_verification_results",
 ]

@@ -71,6 +71,7 @@ class RuntimeConfig:
     shadow_paths: list[str] = field(default_factory=list)
     subuid_ranges: list[str] = field(default_factory=list)
     file_caps: list[dict[str, str]] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -191,6 +192,7 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         shadow_paths=list(runtime_data.get("shadow_paths") or []),
         subuid_ranges=list(runtime_data.get("subuid_ranges") or []),
         file_caps=list(runtime_data.get("file_caps") or []),
+        dependencies=list(runtime_data.get("dependencies") or []),
     )
 
     # Egress

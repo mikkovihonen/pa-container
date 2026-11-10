@@ -60,6 +60,10 @@ testpaths = [
     "coding-agent-proxy/addons/token_replacer/tests",
     "coding-agent-proxy/addons/flow_export/tests",
 ]
+markers = [
+    "smoke: package smoke tests",
+    "integration: live container integration tests",
+]
 
 [tool.coverage.run]
 branch = true

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from cli import BuildOptions
+    from cli import BuildOptions, TestOptions
     from logging_driver import LogDriver
 
 sys.dont_write_bytecode = True
@@ -568,6 +568,21 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
                     pkg_build(p, runtime=runtime)
 
             logger.info("All requested packages built successfully.")
+
+            if getattr(options, "verify", False):
+                from packages import render_verification_results, verify_packages
+
+                if log_drv is not None:
+                    with log_drv.stage(LogCategory.BUILD, f"Smoke testing {len(requested)} package(s)"):
+                        results = verify_packages(requested, runtime=runtime)
+                else:
+                    results = verify_packages(requested, runtime=runtime)
+
+                render_verification_results(results)
+                failed = [r for r in results if not r.passed]
+                if failed:
+                    return 1
+
             if not options.no_prune and global_config.build.prune_dangling:
                 from images import prune_dangling_images
 
@@ -652,6 +667,57 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
                 source_logger=logger,
             )
         return 1
+
+
+def execute_test(options: TestOptions, driver: LogDriver | None = None) -> int:
+    """Execute in-container smoke test verifications for packages."""
+    from packages import discover_packages, render_verification_results, verify_packages
+
+    log_drv = driver or get_log_driver()
+    if log_drv is not None and not log_drv.quiet and not log_drv.verbose and log_drv.console.is_terminal:
+        log_drv.console.print("[dim]ℹ Running package smoke tests[/dim]")
+
+    try:
+        runtime = validate_environment(LLAMA_BIN)
+    except EnvironmentError as e:
+        if log_drv is not None:
+            log_drv.fail_and_render(
+                LogCategory.BUILD,
+                "Environment Error",
+                str(e),
+                hints=["Ensure container runtime (podman/docker) is installed and available in PATH."],
+                exc=e,
+                source_logger=logger,
+            )
+        return 1
+
+    avail = set(discover_packages().keys())
+    raw_pkgs = getattr(options, "packages", "all") or "all"
+    if raw_pkgs.strip().lower() == "all":
+        target = sorted(avail)
+    else:
+        target = [p.strip() for p in raw_pkgs.split(",") if p.strip()]
+        for p in target:
+            if p not in avail:
+                msg = f"Unknown package '{p}'. Available packages: {', '.join(sorted(avail))}"
+                if log_drv is not None:
+                    log_drv.fail_and_render(
+                        LogCategory.BUILD,
+                        "Unknown Package",
+                        msg,
+                        source_logger=logger,
+                    )
+                return 1
+
+    if log_drv is not None:
+        with log_drv.stage(LogCategory.BUILD, f"Smoke testing {len(target)} package(s)"):
+            results = verify_packages(target, runtime=runtime)
+    else:
+        results = verify_packages(target, runtime=runtime)
+
+    render_verification_results(results)
+    failed = [r for r in results if not r.passed]
+    return 1 if failed else 0
 
 
 def parse_args(argv: list[str] | None = None) -> BuildOptions:

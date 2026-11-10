@@ -110,6 +110,14 @@ class BuildOptions(GlobalCliOptions):
     no_prune: bool = False
     clean: bool = False
     cmake_args: list[str] = field(default_factory=list)
+    verify: bool = False
+
+
+@dataclass
+class TestOptions(GlobalCliOptions):
+    """Options for the 'test' subcommand."""
+
+    packages: str = "all"
 
 
 @dataclass
@@ -335,6 +343,24 @@ def create_parser() -> argparse.ArgumentParser:
         dest="cmake_args",
         default=[],
         help="Additional CMake flag to pass to llama.cpp build (can be repeated).",
+    )
+    build_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Execute in-container smoke test verification for compiled packages.",
+    )
+
+    # ─── 'test' subcommand ───────────────────────────────────────────────────
+    test_parser = subparsers.add_parser(
+        "test",
+        parents=[common_parser],
+        help="Execute in-container verification and smoke tests for packages.",
+        description="Run in-container smoke test verification across Agent Capability Packages.",
+    )
+    test_parser.add_argument(
+        "--packages",
+        default="all",
+        help="Comma-separated list of Agent Capability Packages to verify (default: 'all').",
     )
 
     # ─── 'clean' subcommand ──────────────────────────────────────────────────
@@ -586,8 +612,20 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             no_prune=getattr(args, "no_prune", False),
             clean=getattr(args, "clean", False),
             cmake_args=getattr(args, "cmake_args", []) or [],
+            verify=getattr(args, "verify", False),
         )
         return "build", b_options
+
+    if cmd == "test":
+        t_options = TestOptions(
+            verbose=verbose,
+            quiet=quiet,
+            log_level=log_level,
+            log_file=log_file,
+            no_color=no_color,
+            packages=getattr(args, "packages", "all") or "all",
+        )
+        return "test", t_options
 
     if cmd == "clean":
         c_options = CleanOptions(
@@ -1164,6 +1202,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             from build import execute_build
 
             sys.exit(execute_build(options, driver=driver))
+            return
+
+        if cmd == "test":
+            from build import execute_test
+
+            sys.exit(execute_test(options, driver=driver))
             return
 
         if cmd == "run":

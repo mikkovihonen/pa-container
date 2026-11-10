@@ -21,6 +21,10 @@ skill:
     source: "skill/SKILL.md"
     target_agents: ["all"]
 
+runtime:
+    dependencies:
+        - "node"
+
 verification:
     command: "pi --version"
     expected_output_contains: "1.5"

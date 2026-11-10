@@ -23,6 +23,8 @@ mcp:
     args: ["mcp"]
 
 runtime:
+    dependencies:
+        - "python"
     devices:
         - "/dev/dri"
     env:
