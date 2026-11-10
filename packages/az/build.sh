@@ -15,7 +15,7 @@ fetch_verified "${whl_url}" "${AZURE_DEVOPS_SHA256}" "/tmp/${whl_name}"
 az_dir="${PA_STAGE}/usr/local/lib/azure-cli"
 mkdir -p "${az_dir}"
 /usr/local/bin/uv venv --python /usr/local/bin/python3 "${az_dir}"
-/usr/local/bin/uv pip install --python "${az_dir}/bin/python" "azure-cli==${AZ_VERSION}" distro
+/usr/local/bin/uv pip install --python "${az_dir}/bin/python" pip "azure-cli==${AZ_VERSION}" distro
 
 ext_sys_dir="${az_dir}/extensions"
 mkdir -p "${ext_sys_dir}"

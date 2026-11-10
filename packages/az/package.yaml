@@ -25,6 +25,10 @@ skill:
     source: "skill/SKILL.md"
     target_agents: ["all"]
 
+runtime:
+    dependencies:
+        - "python"
+
 verification:
     command: "az --version"
     expected_output_contains: "azure-cli"
