@@ -15,6 +15,7 @@ RUN microdnf install -y --nodocs \
     libstdc++ \
     ncurses \
     openssl \
+    openssl3-libs \
     procps-ng \
     shadow-utils \
     tar \
@@ -40,6 +41,25 @@ RUN microdnf install -y --nodocs \
     iptables-nft \
     pasta \
     shadow-utils-subid \
+    # Headless browser runtime libraries
+    alsa-lib \
+    at-spi2-atk \
+    at-spi2-core \
+    atk \
+    cairo \
+    cups-libs \
+    dbus-libs \
+    libX11 \
+    libXcomposite \
+    libXdamage \
+    libXext \
+    libXfixes \
+    libXrandr \
+    libxkbcommon \
+    mesa-libgbm \
+    nspr \
+    nss \
+    pango \
  && microdnf clean all
 
 # gosu for stepping down from root in entrypoint
@@ -47,7 +67,8 @@ RUN ARCH="$(uname -m)" \
  && case "$ARCH" in x86_64) GOSU_ARCH="amd64" ;; aarch64) GOSU_ARCH="arm64" ;; *) GOSU_ARCH="$ARCH" ;; esac \
  && curl -fsSL -o /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/1.17/gosu-${GOSU_ARCH}" \
  && chmod +x /usr/local/bin/gosu \
- && ln -sf /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
+ && ln -sf /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/tls/certs/ca-bundle.crt \
+ && ln -sf /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/ssl/certs/ca-certificates.crt
 
 # Bootstrap mitmproxy CA certificate into system trust store
 RUN mkdir -p /etc/pki/ca-trust/source/anchors /usr/local/share/ca-certificates/extra

@@ -25,7 +25,8 @@ RUN ARCH="$(uname -m)" \
  && case "$ARCH" in x86_64) GOSU_ARCH="amd64" ;; aarch64) GOSU_ARCH="arm64" ;; *) GOSU_ARCH="$ARCH" ;; esac \
  && curl -fsSL -o /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/1.17/gosu-${GOSU_ARCH}" \
  && chmod +x /usr/local/bin/gosu \
- && ln -sf /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
+ && ln -sf /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/tls/certs/ca-bundle.crt \
+ && ln -sf /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/ssl/certs/ca-certificates.crt
 
 # Unified CPython 3.15 + uv copied directly from the python ACP package
 COPY --from=pa-container-pkg-python:local / /

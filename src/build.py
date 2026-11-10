@@ -217,7 +217,13 @@ def _node_build_args() -> list[str]:
     return ["--build-arg", f"NODE_SOURCE={value}"]
 
 
-CORE_PACKAGES: list[str] = ["python", "node", "podman"]
+CORE_PACKAGES: list[str] = [
+    "python",
+    "node",
+    "podman",
+    "code-intelligence",
+    "data-tools",
+]
 
 
 def build_package(package_name: str, runtime: str = "podman", label: str | None = None) -> None:

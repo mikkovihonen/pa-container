@@ -20,10 +20,16 @@ make -j "$(mem_capped_jobs 300)" \
     USE_LIBDEFLATE=YesPlease \
     USE_LIBPCRE2=YesPlease \
     NO_TCLTK=YesPlease \
+    NO_RUST=YesPlease \
     INSTALL_SYMLINKS=1 \
     all
-make prefix="${PA_STAGE}/usr/local" NO_TCLTK=YesPlease install
+make prefix="${PA_STAGE}/usr/local" NO_TCLTK=YesPlease NO_RUST=YesPlease install
+cd /
 rm -rf "${src}"
+
+# Install mcp-server-git into stage
+echo "=== Installing mcp-server-git ==="
+/usr/local/bin/python3 -m pip install --root-user-action=ignore --root "${PA_STAGE}" --ignore-installed mcp-server-git
 
 "${PA_STAGE}/usr/local/bin/git" --version
 stage_record "git" "${GIT_VERSION}"

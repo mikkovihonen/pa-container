@@ -354,7 +354,7 @@ proxy:
   open_browser: false         # auto-launch mitmweb in default browser on run: true | false
   max_view_flows: 2000        # max allowed flows in mitmweb RAM (denied flows always kept)
   stream_large_bodies: 10m    # stream bodies > threshold directly (e.g. 10m, off)
-packages: []                  # optional agent capability packages (e.g. [go, rust, ripgrep])
+packages: []                  # optional agent capability packages (e.g. [go, rust, code-intelligence])
 agent:
   env: {}                     # extra --env vars for the agent container
   mounts: []                  # extra bind mounts (absolute host paths)
@@ -694,28 +694,28 @@ To keep the baseline image lightweight and fast to build, additional capabilitie
 
 ```yaml
 packages:
-  # Build compilers & linkers
+  # Language toolchains (vertically integrated with compiler & language server)
   - go
   - rust
-  - mold
-  # Search & AST code intelligence
-  - ripgrep
-  - fd
-  - ast-grep
-  - tree-sitter-cli
-  - colgrep
-  # Vector databases & search
-  - qdrant
-  - sqlite-vec
-  # Language Server Protocols (LSPs)
-  - rust-analyzer
-  - gopls
-  - clangd
-  - zls
-  # VCS & language runtimes
-  - git
+  - c-cpp
+  - zig
   - ruby
-  # Source control & forge CLIs
+  # Code intelligence & exploration
+  - code-intelligence
+  # Structured data manipulation
+  - data-tools
+  # Document conversion & extraction
+  - document-tools
+  # Developer command runners
+  - developer-tools
+  # Browser automation & MCP
+  - browser
+  # Vector storage & semantic retrieval
+  - vector-storage
+  # AI agent frameworks
+  - ai-frameworks
+  # VCS & forge CLIs
+  - git
   - gh
   - glab
   - tea
@@ -723,8 +723,6 @@ packages:
   - cafe
   # Agent control panels
   - t3
-  # Graphical & browser tools
-  - chromium
   # Coding agent runtimes
   - opencode
   - antigravity
@@ -732,42 +730,33 @@ packages:
 ```
 
 **Available packages:**
-- **Compilers & Linkers:**
-    - `go`: Official Go toolchain (provides `/usr/local/bin/go`, `gofmt`).
-    - `rust`: Official Rust toolchain (provides `/usr/local/bin/rustc`, `cargo`, `rustfmt`).
-    - `mold`: Modern high-speed linker with mimalloc and LTO (provides `/usr/local/bin/mold`).
-- **Search & AST Code Intelligence:**
-    - `ripgrep`: SIMD-accelerated regex search with PCRE2 support (provides `/usr/local/bin/rg`).
-    - `fd`: Native fast directory traversal and file finding (provides `/usr/local/bin/fd`).
-    - `ast-grep`: Structural Tree-sitter AST search and rewrite engine (provides `/usr/local/bin/ast-grep`, `sg`).
-    - `tree-sitter-cli`: Parser generator and AST syntax inspector (provides `/usr/local/bin/tree-sitter`).
-    - `colgrep`: Multi-vector semantic code search with native SIMD acceleration (provides `/usr/local/bin/colgrep`).
-- **Vector Storage & Semantic Retrieval:**
-    - `qdrant`: Embedded Rust vector database with SIMD distance metrics (provides `/usr/local/bin/qdrant`).
-    - `sqlite-vec`: Native C SIMD vector search extension for SQLite (provides `/usr/local/lib/sqlite/vec0.so`).
-- **Language Server Protocols (LSPs):**
-    - `rust-analyzer`: Official Rust language server built against Rust 1.97 and glibc (provides `/usr/local/bin/rust-analyzer`).
-    - `gopls`: Official Go language server built natively with Go 1.26 (provides `/usr/local/bin/gopls`).
-    - `clangd`: C/C++ language server from LLVM (provides `/usr/local/bin/clangd`).
-    - `zls`: Official Zig language server (provides `/usr/local/bin/zls`).
-- **VCS & Language Runtimes:**
-    - `git`: High-performance Git engine built with `libdeflate`, `reftable`, `fsmonitor`, and `PCRE2` (provides `/usr/local/bin/git`).
+- **Language Toolchains:**
+    - `go`: Official Go compiler toolchain and `gopls` language server (provides `/usr/local/bin/go`, `gofmt`, `gopls`).
+    - `rust`: Official Rust toolchain with `rust-analyzer` language server, clippy, and rustfmt (provides `/usr/local/bin/rustc`, `cargo`, `rust-analyzer`, `rustfmt`, `cargo-clippy`).
+    - `c-cpp`: Clang/LLVM, `clangd` language server, `mold` high-speed linker, CMake, and Ninja (provides `/usr/local/bin/clang`, `clang++`, `clangd`, `mold`, `cmake`, `ninja`).
+    - `zig`: Zig compiler and `zls` language server (provides `/usr/local/bin/zig`, `zls`).
     - `ruby`: Ruby 3.4+ compiled with Rust-based YJIT and jemalloc (provides `/usr/local/bin/ruby`, `gem`, `bundle`).
-- **Source Control Provider CLIs:**
-    - `gh`: Official GitHub CLI for repository and PR workflows (provides `/usr/local/bin/gh`).
-    - `glab`: Official GitLab CLI for MR reviews and pipelines (provides `/usr/local/bin/glab`).
-    - `tea`: Official Gitea and Forgejo CLI (provides `/usr/local/bin/tea`, `/usr/local/bin/fj`).
-    - `az`: Azure CLI with pre-installed `azure-devops` extension (provides `/usr/local/bin/az`).
-    - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (provides `/usr/local/bin/cafe`).
-- **Agent Control Panels:**
-    - `t3`: T3 Code web agent server for local UI control (provides `/usr/local/bin/t3`).
-- **Graphical & Browser Tools:**
-    - `chromium`: Chrome for Testing with Wayland Ozone auto-detection, NSS DB CA trust, and sandboxed execution (provides `/usr/local/bin/chromium`, `/usr/local/bin/google-chrome`).
-- **Coding Agent Runtimes:**
-    - `pi`: Pi Coding Agent CLI runtime (provides `/usr/local/bin/pi`).
-    - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (provides `/usr/local/bin/opencode`).
-    - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (provides `/usr/local/bin/antigravity`, `/usr/local/bin/agy`, `/usr/local/bin/agy_acp_server.par`).
-    - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (provides `/usr/local/bin/claude`, `/usr/local/bin/claude-code`).
+- **Domain Capabilities:**
+    - `code-intelligence`: Comprehensive search, AST parsing, and context assembly (`rg`, `fd`, `ast-grep`/`sg`, `tree-sitter`, `repomix`, `tokencount`, `colgrep`).
+    - `data-tools`: Multi-format structured data querying and transformation (`jq`, `yq`, `mlr`).
+    - `document-tools`: Universal markup conversion and PDF parsing (`pandoc`, `pdftotext`, `pdfinfo`, `pdftoppm`).
+    - `developer-tools`: Task automation and command execution (`just`).
+    - `browser`: Headless web browsing and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`).
+    - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `usearch`, `qdrant`).
+    - `ai-frameworks`: Modern Python agent architectures and state graphs (`langgraph`, `pydantic-ai`, `smolagents`).
+- **Version Control & Forges:**
+    - `git`: High-performance Git engine with Git MCP server (`git`, `mcp-server-git`).
+    - `gh`: Official GitHub CLI with GitHub MCP server and isolated token redaction (`gh`).
+    - `glab`: Official GitLab CLI with isolated token redaction (`glab`).
+    - `tea`: Official Gitea and Forgejo CLI (`tea`, `fj`).
+    - `az`: Azure CLI with pre-installed `azure-devops` extension (`az`).
+    - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (`cafe`).
+- **Agent Control Panels & Runtimes:**
+    - `t3`: T3 Code web agent server for local UI control (`t3`).
+    - `pi`: Pi Coding Agent CLI runtime (`pi`).
+    - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (`opencode`).
+    - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (`antigravity`, `agy`, `agy_acp_server.par`).
+    - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (`claude`, `claude-code`).
 
 When `packages` is non-empty, pa-container builds or reuses the required package images and layers them into a project-specific container image in seconds.
 

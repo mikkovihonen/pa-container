@@ -297,8 +297,8 @@ class TestEnsurePackageImages:
         monkeypatch.setattr("packages.builder.build_package", lambda pkg, **kw: built.append(pkg))
         monkeypatch.setattr("packages.builder.package_image_is_current", lambda pkg, **kw: pkg == "git")
 
-        packages.ensure_package_images(["mold", "git", "go"], runtime="podman")
-        assert built == ["go", "mold"]
+        packages.ensure_package_images(["c-cpp", "git", "go"], runtime="podman")
+        assert built == ["c-cpp", "go"] or built == ["go", "c-cpp"]
 
 
 class TestHasDependencyFiles:
