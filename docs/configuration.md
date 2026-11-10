@@ -688,32 +688,38 @@ Two properties worth relying on. The variables are set at the image and `run` la
 
 ### Declarative package selection (`packages:`)
 
-The shared agent base image is built from **Fedora Minimal** and includes the core runtime baseline: **Python 3.15 (with `uv`)**, **Node.js 26**, **Podman 6**, and **Netavark/Aardvark-dns**.
+The shared agent base image is built from **Fedora Minimal** (`fedora-minimal:45`) and provides a stripped-down POSIX environment with zero virtualization tools, browser libraries, or desktop daemons.
 
-To keep the baseline image lightweight and fast to build, additional capabilities are opt-in per workspace as Agent Capability Packages under `packages` in `.pa-container/config.yaml`:
+All runtime stacks, language toolchains, and tools are opt-in per workspace as Agent Capability Packages (ACPs) under `packages` in `.pa-container/config.yaml`:
 
 ```yaml
 packages:
-  # Language toolchains (vertically integrated with compiler & language server)
+  # Language toolchains
   - go
   - rust
   - c-cpp
   - zig
   - ruby
-  # Code intelligence & exploration
+  - python
+  - node
+  # Language servers (unified LSP bridge with optional language servers)
+  - language-servers:
+      features:
+        - rust-analyzer
+        - pyright
+  # Domain capabilities with optional features
   - code-intelligence
-  # Structured data manipulation
   - data-tools
-  # Document conversion & extraction
-  - document-tools
-  # Developer command runners
+  - document-tools:
+      features:
+        - docling
   - developer-tools
-  # Browser automation & MCP
   - browser
-  # Vector storage & semantic retrieval
-  - vector-storage
-  # AI agent frameworks
+  - vector-storage+qdrant
   - ai-frameworks
+  # Container virtualization & desktop GUI
+  - podman
+  - virtual-desktop
   # VCS & forge CLIs
   - git
   - gh
@@ -721,28 +727,63 @@ packages:
   - tea
   - az
   - cafe
-  # Agent control panels
+  # Agent control panels & runtimes
   - t3
-  # Coding agent runtimes
+  - pi
   - opencode
   - antigravity
   - claude-code
 ```
 
+#### Optional Feature Configuration
+Packages can define modular optional features that remain uninstalled and completely omitted from agent prompts (`SKILL.md`) unless explicitly configured. Both string shorthand and structured mapping syntax are supported:
+
+- **String Shorthand (`package+feature`)**:
+    ```yaml
+    packages:
+      - vector-storage+qdrant
+      - document-tools+docling
+    ```
+- **Mapping Syntax (`package: {features: [...]}`)**:
+    ```yaml
+    packages:
+      - language-servers:
+          features:
+            - rust-analyzer
+            - pyright
+            - zls
+      - document-tools:
+          features:
+            - docling
+    ```
+
 **Available packages:**
+- **Core Runtimes & Virtualization:**
+    - `python`: CPython 3.15 runtime with `uv` and `pip`.
+    - `node`: Node.js 26 runtime with `npm` and `npx`.
+    - `podman`: Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, and `podman-compose`. Required when `nested_containers.enabled: true`.
+    - `browser-runtime`: Shared headless browser libraries for Chromium and Playwright.
+    - `virtual-desktop`: Wayland / labwc virtual desktop environment with wayvnc and noVNC web streaming. Required for `pa desktop`.
 - **Language Toolchains:**
     - `go`: Official Go compiler toolchain and `gopls` language server (provides `/usr/local/bin/go`, `gofmt`, `gopls`).
-    - `rust`: Official Rust toolchain with `rust-analyzer` language server, clippy, and rustfmt (provides `/usr/local/bin/rustc`, `cargo`, `rust-analyzer`, `rustfmt`, `cargo-clippy`).
-    - `c-cpp`: Clang/LLVM, `clangd` language server, `mold` high-speed linker, CMake, and Ninja (provides `/usr/local/bin/clang`, `clang++`, `clangd`, `mold`, `cmake`, `ninja`).
-    - `zig`: Zig compiler and `zls` language server (provides `/usr/local/bin/zig`, `zls`).
-    - `ruby`: Ruby 3.4+ compiled with Rust-based YJIT and jemalloc (provides `/usr/local/bin/ruby`, `gem`, `bundle`).
+    - `rust`: Official Rust toolchain with `rust-analyzer` language server, clippy, and rustfmt.
+    - `c-cpp`: Clang/LLVM, `clangd` language server, `mold` high-speed linker, CMake, and Ninja.
+    - `zig`: Zig compiler and `zls` language server.
+    - `ruby`: Ruby 3.4+ compiled with Rust-based YJIT and jemalloc.
+- **Unified Language Servers:**
+    - `language-servers`: Consolidated Language Server Protocol capability. Core provides `lsp-bridge` CLI and MCP adapter. Optional features:
+        - `rust-analyzer`: Official pre-compiled Rust language server.
+        - `zls`: Zig language server.
+        - `clangd`: C/C++ language server.
+        - `pyright`: Python type checker and LSP server.
+        - `typescript`: TypeScript and JavaScript language server (`typescript-language-server`).
 - **Domain Capabilities:**
     - `code-intelligence`: Comprehensive search, AST parsing, and context assembly (`rg`, `fd`, `ast-grep`/`sg`, `tree-sitter`, `repomix`, `tokencount`, `colgrep`).
     - `data-tools`: Multi-format structured data querying and transformation (`jq`, `yq`, `mlr`).
-    - `document-tools`: Universal markup conversion and PDF parsing (`pandoc`, `pdftotext`, `pdfinfo`, `pdftoppm`).
+    - `document-tools`: Universal markup conversion and PDF parsing (`pandoc`, `pdftotext`, `pdfinfo`, `pdftoppm`). Optional feature: `docling` (Docling neural document parsing).
     - `developer-tools`: Task automation and command execution (`just`).
     - `browser`: Headless web browsing and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`).
-    - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `usearch`, `qdrant`).
+    - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `USearch`). Optional feature: `qdrant` (Qdrant vector database server).
     - `ai-frameworks`: Modern Python agent architectures and state graphs (`langgraph`, `pydantic-ai`, `smolagents`).
 - **Version Control & Forges:**
     - `git`: High-performance Git engine with Git MCP server (`git`, `mcp-server-git`).
@@ -752,11 +793,25 @@ packages:
     - `az`: Azure CLI with pre-installed `azure-devops` extension (`az`).
     - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (`cafe`).
 - **Agent Control Panels & Runtimes:**
-    - `t3`: T3 Code web agent server for local UI control (`t3`).
+    - `t3`: T3 Code web agent server for local UI control (`t3`). Required when using `--t3`.
     - `pi`: Pi Coding Agent CLI runtime (`pi`).
     - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (`opencode`).
     - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (`antigravity`, `agy`, `agy_acp_server.par`).
     - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (`claude`, `claude-code`).
+
+#### Package Verification and Smoke Tests
+Verify installed packages or execute live in-container smoke and integration tests:
+
+```bash
+# Smoke test all capability packages
+pa test
+
+# Smoke test a specific package
+pa test --packages vector-storage
+
+# Run end-to-end integration test launch (with full runtime privileges and networking)
+pa test --packages podman --integration
+```
 
 When `packages` is non-empty, pa-container builds or reuses the required package images and layers them into a project-specific container image in seconds.
 
