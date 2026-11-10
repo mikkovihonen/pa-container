@@ -1,0 +1,30 @@
+schema_version: "2.0.0"
+name: "zig"
+version: "0.17.1"
+description: "Zig programming language toolchain and zls language server"
+category: "toolchains"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+        - "xz"
+    env:
+        ZIG_VERSION: "0.17.1"
+        ZIG_SHA256_X86_64: "3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a"
+        ZIG_SHA256_AARCH64: "a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795"
+        ZLS_VERSION: "0.17.0"
+        ZLS_SHA256_X86_64: "dfa4514e1868803fdf2ae56832c88b9d400094d70ea6bb136b57bcc91af10258"
+        ZLS_SHA256_AARCH64: "0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "zig version && zls --version"
+    expected_output_contains: "0.17"

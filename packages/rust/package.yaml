@@ -1,7 +1,7 @@
 schema_version: "2.0.0"
 name: "rust"
 version: "1.99.1"
-description: "Rust programming language toolchain (rustc, cargo, standard library)"
+description: "Rust programming language toolchain (rustc, cargo, rust-analyzer, clippy, standard library)"
 category: "toolchains"
 license: "MIT OR Apache-2.0"
 
@@ -11,11 +11,15 @@ payload:
     build_deps:
         - "curl"
         - "tar"
+        - "gzip"
     env:
         RUST_VERSION: "1.99.1"
         RUST_DIST_DATE: "2026-10-15"
         RUST_SHA256_X86_64: "aded4e6c1d580415e7b594a3080d8e23e9cbe06f159f97e300aa6875211f71bf"
         RUST_SHA256_AARCH64: "703b190f0d723ae68985797f3bb5f62f01b1723f138464c6f30f32b766eb0abf"
+        RUST_ANALYZER_VERSION: "2026-11-09"
+        RUST_ANALYZER_SHA256_X86_64: "8c039b25cb338b3970c731646677a4c9d4e9dd7a92c9ab9ae459c71467fbf4a9"
+        RUST_ANALYZER_SHA256_AARCH64: "813ca3cec78ac6dab99c7bc9d51e63578f6d401b994ecf29cc0dcad86f9b2cd4"
 
 skill:
     enabled: true
@@ -23,5 +27,5 @@ skill:
     target_agents: ["all"]
 
 verification:
-    command: "cargo --version"
+    command: "cargo --version && rustc --version && rust-analyzer --version"
     expected_output_contains: "cargo 1.99"

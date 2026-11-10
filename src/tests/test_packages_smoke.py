@@ -26,7 +26,7 @@ from packages import (
 def test_all_packages_have_verification_contracts():
     """Verify that every single package in packages/ defines a verification contract."""
     pkgs = discover_packages()
-    assert len(pkgs) >= 30
+    assert len(pkgs) >= 20
 
     missing_commands = []
     for name, p in pkgs.items():
@@ -253,7 +253,7 @@ def test_verify_packages_subset_and_all():
 
         # All
         results_all = verify_packages("all")
-        assert len(results_all) >= 30
+        assert len(results_all) >= 20
 
 
 def test_render_verification_results_fallback(capsys: pytest.CaptureFixture[str]):

@@ -1,0 +1,33 @@
+schema_version: "2.0.0"
+name: "c-cpp"
+version: "1.0.0"
+description: "C/C++ development environment with clangd language server, mold modern linker, CMake, and Ninja"
+category: "toolchains"
+license: "Apache-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "clang-tools-extra"
+        - "ninja-build"
+        - "gcc-c++"
+        - "curl"
+        - "tar"
+        - "gzip"
+    env:
+        CMAKE_VERSION: "3.31.5"
+        CMAKE_SHA256_X86_64: "2984e70515ff60c5e4a41922b5d715a8168a696a89721e3b114e36f453244f72"
+        CMAKE_SHA256_AARCH64: "eb92af175ea91e3706ff62484088c3a3774ef3e1a8c399111785dd5f47010164"
+        MOLD_VERSION: "3.0.0"
+        MOLD_SHA256_X86_64: "6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189"
+        MOLD_SHA256_AARCH64: "52c759d3689babaea4c42af2f31062a74ab83e17ffb5a8090232534c67b70577"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "clangd --version && mold --version && cmake --version && ninja --version"
+    expected_output_contains: "clangd"

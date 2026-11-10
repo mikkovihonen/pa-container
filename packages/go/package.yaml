@@ -1,29 +1,24 @@
 schema_version: "2.0.0"
 name: "go"
 version: "1.27.3"
-description: "Go programming language toolchain (compiler, stdlib, tools)"
+description: "Go programming language toolchain (compiler, stdlib, tools) and gopls language server"
 category: "toolchains"
 license: "BSD-3-Clause"
 
 payload:
-    type: binary_download
-    platforms:
-        x86_64:
-            url: "https://go.dev/dl/go1.27.3.linux-amd64.tar.gz"
-            sha256: "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"
-            extract_map:
-                "go/bin/go": "/usr/local/bin/go"
-                "go/bin/gofmt": "/usr/local/bin/gofmt"
-                "go/pkg": "/usr/local/pkg"
-                "go/src": "/usr/local/src"
-        aarch64:
-            url: "https://go.dev/dl/go1.27.3.linux-arm64.tar.gz"
-            sha256: "a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"
-            extract_map:
-                "go/bin/go": "/usr/local/bin/go"
-                "go/bin/gofmt": "/usr/local/bin/gofmt"
-                "go/pkg": "/usr/local/pkg"
-                "go/src": "/usr/local/src"
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+        - "gzip"
+        - "git"
+    env:
+        GO_VERSION: "1.27.3"
+        GO_SHA256_AMD64: "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"
+        GO_SHA256_ARM64: "a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"
+        GOPLS_VERSION: "gopls/v0.24.0"
+        GOPLS_COMMIT: "1f9922d1dcc5836d5c5bcb552c8fed230f885372"
 
 skill:
     enabled: true
@@ -31,5 +26,5 @@ skill:
     target_agents: ["all"]
 
 verification:
-    command: "go version"
+    command: "go version && gopls version"
     expected_output_contains: "go1.27"

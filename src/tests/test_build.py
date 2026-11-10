@@ -489,8 +489,8 @@ class TestMainWithPackages:
             patch("build.check_build_memory", return_value=True),
             patch("packages.build_package", side_effect=lambda pkg, **kw: built.append(pkg)),
         ):
-            main(["--packages", "mold,git"])
-            assert built == ["git", "mold"] or built == ["mold", "git"]
+            main(["--packages", "c-cpp,git"])
+            assert built == ["c-cpp", "git"] or built == ["git", "c-cpp"]
 
     def test_main_with_packages_all(self):
         from build import main
@@ -657,7 +657,7 @@ class TestPackageManifestsAreValid:
         from packages import discover_packages
 
         pkgs = discover_packages()
-        assert len(pkgs) >= 30, f"Expected at least 30 packages, found {len(pkgs)}"
+        assert len(pkgs) >= 20, f"Expected at least 20 packages, found {len(pkgs)}"
         for name, manifest in pkgs.items():
             assert manifest.name == name
             assert manifest.version

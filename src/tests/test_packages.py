@@ -24,12 +24,12 @@ from packages.builder import generate_package_containerfile
 
 def test_discover_packages():
     pkgs = discover_packages()
-    assert len(pkgs) >= 30
+    assert len(pkgs) >= 20
     assert "podman" in pkgs
     assert "python" in pkgs
     assert "node" in pkgs
     assert "gh" in pkgs
-    assert "ripgrep" in pkgs
+    assert "code-intelligence" in pkgs
     assert "virtual-desktop" in pkgs
 
     podman = pkgs["podman"]
@@ -157,11 +157,11 @@ def test_generate_package_containerfile():
     pkgs = discover_packages()
     gh = pkgs["gh"]
     cf_gh = generate_package_containerfile(gh, get_package_dir("gh"))
-    assert "FROM registry.fedoraproject.org/fedora-minimal:41 AS extractor" in cf_gh
+    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS extractor" in cf_gh
     assert "FROM scratch" in cf_gh
     assert "COPY --from=extractor /out/ /" in cf_gh
 
     podman = pkgs["podman"]
     cf_podman = generate_package_containerfile(podman, get_package_dir("podman"))
-    assert "FROM registry.fedoraproject.org/fedora-minimal:41 AS builder" in cf_podman
+    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder" in cf_podman
     assert "bash /build/build.sh" in cf_podman

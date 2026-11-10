@@ -21,7 +21,7 @@ logger = get_category_logger(__name__, LogCategory.BUILD)
 
 """Build and caching orchestrator for Agent Capability Packages (ACPs)."""
 
-FEDORA_BASE_IMAGE = "registry.fedoraproject.org/fedora-minimal:41"
+FEDORA_BASE_IMAGE = "registry.fedoraproject.org/fedora-minimal:45"
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -54,7 +54,7 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
                 f"FROM {FEDORA_BASE_IMAGE} AS extractor",
                 "RUN microdnf install -y --nodocs curl tar gzip xz findutils shadow-utils && microdnf clean all",
                 "ENV PA_STAGE=/out",
-                f"WORKDIR /build/{pkg_name}",
+                "WORKDIR /build",
                 "COPY . /build/",
                 "RUN set -euo pipefail; \\",
                 "    mkdir -p /out/usr/local/bin; \\",
@@ -126,7 +126,7 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
             lines.append(f'ENV {k}="{v}"')
         lines.extend(
             [
-                f"WORKDIR /build/{pkg_name}",
+                "WORKDIR /build",
                 "COPY . /build/",
                 f"RUN mkdir -p /out && bash /build/{script_name}",
                 f'RUN mkdir -p "/out/usr/local/share/pa-container/packages/{pkg_name}/skill" \\',

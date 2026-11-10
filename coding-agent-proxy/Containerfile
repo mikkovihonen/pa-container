@@ -1,5 +1,5 @@
 # Fedora Minimal base for transparent inspection proxy
-FROM registry.fedoraproject.org/fedora-minimal:41
+FROM registry.fedoraproject.org/fedora-minimal:45
 
 RUN microdnf install -y --nodocs \
     curl \

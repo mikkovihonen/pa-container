@@ -1,5 +1,5 @@
 # Fedora Minimal base for the coding agent runner
-FROM registry.fedoraproject.org/fedora-minimal:41 AS runner
+FROM registry.fedoraproject.org/fedora-minimal:45 AS runner
 
 # Core OS packages, utilities, and developer runtime libraries
 RUN microdnf install -y --nodocs \
