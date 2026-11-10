@@ -117,5 +117,15 @@ compose_providers = ["podman-compose"]
 compose_warning_logs = false
 EOF
 
+# ─── 4. Install podman-compose ───────────────────────────────────────────────
+echo "=== Installing podman-compose ${PODMAN_COMPOSE_VERSION} ==="
+/usr/local/bin/python3 -m pip install --root-user-action=ignore --root "${PA_STAGE}" --ignore-installed "podman-compose==${PODMAN_COMPOSE_VERSION}"
+
+# Verification
+"${PA_STAGE}/usr/local/bin/podman" --version
+[ -x "${PA_STAGE}/usr/local/bin/docker" ]
+[ -x "${PA_STAGE}/usr/local/bin/podman-compose" ]
+PATH="${PA_STAGE}/usr/local/bin:${PATH}" PYTHONPATH="${PA_STAGE}/usr/local/lib/python3.15/site-packages" "${PA_STAGE}/usr/local/bin/podman-compose" --version
+
 rm -rf /tmp/podman /tmp/netavark /tmp/aardvark-dns /tmp/*.tar.gz
 echo "=== Podman build complete ==="

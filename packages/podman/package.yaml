@@ -1,7 +1,7 @@
 schema_version: "2.0.0"
 name: "podman"
 version: "6.1.4"
-description: "Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, and Docker CLI wrapper"
+description: "Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, podman-compose, and Docker CLI wrapper"
 category: "virtualization"
 license: "Apache-2.0"
 
@@ -16,6 +16,8 @@ payload:
         - "libseccomp-devel"
         - "sqlite-devel"
         - "protobuf-compiler"
+    build_packages:
+        - "python"
     env:
         PODMAN_VERSION: "v6.1.4"
         PODMAN_COMMIT: "464c15fec06f0074c916f9eff87c4806869c2833"
@@ -25,6 +27,7 @@ payload:
         AARDVARK_VERSION: "v2.1.0"
         AARDVARK_COMMIT: "cd7417681229219059939bdd9f0b3bd9ac9abb08"
         AARDVARK_VENDOR_SHA256: "6e6366828d4cd2ccf3cfe07657d8aba083045605696b4f74967c2c8340f51500"
+        PODMAN_COMPOSE_VERSION: "1.6.0"
         BUILDTAGS: "seccomp libsqlite3 containers_image_openpgp exclude_graphdriver_btrfs grpcnotrace"
 
 skill:
@@ -40,6 +43,8 @@ mcp:
     args: ["system", "service", "--time=0"]
 
 runtime:
+    dependencies:
+        - "python"
     nested_containers: true
     subuid_ranges:
         - "agent:1:999"
@@ -66,5 +71,5 @@ egress:
         - "pkg-containers.githubusercontent.com"
 
 verification:
-    command: "podman --version"
+    command: "podman --version && podman-compose --version"
     expected_output_contains: "podman version 6.1"
