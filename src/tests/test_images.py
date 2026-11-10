@@ -95,17 +95,22 @@ class TestComputeImageHash:
         assert hash1 != hash2
 
     def test_t3_shim_content_different_hash(self, tmp_path):
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        fake_agent_dir = tmp_path / "fake_repo" / "coding-agent"
-        fake_agent_dir.mkdir(parents=True, exist_ok=True)
-        (fake_agent_dir / "Containerfile").write_text("FROM scratch\n")
-        (fake_agent_dir / "t3-advertise-host.cjs").write_text("// v1")
+        from packages.discovery import compute_package_hash
 
-        hash1 = images.compute_image_hash(repo, repo_root=tmp_path / "fake_repo")
-        (fake_agent_dir / "t3-advertise-host.cjs").write_text("// v2")
-        hash2 = images.compute_image_hash(repo, repo_root=tmp_path / "fake_repo")
+        pkg_dir = tmp_path / "packages" / "t3"
+        (pkg_dir / "container" / "bin").mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text("name: t3\nversion: 0.1.7\n")
+        (pkg_dir / "container" / "bin" / "t3-advertise-host.cjs").write_text("// v1")
+        hash1 = compute_package_hash("t3", repo_root=tmp_path)
+        (pkg_dir / "container" / "bin" / "t3-advertise-host.cjs").write_text("// v2")
+        hash2 = compute_package_hash("t3", repo_root=tmp_path)
         assert hash1 != hash2
+
+        # Verify host Python changes do not affect container hash
+        (pkg_dir / "host").mkdir(parents=True, exist_ok=True)
+        (pkg_dir / "host" / "plugin.py").write_text("# host code")
+        hash3 = compute_package_hash("t3", repo_root=tmp_path)
+        assert hash2 == hash3
 
     def test_empty_commands_skipped(self, tmp_path):
         repo = tmp_path / "repo"
@@ -155,22 +160,22 @@ class TestComputeImageHash:
         (cfg_dir / "config.yaml").write_text("packages: ['rust', 'go']\n")
         assert images.read_project_packages(repo) == ["go", "rust"]
 
-        (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['opencode']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['opencode']\n")
         assert images.read_project_packages(repo) == ["opencode"]
 
-        (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['antigravity']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['antigravity']\n")
         assert images.read_project_packages(repo) == ["antigravity"]
 
-        (cfg_dir / "config.yaml").write_text("agents:\n  enabled: ['claude']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['claude-code']\n")
         assert images.read_project_packages(repo) == ["claude-code"]
 
-        (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - pi\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['pi']\n")
         assert images.read_project_packages(repo) == ["pi"]
 
-        (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - opencode\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['opencode']\n")
         assert images.read_project_packages(repo) == ["opencode"]
 
-        (cfg_dir / "config.yaml").write_text("agents:\n  enabled:\n    - pi\n    - claude\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['pi', 'claude-code']\n")
         assert images.read_project_packages(repo) == ["claude-code", "pi"]
 
         assert images.read_project_packages(repo, extra_packages=["opencode"]) == ["claude-code", "opencode", "pi"]

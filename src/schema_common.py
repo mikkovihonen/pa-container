@@ -117,14 +117,7 @@ SCHEMA: dict[str, Any] = {
     },
     "packages": {
         "type": list,
-        "required": False,
-    },
-    "agents": {
-        "type": dict,
-        "keys": {
-            "enabled": {"type": list},
-            "default": {"type": str},
-        },
+        "required": True,
     },
     "agent": {
         "type": dict,
@@ -448,46 +441,11 @@ def validate_model_def_data(data: dict[str, Any], model_id: str = "") -> list[st
 
 
 def _validate_agents(data: dict[str, Any]) -> list[str]:
-    """Validate agents section: must have at least one enabled agent from AVAILABLE_AGENTS."""
+    """Validate that legacy 'agents' section is rejected."""
     errors: list[str] = []
-    agents_sec = data.get("agents")
-    if agents_sec is None:
-        return errors
-    if not isinstance(agents_sec, dict):
-        return errors
-
-    enabled = agents_sec.get("enabled")
-    if enabled is None:
-        return errors
-    if not isinstance(enabled, list):
-        return errors
-
-    from agents import AVAILABLE_AGENTS
-
-    if len(enabled) == 0:
-        errors.append("  agents.enabled: configuration must have at least one agent enabled")
-        return errors
-
-    valid_enabled = []
-    for item in enabled:
-        if not isinstance(item, str):
-            errors.append(f"  agents.enabled: expected string agent name, got {type(item).__name__} (value: {item!r})")
-        elif item.lower() not in AVAILABLE_AGENTS:
-            errors.append(
-                f"  agents.enabled: unknown agent '{item}'. Available agents: {', '.join(sorted(AVAILABLE_AGENTS))}"
-            )
-        else:
-            valid_enabled.append(item.lower())
-
-    default = agents_sec.get("default")
-    if default is not None:
-        if not isinstance(default, str):
-            errors.append(f"  agents.default: expected string agent name, got {type(default).__name__}")
-        elif default.lower() not in AVAILABLE_AGENTS:
-            errors.append(
-                f"  agents.default: unknown agent '{default}'. Available agents: {', '.join(sorted(AVAILABLE_AGENTS))}"
-            )
-        elif default.lower() not in valid_enabled:
-            errors.append(f"  agents.default: agent '{default}' is set as default but is not enabled in agents.enabled")
-
+    if "agents" in data:
+        errors.append(
+            "  agents: 'agents' section is obsolete in schema 3.0.0. "
+            "Specify agent packages directly in 'packages:' (e.g. packages: [pi])."
+        )
     return errors

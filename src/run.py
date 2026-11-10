@@ -44,7 +44,6 @@ from config import (
     global_config,
 )
 from config_schema import validate_config, validate_models, validate_project_yaml
-from desktop import read_desktop_config, resolve_desktop_ports
 from flow_export import export_mitmweb_flows, poll_agent_container_ips, recover_dangling_flows
 from logging_driver import (
     LogCategory,
@@ -55,6 +54,7 @@ from logging_driver import (
 from models import Model
 from network import (
     ContainerNetworkManager,
+    load_project_config,
     read_agent_extras,
     read_agent_mode,
     read_agent_ports,
@@ -74,6 +74,8 @@ from network import (
     scan_volume_paths,
 )
 from packages import ensure_package_images
+from packages.loader import load_active_plugins
+from packages.plugin import ACPPlugin, ContainerRunSpec, RunContext
 from runtimes import PodmanRuntime
 from security import read_security_config, validate_mount_paths
 from server import Server
@@ -390,6 +392,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             driver_packages.append("t3")
 
         pkg_privileges: dict[str, Any] = {}
+        active_plugins: dict[str, ACPPlugin] = {}
         try:
             from packages import aggregate_runtime_privileges, discover_packages
 
@@ -405,6 +408,11 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 )
             if pkg_privileges.get("env"):
                 agent_extras["env"].update(pkg_privileges["env"])
+
+            active_manifests_map = {p: all_manifests[p] for p in active_pkgs if p in all_manifests}
+            active_plugins = load_active_plugins(
+                active_manifests_map, packages_dir=REPO_ROOT / "packages", project_dir=PROJECT_DIR
+            )
         except Exception as e:
             logger.debug(f"Could not aggregate package runtime privileges: {e}")
     except ValueError as e:
@@ -525,51 +533,26 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     if cli_lan:
         agent_ports["expose"] = "lan"
 
-    desktop_cfg = read_desktop_config(pa_container_dir)
-    desktop_novnc_port: int | None = None
-    desktop_vnc_port: int | None = None
-    desktop_args: list[str] = []
-    gpu_args: list[str] = []
-    desktop_novnc_url: str | None = None
-    desktop_vnc_endpoint: str | None = None
-
-    if desktop_cfg["enabled"]:
-        if "virtual-desktop" not in active_pkgs:
-            log_drv.fail_and_render(
-                LogCategory.PREFLIGHT,
-                "Missing Package: virtual-desktop",
-                (
-                    "The configuration has virtual desktop enabled ('desktop.enabled: true'), "
-                    "but the configuration is missing the 'virtual-desktop' capability package that would provide this capability.\n\n"
-                    "To enable virtual desktop, add 'virtual-desktop' to your packages list in .pa-container/config.yaml:\n"
-                    "    packages:\n"
-                    "        - virtual-desktop"
-                ),
-                hints=[
-                    "Add 'virtual-desktop' to .pa-container/config.yaml under 'packages:'.",
-                    "Or set 'desktop.enabled: false' if virtual desktop is not needed.",
-                ],
-                source_logger=preflight_logger,
-            )
-            return 1
-        desktop_novnc_port, desktop_vnc_port = resolve_desktop_ports(desktop_cfg)
-        desktop_args = RUNTIME.desktop_run_args(
-            desktop_cfg,
-            novnc_port=desktop_novnc_port,
-            vnc_port=desktop_vnc_port,
+    project_raw_cfg = load_project_config(pa_container_dir)
+    desktop_enabled = project_raw_cfg.get("desktop", {}).get("enabled", False)
+    if desktop_enabled and "virtual-desktop" not in active_pkgs:
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Missing Package: virtual-desktop",
+            (
+                "The configuration has virtual desktop enabled ('desktop.enabled: true'), "
+                "but the configuration is missing the 'virtual-desktop' capability package that would provide this capability.\n\n"
+                "To enable virtual desktop, add 'virtual-desktop' to your packages list in .pa-container/config.yaml:\n"
+                "    packages:\n"
+                "        - virtual-desktop"
+            ),
+            hints=[
+                "Add 'virtual-desktop' to .pa-container/config.yaml under 'packages:'.",
+                "Or set 'desktop.enabled: false' if virtual desktop is not needed.",
+            ],
+            source_logger=preflight_logger,
         )
-        gpu_args = RUNTIME.opportunistic_gpu_args(desktop_cfg.get("gpu"))
-        desktop_novnc_url = f"http://127.0.0.1:{desktop_novnc_port}/vnc.html?autoconnect=true&resize=scale"
-        desktop_vnc_endpoint = f"127.0.0.1:{desktop_vnc_port}"
-        logger.info(
-            f"Virtual Desktop enabled ({desktop_cfg['resolution']}, {desktop_cfg['compositor']}):"
-            f"\n  noVNC Web UI: {desktop_novnc_url}"
-            f"\n  VNC Endpoint: {desktop_vnc_endpoint}"
-        )
-        if not log_drv.quiet:
-            log_drv.console.print(
-                f"  [dim cyan][{LogCategory.DESKTOP}][/dim cyan] Virtual Desktop: [link={desktop_novnc_url}]{desktop_novnc_url}[/link] [dim](VNC: {desktop_vnc_endpoint}) 🔗 (click to open)[/dim]"
-            )
+        return 1
 
     t3_port = 3773
     if is_t3_mode:
@@ -639,13 +622,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             default_model=default_model,
             project_dir=PROJECT_DIR,
         )
-
-    if is_t3_mode:
-        from agents.t3 import synthesize_t3_policy, synthesize_t3_settings
-
-        t3_dir = pa_container_dir / "t3"
-        synthesize_t3_settings(t3_dir, agent_driver, selected_agent_drivers, project_dir=PROJECT_DIR)
-        synthesize_t3_policy(t3_dir, selected_agent_drivers)
 
     process_gateway_configs(gateway_configs, pa_container_dir)
 
@@ -865,7 +841,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         project_path=project_path,
                         build_timestamp=images.now_iso(),
                         packages=project_packages,
-                        with_desktop=desktop_cfg["enabled"],
+                        with_desktop="virtual-desktop" in active_pkgs,
                     )
                     if global_config.build.prune_dangling:
                         images.prune_dangling_images(CONTAINER_RUNTIME, purge_cache=False)
@@ -886,27 +862,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                             images.prune_dangling_images(CONTAINER_RUNTIME, purge_cache=False)
                 logger.info(f"Using shared image: {agent_image_tag}")
             log_drv.complete_stage()
-
-            # ─── Nested-container image store ───────────────────────────
-            nested_args: list[str] = []
-            if nested_cfg["enabled"]:
-                project_key = project.project_key(PROJECT_DIR)
-                if nested_cfg["storage"] == "volume":
-                    orphaned_volumes = volumes.cleanup_orphaned_nested_volumes(CONTAINER_RUNTIME)
-                    if orphaned_volumes:
-                        logger.info(
-                            f"Removed {len(orphaned_volumes)} orphaned nested-storage volume(s): "
-                            f"{', '.join(orphaned_volumes)}"
-                        )
-                    if not volumes.ensure_nested_volume(
-                        CONTAINER_RUNTIME,
-                        RUNTIME.nested_volume_name(project_key),
-                        project_hash=proxy_name,
-                        project_path=str(PROJECT_DIR.resolve()),
-                    ):
-                        logger.warning("Falling back to a tmpfs nested image store for this run.")
-                        nested_cfg = {**nested_cfg, "storage": "tmpfs"}
-                nested_args = RUNTIME.nested_container_args(nested_cfg, project_key)
 
             # Transient tmpfs paths (config.yaml tmpfs.paths)
             tmpfs_paths = scan_tmpfs_paths(pa_container_dir)
@@ -997,24 +952,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 d_gateways = [gw for gw in gateway_configs if d.is_gateway_enabled_for_agent(gw)]
                 merged_driver_env.update(d.get_environment(agent_extras, gateway_configs=d_gateways))
             driver_env = [flag for k, v in merged_driver_env.items() for flag in ("--env", f"{k}={v}")]
-            t3_mounts: list[str] = []
-            t3_chown: list[str] = []
-            if is_t3_mode:
-                t3_dir = pa_container_dir / "t3"
-                t3_dir.mkdir(parents=True, exist_ok=True)
-                t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
-                shim_src = REPO_ROOT / "coding-agent" / "t3-advertise-host.cjs"
-                if shim_src.exists():
-                    t3_mounts.extend(["--volume", f"{shim_src}:/usr/local/share/pa-container/t3-advertise-host.cjs:ro"])
-                sync_src = REPO_ROOT / "coding-agent" / "t3-sync-antigravity.py"
-                if sync_src.exists():
-                    t3_mounts.extend(
-                        ["--volume", f"{sync_src}:/usr/local/share/pa-container/t3-sync-antigravity.py:ro"]
-                    )
-                policy_file = t3_dir / "policy.json"
-                if policy_file.exists():
-                    t3_mounts.extend(["--volume", f"{policy_file}:/etc/t3code/policy.json:ro"])
-                t3_chown = ["/home/agent/.t3"]
+            t3_chown: list[str] = ["/home/agent/.t3"] if is_t3_mode else []
 
             driver_mount_chown: list[str] = []
             for m in selected_mounts:
@@ -1047,6 +985,22 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 else:
                     logger.debug(f"Device '{dev}' does not exist on host; skipping.")
 
+            ctx = RunContext(
+                project_dir=PROJECT_DIR,
+                container_name=agent_container_name,
+                network_name=network_name,
+                proxy_url=f"http://{proxy_isolated_ip}:8080" if proxy_isolated_ip else None,
+                is_t3_mode=is_t3_mode,
+                options=options,
+                config=project_raw_cfg,
+                runtime=CONTAINER_RUNTIME,
+                active_packages=active_pkgs,
+            )
+
+            plugin_spec = ContainerRunSpec()
+            for plugin in active_plugins.values():
+                plugin.on_container_configure(plugin_spec, project_raw_cfg, options)
+
             PA_CONTAINER_cmd = [
                 CONTAINER_RUNTIME,
                 "run",
@@ -1062,7 +1016,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 f"pa-container.project.name={PROJECT_DIR.name}",
                 "--label",
                 f"pa-container.project.path={PROJECT_DIR.resolve()}",
-                *(["--label", "pa-container.desktop.enabled=true"] if desktop_cfg["enabled"] else []),
                 "--label",
                 f"pa-container.mode={'t3' if is_t3_mode else 'cli'}",
                 "--label",
@@ -1076,34 +1029,21 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 "--env",
                 f"IPV6_ENABLED={str(ipv6_enabled).lower()}",
                 *(["--env", f"DEFAULT_ROUTE6={proxy_isolated_ip6}"] if proxy_isolated_ip6 else []),
-                *(
-                    [
-                        "--env",
-                        "PA_CONTAINER_MODE=t3",
-                        "--env",
-                        f"T3_PORT={t3_port}",
-                        "--env",
-                        f"T3_ADVERTISE_HOST={t3_advertise_host}",
-                        *(["--env", f"T3_PUBLIC_URL={t3_public_url}"] if t3_public_url else []),
-                        *(["--env", "T3_LAN=true"] if agent_ports["expose"] == "lan" else []),
-                    ]
-                    if is_t3_mode
-                    else []
-                ),
                 *RUNTIME.tmpfs_args("/home/agent/"),
                 *driver_mounts,
-                *t3_mounts,
                 "--volume",
                 f"{PROJECT_DIR}:/workspace",
                 *(["--volume", f"{pa_container_dir}:/workspace/.pa-container:ro"] if read_only_pa_container else []),
                 *git_hooks_mount,
                 *RUNTIME.tmpfs_args("/workspace/.pa-container/exports"),
                 *volume_args,
-                *nested_args,
-                *RUNTIME.nested_port_args(nested_cfg),
                 *RUNTIME.port_publish_args(agent_ports),
-                *desktop_args,
-                *gpu_args,
+                *plugin_spec.extra_run_args,
+                *[flag for m in plugin_spec.mounts for flag in m.to_run_args()],
+                *[flag for v in plugin_spec.volumes for flag in ("--volume", v)],
+                *[flag for dev in plugin_spec.devices for flag in ("--device", dev)],
+                *[flag for cap in plugin_spec.cap_add for flag in ("--cap-add", cap)],
+                *[flag for port_str in plugin_spec.ports for flag in ("-p", port_str)],
                 "--workdir",
                 "/workspace",
                 *[flag for path in tmpfs_paths for flag in RUNTIME.tmpfs_args(path)],
@@ -1114,6 +1054,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 "--env",
                 f"PA_CONTAINER_ENABLED_AGENTS={','.join(selected_agent_names)}",
                 *driver_env,
+                *[flag for k, v in plugin_spec.env.items() for flag in ("--env", f"{k}={v}")],
                 "--env",
                 f"LLAMA_PORTS={portconfig}",
                 "--env",
@@ -1147,30 +1088,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 ip_thread = threading.Thread(target=_discover_agent_ips, daemon=True)
                 ip_thread.start()
 
-            if desktop_cfg["enabled"] and desktop_novnc_url:
-                eff_desktop_open_browser = (
-                    options.open_browser
-                    if getattr(options, "open_browser", None) is not None
-                    else (
-                        (os.environ.get("PA_CONTAINER_OPEN_BROWSER", "").strip().lower() in ("true", "1", "yes", "on"))
-                        if "PA_CONTAINER_OPEN_BROWSER" in os.environ
-                        else (
-                            desktop_cfg.get("open_browser", False)
-                            or getattr(global_config.runtime, "open_browser", False)
-                        )
-                    )
-                )
-                if eff_desktop_open_browser:
-                    import webbrowser
-
-                    def _open_desktop() -> None:
-                        import time
-
-                        time.sleep(1.5)
-                        logger.info(f"Launching virtual desktop UI in default web browser: {desktop_novnc_url}")
-                        webbrowser.open(desktop_novnc_url)
-
-                    threading.Thread(target=_open_desktop, daemon=True).start()
+            for plugin in active_plugins.values():
+                plugin.post_start(ctx)
 
             log_drv.start_stage(LogCategory.AGENT, "Launching container session")
             log_drv.complete_stage()

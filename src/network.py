@@ -434,27 +434,31 @@ def read_agent_mode(config_dir: Path | None = None) -> str:
 
 
 def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
-    """Read list of enabled agent names from config.yaml ``agents.enabled``."""
+    """Read list of enabled agent names from config.yaml 'packages' list."""
+    from packages.discovery import discover_packages
+
     cfg = load_project_config(config_dir)
-    agents_sec = cfg.get("agents")
-    if not isinstance(agents_sec, dict) or "enabled" not in agents_sec:
-        raise ValueError("Missing required 'agents.enabled' configuration")
-    enabled = agents_sec["enabled"]
-    if not isinstance(enabled, list) or not enabled:
-        raise ValueError("Invalid 'agents.enabled': expected non-empty list")
-    return [str(x).strip().lower() for x in enabled]
+    pkgs = cfg.get("packages")
+    if not isinstance(pkgs, list) or not pkgs:
+        raise ValueError("Missing or invalid 'packages' configuration list")
+
+    manifests = discover_packages()
+    agents: list[str] = []
+    for p in pkgs:
+        p_name = str(p).strip().lower()
+        if p_name in manifests and manifests[p_name].category == "agents":
+            agents.append(p_name)
+    if not agents:
+        raise ValueError(
+            "No agent package configured in 'packages'. At least one package of category 'agents' is required."
+        )
+    return agents
 
 
 def read_default_agent(config_dir: Path | None = None) -> str:
-    """Agent engine type from config.yaml ``agents.default``."""
-    cfg = load_project_config(config_dir)
-    agents_sec = cfg.get("agents")
-    if not isinstance(agents_sec, dict) or "default" not in agents_sec:
-        raise ValueError("Missing required 'agents.default' configuration")
-    default = agents_sec["default"]
-    if not isinstance(default, str) or not default.strip():
-        raise ValueError("Invalid 'agents.default': expected non-empty string")
-    return default.strip().lower()
+    """Agent engine type from the first configured agent package in config.yaml 'packages'."""
+    enabled = read_enabled_agents(config_dir)
+    return enabled[0]
 
 
 def read_git_config(config_dir: Path | None = None) -> dict[str, bool]:

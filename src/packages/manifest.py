@@ -141,18 +141,37 @@ class CLIFlagExtension:
 class ExtensionConfig:
     """CLI subcommands and flags exposed by a capability package."""
 
+    entrypoint: str | None = None
+    driver_class: str | None = None
     commands: list[CLICommandExtension] = field(default_factory=list)
     flags: list[CLIFlagExtension] = field(default_factory=list)
     config_key: str = ""
 
 
 @dataclass(frozen=True)
+class SecretMappingConfig:
+    """Declarative secret mapping from OS keyring to proxy token replacer."""
+
+    name: str
+    keyring_account: str
+    placeholder: str
+    hosts: list[str] = field(default_factory=list)
+    keyring_service: str = "pa-container"
+    header: str | None = None
+    pattern: str | None = None
+    json_path: str | None = None
+    required: bool = True
+
+
+@dataclass(frozen=True)
 class LifecycleHooksConfig:
     """Container lifecycle hook handlers."""
 
+    on_container_configure: bool = False
+    pre_start: bool = False
+    post_start: bool = False
+    on_stop: bool = False
     container_args: str | None = None
-    post_start: str | None = None
-    on_stop: str | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +201,7 @@ class PackageManifest:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     egress: EgressConfig = field(default_factory=EgressConfig)
     token_replacer: list[TokenReplacerRule] = field(default_factory=list)
+    secrets: list[SecretMappingConfig] = field(default_factory=list)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     features: dict[str, FeatureConfig] = field(default_factory=dict)
     extension: ExtensionConfig = field(default_factory=ExtensionConfig)
@@ -292,6 +312,30 @@ def _parse_token_replacers(tr_data: Any) -> list[TokenReplacerRule]:
     return tr_rules
 
 
+def _parse_secrets(secrets_data: Any) -> list[SecretMappingConfig]:
+    if not isinstance(secrets_data, list):
+        return []
+    result: list[SecretMappingConfig] = []
+    for item in secrets_data:
+        if isinstance(item, dict) and "name" in item and "keyring_account" in item and "placeholder" in item:
+            hosts_raw = item.get("hosts") or []
+            hosts = [str(h).strip() for h in hosts_raw if str(h).strip()] if isinstance(hosts_raw, list) else []
+            result.append(
+                SecretMappingConfig(
+                    name=str(item["name"]),
+                    keyring_account=str(item["keyring_account"]),
+                    placeholder=str(item["placeholder"]),
+                    hosts=hosts,
+                    keyring_service=str(item.get("keyring_service", "pa-container")),
+                    header=str(item["header"]) if item.get("header") else None,
+                    pattern=str(item["pattern"]) if item.get("pattern") else None,
+                    json_path=str(item["json_path"]) if item.get("json_path") else None,
+                    required=bool(item.get("required", True)),
+                )
+            )
+    return result
+
+
 def _parse_verification(ver_data: dict[str, Any]) -> VerificationConfig:
     return VerificationConfig(
         command=str(ver_data.get("command", "")),
@@ -346,7 +390,13 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
     ext_data = data.get("extension") or {}
     commands: list[CLICommandExtension] = []
     flags: list[CLIFlagExtension] = []
+    entrypoint: str | None = None
+    driver_class: str | None = None
     if isinstance(ext_data, dict):
+        if "entrypoint" in ext_data and ext_data["entrypoint"]:
+            entrypoint = str(ext_data["entrypoint"]).strip()
+        if "driver_class" in ext_data and ext_data["driver_class"]:
+            driver_class = str(ext_data["driver_class"]).strip()
         for cmd_raw in ext_data.get("commands") or []:
             if isinstance(cmd_raw, dict) and "name" in cmd_raw:
                 commands.append(
@@ -367,18 +417,27 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
                     )
                 )
     extension = ExtensionConfig(
+        entrypoint=entrypoint,
+        driver_class=driver_class,
         commands=commands,
         flags=flags,
         config_key=str(ext_data.get("config_key", "")),
     )
 
-    # Hooks
-    hooks_data = data.get("hooks") or {}
+    # Lifecycle & Hooks
+    lifecycle_data = data.get("lifecycle") or {}
+    hooks_data = (lifecycle_data.get("hooks") or data.get("hooks") or {}) if isinstance(lifecycle_data, dict) else {}
+    if not isinstance(hooks_data, dict):
+        hooks_data = {}
     hooks = LifecycleHooksConfig(
-        container_args=hooks_data.get("container_args"),
-        post_start=hooks_data.get("post_start"),
-        on_stop=hooks_data.get("on_stop"),
+        on_container_configure=bool(hooks_data.get("on_container_configure", False)),
+        pre_start=bool(hooks_data.get("pre_start", False)),
+        post_start=bool(hooks_data.get("post_start", False)),
+        on_stop=bool(hooks_data.get("on_stop", False)),
+        container_args=str(hooks_data["container_args"]) if isinstance(hooks_data.get("container_args"), str) else None,
     )
+
+    secrets = _parse_secrets(data.get("secrets") or [])
 
     # Integration
     int_data = data.get("integration") or {}
@@ -403,6 +462,7 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         runtime=runtime,
         egress=egress,
         token_replacer=tr_rules,
+        secrets=secrets,
         verification=verification,
         features=features,
         extension=extension,

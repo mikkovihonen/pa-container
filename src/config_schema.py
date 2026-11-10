@@ -39,16 +39,19 @@ from packages import discover_packages
 
 
 def _validate_packages(data: dict[str, Any]) -> list[str]:
-    """Validate packages list against discovered Agent Capability Packages."""
+    """Validate packages list against discovered Agent Capability Packages and ensure at least one agent package."""
     errors: list[str] = []
     packages_list = data.get("packages")
     if packages_list is None:
+        errors.append("  packages: required field missing")
         return errors
     if not isinstance(packages_list, list):
         errors.append(f"  packages: expected list, got {type(packages_list).__name__} (value: {packages_list!r})")
         return errors
 
-    available_packages = set(discover_packages().keys())
+    manifests = discover_packages()
+    available_packages = set(manifests.keys())
+    agent_packages_count = 0
     for item in packages_list:
         if not isinstance(item, str):
             errors.append(f"  packages: expected string package name, got {type(item).__name__} (value: {item!r})")
@@ -56,6 +59,15 @@ def _validate_packages(data: dict[str, Any]) -> list[str]:
             errors.append(
                 f"  packages: unknown package '{item}'. Available packages: {', '.join(sorted(available_packages))}"
             )
+        else:
+            if manifests[item].category == "agents":
+                agent_packages_count += 1
+
+    if agent_packages_count == 0:
+        errors.append(
+            "  packages: configuration must include at least one agent package (category: 'agents'), "
+            "e.g. 'pi', 'opencode', 'antigravity', 'claude-code'"
+        )
     return errors
 
 

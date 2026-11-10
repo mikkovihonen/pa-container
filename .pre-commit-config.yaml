@@ -24,6 +24,13 @@ repos:
         types: [python]
         pass_filenames: false
 
+      - id: mypy-packages
+        name: mypy-packages
+        entry: uv run --project . python3 scripts/check_packages_mypy.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
       - id: pytest
         name: pytest
         entry: uv run --project . --group src --group proxy pytest

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from collections.abc import Sequence
 import contextlib
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -11,6 +9,11 @@ import pathlib
 import re
 import sys
 import zipfile
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def extract_antigravity_credentials(
@@ -154,7 +157,7 @@ def sync_antigravity(
         with contextlib.suppress(Exception):
             cache_data = json.loads(cache_file.read_text(encoding="utf-8"))
 
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     cache_data.pop("message", None)
     cache_data.pop("unavailableReason", None)
     cache_data.update(

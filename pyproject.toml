@@ -59,6 +59,7 @@ testpaths = [
     "coding-agent-proxy/addons/allowlist/tests",
     "coding-agent-proxy/addons/token_replacer/tests",
     "coding-agent-proxy/addons/flow_export/tests",
+    "packages",
 ]
 markers = [
     "smoke: package smoke tests",
@@ -86,6 +87,8 @@ include = [
     "src/**/*.py",
     "coding-agent-proxy/addons/allowlist/**/*.py",
     "coding-agent-proxy/addons/token_replacer/**/*.py",
+    "packages/**/*.py",
+    "scripts/**/*.py",
 ]
 
 [tool.ruff.lint]

@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-from desktop import (
+from pa_packages.virtual_desktop.host.desktop import (
     check_desktop_health,
     get_project_desktop,
-    is_port_available,
     list_active_desktops,
     read_desktop_config,
     resolve_desktop_ports,
 )
+from pa_packages.virtual_desktop.host.plugin import VirtualDesktopPlugin
+
+from util import is_port_available
 
 
 def test_read_desktop_config_defaults(tmp_path: Path):
@@ -107,8 +106,8 @@ def test_get_project_desktop(tmp_path: Path):
 
     with (
         patch("subprocess.run") as mock_run,
-        patch("desktop.query_container_port") as mock_port,
-        patch("desktop.check_desktop_health", return_value=True),
+        patch("pa_packages.virtual_desktop.host.desktop.query_container_port") as mock_port,
+        patch("pa_packages.virtual_desktop.host.desktop.check_desktop_health", return_value=True),
         patch("project.project_key", return_value="test1234"),
     ):
         mock_run.return_value = MagicMock(returncode=0, stdout=ps_output)
@@ -139,8 +138,8 @@ def test_get_project_desktop_names_empty_fallback(tmp_path: Path):
     ps_output = json.dumps([{"Names": [], "Created": "2026-11-07T20:00:00Z"}])
     with (
         patch("subprocess.run") as mock_run,
-        patch("desktop.query_container_port", return_value=49152),
-        patch("desktop.check_desktop_health", return_value=True),
+        patch("pa_packages.virtual_desktop.host.desktop.query_container_port", return_value=49152),
+        patch("pa_packages.virtual_desktop.host.desktop.check_desktop_health", return_value=True),
         patch("project.project_key", return_value="test1234"),
     ):
         mock_run.return_value = MagicMock(returncode=0, stdout=ps_output)
@@ -173,8 +172,8 @@ def test_list_active_desktops():
 
     with (
         patch("subprocess.run") as mock_run,
-        patch("desktop.query_container_port") as mock_port,
-        patch("desktop.check_desktop_health", return_value=True),
+        patch("pa_packages.virtual_desktop.host.desktop.query_container_port") as mock_port,
+        patch("pa_packages.virtual_desktop.host.desktop.check_desktop_health", return_value=True),
     ):
         mock_run.return_value = MagicMock(returncode=0, stdout=ps_output)
 
@@ -231,14 +230,14 @@ def test_resolve_desktop_ports():
         "novnc": {"port": 6080},
         "vnc": {"port": 5900},
     }
-    with patch("desktop.is_port_available", return_value=True):
+    with patch("pa_packages.virtual_desktop.host.desktop.is_port_available", return_value=True):
         novnc_p, vnc_p = resolve_desktop_ports(cfg_explicit)
         assert novnc_p == 6080
         assert vnc_p == 5900
 
     # Case 3: Busy port fallback to ephemeral
     with (
-        patch("desktop.is_port_available", return_value=False),
+        patch("pa_packages.virtual_desktop.host.desktop.is_port_available", return_value=False),
         patch("util.get_free_port", side_effect=[60002, 50002]),
     ):
         novnc_p, vnc_p = resolve_desktop_ports(cfg_explicit)
@@ -321,15 +320,13 @@ def test_containerfile_and_entrypoint_desktop_skill_integration():
     from config import REPO_ROOT
     from images import _IMAGE_DEFINITION_FILES
 
-    # images.py tracking
-    assert "agent-desktop" in _IMAGE_DEFINITION_FILES
     assert "pi-desktop" not in _IMAGE_DEFINITION_FILES
 
-    # packages/virtual-desktop owns agent-desktop deployment
+    # packages/virtual-desktop owns agent-desktop deployment in container payload
     pkg_vd = REPO_ROOT / "packages" / "virtual-desktop"
-    assert (pkg_vd / "agent-desktop").is_file()
-    assert (pkg_vd / "build.sh").is_file()
-    assert "agent-desktop" in (pkg_vd / "build.sh").read_text()
+    assert (pkg_vd / "container" / "agent-desktop").is_file()
+    assert (pkg_vd / "container" / "build.sh").is_file()
+    assert "agent-desktop" in (pkg_vd / "container" / "build.sh").read_text()
 
     # Base Containerfile deploys skills but is decoupled from desktop
     containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
@@ -368,7 +365,7 @@ def test_desktop_exit_prevention_and_supervisor():
     assert '<action name="None"' in rc_content
 
     # 4. packages/virtual-desktop deploys labwc config and noVNC reconnect settings
-    pkg_vd_build = (REPO_ROOT / "packages" / "virtual-desktop" / "build.sh").read_text()
+    pkg_vd_build = (REPO_ROOT / "packages" / "virtual-desktop" / "container" / "build.sh").read_text()
     assert "labwc" in pkg_vd_build
     assert "mandatory.json" in pkg_vd_build
     assert '"reconnect": true' in pkg_vd_build
@@ -378,3 +375,31 @@ def test_desktop_exit_prevention_and_supervisor():
     assert "/etc/xdg/labwc/* /home/agent/.config/labwc/" in entrypoint
     assert 'kill -0 "$_labwc_pid"' in entrypoint
     assert 'kill -0 "$_wayvnc_pid"' in entrypoint
+
+
+def test_virtual_desktop_plugin(tmp_path: Path):
+    from cli import RunOptions
+    from packages.plugin import ContainerRunSpec, RunContext
+
+    pa_dir = tmp_path / ".pa-container"
+    pa_dir.mkdir(parents=True)
+    (pa_dir / "config.yaml").write_text(
+        "desktop:\n  enabled: true\n  resolution: '1280x720'\n  compositor: 'labwc'\n  open_browser: false\n"
+        "  vnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
+        "  novnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
+        "  gpu:\n    enabled: false\n"
+    )
+    plugin = VirtualDesktopPlugin(manifest=None, package_dir=Path("."), project_dir=tmp_path)  # type: ignore[arg-type]
+    spec = ContainerRunSpec()
+    ctx = RunContext(
+        project_dir=tmp_path,
+        container_name="test-agent",
+        network_name="test-net",
+        proxy_url=None,
+        is_t3_mode=False,
+        options=RunOptions(),
+        config={},  # type: ignore[arg-type]
+    )
+    plugin.on_container_configure(spec, {}, RunOptions())  # type: ignore[arg-type]
+    assert any("pa-container.desktop.enabled=true" in arg for arg in spec.extra_run_args)
+    plugin.post_start(ctx)

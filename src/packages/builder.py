@@ -31,8 +31,10 @@ def assemble_package_skill(
     manifest: PackageManifest | None = None,
 ) -> str:
     """Dynamically assemble a package SKILL.md from skill/base.md and active feature fragments."""
-    base_file = package_dir / "skill" / "base.md"
-    skill_file = package_dir / "skill" / "SKILL.md"
+    container_dir = package_dir / "container"
+    skill_dir = (container_dir / "skill") if (container_dir / "skill").is_dir() else (package_dir / "skill")
+    base_file = skill_dir / "base.md"
+    skill_file = skill_dir / "SKILL.md"
 
     base_content = ""
     if base_file.is_file():
@@ -59,10 +61,12 @@ def assemble_package_skill(
             s_frag = manifest.features[feat].skill_fragment
             if s_frag:
                 custom_frag = package_dir / s_frag
+                if not custom_frag.is_file() and (container_dir / s_frag).is_file():
+                    custom_frag = container_dir / s_frag
                 if custom_frag.is_file():
                     frag_path = custom_frag
         if frag_path is None:
-            default_frag = package_dir / "skill" / "features" / f"{feat}.md"
+            default_frag = skill_dir / "features" / f"{feat}.md"
             if default_frag.is_file():
                 frag_path = default_frag
 
@@ -92,6 +96,11 @@ def generate_package_containerfile(
     # Dynamic skill assembly
     assembled_skill = assemble_package_skill(package_dir, active_feats, manifest=manifest)
 
+    script_name = manifest.payload.script or "build.sh"
+    has_container = (package_dir / "container").is_dir()
+    copy_lines = ["COPY container/ /build/", "COPY package.yaml /build/"] if has_container else ["COPY . /build/"]
+    clean_script_name = script_name.removeprefix("container/") if has_container else script_name
+
     def _append_skill_and_metadata(builder_stage: bool = True) -> None:
         dest_prefix = "/out" if builder_stage else ""
         lines.append(f'RUN mkdir -p "{dest_prefix}/usr/local/share/pa-container/packages/{pkg_name}/skill"')
@@ -120,7 +129,7 @@ def generate_package_containerfile(
                 f"FROM {FEDORA_BASE_IMAGE} AS assembler",
                 "ENV PA_STAGE=/out",
                 "WORKDIR /build",
-                "COPY . /build/",
+                *copy_lines,
             ]
         )
         _append_skill_and_metadata(builder_stage=True)
@@ -139,7 +148,7 @@ def generate_package_containerfile(
                 "RUN microdnf install -y --nodocs curl tar gzip xz findutils shadow-utils && microdnf clean all",
                 "ENV PA_STAGE=/out",
                 "WORKDIR /build",
-                "COPY . /build/",
+                *copy_lines,
                 "RUN set -euo pipefail; \\",
                 "    mkdir -p /out/usr/local/bin; \\",
                 '    ARCH="$(uname -m)"; \\',
@@ -254,8 +263,8 @@ def generate_package_containerfile(
         lines.extend(
             [
                 "WORKDIR /build",
-                "COPY . /build/",
-                f"RUN mkdir -p /out && bash /build/{script_name}",
+                *copy_lines,
+                f"RUN mkdir -p /out && bash /build/{clean_script_name}",
             ]
         )
 

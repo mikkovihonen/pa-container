@@ -138,12 +138,17 @@ When an agent is selected:
 
 ---
 
-## Adding Custom Agent Drivers
+## Adding Custom Agent Packages
 
-New agents can be integrated into `pa-container` by creating a new `AgentDriver` subclass:
+New agents can be integrated into `pa-container` dynamically as self-contained Agent Capability Packages (ACPs) without modifying the core codebase:
 
-1. Create a driver class inheriting from `agents.base.AgentDriver`:
+1. Create the package directory under `packages/<agent-name>/` with a `package.yaml` manifest:
+    - Declare `category: "agents"` and `schema_version: "3.0.0"`.
+    - Declare `extension.entrypoint: "host.plugin:<PluginClassName>"` and `extension.driver_class: "host.driver:<DriverClassName>"`.
+    - Define in-container binary payloads, skills (`container/skill/SKILL.md`), and token mappings.
+2. In `packages/<agent-name>/host/driver.py`, create a driver inheriting from `agents.base.AgentDriver`:
     - Implement `name`, `required_packages`, `get_mounts()`, `get_command()`, and `synthesize_config()`.
-2. Register the driver in `src/agents/__init__.py`:
-    - Add the class to `_DRIVERS`.
-3. Add the capability package in `packages/<pkg>/package.yaml` and `packages/<pkg>/skill/SKILL.md`.
+3. In `packages/<agent-name>/host/plugin.py`, create a plugin inheriting from `packages.plugin.ACPAgentPlugin`:
+    - Implement `get_agent_driver(self) -> AgentDriver` returning your driver instance.
+    - Optionally declare `get_secret_mappings()` or implement container lifecycle hooks (`on_container_configure`, `post_start`).
+4. Write host-side unit tests under `packages/<agent-name>/host/tests/`. The test suite and mypy will discover and verify them automatically.

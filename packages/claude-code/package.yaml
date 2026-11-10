@@ -1,9 +1,24 @@
-schema_version: "2.0.0"
+schema_version: "3.0.0"
 name: "claude-code"
 version: "2.1.319"
 description: "Anthropic Claude Code agent executable and CLI"
 category: "agents"
 license: "Proprietary"
+
+extension:
+    entrypoint: "host.plugin:ClaudePlugin"
+    driver_class: "host.driver:ClaudeDriver"
+
+secrets:
+    - name: "Anthropic API Key"
+      keyring_service: "pa-container"
+      keyring_account: "ANTHROPIC_API_KEY"
+      placeholder: "ANTHROPIC_API_KEY_PLACEHOLDER"
+      hosts:
+          - "api.anthropic.com"
+      header: "x-api-key"
+      pattern: "ANTHROPIC_API_KEY_PLACEHOLDER"
+      required: false
 
 payload:
     type: binary_download

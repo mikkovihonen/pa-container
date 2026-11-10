@@ -1,9 +1,13 @@
-schema_version: "2.0.0"
+schema_version: "3.0.0"
 name: "pi"
 version: "1.5.0"
 description: "Native Pi coding agent (@earendil-works/pi-coding-agent)"
 category: "agents"
 license: "MIT"
+
+extension:
+    entrypoint: "host.plugin:PiPlugin"
+    driver_class: "host.driver:PiAgentDriver"
 
 payload:
     type: build_script

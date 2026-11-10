@@ -17,9 +17,6 @@ logger = get_category_logger(__name__, LogCategory.BUILD)
 _IMAGE_DEFINITION_FILES = (
     "Containerfile",
     "entrypoint.sh",
-    "agent-desktop",
-    "t3-advertise-host.cjs",
-    "t3-sync-antigravity.py",
     "t3-policy.json",
     "labwc/menu.xml",
     "labwc/rc.xml",
@@ -90,20 +87,6 @@ def resolve_project_packages(
             if isinstance(pkgs_list, list):
                 for item in pkgs_list:
                     _add_pkg_entry(item)
-            agents_sec = data.get("agents")
-            if isinstance(agents_sec, dict):
-                enabled = agents_sec.get("enabled")
-                if isinstance(enabled, list):
-                    from agents import get_agent_driver
-
-                    for ag in enabled:
-                        if isinstance(ag, str):
-                            try:
-                                drv = get_agent_driver(ag)
-                                for req in drv.required_packages:
-                                    _add_pkg_entry(req)
-                            except Exception as e:
-                                logger.debug(f"Could not resolve driver for '{ag}': {e}")
         except Exception as e:
             logger.debug(f"Could not resolve project packages from config: {e}")
 
@@ -139,10 +122,14 @@ def compute_image_hash(
     packages_map = resolve_project_packages(project_dir, extra_packages=extra_packages)
     desktop_active = False
     if (project_dir / ".pa-container" / "config.yaml").exists():
-        from desktop import read_desktop_config
+        try:
+            from packages.loader import get_package_host_module
 
-        desktop_cfg = read_desktop_config(project_dir / ".pa-container")
-        desktop_active = bool(desktop_cfg.get("enabled", False))
+            desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+            desktop_cfg = desktop_mod.read_desktop_config(project_dir / ".pa-container")
+            desktop_active = bool(desktop_cfg.get("enabled", False))
+        except Exception:
+            pass
 
     if not files_to_hash and not packages_map and not desktop_active:
         return None
@@ -227,10 +214,14 @@ def resolve_agent_image(
     """Resolve the agent container image tag for this workspace."""
     desktop_enabled = False
     if (project_dir / ".pa-container" / "config.yaml").exists():
-        from desktop import read_desktop_config
+        try:
+            from packages.loader import get_package_host_module
 
-        desktop_cfg = read_desktop_config(project_dir / ".pa-container")
-        desktop_enabled = bool(desktop_cfg.get("enabled", False))
+            desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+            desktop_cfg = desktop_mod.read_desktop_config(project_dir / ".pa-container")
+            desktop_enabled = bool(desktop_cfg.get("enabled", False))
+        except Exception:
+            pass
 
     has_deps = has_dependency_files(project_dir)
     packages = read_project_packages(project_dir, extra_packages=extra_packages)

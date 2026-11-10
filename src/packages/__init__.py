@@ -17,10 +17,22 @@ from packages.discovery import (
     get_packages_dir,
     package_to_image_tag,
 )
+from packages.loader import (
+    load_acp_plugin,
+    load_active_plugins,
+)
 from packages.manifest import (
     PackageManifest,
+    SecretMappingConfig,
     load_package_manifest,
     parse_package_manifest,
+)
+from packages.plugin import (
+    ACPAgentPlugin,
+    ACPPlugin,
+    ContainerRunSpec,
+    RunContext,
+    SecretTokenMapping,
 )
 from packages.projection import (
     aggregate_egress_hosts,
@@ -39,8 +51,16 @@ from packages.verification import (
 
 __all__ = [
     "PackageManifest",
+    "SecretMappingConfig",
     "load_package_manifest",
     "parse_package_manifest",
+    "ACPPlugin",
+    "ACPAgentPlugin",
+    "ContainerRunSpec",
+    "RunContext",
+    "SecretTokenMapping",
+    "load_acp_plugin",
+    "load_active_plugins",
     "discover_packages",
     "get_packages_dir",
     "get_package_dir",

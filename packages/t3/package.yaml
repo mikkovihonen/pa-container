@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "3.0.0"
 name: "t3"
 version: "0.1.7"
 description: "T3 Code server and collaborative multi-agent web interface"
@@ -25,6 +25,9 @@ skill:
 runtime:
     dependencies:
         - "node"
+
+extension:
+    entrypoint: "host.plugin:T3Plugin"
 
 verification:
     command: "t3 --version"

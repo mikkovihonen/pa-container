@@ -441,18 +441,20 @@ class TestT3LaunchConfiguration:
     def test_t3_settings_and_policy_synthesis(self, tmp_path):
         import json
 
-        from agents import (
-            AntigravityDriver,
-            ClaudeDriver,
-            OpenCodeDriver,
-            PiAgentDriver,
+        from pa_packages.t3.host.t3 import (
             synthesize_t3_policy,
             synthesize_t3_settings,
         )
 
+        from agents import get_agent_driver
+
         t3_dir = tmp_path / "t3"
-        drivers = [PiAgentDriver(), OpenCodeDriver(), ClaudeDriver(), AntigravityDriver()]
-        active = OpenCodeDriver()
+        pi = get_agent_driver("pi")
+        opencode = get_agent_driver("opencode")
+        claude = get_agent_driver("claude-code")
+        antigravity = get_agent_driver("antigravity")
+        drivers = [pi, opencode, claude, antigravity]
+        active = opencode
 
         settings_path = synthesize_t3_settings(t3_dir, active, drivers)
         assert settings_path.is_file()
@@ -492,18 +494,22 @@ class TestT3LaunchConfiguration:
     def test_t3_single_agent_synthesis_disables_unselected(self, tmp_path):
         import json
 
-        from agents import OpenCodeDriver, PiAgentDriver, synthesize_t3_policy, synthesize_t3_settings
+        from pa_packages.t3.host.t3 import synthesize_t3_policy, synthesize_t3_settings
+
+        from agents import get_agent_driver
 
         t3_dir = tmp_path / "t3"
+        opencode = get_agent_driver("opencode")
+        pi = get_agent_driver("pi")
         # Initial run with both opencode and pi
-        synthesize_t3_settings(t3_dir, OpenCodeDriver(), [OpenCodeDriver(), PiAgentDriver()])
+        synthesize_t3_settings(t3_dir, opencode, [opencode, pi])
         # Subsequent run with only opencode
-        settings_path = synthesize_t3_settings(t3_dir, OpenCodeDriver(), [OpenCodeDriver()])
+        settings_path = synthesize_t3_settings(t3_dir, opencode, [opencode])
         settings = json.loads(settings_path.read_text())
         assert settings["providerInstances"]["opencode"]["enabled"] is True
         assert settings["providerInstances"]["pi"]["enabled"] is False
 
-        policy_path = synthesize_t3_policy(t3_dir, [OpenCodeDriver()])
+        policy_path = synthesize_t3_policy(t3_dir, [opencode])
         policy = json.loads(policy_path.read_text())
         assert policy["limits"]["providers"]["allowedDrivers"] == ["opencode"]
 
@@ -586,7 +592,7 @@ class TestT3AdvertiseHostResolution:
         t3_dir = pa_container_dir / "t3"
         t3_dir.mkdir(parents=True, exist_ok=True)
         t3_mounts = ["--volume", f"{t3_dir}:/home/agent/.t3"]
-        sync_src = REPO_ROOT / "coding-agent" / "t3-sync-antigravity.py"
+        sync_src = REPO_ROOT / "packages" / "t3" / "container" / "bin" / "t3-sync-antigravity.py"
         if sync_src.exists():
             t3_mounts.extend(["--volume", f"{sync_src}:/usr/local/share/pa-container/t3-sync-antigravity.py:ro"])
         assert f"{sync_src}:/usr/local/share/pa-container/t3-sync-antigravity.py:ro" in t3_mounts
@@ -782,7 +788,7 @@ class TestT3AdvertiseHostResolution:
 
         from config import REPO_ROOT
 
-        shim_path = REPO_ROOT / "coding-agent" / "t3-advertise-host.cjs"
+        shim_path = REPO_ROOT / "packages" / "t3" / "container" / "bin" / "t3-advertise-host.cjs"
         node_script = f"""
         process.env.T3_PUBLIC_URL = "https://rick-symbols-trains-radar.trycloudflare.com";
         process.env.T3_ADVERTISE_HOST = "rick-symbols-trains-radar.trycloudflare.com";
@@ -813,7 +819,7 @@ class TestT3AdvertiseHostResolution:
         """Verify that driver.required_packages property is accessed without being called as a function."""
         from agents import get_agent_driver
 
-        for agent_name in ("pi", "opencode", "antigravity", "claude"):
+        for agent_name in ("pi", "opencode", "antigravity", "claude-code"):
             driver = get_agent_driver(agent_name)
             packages = driver.required_packages
             assert isinstance(packages, list)
@@ -825,9 +831,9 @@ class TestT3AdvertiseHostResolution:
 
         pa_dir = tmp_path / ".pa-container"
         pa_dir.mkdir(parents=True)
-        (pa_dir / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["claude"]}}))
+        (pa_dir / "config.yaml").write_text(yaml.dump({"packages": ["claude-code"]}))
         enabled = read_enabled_agents(pa_dir)
-        assert enabled == ["claude"]
+        assert enabled == ["claude-code"]
         assert "pi" not in enabled
 
     def test_run_cleanup_orphaned_agent_containers_called(self, monkeypatch):
@@ -968,7 +974,6 @@ class TestExecuteRunFatalErrors:
         monkeypatch.setattr(run, "validate_mount_paths", lambda m, b: [])
         monkeypatch.setattr(run, "read_enabled_agents", lambda d: ["pi"])
         monkeypatch.setattr(run, "read_default_agent", lambda d: "pi")
-        monkeypatch.setattr(run, "read_desktop_config", lambda d: {"enabled": False})
         mock_driver_obj = MagicMock()
         mock_driver_obj.get_sessions_dir.return_value = tmp_path / "sessions"
         monkeypatch.setattr(run, "get_agent_driver", lambda t: mock_driver_obj)
@@ -1024,7 +1029,6 @@ class TestExecuteRunFatalErrors:
         monkeypatch.setattr(run, "resolve_source_control_tokens", lambda d, **kw: {})
         monkeypatch.setattr(run, "read_enabled_agents", lambda d: ["pi"])
         monkeypatch.setattr(run, "read_default_agent", lambda d: "pi")
-        monkeypatch.setattr(run, "read_desktop_config", lambda d: {"enabled": False})
         mock_driver_obj = MagicMock()
         mock_driver_obj.get_sessions_dir.return_value = tmp_path / "sessions"
         monkeypatch.setattr(run, "get_agent_driver", lambda t: mock_driver_obj)

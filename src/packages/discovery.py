@@ -74,14 +74,19 @@ def compute_package_hash(
     if features:
         hasher.update(f"features:{','.join(sorted(features))}".encode())
 
-    # Deterministically walk all regular files in the package directory
+    # Deterministically walk all regular files in the package directory affecting container image
     for file_path in sorted(pkg_dir.rglob("*")):
-        if file_path.is_file() and not file_path.name.startswith("."):
-            rel_path = file_path.relative_to(pkg_dir)
-            hasher.update(str(rel_path).encode())
-            try:
-                hasher.update(file_path.read_bytes())
-            except OSError as e:
-                logger.warning(f"Could not read package file {file_path} for hashing: {e}")
+        if not file_path.is_file() or file_path.name.startswith("."):
+            continue
+        rel_path = file_path.relative_to(pkg_dir)
+        parts = rel_path.parts
+        # Host Python code and tests do not affect container image layers
+        if "host" in parts or "__pycache__" in parts:
+            continue
+        hasher.update(str(rel_path).encode())
+        try:
+            hasher.update(file_path.read_bytes())
+        except OSError as e:
+            logger.warning(f"Could not read package file {file_path} for hashing: {e}")
 
     return hasher.hexdigest()[:16]

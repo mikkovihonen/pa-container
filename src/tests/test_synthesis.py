@@ -248,15 +248,13 @@ def test_gateway_auth_enforcement_and_multi_instance(tmp_path: Path):
 
 
 def test_agent_drivers_placeholder_synchronization(tmp_path: Path):
-    from agents.antigravity_driver import AntigravityDriver
-    from agents.claude_driver import ClaudeDriver
-    from agents.opencode_driver import OpenCodeDriver
+    from agents import get_agent_driver
 
-    claude = ClaudeDriver()
+    claude = get_agent_driver("claude-code")
     assert claude.get_environment()["ANTHROPIC_API_KEY"] == "ANTHROPIC_API_KEY_PLACEHOLDER"
 
-    antigravity = AntigravityDriver()
+    antigravity = get_agent_driver("antigravity")
     assert antigravity.get_environment()["GEMINI_API_KEY"] == "GEMINI_API_KEY_PLACEHOLDER"
 
-    opencode = OpenCodeDriver()
+    opencode = get_agent_driver("opencode")
     assert opencode.get_environment() == {}

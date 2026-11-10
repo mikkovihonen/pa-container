@@ -1,9 +1,13 @@
-schema_version: "2.0.0"
+schema_version: "3.0.0"
 name: "opencode"
 version: "2.2.5"
 description: "OpenCode AI coding agent and developer assistant CLI"
 category: "agents"
 license: "MIT"
+
+extension:
+    entrypoint: "host.plugin:OpenCodePlugin"
+    driver_class: "host.driver:OpenCodeDriver"
 
 payload:
     type: binary_download

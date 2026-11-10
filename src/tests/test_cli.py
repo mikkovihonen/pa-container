@@ -713,7 +713,10 @@ class TestDesktopCli:
             assert "The 'desktop' subcommand requires the 'virtual-desktop' capability package" in output
 
     def test_desktop_active_project(self, tmp_path: Path, monkeypatch) -> None:
-        from desktop import ActiveDesktopInfo
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         cfg_dir = tmp_path / ".pa-container"
@@ -733,7 +736,7 @@ class TestDesktopCli:
             created_at="2026-11-07T12:00:00Z",
         )
         with (
-            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
             patch("rich.console.Console.print") as mock_print,
         ):
             code = handle_desktop_command(DesktopOptions())
@@ -744,12 +747,16 @@ class TestDesktopCli:
             assert "5900" in output
 
     def test_desktop_inactive_project(self, tmp_path: Path, monkeypatch) -> None:
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         cfg_dir = tmp_path / ".pa-container"
         cfg_dir.mkdir()
         (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         with (
-            patch("desktop.get_project_desktop", return_value=None),
+            patch.object(desktop_mod, "get_project_desktop", return_value=None),
             patch("rich.console.Console.print") as mock_print,
         ):
             code = handle_desktop_command(DesktopOptions())
@@ -758,7 +765,10 @@ class TestDesktopCli:
             assert "No active virtual desktop running" in output
 
     def test_desktop_url_flag(self, tmp_path: Path, monkeypatch) -> None:
-        from desktop import ActiveDesktopInfo
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         cfg_dir = tmp_path / ".pa-container"
@@ -778,7 +788,7 @@ class TestDesktopCli:
             created_at="2026-11-07T12:00:00Z",
         )
         with (
-            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
             patch("rich.console.Console.print") as mock_print,
         ):
             code = handle_desktop_command(DesktopOptions(url=True))
@@ -786,7 +796,10 @@ class TestDesktopCli:
             mock_print.assert_called_once_with("http://127.0.0.1:6080")
 
     def test_desktop_vnc_flag(self, tmp_path: Path, monkeypatch) -> None:
-        from desktop import ActiveDesktopInfo
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         cfg_dir = tmp_path / ".pa-container"
@@ -806,7 +819,7 @@ class TestDesktopCli:
             created_at="2026-11-07T12:00:00Z",
         )
         with (
-            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
             patch("rich.console.Console.print") as mock_print,
         ):
             code = handle_desktop_command(DesktopOptions(vnc=True))
@@ -816,7 +829,10 @@ class TestDesktopCli:
     def test_desktop_json_flag(self, tmp_path: Path, monkeypatch) -> None:
         import json
 
-        from desktop import ActiveDesktopInfo
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         cfg_dir = tmp_path / ".pa-container"
@@ -836,7 +852,7 @@ class TestDesktopCli:
             created_at="2026-11-07T12:00:00Z",
         )
         with (
-            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
             patch("rich.console.Console.print") as mock_print,
         ):
             code = handle_desktop_command(DesktopOptions(json=True))
@@ -848,7 +864,10 @@ class TestDesktopCli:
             assert data["vnc_port"] == 5900
 
     def test_desktop_open_flag(self, tmp_path: Path, monkeypatch) -> None:
-        from desktop import ActiveDesktopInfo
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         cfg_dir = tmp_path / ".pa-container"
@@ -868,7 +887,7 @@ class TestDesktopCli:
             created_at="2026-11-07T12:00:00Z",
         )
         with (
-            patch("desktop.get_project_desktop", return_value=fake_desktop),
+            patch.object(desktop_mod, "get_project_desktop", return_value=fake_desktop),
             patch("webbrowser.open") as mock_open,
             patch("rich.console.Console.print"),
         ):
@@ -877,9 +896,13 @@ class TestDesktopCli:
             mock_open.assert_called_once_with("http://127.0.0.1:6080")
 
     def test_desktop_all_empty(self, tmp_path: Path, monkeypatch) -> None:
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         with (
-            patch("desktop.list_active_desktops", return_value=[]),
+            patch.object(desktop_mod, "list_active_desktops", return_value=[]),
             patch("rich.console.Console.print") as mock_print,
         ):
             code = handle_desktop_command(DesktopOptions(all=True))
@@ -889,7 +912,10 @@ class TestDesktopCli:
             )
 
     def test_desktop_all_with_desktops(self, tmp_path: Path, monkeypatch) -> None:
-        from desktop import ActiveDesktopInfo
+        from packages.loader import get_package_host_module
+
+        desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+        ActiveDesktopInfo = desktop_mod.ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
         desktops = [
@@ -921,7 +947,7 @@ class TestDesktopCli:
             ),
         ]
         with (
-            patch("desktop.list_active_desktops", return_value=desktops),
+            patch.object(desktop_mod, "list_active_desktops", return_value=desktops),
             patch("rich.console.Console.print") as mock_print,
         ):
             code = handle_desktop_command(DesktopOptions(all=True))

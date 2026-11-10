@@ -1,9 +1,24 @@
-schema_version: "2.0.0"
+schema_version: "3.0.0"
 name: "antigravity"
 version: "1.5.2"
 description: "Google Antigravity agent CLI (agy) and T3 ACP runtime"
 category: "agents"
 license: "Proprietary"
+
+extension:
+    entrypoint: "host.plugin:AntigravityPlugin"
+    driver_class: "host.driver:AntigravityDriver"
+
+secrets:
+    - name: "Gemini API Key"
+      keyring_service: "pa-container"
+      keyring_account: "GEMINI_API_KEY"
+      placeholder: "GEMINI_API_KEY_PLACEHOLDER"
+      hosts:
+          - "generativelanguage.googleapis.com"
+      header: "x-goog-api-key"
+      pattern: "GEMINI_API_KEY_PLACEHOLDER"
+      required: false
 
 payload:
     type: build_script

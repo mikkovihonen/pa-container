@@ -71,17 +71,10 @@ desktop:
 
 # Agent Capability Packages to include in the agent container.
 # Core baseline (Python 3.15, Node 26, Podman 6) is always included.
-packages: []
-
-# Supported AI coding agent engines for this workspace.
-# At least one agent must be enabled.
-# Supported agents: pi, opencode, antigravity, claude
-agents:
-  # List of coding agents enabled for this workspace (at least one required).
-  enabled:
-    - pi
-  # Default active agent when --agent is omitted on the CLI.
-  default: pi
+# At least one package of category 'agents' must be included (e.g. pi, opencode, antigravity, claude-code).
+# The first agent package listed acts as the workspace default agent runtime.
+packages:
+  - pi
 
 # Extra agent-container options (rarely needed).
 agent:

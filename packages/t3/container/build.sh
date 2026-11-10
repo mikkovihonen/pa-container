@@ -30,3 +30,10 @@ rm -f "/tmp/${t3_tarball}"
 
 mkdir -p "${PA_STAGE}/usr/local/bin"
 ln -sf ../lib/t3/t3 "${PA_STAGE}/usr/local/bin/t3"
+
+if [ -d /build/bin ]; then
+    mkdir -p "${PA_STAGE}/usr/local/share/pa-container"
+    cp -a /build/bin/* "${PA_STAGE}/usr/local/share/pa-container/"
+fi
+
+stage_record "t3" "${T3_VERSION}"

@@ -267,3 +267,10 @@ class PodmanRuntime:
 
         logger.info(f"Falling back to {self.HOST_INTERNAL_FALLBACK_IP} for llama host address")
         return self.HOST_INTERNAL_FALLBACK_IP
+
+
+def get_runtime(runtime: str | None = None) -> PodmanRuntime:
+    """Return runtime implementation instance."""
+    from config import PROXY_UPSTREAM_NETWORK_ENV
+
+    return PodmanRuntime(upstream_network=PROXY_UPSTREAM_NETWORK_ENV)

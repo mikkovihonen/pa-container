@@ -1599,7 +1599,7 @@ class TestReadAgentsConfig:
         from network import read_enabled_agents
 
         (tmp_path / "config.yaml").write_text("{}\n")
-        with pytest.raises(ValueError, match="Missing required 'agents.enabled'"):
+        with pytest.raises(ValueError, match="Missing or invalid 'packages'"):
             read_enabled_agents(tmp_path)
 
     def test_read_enabled_agents_explicit(self, tmp_path):
@@ -1607,33 +1607,31 @@ class TestReadAgentsConfig:
 
         from network import read_enabled_agents
 
-        (tmp_path / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["opencode", "claude"]}}))
-        assert read_enabled_agents(tmp_path) == ["opencode", "claude"]
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["opencode", "claude-code"]}))
+        assert read_enabled_agents(tmp_path) == ["opencode", "claude-code"]
 
     def test_read_default_agent_with_default(self, tmp_path):
         import yaml
 
         from network import read_default_agent
 
-        (tmp_path / "config.yaml").write_text(
-            yaml.dump({"agents": {"enabled": ["pi", "opencode"], "default": "opencode"}})
-        )
-        assert read_default_agent(tmp_path) == "opencode"
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["pi", "opencode"]}))
+        assert read_default_agent(tmp_path) == "pi"
 
     def test_read_default_agent_missing_raises(self, tmp_path):
         import yaml
 
         from network import read_default_agent
 
-        (tmp_path / "config.yaml").write_text(yaml.dump({"agents": {"enabled": ["claude", "pi"]}}))
-        with pytest.raises(ValueError, match="Missing required 'agents.default'"):
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["gh"]}))
+        with pytest.raises(ValueError, match="No agent package configured in 'packages'"):
             read_default_agent(tmp_path)
 
     def test_read_default_agent_empty_config_raises(self, tmp_path):
         from network import read_default_agent
 
         (tmp_path / "config.yaml").write_text("{}\n")
-        with pytest.raises(ValueError, match="Missing required 'agents.default'"):
+        with pytest.raises(ValueError, match="Missing or invalid 'packages'"):
             read_default_agent(tmp_path)
 
 

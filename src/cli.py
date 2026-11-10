@@ -847,7 +847,11 @@ def handle_desktop_command(options: DesktopOptions) -> int:
     import json as json_module
     import webbrowser
 
-    from desktop import get_project_desktop, list_active_desktops
+    from packages.loader import get_package_host_module
+
+    desktop_mod = get_package_host_module("virtual-desktop", "desktop")
+    get_project_desktop = desktop_mod.get_project_desktop
+    list_active_desktops = desktop_mod.list_active_desktops
 
     console = Console(no_color=options.no_color)
     is_in_project = (PROJECT_DIR / ".pa-container").exists() or (PROJECT_DIR / "config.yaml").exists()
@@ -1110,8 +1114,44 @@ def handle_init_command(options: InitOptions) -> int:
         return 1
 
 
+def _check_unconfigured_command_remediation(argv: Sequence[str] | None) -> None:
+    """Check if the invoked subcommand is provided by an unconfigured package and suggest remediation."""
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if not args_list:
+        return
+    candidate = args_list[0].strip().lower()
+    if candidate.startswith("-"):
+        return
+    builtins = {"init", "run", "logs", "proxy", "clean", "test", "help"}
+    if candidate in builtins:
+        return
+
+    from images import read_project_packages
+    from packages.discovery import discover_packages
+
+    try:
+        active_pkgs = read_project_packages(PROJECT_DIR)
+    except Exception:
+        active_pkgs = []
+
+    manifests = discover_packages()
+    for pkg_name, manifest in manifests.items():
+        if manifest.extension and manifest.extension.commands:
+            for ext_cmd in manifest.extension.commands:
+                if ext_cmd.name == candidate and pkg_name not in active_pkgs and "--all" not in args_list:
+                    console = Console()
+                    console.print(
+                        f"[bold red]Error:[/bold red] The '{candidate}' subcommand requires the '{pkg_name}' capability package, but it is not enabled in .pa-container/config.yaml.\n\n"
+                        f"To enable this capability, add '{pkg_name}' to the 'packages:' list in your .pa-container/config.yaml:\n"
+                        "    packages:\n"
+                        f"        - {pkg_name}"
+                    )
+                    sys.exit(1)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Unified CLI dispatcher."""
+    _check_unconfigured_command_remediation(argv)
     try:
         cmd, options = parse_cli_args(argv)
         if not cmd:

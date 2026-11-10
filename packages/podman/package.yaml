@@ -1,4 +1,4 @@
-schema_version: "2.1.0"
+schema_version: "3.0.0"
 name: "podman"
 version: "6.1.4"
 description: "Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, podman-compose, and Docker CLI wrapper"
@@ -69,6 +69,7 @@ runtime:
         CONTAINERS_CONF: "/etc/containers/containers.conf.d/50-pa-container.conf"
 
 extension:
+    entrypoint: "host.plugin:PodmanPlugin"
     flags:
         - name: "--nested-containers"
           type: "bool"
