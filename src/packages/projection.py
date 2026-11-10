@@ -50,13 +50,23 @@ def aggregate_token_replacers(manifests: list[PackageManifest]) -> list[dict[str
         for r in m.token_replacer:
             if r.name not in seen_names:
                 seen_names.add(r.name)
+                hostnames = (
+                    list(r.hostnames)
+                    if r.hostnames
+                    else (list(m.egress.allow_hosts) if m.egress.allow_hosts else ["*"])
+                )
                 rule_dict: dict[str, Any] = {
                     "name": r.name,
-                    "pattern": r.pattern,
-                    "replacement": r.replacement,
+                    "hostnames": hostnames,
+                    "content_patterns": [dict(cp) for cp in r.content_patterns],
+                    "replace_with": dict(r.replace_with),
                 }
                 if r.header:
                     rule_dict["header"] = r.header
+                if r.pattern:
+                    rule_dict["pattern"] = r.pattern
+                if r.replacement:
+                    rule_dict["replacement"] = r.replacement
                 rules.append(rule_dict)
     return rules
 

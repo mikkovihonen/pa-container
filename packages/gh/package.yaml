@@ -42,13 +42,27 @@ egress:
 
 token_replacer:
     - name: "github-token"
-      header: "Authorization"
-      pattern: "token (ghp_[A-Za-z0-9_]{36})"
-      replacement: "token [REDACTED_GH_TOKEN]"
+      hostnames:
+          - "api.github.com"
+          - "*.github.com"
+      content_patterns:
+          - field: "headers"
+            header_name: "Authorization"
+            regex: "token (ghp_[A-Za-z0-9_]{36})"
+      replace_with:
+          strategy: "static"
+          value: "token [REDACTED_GH_TOKEN]"
     - name: "github-bearer"
-      header: "Authorization"
-      pattern: "Bearer (gho_[A-Za-z0-9_]{36})"
-      replacement: "Bearer [REDACTED_GH_OAUTH]"
+      hostnames:
+          - "api.github.com"
+          - "*.github.com"
+      content_patterns:
+          - field: "headers"
+            header_name: "Authorization"
+            regex: "Bearer (gho_[A-Za-z0-9_]{36})"
+      replace_with:
+          strategy: "static"
+          value: "Bearer [REDACTED_GH_OAUTH]"
 
 verification:
     command: "gh --version"

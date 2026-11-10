@@ -709,22 +709,13 @@ class ContainerNetworkManager:
 
                 pkg_tokens = aggregate_token_replacers(active_manifests)
                 for pt in pkg_tokens:
-                    r_dict: dict[str, Any] = {
+                    rule_entry: dict[str, Any] = {
                         "name": pt["name"],
-                        "mode": "allow",
-                        "replace_with": {
-                            "value": pt["replacement"] or f"${{ENV:{pt['name'].upper().replace('-', '_')}}}"
-                        },
+                        "hostnames": list(pt.get("hostnames") or ["*"]),
+                        "content_patterns": [dict(cp) for cp in pt.get("content_patterns") or []],
+                        "replace_with": dict(pt.get("replace_with") or {"strategy": "static", "value": "REDACTED"}),
                     }
-                    if pt.get("header"):
-                        r_dict["headers"] = {
-                            pt["header"]: pt["pattern"] or ".*",
-                        }
-                    if pt.get("pattern") and not pt.get("header"):
-                        r_dict["content_patterns"] = [
-                            {"regex": pt["pattern"]},
-                        ]
-                    effective_replacer["rules"].append(r_dict)
+                    effective_replacer["rules"].append(rule_entry)
             except Exception as e:
                 logger.debug(f"Could not aggregate package token replacers: {e}")
 

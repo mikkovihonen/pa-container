@@ -143,6 +143,10 @@ def test_projection_helpers():
     tokens = aggregate_token_replacers(active_manifests)
     token_names = [t["name"] for t in tokens]
     assert "github-token" in token_names
+    gh_token = next(t for t in tokens if t["name"] == "github-token")
+    assert gh_token["replace_with"]["strategy"] == "static"
+    assert gh_token["content_patterns"][0]["field"] == "headers"
+    assert gh_token["content_patterns"][0]["header_name"] == "Authorization"
 
     privileges = aggregate_runtime_privileges(active_manifests)
     assert privileges["nested_containers"] is True

@@ -85,6 +85,9 @@ class TokenReplacerRule:
     """Sensitive token redaction rule for proxy inspection."""
 
     name: str
+    hostnames: list[str] = field(default_factory=list)
+    content_patterns: list[dict[str, Any]] = field(default_factory=list)
+    replace_with: dict[str, str] = field(default_factory=dict)
     header: str | None = None
     pattern: str = ""
     replacement: str = ""
@@ -203,12 +206,34 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
     if isinstance(rules_raw, list):
         for r in rules_raw:
             if isinstance(r, dict):
+                hostnames = list(r.get("hostnames") or [])
+                content_patterns = [dict(cp) for cp in r.get("content_patterns") or [] if isinstance(cp, dict)]
+                replace_with = dict(r.get("replace_with") or {})
+                header = r.get("header")
+                pattern = str(r.get("pattern", ""))
+                replacement = str(r.get("replacement", ""))
+
+                if not content_patterns:
+                    if header:
+                        content_patterns = [{"field": "headers", "header_name": header, "regex": pattern or ".*"}]
+                    elif pattern:
+                        content_patterns = [{"field": "body.raw", "regex": pattern}]
+
+                if not replace_with:
+                    replace_with = {
+                        "strategy": "static",
+                        "value": replacement or f"${{ENV:{str(r.get('name', '')).upper().replace('-', '_')}}}",
+                    }
+
                 tr_rules.append(
                     TokenReplacerRule(
                         name=str(r.get("name", "")),
-                        header=r.get("header"),
-                        pattern=str(r.get("pattern", "")),
-                        replacement=str(r.get("replacement", "")),
+                        hostnames=hostnames,
+                        content_patterns=content_patterns,
+                        replace_with=replace_with,
+                        header=header,
+                        pattern=pattern,
+                        replacement=replacement,
                     )
                 )
 

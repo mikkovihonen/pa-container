@@ -1002,6 +1002,14 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             )
             final_container_argv = agent_driver.get_command(container_argv)
 
+            active_devices: list[str] = []
+            for dev in agent_extras["devices"]:
+                host_dev = dev.split(":")[0]
+                if Path(host_dev).exists():
+                    active_devices.append(dev)
+                else:
+                    logger.debug(f"Device '{dev}' does not exist on host; skipping.")
+
             PA_CONTAINER_cmd = [
                 CONTAINER_RUNTIME,
                 "run",
@@ -1083,7 +1091,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 *[flag for k, v in {**sc_tokens, **agent_extras["env"]}.items() for flag in ("--env", f"{k}={v}")],
                 *[flag for m in agent_extras["mounts"] for flag in ("--volume", m)],
                 *[flag for c in agent_extras["capabilities"] for flag in ("--cap-add", c)],
-                *[flag for d in agent_extras["devices"] for flag in ("--device", d)],
+                *[flag for d in active_devices for flag in ("--device", d)],
                 *resource_limit_args(read_resource_limits(pa_container_dir, "agent")),
                 agent_image_tag,
                 *final_container_argv,
