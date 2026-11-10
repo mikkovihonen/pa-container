@@ -10,7 +10,6 @@ RUN microdnf install -y --nodocs \
     git \
     gzip \
     iproute \
-    jq \
     libatomic \
     libstdc++ \
     ncurses \
@@ -21,46 +20,8 @@ RUN microdnf install -y --nodocs \
     tar \
     unzip \
     util-linux \
-    wget \
     xz \
     jemalloc \
-    # Runtime libraries for building native Python wheels & C extensions
-    bzip2-devel \
-    glibc-devel \
-    libffi-devel \
-    libseccomp-devel \
-    sqlite-devel \
-    libzstd-devel \
-    zlib-devel \
-    # Container virtualization stack for rootless nested containers
-    crun \
-    conmon \
-    catatonit \
-    fuse-overlayfs \
-    libcap \
-    nftables \
-    iptables-nft \
-    pasta \
-    shadow-utils-subid \
-    # Headless browser runtime libraries
-    alsa-lib \
-    at-spi2-atk \
-    at-spi2-core \
-    atk \
-    cairo \
-    cups-libs \
-    dbus-libs \
-    libX11 \
-    libXcomposite \
-    libXdamage \
-    libXext \
-    libXfixes \
-    libXrandr \
-    libxkbcommon \
-    mesa-libgbm \
-    nspr \
-    nss \
-    pango \
  && microdnf clean all
 
 # gosu for stepping down from root in entrypoint
@@ -76,37 +37,6 @@ RUN mkdir -p /etc/pki/ca-trust/source/anchors /usr/local/share/ca-certificates/e
 COPY --from=pa-container-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /etc/pki/ca-trust/source/anchors/mitmproxy-ca-cert.crt
 RUN cp /etc/pki/ca-trust/source/anchors/mitmproxy-ca-cert.crt /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt \
  && update-ca-trust extract
-
-# Headless Wayland desktop & GUI support (optional, enabled when WITH_DESKTOP=true)
-ARG WITH_DESKTOP=false
-RUN if [ "${WITH_DESKTOP}" = "true" ]; then \
-        microdnf install -y --nodocs \
-            labwc \
-            xorg-x11-server-Xwayland \
-            wlr-randr \
-            wayvnc \
-            grim \
-            slurp \
-            novnc \
-            python3-websockify \
-            mesa-dri-drivers \
-            mesa-libGL \
-            mesa-libEGL \
-            mesa-libGLES \
-            mesa-libgbm \
-            dejavu-sans-fonts \
-            liberation-sans-fonts \
-         && mkdir -p /usr/share/novnc \
-         && printf '{"reconnect": true, "reconnect_delay": 1000}\n' > /usr/share/novnc/mandatory.json \
-         && microdnf clean all; \
-    fi
-
-# Subordinate ID ranges for unprivileged agent user (nested podman userns)
-RUN printf 'agent:1:999\nagent:1001:64535\n' > /etc/subuid \
- && cp /etc/subuid /etc/subgid \
- && chmod 0755 /usr/bin/newuidmap /usr/bin/newgidmap \
- && setcap cap_setuid+ep /usr/bin/newuidmap \
- && setcap cap_setgid+ep /usr/bin/newgidmap
 
 # Environment contract
 ENV PA_CONTAINER=1
@@ -127,9 +57,7 @@ RUN groupadd --gid ${AGENT_GID} agent \
  && useradd --uid ${AGENT_UID} --gid ${AGENT_GID} --create-home --shell /bin/bash agent
 
 COPY coding-agent/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop
 COPY coding-agent/skills /usr/local/share/pa-container/skills
-COPY coding-agent/labwc /etc/xdg/labwc
 
 ARG ROOT_COMMANDS_PATH
 ARG LABEL_HASH

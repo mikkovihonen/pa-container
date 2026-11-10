@@ -5,6 +5,7 @@ import sys
 sys.dont_write_bytecode = True
 
 from packages.builder import (
+    assemble_package_skill,
     build_package,
     ensure_package_images,
     package_image_is_current,
@@ -31,7 +32,9 @@ from packages.verification import (
     PackageVerificationResult,
     render_verification_results,
     verify_package,
+    verify_package_integration,
     verify_packages,
+    verify_packages_integration,
 )
 
 __all__ = [
@@ -43,6 +46,7 @@ __all__ = [
     "get_package_dir",
     "package_to_image_tag",
     "compute_package_hash",
+    "assemble_package_skill",
     "build_package",
     "ensure_package_images",
     "package_image_is_current",
@@ -53,5 +57,7 @@ __all__ = [
     "PackageVerificationResult",
     "verify_package",
     "verify_packages",
+    "verify_package_integration",
+    "verify_packages_integration",
     "render_verification_results",
 ]

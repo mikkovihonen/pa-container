@@ -3,6 +3,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 sys.dont_write_bytecode = True
 
@@ -39,36 +40,79 @@ def now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def resolve_project_packages(
+    project_dir: Path,
+    extra_packages: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Resolve project packages and their active features from config.yaml and driver requirements.
+
+    Supports:
+        - "package" -> package with default features
+        - "package+feature1+feature2" -> package with explicit features
+        - {"package": {"features": ["feat1", "feat2"]}} -> package with features
+        - {"package": ["feat1", "feat2"]} -> package with features
+    """
+    cfg_path = project_dir / ".pa-container" / "config.yaml"
+    pkgs_dict: dict[str, set[str]] = {}
+
+    def _add_pkg_entry(entry: Any) -> None:
+        if isinstance(entry, str):
+            if "+" in entry:
+                parts = entry.split("+")
+                pkg_name = parts[0].strip()
+                feats = {f.strip() for f in parts[1:] if f.strip()}
+                if pkg_name:
+                    pkgs_dict.setdefault(pkg_name, set()).update(feats)
+            elif entry.strip():
+                pkgs_dict.setdefault(entry.strip(), set())
+        elif isinstance(entry, dict):
+            for k, v in entry.items():
+                pkg_name = str(k).strip()
+                if not pkg_name:
+                    continue
+                pkgs_dict.setdefault(pkg_name, set())
+                if isinstance(v, list):
+                    pkgs_dict[pkg_name].update(str(f).strip() for f in v if str(f).strip())
+                elif isinstance(v, dict):
+                    feats_list = v.get("features")
+                    if isinstance(feats_list, list):
+                        pkgs_dict[pkg_name].update(str(f).strip() for f in feats_list if str(f).strip())
+
+    if extra_packages:
+        for p in extra_packages:
+            _add_pkg_entry(p)
+
+    if cfg_path.exists():
+        try:
+            raw = load_yaml_strict(cfg_path.read_text())
+            data = raw if isinstance(raw, dict) else {}
+            pkgs_list = data.get("packages")
+            if isinstance(pkgs_list, list):
+                for item in pkgs_list:
+                    _add_pkg_entry(item)
+            agents_sec = data.get("agents")
+            if isinstance(agents_sec, dict):
+                enabled = agents_sec.get("enabled")
+                if isinstance(enabled, list):
+                    from agents import get_agent_driver
+
+                    for ag in enabled:
+                        if isinstance(ag, str):
+                            try:
+                                drv = get_agent_driver(ag)
+                                for req in drv.required_packages:
+                                    _add_pkg_entry(req)
+                            except Exception as e:
+                                logger.debug(f"Could not resolve driver for '{ag}': {e}")
+        except Exception as e:
+            logger.debug(f"Could not resolve project packages from config: {e}")
+
+    return {k: sorted(v) for k, v in sorted(pkgs_dict.items())}
+
+
 def read_project_packages(project_dir: Path, extra_packages: list[str] | None = None) -> list[str]:
     """Read the list of packages enabled in .pa-container/config.yaml plus any driver-requested packages."""
-    cfg_path = project_dir / ".pa-container" / "config.yaml"
-    pkgs: set[str] = set()
-    if extra_packages:
-        pkgs.update(p for p in extra_packages if isinstance(p, str))
-    if not cfg_path.exists():
-        return sorted(pkgs)
-    try:
-        raw = load_yaml_strict(cfg_path.read_text())
-        data = raw if isinstance(raw, dict) else {}
-        pkgs_list = data.get("packages")
-        if isinstance(pkgs_list, list):
-            pkgs.update(p for p in pkgs_list if isinstance(p, str))
-        agents_sec = data.get("agents")
-        if isinstance(agents_sec, dict):
-            enabled = agents_sec.get("enabled")
-            if isinstance(enabled, list):
-                from agents import get_agent_driver
-
-                for ag in enabled:
-                    if isinstance(ag, str):
-                        try:
-                            drv = get_agent_driver(ag)
-                            pkgs.update(drv.required_packages)
-                        except Exception as e:
-                            logger.debug(f"Could not resolve driver for '{ag}': {e}")
-    except Exception as e:
-        logger.debug(f"Could not resolve project packages from config: {e}")
-    return sorted(pkgs)
+    return sorted(resolve_project_packages(project_dir, extra_packages=extra_packages).keys())
 
 
 def compute_image_hash(
@@ -92,7 +136,7 @@ def compute_image_hash(
         if cmd_path.exists() and cmd_path.stat().st_size > 0:
             files_to_hash.append(cmd_file)
 
-    packages = read_project_packages(project_dir, extra_packages=extra_packages)
+    packages_map = resolve_project_packages(project_dir, extra_packages=extra_packages)
     desktop_active = False
     if (project_dir / ".pa-container" / "config.yaml").exists():
         from desktop import read_desktop_config
@@ -100,7 +144,7 @@ def compute_image_hash(
         desktop_cfg = read_desktop_config(project_dir / ".pa-container")
         desktop_active = bool(desktop_cfg.get("enabled", False))
 
-    if not files_to_hash and not packages and not desktop_active:
+    if not files_to_hash and not packages_map and not desktop_active:
         return None
 
     files_to_hash.sort()
@@ -111,13 +155,12 @@ def compute_image_hash(
         file_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
         combined_hash.update(file_hash.encode())
 
-    if packages:
+    if packages_map:
         from packages import compute_package_hash
 
-        combined_hash.update(f"packages:{','.join(packages)}".encode())
-        for p in packages:
-            pkg_hash = compute_package_hash(p, r_root)
-            combined_hash.update(f"pkg:{p}:{pkg_hash}".encode())
+        for p, feats in sorted(packages_map.items()):
+            pkg_hash = compute_package_hash(p, r_root, features=feats)
+            combined_hash.update(f"pkg:{p}:{','.join(feats)}:{pkg_hash}".encode())
 
     if desktop_active:
         combined_hash.update(b"desktop:enabled:true")

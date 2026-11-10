@@ -30,10 +30,13 @@ def get_package_dir(package_name: str, repo_root: Path | None = None) -> Path:
     return get_packages_dir(repo_root) / package_name
 
 
-def package_to_image_tag(package_name: str) -> str:
+def package_to_image_tag(package_name: str, features: list[str] | set[str] | None = None) -> str:
     """Return the local container image tag for an Agent Capability Package."""
     clean_name = package_name.lower().replace("_", "-")
-    return f"pa-container-pkg-{clean_name}:local"
+    if not features:
+        return f"pa-container-pkg-{clean_name}:local"
+    feat_str = "--".join(sorted(features))
+    return f"pa-container-pkg-{clean_name}--{feat_str}:local"
 
 
 def discover_packages(repo_root: Path | None = None) -> dict[str, PackageManifest]:
@@ -55,8 +58,12 @@ def discover_packages(repo_root: Path | None = None) -> dict[str, PackageManifes
     return manifests
 
 
-def compute_package_hash(package_name: str, repo_root: Path | None = None) -> str:
-    """Compute content hash for an Agent Capability Package based on its directory contents."""
+def compute_package_hash(
+    package_name: str,
+    repo_root: Path | None = None,
+    features: list[str] | set[str] | None = None,
+) -> str:
+    """Compute content hash for an Agent Capability Package based on its directory contents and active features."""
     pkg_dir = get_package_dir(package_name, repo_root)
     if not pkg_dir.is_dir():
         # Package directory not found; return stable hash of package name
@@ -64,6 +71,8 @@ def compute_package_hash(package_name: str, repo_root: Path | None = None) -> st
 
     hasher = hashlib.sha256()
     hasher.update(package_name.encode())
+    if features:
+        hasher.update(f"features:{','.join(sorted(features))}".encode())
 
     # Deterministically walk all regular files in the package directory
     for file_path in sorted(pkg_dir.rglob("*")):

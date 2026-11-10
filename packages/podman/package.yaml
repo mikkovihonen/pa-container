@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 name: "podman"
 version: "6.1.4"
 description: "Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, podman-compose, and Docker CLI wrapper"
@@ -16,6 +16,14 @@ payload:
         - "libseccomp-devel"
         - "sqlite-devel"
         - "protobuf-compiler"
+        - "crun"
+        - "conmon"
+        - "catatonit"
+        - "fuse-overlayfs"
+        - "pasta"
+        - "nftables"
+        - "iptables-nft"
+        - "shadow-utils-subid"
     build_packages:
         - "python"
     env:
@@ -60,6 +68,12 @@ runtime:
         PA_CONTAINER_NESTED: "true"
         CONTAINERS_CONF: "/etc/containers/containers.conf.d/50-pa-container.conf"
 
+extension:
+    flags:
+        - name: "--nested-containers"
+          type: "bool"
+          help: "Enable rootless nested container support"
+
 egress:
     allow_hosts:
         - "docker.io"
@@ -73,3 +87,13 @@ egress:
 verification:
     command: "podman --version && podman-compose --version"
     expected_output_contains: "podman version 6.1"
+
+integration:
+    enabled: true
+    timeout_seconds: 120
+    test_project:
+        config:
+            packages:
+                - "podman"
+    command: "podman info && echo 'nested-podman-success'"
+    expected_output_contains: "nested-podman-success"

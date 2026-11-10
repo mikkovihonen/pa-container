@@ -19,7 +19,9 @@ from packages import (
     discover_packages,
     render_verification_results,
     verify_package,
+    verify_package_integration,
     verify_packages,
+    verify_packages_integration,
 )
 
 
@@ -332,6 +334,116 @@ def test_execute_test_cli():
         ]
         opts = TestOptions(packages="gh")
         assert execute_test(opts) == 1
+
+
+def test_verify_package_integration_missing_manifest(tmp_path: Path):
+    res = verify_package_integration("non-existent-pkg-xyz", repo_root=tmp_path)
+    assert res.passed is False
+    assert "Manifest not found" in (res.error or "")
+
+
+def test_verify_package_integration_disabled_skipped(tmp_path: Path):
+    pkg_dir = tmp_path / "packages" / "no-int"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "package.yaml").write_text("name: no-int\nversion: 1.0.0\n")
+
+    res = verify_package_integration("no-int", repo_root=tmp_path)
+    assert res.passed is True
+    assert "skipped" in res.output
+
+
+def test_verify_package_integration_success_mocked(tmp_path: Path):
+    import config  # noqa: F401
+
+    pkg_dir = tmp_path / "packages" / "int-tool"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "package.yaml").write_text(
+        "name: int-tool\n"
+        "version: 1.0.0\n"
+        "integration:\n"
+        "    enabled: true\n"
+        "    command: int-tool --test\n"
+        "    expected_output_contains: 'integration-ok'\n"
+    )
+
+    with (
+        patch("packages.verification.ensure_base_image"),
+        patch("packages.verification.ensure_package_images"),
+        patch("subprocess.run") as mock_run,
+    ):
+        build_mock = MagicMock(returncode=0, stdout="Successfully built")
+        exec_mock = MagicMock(returncode=0, stdout="integration-ok 1.0")
+        cleanup_mock = MagicMock(returncode=0)
+
+        mock_run.side_effect = [build_mock, exec_mock, cleanup_mock]
+
+        res = verify_package_integration("int-tool", repo_root=tmp_path)
+        assert res.passed is True
+        assert res.error is None
+        assert "integration-ok" in res.output
+
+
+def test_verify_package_integration_failure_mocked(tmp_path: Path):
+    import config  # noqa: F401
+
+    pkg_dir = tmp_path / "packages" / "int-fail"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "package.yaml").write_text(
+        "name: int-fail\nversion: 1.0.0\nintegration:\n    enabled: true\n    command: int-fail --test\n"
+    )
+
+    with (
+        patch("packages.verification.ensure_base_image"),
+        patch("packages.verification.ensure_package_images"),
+        patch("subprocess.run") as mock_run,
+    ):
+        build_mock = MagicMock(returncode=0, stdout="Successfully built")
+        exec_mock = MagicMock(returncode=1, stdout="Failed integration run")
+        cleanup_mock = MagicMock(returncode=0)
+
+        mock_run.side_effect = [build_mock, exec_mock, cleanup_mock]
+
+        res = verify_package_integration("int-fail", repo_root=tmp_path)
+        assert res.passed is False
+        assert "failed with exit code 1" in (res.error or "")
+
+
+def test_verify_packages_integration():
+    with patch("packages.verification.verify_package_integration") as mock_verify:
+        mock_verify.return_value = PackageVerificationResult(
+            package="podman",
+            command="podman info",
+            passed=True,
+            duration_ms=50.0,
+            output="ok",
+        )
+        results = verify_packages_integration(["podman"])
+        assert len(results) == 1
+        mock_verify.assert_called_with("podman", runtime="podman", repo_root=None)
+
+
+def test_execute_test_cli_integration_flag():
+    from build import execute_test
+    from cli import TestOptions
+
+    with (
+        patch("build.validate_environment", return_value="podman"),
+        patch("packages.verify_packages_integration") as mock_verify_int,
+        patch("packages.render_verification_results") as mock_render,
+    ):
+        mock_verify_int.return_value = [
+            PackageVerificationResult(
+                package="podman",
+                command="podman info",
+                passed=True,
+                duration_ms=100.0,
+                output="nested-podman-success",
+            )
+        ]
+        opts = TestOptions(packages="podman", integration=True)
+        assert execute_test(opts) == 0
+        mock_verify_int.assert_called_once_with(["podman"], runtime="podman")
+        assert "Integration" in mock_render.call_args[1].get("title", "")
 
 
 @pytest.mark.smoke

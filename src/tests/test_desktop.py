@@ -325,11 +325,17 @@ def test_containerfile_and_entrypoint_desktop_skill_integration():
     assert "agent-desktop" in _IMAGE_DEFINITION_FILES
     assert "pi-desktop" not in _IMAGE_DEFINITION_FILES
 
-    # Containerfile COPY
+    # packages/virtual-desktop owns agent-desktop deployment
+    pkg_vd = REPO_ROOT / "packages" / "virtual-desktop"
+    assert (pkg_vd / "agent-desktop").is_file()
+    assert (pkg_vd / "build.sh").is_file()
+    assert "agent-desktop" in (pkg_vd / "build.sh").read_text()
+
+    # Base Containerfile deploys skills but is decoupled from desktop
     containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
-    assert "COPY coding-agent/agent-desktop /usr/local/bin/agent-desktop" in containerfile
     assert "COPY coding-agent/skills /usr/local/share/pa-container/skills" in containerfile
     assert "pi-desktop" not in containerfile
+    assert "WITH_DESKTOP" not in containerfile
 
     # entrypoint.sh dynamic provisioning and cleanup
     entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
@@ -361,11 +367,11 @@ def test_desktop_exit_prevention_and_supervisor():
     assert 'key="C-A-BackSpace"' in rc_content
     assert '<action name="None"' in rc_content
 
-    # 4. Containerfile must deploy labwc config and noVNC reconnect settings
-    containerfile = (REPO_ROOT / "coding-agent" / "Containerfile").read_text()
-    assert "COPY coding-agent/labwc /etc/xdg/labwc" in containerfile
-    assert "mandatory.json" in containerfile
-    assert '"reconnect": true' in containerfile
+    # 4. packages/virtual-desktop deploys labwc config and noVNC reconnect settings
+    pkg_vd_build = (REPO_ROOT / "packages" / "virtual-desktop" / "build.sh").read_text()
+    assert "labwc" in pkg_vd_build
+    assert "mandatory.json" in pkg_vd_build
+    assert '"reconnect": true' in pkg_vd_build
 
     # 5. entrypoint.sh must seed config and run the auto-recovery supervisor loop
     entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()

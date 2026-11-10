@@ -1,7 +1,7 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 name: "vector-storage"
-version: "1.0.0"
-description: "Embedded vector storage and SIMD vector search extensions: sqlite-vec and USearch"
+version: "1.1.0"
+description: "Embedded vector storage and SIMD vector search extensions: sqlite-vec, USearch, and optional Qdrant daemon"
 category: "database"
 license: "MIT OR Apache-2.0"
 
@@ -26,6 +26,26 @@ payload:
         USEARCH_SQLITE_SHA256_AARCH64: "b516e8bf00328517375d019894fce698eeff25ed1c4a6abe7dc4f0fe59170744"
         USEARCH_LIB_SHA256_X86_64: "3cd78b6ff5abe0974bbac0a2a734120f98a26acdeec7a22538af90eee0800b95"
         USEARCH_LIB_SHA256_AARCH64: "c12be3e6e7a4b697e518ac7a88dede6f308c83a14ace141b3da84e42865955e8"
+
+features:
+    qdrant:
+        description: "Qdrant vector similarity search engine and vector database daemon"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/qdrant/build.sh"
+            build_deps:
+                - "curl"
+                - "tar"
+                - "gzip"
+            env:
+                QDRANT_VERSION: "1.20.0"
+                QDRANT_SHA256_AMD64: "b03a64616a1f41ddab78b480a318466541765f19835318113b1821cbea8df52c"
+                QDRANT_SHA256_ARM64: "bd8a458b8ef8006ce2c603c5bd6d1d973e39d787f794008dd959112e747c3bb7"
+        skill_fragment: "skill/features/qdrant.md"
+        verification:
+            command: "qdrant --version"
+            expected_output_contains: "1.20"
 
 skill:
     enabled: true

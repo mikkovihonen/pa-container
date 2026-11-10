@@ -12,6 +12,7 @@ from packages import (
     aggregate_egress_hosts,
     aggregate_runtime_privileges,
     aggregate_token_replacers,
+    assemble_package_skill,
     compute_package_hash,
     discover_packages,
     get_mcp_servers_dict,
@@ -165,3 +166,100 @@ def test_generate_package_containerfile():
     cf_podman = generate_package_containerfile(podman, get_package_dir("podman"))
     assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder" in cf_podman
     assert "bash /build/build.sh" in cf_podman
+
+
+def test_package_image_tag_with_features():
+    assert package_to_image_tag("document-tools") == "pa-container-pkg-document-tools:local"
+    assert (
+        package_to_image_tag("document-tools", features=["docling"]) == "pa-container-pkg-document-tools--docling:local"
+    )
+    assert (
+        package_to_image_tag("language-servers", features=["rust-analyzer", "pyright"])
+        == "pa-container-pkg-language-servers--pyright--rust-analyzer:local"
+    )
+
+
+def test_assemble_package_skill(tmp_path: Path):
+    pkg_dir = tmp_path / "pkg"
+    skill_dir = pkg_dir / "skill"
+    features_dir = skill_dir / "features"
+    features_dir.mkdir(parents=True)
+
+    (skill_dir / "base.md").write_text("# Core Capability\nBase instructions.")
+    (features_dir / "featA.md").write_text("## Feature A\nFeature A instructions.")
+    (features_dir / "featB.md").write_text("## Feature B\nFeature B instructions.")
+
+    # Without features: only base
+    s0 = assemble_package_skill(pkg_dir)
+    assert "# Core Capability" in s0
+    assert "Feature A" not in s0
+    assert "Feature B" not in s0
+
+    # With featA: base + featA
+    s1 = assemble_package_skill(pkg_dir, active_features=["featA"])
+    assert "# Core Capability" in s1
+    assert "Feature A" in s1
+    assert "Feature B" not in s1
+
+    # With both
+    s2 = assemble_package_skill(pkg_dir, active_features=["featA", "featB"])
+    assert "# Core Capability" in s2
+    assert "Feature A" in s2
+    assert "Feature B" in s2
+
+
+def test_manifest_features_and_extensions():
+    data = {
+        "schema_version": "2.1.0",
+        "name": "ext-tool",
+        "version": "1.0.0",
+        "features": {
+            "subtool": {
+                "description": "Subtool feature",
+                "default": False,
+                "payload": {
+                    "type": "build_script",
+                    "script": "subtool/build.sh",
+                },
+                "skill_fragment": "skill/features/subtool.md",
+                "verification": {
+                    "command": "subtool --version",
+                    "expected_output_contains": "1.0",
+                },
+            }
+        },
+        "extension": {
+            "commands": [
+                {
+                    "name": "subcmd",
+                    "help": "Run subcmd",
+                    "handler": "ext.py:run_subcmd",
+                }
+            ],
+            "flags": [
+                {
+                    "name": "--extra-flag",
+                    "type": "str",
+                    "default": "val",
+                }
+            ],
+        },
+        "hooks": {
+            "container_args": "hooks.py:gen_args",
+        },
+        "integration": {
+            "enabled": True,
+            "command": "subtool run",
+            "expected_output_contains": "success",
+        },
+    }
+    m = parse_package_manifest(data)
+    assert "subtool" in m.features
+    assert m.features["subtool"].description == "Subtool feature"
+    assert m.features["subtool"].skill_fragment == "skill/features/subtool.md"
+    assert len(m.extension.commands) == 1
+    assert m.extension.commands[0].name == "subcmd"
+    assert len(m.extension.flags) == 1
+    assert m.hooks.container_args == "hooks.py:gen_args"
+    assert m.integration.enabled is True
+    assert m.integration.command == "subtool run"

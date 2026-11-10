@@ -1,0 +1,37 @@
+schema_version: "2.1.0"
+name: "browser-runtime"
+version: "1.0.0"
+description: "Shared runtime libraries for headless Chromium, Playwright, and Puppeteer"
+category: "devtools"
+license: "LGPL-2.1-or-later OR MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "alsa-lib"
+        - "at-spi2-atk"
+        - "at-spi2-core"
+        - "atk"
+        - "cairo"
+        - "cups-libs"
+        - "dbus-libs"
+        - "libX11"
+        - "libXcomposite"
+        - "libXdamage"
+        - "libXext"
+        - "libXfixes"
+        - "libXrandr"
+        - "libxkbcommon"
+        - "mesa-libgbm"
+        - "nspr"
+        - "nss"
+        - "pango"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "test -f /usr/lib64/libcairo.so.2 && test -f /usr/lib64/libpango-1.0.so.0"

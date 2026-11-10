@@ -121,6 +121,24 @@ EOF
 echo "=== Installing podman-compose ${PODMAN_COMPOSE_VERSION} ==="
 /usr/local/bin/python3 -m pip install --root-user-action=ignore --root "${PA_STAGE}" --ignore-installed "podman-compose==${PODMAN_COMPOSE_VERSION}"
 
+# ─── 5. Stage virtualization stack & subordinate IDs ────────────────────────
+mkdir -p "${PA_STAGE}/usr/bin" "${PA_STAGE}/usr/sbin" "${PA_STAGE}/etc"
+for bin in crun conmon catatonit fuse-overlayfs pasta newuidmap newgidmap; do
+    p="$(command -v "$bin" || true)"
+    if [ -n "$p" ]; then
+        cp -a "$p" "${PA_STAGE}/usr/bin/"
+    fi
+done
+for sbin in nft iptables-nft; do
+    p="$(command -v "$sbin" || true)"
+    if [ -n "$p" ]; then
+        cp -a "$p" "${PA_STAGE}/usr/sbin/"
+    fi
+done
+
+printf 'agent:1:999\nagent:1001:64535\n' > "${PA_STAGE}/etc/subuid"
+cp "${PA_STAGE}/etc/subuid" "${PA_STAGE}/etc/subgid"
+
 # Verification
 "${PA_STAGE}/usr/local/bin/podman" --version
 [ -x "${PA_STAGE}/usr/local/bin/docker" ]

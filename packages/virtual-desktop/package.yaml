@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 name: "virtual-desktop"
-version: "1.0.0"
+version: "2.0.0"
 description: "Headless Wayland desktop (labwc), wayvnc, noVNC, and agent-desktop automation CLI"
 category: "desktop"
 license: "MIT"
@@ -8,7 +8,22 @@ license: "MIT"
 payload:
     type: build_script
     script: "build.sh"
-    build_deps: []
+    build_deps:
+        - "labwc"
+        - "xorg-x11-server-Xwayland"
+        - "wlr-randr"
+        - "wayvnc"
+        - "grim"
+        - "slurp"
+        - "novnc"
+        - "python3-websockify"
+        - "mesa-dri-drivers"
+        - "mesa-libGL"
+        - "mesa-libEGL"
+        - "mesa-libGLES"
+        - "mesa-libgbm"
+        - "dejavu-sans-fonts"
+        - "liberation-sans-fonts"
 
 skill:
     enabled: true
@@ -32,6 +47,12 @@ runtime:
         WAYLAND_DISPLAY: "wayland-0"
         XDG_RUNTIME_DIR: "/run/user/1000"
         PA_CONTAINER_DESKTOP: "true"
+
+extension:
+    commands:
+        - name: "desktop"
+          help: "Inspect active virtual desktop containers, noVNC web UIs, and VNC endpoints"
+          handler: "cli.py:handle_desktop_command"
 
 verification:
     command: "agent-desktop status"

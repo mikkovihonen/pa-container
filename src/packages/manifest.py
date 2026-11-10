@@ -103,6 +103,70 @@ class VerificationConfig:
 
 
 @dataclass(frozen=True)
+class FeatureConfig:
+    """Optional capability feature specification for a package."""
+
+    name: str = ""
+    description: str = ""
+    default: bool = False
+    payload: PayloadConfig = field(default_factory=lambda: PayloadConfig(type="none"))
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    mcp: MCPConfig = field(default_factory=MCPConfig)
+    egress: EgressConfig = field(default_factory=EgressConfig)
+    token_replacer: list[TokenReplacerRule] = field(default_factory=list)
+    skill_fragment: str | None = None
+    verification: VerificationConfig = field(default_factory=VerificationConfig)
+
+
+@dataclass(frozen=True)
+class CLICommandExtension:
+    """CLI subcommand contributed by a capability package."""
+
+    name: str
+    help: str = ""
+    handler: str = ""
+
+
+@dataclass(frozen=True)
+class CLIFlagExtension:
+    """CLI argument flag contributed by a capability package."""
+
+    name: str
+    type: str = "str"
+    default: Any = None
+    help: str = ""
+
+
+@dataclass(frozen=True)
+class ExtensionConfig:
+    """CLI subcommands and flags exposed by a capability package."""
+
+    commands: list[CLICommandExtension] = field(default_factory=list)
+    flags: list[CLIFlagExtension] = field(default_factory=list)
+    config_key: str = ""
+
+
+@dataclass(frozen=True)
+class LifecycleHooksConfig:
+    """Container lifecycle hook handlers."""
+
+    container_args: str | None = None
+    post_start: str | None = None
+    on_stop: str | None = None
+
+
+@dataclass(frozen=True)
+class IntegrationConfig:
+    """End-to-end integration test definition."""
+
+    enabled: bool = False
+    timeout_seconds: int = 120
+    test_project: dict[str, Any] = field(default_factory=dict)
+    command: str = ""
+    expected_output_contains: str | None = None
+
+
+@dataclass(frozen=True)
 class PackageManifest:
     """Declarative specification for an Agent Capability Package (ACP)."""
 
@@ -119,26 +183,13 @@ class PackageManifest:
     egress: EgressConfig = field(default_factory=EgressConfig)
     token_replacer: list[TokenReplacerRule] = field(default_factory=list)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
+    features: dict[str, FeatureConfig] = field(default_factory=dict)
+    extension: ExtensionConfig = field(default_factory=ExtensionConfig)
+    hooks: LifecycleHooksConfig = field(default_factory=LifecycleHooksConfig)
+    integration: IntegrationConfig = field(default_factory=IntegrationConfig)
 
 
-def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> PackageManifest:
-    """Parse and validate a dictionary into a PackageManifest dataclass."""
-    origin = f" in {path}" if path else ""
-
-    schema_version = str(data.get("schema_version", "2.0.0"))
-    name = data.get("name")
-    if not name or not isinstance(name, str):
-        raise ValueError(f"Missing required 'name' string field in package manifest{origin}")
-    version = data.get("version")
-    if not version or not isinstance(version, str):
-        raise ValueError(f"Missing required 'version' string field in package manifest{origin}")
-
-    description = str(data.get("description", ""))
-    category = str(data.get("category", "devtools"))
-    license_str = str(data.get("license", "unknown"))
-
-    # Payload
-    payload_data = data.get("payload") or {}
+def _parse_payload(payload_data: dict[str, Any]) -> PayloadConfig:
     payload_type = str(payload_data.get("type", "none"))
     platforms_raw = payload_data.get("platforms") or {}
     platforms: dict[str, PlatformDownload] = {}
@@ -150,7 +201,7 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
                     sha256=str(arch_data.get("sha256", "")),
                     extract_map=dict(arch_data.get("extract_map") or {}),
                 )
-    payload = PayloadConfig(
+    return PayloadConfig(
         type=payload_type,
         platforms=platforms,
         script=payload_data.get("script"),
@@ -160,19 +211,19 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         outputs=list(payload_data.get("outputs") or []),
     )
 
-    # Skill
-    skill_data = data.get("skill") or {}
-    skill = SkillConfig(
+
+def _parse_skill(skill_data: dict[str, Any]) -> SkillConfig:
+    return SkillConfig(
         enabled=bool(skill_data.get("enabled", False)),
         source=str(skill_data.get("source", "skill/SKILL.md")),
         target_agents=list(skill_data.get("target_agents") or ["all"]),
     )
 
-    # MCP
-    mcp_data = data.get("mcp") or {}
-    mcp = MCPConfig(
+
+def _parse_mcp(mcp_data: dict[str, Any], default_server_id: str) -> MCPConfig:
+    return MCPConfig(
         enabled=bool(mcp_data.get("enabled", False)),
-        server_id=str(mcp_data.get("server_id", name)),
+        server_id=str(mcp_data.get("server_id", default_server_id)),
         transport=str(mcp_data.get("transport", "stdio")),
         command=str(mcp_data.get("command", "")),
         args=list(mcp_data.get("args") or []),
@@ -180,9 +231,9 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         port=mcp_data.get("port"),
     )
 
-    # Runtime
-    runtime_data = data.get("runtime") or {}
-    runtime = RuntimeConfig(
+
+def _parse_runtime(runtime_data: dict[str, Any]) -> RuntimeConfig:
+    return RuntimeConfig(
         devices=list(runtime_data.get("devices") or []),
         cap_add=list(runtime_data.get("cap_add") or []),
         sysctl=dict(runtime_data.get("sysctl") or {}),
@@ -195,14 +246,14 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         dependencies=list(runtime_data.get("dependencies") or []),
     )
 
-    # Egress
-    egress_data = data.get("egress") or {}
-    egress = EgressConfig(
+
+def _parse_egress(egress_data: dict[str, Any]) -> EgressConfig:
+    return EgressConfig(
         allow_hosts=list(egress_data.get("allow_hosts") or []),
     )
 
-    # Token Replacer
-    tr_data = data.get("token_replacer") or {}
+
+def _parse_token_replacers(tr_data: Any) -> list[TokenReplacerRule]:
     tr_rules: list[TokenReplacerRule] = []
     rules_raw = tr_data.get("rules") if isinstance(tr_data, dict) else tr_data
     if isinstance(rules_raw, list):
@@ -238,12 +289,105 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
                         replacement=replacement,
                     )
                 )
+    return tr_rules
 
-    # Verification
-    ver_data = data.get("verification") or {}
-    verification = VerificationConfig(
+
+def _parse_verification(ver_data: dict[str, Any]) -> VerificationConfig:
+    return VerificationConfig(
         command=str(ver_data.get("command", "")),
         expected_output_contains=ver_data.get("expected_output_contains"),
+    )
+
+
+def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> PackageManifest:
+    """Parse and validate a dictionary into a PackageManifest dataclass."""
+    origin = f" in {path}" if path else ""
+
+    schema_version = str(data.get("schema_version", "2.0.0"))
+    name = data.get("name")
+    if not name or not isinstance(name, str):
+        raise ValueError(f"Missing required 'name' string field in package manifest{origin}")
+    version = data.get("version")
+    if not version or not isinstance(version, str):
+        raise ValueError(f"Missing required 'version' string field in package manifest{origin}")
+
+    description = str(data.get("description", ""))
+    category = str(data.get("category", "devtools"))
+    license_str = str(data.get("license", "unknown"))
+
+    payload = _parse_payload(data.get("payload") or {})
+    skill = _parse_skill(data.get("skill") or {})
+    mcp = _parse_mcp(data.get("mcp") or {}, default_server_id=name)
+    runtime = _parse_runtime(data.get("runtime") or {})
+    egress = _parse_egress(data.get("egress") or {})
+    tr_rules = _parse_token_replacers(data.get("token_replacer") or {})
+    verification = _parse_verification(data.get("verification") or {})
+
+    # Features
+    features_raw = data.get("features") or {}
+    features: dict[str, FeatureConfig] = {}
+    if isinstance(features_raw, dict):
+        for feat_name, feat_dict in features_raw.items():
+            if isinstance(feat_dict, dict):
+                features[feat_name] = FeatureConfig(
+                    name=feat_name,
+                    description=str(feat_dict.get("description", "")),
+                    default=bool(feat_dict.get("default", False)),
+                    payload=_parse_payload(feat_dict.get("payload") or {}),
+                    runtime=_parse_runtime(feat_dict.get("runtime") or {}),
+                    mcp=_parse_mcp(feat_dict.get("mcp") or {}, default_server_id=f"{name}-{feat_name}"),
+                    egress=_parse_egress(feat_dict.get("egress") or {}),
+                    token_replacer=_parse_token_replacers(feat_dict.get("token_replacer") or {}),
+                    skill_fragment=feat_dict.get("skill_fragment"),
+                    verification=_parse_verification(feat_dict.get("verification") or {}),
+                )
+
+    # Extension
+    ext_data = data.get("extension") or {}
+    commands: list[CLICommandExtension] = []
+    flags: list[CLIFlagExtension] = []
+    if isinstance(ext_data, dict):
+        for cmd_raw in ext_data.get("commands") or []:
+            if isinstance(cmd_raw, dict) and "name" in cmd_raw:
+                commands.append(
+                    CLICommandExtension(
+                        name=str(cmd_raw["name"]),
+                        help=str(cmd_raw.get("help", "")),
+                        handler=str(cmd_raw.get("handler", "")),
+                    )
+                )
+        for flg_raw in ext_data.get("flags") or []:
+            if isinstance(flg_raw, dict) and "name" in flg_raw:
+                flags.append(
+                    CLIFlagExtension(
+                        name=str(flg_raw["name"]),
+                        type=str(flg_raw.get("type", "str")),
+                        default=flg_raw.get("default"),
+                        help=str(flg_raw.get("help", "")),
+                    )
+                )
+    extension = ExtensionConfig(
+        commands=commands,
+        flags=flags,
+        config_key=str(ext_data.get("config_key", "")),
+    )
+
+    # Hooks
+    hooks_data = data.get("hooks") or {}
+    hooks = LifecycleHooksConfig(
+        container_args=hooks_data.get("container_args"),
+        post_start=hooks_data.get("post_start"),
+        on_stop=hooks_data.get("on_stop"),
+    )
+
+    # Integration
+    int_data = data.get("integration") or {}
+    integration = IntegrationConfig(
+        enabled=bool(int_data.get("enabled", False)),
+        timeout_seconds=int(int_data.get("timeout_seconds", 120)),
+        test_project=dict(int_data.get("test_project") or {}),
+        command=str(int_data.get("command", "")),
+        expected_output_contains=int_data.get("expected_output_contains"),
     )
 
     return PackageManifest(
@@ -260,6 +404,10 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         egress=egress,
         token_replacer=tr_rules,
         verification=verification,
+        features=features,
+        extension=extension,
+        hooks=hooks,
+        integration=integration,
     )
 
 

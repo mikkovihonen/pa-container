@@ -701,11 +701,24 @@ class TestDesktopCli:
         captured = capsys.readouterr()
         assert "invalid choice: 'gui'" in captured.err
 
+    def test_desktop_command_missing_package_error(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['python']\n")
+        with patch("rich.console.Console.print") as mock_print:
+            code = handle_desktop_command(DesktopOptions())
+            assert code == 1
+            output = "".join(str(call) for call in mock_print.call_args_list)
+            assert "The 'desktop' subcommand requires the 'virtual-desktop' capability package" in output
+
     def test_desktop_active_project(self, tmp_path: Path, monkeypatch) -> None:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pa-container").mkdir()
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
@@ -732,7 +745,9 @@ class TestDesktopCli:
 
     def test_desktop_inactive_project(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pa-container").mkdir()
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         with (
             patch("desktop.get_project_desktop", return_value=None),
             patch("rich.console.Console.print") as mock_print,
@@ -746,7 +761,9 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pa-container").mkdir()
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
@@ -772,7 +789,9 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pa-container").mkdir()
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
@@ -800,7 +819,9 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pa-container").mkdir()
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,
@@ -830,7 +851,9 @@ class TestDesktopCli:
         from desktop import ActiveDesktopInfo
 
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
-        (tmp_path / ".pa-container").mkdir()
+        cfg_dir = tmp_path / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         fake_desktop = ActiveDesktopInfo(
             project_name="gui-project",
             project_path=tmp_path,

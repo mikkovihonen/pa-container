@@ -175,6 +175,33 @@ class TestComputeImageHash:
 
         assert images.read_project_packages(repo, extra_packages=["opencode"]) == ["claude-code", "opencode", "pi"]
 
+    def test_resolve_project_packages_features(self, tmp_path):
+        repo = tmp_path / "repo"
+        cfg_dir = repo / ".pa-container"
+        cfg_dir.mkdir(parents=True)
+        (cfg_dir / "config.yaml").write_text(
+            "packages:\n"
+            "  - vector-storage+qdrant\n"
+            "  - document-tools:\n"
+            "      features:\n"
+            "        - docling\n"
+            "  - language-servers:\n"
+            "      - rust-analyzer\n"
+            "      - pyright\n"
+            "  - python\n"
+        )
+        resolved = images.resolve_project_packages(repo)
+        assert resolved["vector-storage"] == ["qdrant"]
+        assert resolved["document-tools"] == ["docling"]
+        assert resolved["language-servers"] == ["pyright", "rust-analyzer"]
+        assert resolved["python"] == []
+        assert images.read_project_packages(repo) == [
+            "document-tools",
+            "language-servers",
+            "python",
+            "vector-storage",
+        ]
+
     def test_resolve_agent_image_with_packages_only(self, tmp_path):
         desktop_block = "desktop:\n  enabled: false\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n  vnc: {enabled: true, port: auto, expose: localhost}\n  novnc: {enabled: true, port: auto, expose: localhost}\n  gpu: {enabled: auto}\n"
         repo = tmp_path / "repo"

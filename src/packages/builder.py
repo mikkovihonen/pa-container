@@ -25,27 +25,111 @@ FEDORA_BASE_IMAGE = "registry.fedoraproject.org/fedora-minimal:45"
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def generate_package_containerfile(manifest: PackageManifest, package_dir: Path, repo_root: Path | None = None) -> str:
+def assemble_package_skill(
+    package_dir: Path,
+    active_features: list[str] | set[str] | None = None,
+    manifest: PackageManifest | None = None,
+) -> str:
+    """Dynamically assemble a package SKILL.md from skill/base.md and active feature fragments."""
+    base_file = package_dir / "skill" / "base.md"
+    skill_file = package_dir / "skill" / "SKILL.md"
+
+    base_content = ""
+    if base_file.is_file():
+        base_content = base_file.read_text().rstrip()
+    elif skill_file.is_file():
+        base_content = skill_file.read_text().rstrip()
+
+    if not active_features:
+        return base_content
+
+    fragments: list[str] = [base_content] if base_content else []
+
+    if manifest is None:
+        mf = package_dir / "package.yaml"
+        if mf.is_file():
+            try:
+                manifest = load_package_manifest(mf)
+            except Exception:
+                manifest = None
+
+    for feat in sorted(active_features):
+        frag_path: Path | None = None
+        if manifest and feat in manifest.features:
+            s_frag = manifest.features[feat].skill_fragment
+            if s_frag:
+                custom_frag = package_dir / s_frag
+                if custom_frag.is_file():
+                    frag_path = custom_frag
+        if frag_path is None:
+            default_frag = package_dir / "skill" / "features" / f"{feat}.md"
+            if default_frag.is_file():
+                frag_path = default_frag
+
+        if frag_path and frag_path.is_file():
+            content = frag_path.read_text().strip()
+            if content:
+                fragments.append(content)
+
+    return ("\n\n---\n\n".join(fragments) + "\n") if fragments else ""
+
+
+def generate_package_containerfile(
+    manifest: PackageManifest,
+    package_dir: Path,
+    repo_root: Path | None = None,
+    active_features: list[str] | set[str] | None = None,
+) -> str:
     """Generate a Containerfile to compile or stage the package into a scratch OCI image."""
     pkg_name = manifest.name
     ptype = manifest.payload.type
+    active_feats = sorted(active_features) if active_features else []
 
     lines: list[str] = [
         f"# Auto-generated build recipe for Agent Capability Package: {pkg_name} ({manifest.version})",
     ]
 
+    # Dynamic skill assembly
+    assembled_skill = assemble_package_skill(package_dir, active_feats, manifest=manifest)
+
+    def _append_skill_and_metadata(builder_stage: bool = True) -> None:
+        dest_prefix = "/out" if builder_stage else ""
+        lines.append(f'RUN mkdir -p "{dest_prefix}/usr/local/share/pa-container/packages/{pkg_name}/skill"')
+        if assembled_skill:
+            lines.extend(
+                [
+                    f"COPY <<'EOF_ACP_SKILL' {dest_prefix}/usr/local/share/pa-container/packages/{pkg_name}/skill/SKILL.md",
+                    assembled_skill.rstrip(),
+                    "EOF_ACP_SKILL",
+                ]
+            )
+        else:
+            lines.append(
+                f'RUN if [ -f /build/skill/SKILL.md ]; then cp -a /build/skill/SKILL.md "{dest_prefix}/usr/local/share/pa-container/packages/{pkg_name}/skill/"; fi'
+            )
+        lines.append(
+            f'RUN if [ -f /build/package.yaml ]; then cp -a /build/package.yaml "{dest_prefix}/usr/local/share/pa-container/packages/{pkg_name}/"; fi \\'
+        )
+        lines.append(
+            f' && if [ -d /build/mcp ]; then cp -a /build/mcp "{dest_prefix}/usr/local/share/pa-container/packages/{pkg_name}/"; fi'
+        )
+
     if ptype == "none":
         lines.extend(
             [
-                "FROM scratch",
+                f"FROM {FEDORA_BASE_IMAGE} AS assembler",
+                "ENV PA_STAGE=/out",
+                "WORKDIR /build",
+                "COPY . /build/",
             ]
         )
-        if (package_dir / "package.yaml").is_file():
-            lines.append(f"COPY package.yaml /usr/local/share/pa-container/packages/{pkg_name}/package.yaml")
-        if (package_dir / "skill" / "SKILL.md").is_file():
-            lines.append(f"COPY skill/SKILL.md /usr/local/share/pa-container/packages/{pkg_name}/skill/SKILL.md")
-        if (package_dir / "mcp").is_dir():
-            lines.append(f"COPY mcp/ /usr/local/share/pa-container/packages/{pkg_name}/mcp/")
+        _append_skill_and_metadata(builder_stage=True)
+        lines.extend(
+            [
+                "FROM scratch",
+                "COPY --from=assembler /out/ /",
+            ]
+        )
         return "\n".join(lines) + "\n"
 
     elif ptype == "binary_download":
@@ -79,15 +163,39 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
                 lines.append(f'        chmod 755 "/out{dest_abs}" 2>/dev/null || true; \\')
             lines.append("        rm -rf /tmp/pkg.tar /tmp/extracted; \\")
             lines.append("    fi; \\")
+        lines.append("    true")
 
-        # Copy skill, manifest, and MCP configs into /out
+        # Feature payloads in binary_download
+        for feat_name in active_feats:
+            if feat_name in manifest.features:
+                f = manifest.features[feat_name]
+                if f.payload.type == "build_script" and f.payload.script:
+                    lines.append(f"RUN mkdir -p /out && bash /build/{f.payload.script}")
+                elif f.payload.type == "binary_download" and f.payload.platforms:
+                    lines.append("RUN set -euo pipefail; \\")
+                    lines.append('    ARCH="$(uname -m)"; \\')
+                    for f_arch, f_plat in f.payload.platforms.items():
+                        f_arch_match = "x86_64" if f_arch in ("x86_64", "amd64") else "aarch64"
+                        lines.append(f'    if [ "$ARCH" = "{f_arch_match}" ]; then \\')
+                        lines.append(f'        curl -fsSL --retry 3 -o /tmp/pkg.tar "{f_plat.url}"; \\')
+                        lines.append(f'        echo "{f_plat.sha256}  /tmp/pkg.tar" | sha256sum -c -; \\')
+                        lines.append("        mkdir -p /tmp/extracted; \\")
+                        lines.append("        if tar -tf /tmp/pkg.tar >/dev/null 2>&1; then \\")
+                        lines.append("            tar -xf /tmp/pkg.tar -C /tmp/extracted; \\")
+                        lines.append("        elif unzip -t /tmp/pkg.tar >/dev/null 2>&1; then \\")
+                        lines.append("            unzip -q /tmp/pkg.tar -d /tmp/extracted; \\")
+                        lines.append("        fi; \\")
+                        for src_rel, dest_abs in f_plat.extract_map.items():
+                            lines.append(f'        mkdir -p "$(dirname "/out{dest_abs}")"; \\')
+                            lines.append(f'        cp -a "/tmp/extracted/{src_rel}" "/out{dest_abs}"; \\')
+                            lines.append(f'        chmod 755 "/out{dest_abs}" 2>/dev/null || true; \\')
+                        lines.append("        rm -rf /tmp/pkg.tar /tmp/extracted; \\")
+                        lines.append("    fi; \\")
+                    lines.append("    true")
+
+        _append_skill_and_metadata(builder_stage=True)
         lines.extend(
             [
-                f'    mkdir -p "/out/usr/local/share/pa-container/packages/{pkg_name}/skill"; \\',
-                f'    if [ -f /build/skill/SKILL.md ]; then cp -a /build/skill/SKILL.md "/out/usr/local/share/pa-container/packages/{pkg_name}/skill/"; fi; \\',
-                f'    if [ -f /build/package.yaml ]; then cp -a /build/package.yaml "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi; \\',
-                f'    if [ -d /build/mcp ]; then cp -a /build/mcp "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi; \\',
-                "    true",
                 "FROM scratch",
                 "COPY --from=extractor /out/ /",
             ]
@@ -95,8 +203,20 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
         return "\n".join(lines) + "\n"
 
     elif ptype == "build_script":
-        build_deps = manifest.payload.build_deps if manifest.payload.build_deps is not None else ["gcc", "make", "git"]
-        build_deps_str = (" " + " ".join(build_deps)) if build_deps else ""
+        build_deps_set = set(
+            manifest.payload.build_deps if manifest.payload.build_deps is not None else ["gcc", "make", "git"]
+        )
+        build_pkgs_set = list(manifest.payload.build_packages)
+
+        for feat_name in active_feats:
+            if feat_name in manifest.features:
+                f = manifest.features[feat_name]
+                build_deps_set.update(f.payload.build_deps)
+                for bp in f.payload.build_packages:
+                    if bp not in build_pkgs_set:
+                        build_pkgs_set.append(bp)
+
+        build_deps_str = (" " + " ".join(sorted(build_deps_set))) if build_deps_set else ""
         script_name = manifest.payload.script or "build.sh"
         common_script_path = (repo_root or REPO_ROOT) / "packages" / "common.sh"
         common_script = common_script_path.read_text() if common_script_path.is_file() else ""
@@ -108,7 +228,7 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
                 'ENV PATH="/usr/local/bin:${PATH}"',
             ]
         )
-        for bp in manifest.payload.build_packages:
+        for bp in build_pkgs_set:
             lines.append(f"COPY --from={package_to_image_tag(bp)} / /")
 
         if common_script:
@@ -122,17 +242,54 @@ def generate_package_containerfile(manifest: PackageManifest, package_dir: Path,
                 ]
             )
 
-        for k, v in manifest.payload.env.items():
+        # Merge env
+        merged_env = dict(manifest.payload.env)
+        for feat_name in active_feats:
+            if feat_name in manifest.features:
+                merged_env.update(manifest.features[feat_name].payload.env)
+
+        for k, v in merged_env.items():
             lines.append(f'ENV {k}="{v}"')
+
         lines.extend(
             [
                 "WORKDIR /build",
                 "COPY . /build/",
                 f"RUN mkdir -p /out && bash /build/{script_name}",
-                f'RUN mkdir -p "/out/usr/local/share/pa-container/packages/{pkg_name}/skill" \\',
-                f' && if [ -f /build/skill/SKILL.md ]; then cp -a /build/skill/SKILL.md "/out/usr/local/share/pa-container/packages/{pkg_name}/skill/"; fi \\',
-                f' && if [ -f /build/package.yaml ]; then cp -a /build/package.yaml "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi \\',
-                f' && if [ -d /build/mcp ]; then cp -a /build/mcp "/out/usr/local/share/pa-container/packages/{pkg_name}/"; fi',
+            ]
+        )
+
+        # Execute active feature payloads
+        for feat_name in active_feats:
+            if feat_name in manifest.features:
+                f = manifest.features[feat_name]
+                if f.payload.type == "build_script" and f.payload.script:
+                    lines.append(f"RUN mkdir -p /out && bash /build/{f.payload.script}")
+                elif f.payload.type == "binary_download" and f.payload.platforms:
+                    lines.append("RUN set -euo pipefail; \\")
+                    lines.append('    ARCH="$(uname -m)"; \\')
+                    for f_arch, f_plat in f.payload.platforms.items():
+                        f_arch_match = "x86_64" if f_arch in ("x86_64", "amd64") else "aarch64"
+                        lines.append(f'    if [ "$ARCH" = "{f_arch_match}" ]; then \\')
+                        lines.append(f'        curl -fsSL --retry 3 -o /tmp/pkg.tar "{f_plat.url}"; \\')
+                        lines.append(f'        echo "{f_plat.sha256}  /tmp/pkg.tar" | sha256sum -c -; \\')
+                        lines.append("        mkdir -p /tmp/extracted; \\")
+                        lines.append("        if tar -tf /tmp/pkg.tar >/dev/null 2>&1; then \\")
+                        lines.append("            tar -xf /tmp/pkg.tar -C /tmp/extracted; \\")
+                        lines.append("        elif unzip -t /tmp/pkg.tar >/dev/null 2>&1; then \\")
+                        lines.append("            unzip -q /tmp/pkg.tar -d /tmp/extracted; \\")
+                        lines.append("        fi; \\")
+                        for src_rel, dest_abs in f_plat.extract_map.items():
+                            lines.append(f'        mkdir -p "$(dirname "/out{dest_abs}")"; \\')
+                            lines.append(f'        cp -a "/tmp/extracted/{src_rel}" "/out{dest_abs}"; \\')
+                            lines.append(f'        chmod 755 "/out{dest_abs}" 2>/dev/null || true; \\')
+                        lines.append("        rm -rf /tmp/pkg.tar /tmp/extracted; \\")
+                        lines.append("    fi; \\")
+                    lines.append("    true")
+
+        _append_skill_and_metadata(builder_stage=True)
+        lines.extend(
+            [
                 "FROM scratch",
                 "COPY --from=builder /out/ /",
             ]
@@ -147,6 +304,7 @@ def build_package(
     runtime: str = "podman",
     repo_root: Path | None = None,
     label: str | None = None,
+    features: list[str] | set[str] | None = None,
 ) -> None:
     """Build a single Agent Capability Package into its scratch OCI image."""
     pkg_dir = get_package_dir(package_name, repo_root)
@@ -155,25 +313,33 @@ def build_package(
         raise FileNotFoundError(f"Package '{package_name}' missing manifest at {manifest_file}")
 
     manifest = load_package_manifest(manifest_file)
-    pkg_hash = compute_package_hash(package_name, repo_root)
-    tag = package_to_image_tag(package_name)
+    active_feats = sorted(features) if features else []
+    pkg_hash = compute_package_hash(package_name, repo_root, features=active_feats)
+    tag = package_to_image_tag(package_name, features=active_feats)
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Ensure build-time package dependencies are built first
-    if manifest.payload.build_packages:
-        for dep in manifest.payload.build_packages:
-            if not package_image_is_current(dep, repo_root=repo_root, runtime=runtime):
-                build_package(dep, runtime=runtime, repo_root=repo_root)
+    # Collect build-time package dependencies across core and features
+    all_build_pkgs = list(manifest.payload.build_packages)
+    for feat_name in active_feats:
+        if feat_name in manifest.features:
+            all_build_pkgs.extend(manifest.features[feat_name].payload.build_packages)
 
-    logger.info(f"Building package '{package_name}' ({runtime}): {tag} (hash: {pkg_hash})")
+    for dep in all_build_pkgs:
+        if not package_image_is_current(dep, repo_root=repo_root, runtime=runtime):
+            build_package(dep, runtime=runtime, repo_root=repo_root)
 
-    # If the package has its own Containerfile, use it directly. Otherwise generate one.
+    feat_desc = f" (features: {active_feats})" if active_feats else ""
+    logger.info(f"Building package '{package_name}'{feat_desc} ({runtime}): {tag} (hash: {pkg_hash})")
+
+    # If the package has its own Containerfile and no extra features, use it directly. Otherwise generate one.
     custom_cf = pkg_dir / "Containerfile"
     temp_cf: Path | None = None
-    if custom_cf.is_file():
+    if custom_cf.is_file() and not active_feats:
         cf_path = custom_cf
     else:
-        cf_content = generate_package_containerfile(manifest, pkg_dir, repo_root=repo_root)
+        cf_content = generate_package_containerfile(
+            manifest, pkg_dir, repo_root=repo_root, active_features=active_feats
+        )
         temp_dir = Path(tempfile.mkdtemp(prefix=f"pa-pkg-{package_name}-"))
         temp_cf = temp_dir / "Containerfile"
         temp_cf.write_text(cf_content)
@@ -212,27 +378,32 @@ def package_image_is_current(
     package_name: str,
     repo_root: Path | None = None,
     runtime: str | None = None,
+    features: list[str] | set[str] | None = None,
 ) -> bool:
-    """Check if the local image for package_name matches current package content hash."""
+    """Check if the local image for package_name (with active features) matches current content hash."""
     rt = runtime or "podman"
-    tag = package_to_image_tag(package_name)
+    active_feats = sorted(features) if features else []
+    tag = package_to_image_tag(package_name, features=active_feats)
     inspect_cmd = [rt, "image", "inspect", tag, "--format", '{{index .Labels "pa-container.hash"}}']
     try:
         out = subprocess.check_output(inspect_cmd, stderr=subprocess.DEVNULL, text=True).strip()
     except subprocess.CalledProcessError, FileNotFoundError:
         return False
 
-    current_hash = compute_package_hash(package_name, repo_root)
+    current_hash = compute_package_hash(package_name, repo_root, features=active_feats)
     return out == current_hash
 
 
 def ensure_package_images(
-    packages: list[str] | set[str],
+    packages: list[str] | set[str] | dict[str, list[str]],
     runtime: str = "podman",
     repo_root: Path | None = None,
 ) -> None:
     """Ensure that all requested packages have up-to-date OCI capability images."""
-    for pkg in sorted(packages):
-        if not package_image_is_current(pkg, repo_root=repo_root, runtime=runtime):
-            logger.info(f"Package '{pkg}' image missing or stale. Compiling...")
-            build_package(pkg, runtime=runtime, repo_root=repo_root)
+    items = sorted(packages.items()) if isinstance(packages, dict) else [(pkg, []) for pkg in sorted(packages)]
+
+    for pkg, feats in items:
+        if not package_image_is_current(pkg, repo_root=repo_root, runtime=runtime, features=feats):
+            feat_desc = f" (features: {feats})" if feats else ""
+            logger.info(f"Package '{pkg}'{feat_desc} image missing or stale. Compiling...")
+            build_package(pkg, runtime=runtime, repo_root=repo_root, features=feats)

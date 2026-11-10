@@ -456,6 +456,25 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     nested_cfg = read_nested_containers_config(pa_container_dir)
     if pkg_privileges.get("nested_containers"):
         nested_cfg["enabled"] = True
+    if nested_cfg["enabled"] and "podman" not in active_pkgs:
+        log_drv.fail_and_render(
+            LogCategory.PREFLIGHT,
+            "Missing Package: podman",
+            (
+                "The configuration has nested containers enabled ('nested_containers.enabled: true'), "
+                "but the configuration is missing the 'podman' capability package that would provide this capability.\n\n"
+                "To enable nested containers, add 'podman' to your packages list in .pa-container/config.yaml:\n"
+                "    packages:\n"
+                "        - podman"
+            ),
+            hints=[
+                "Add 'podman' to .pa-container/config.yaml under 'packages:'.",
+                "Or set 'nested_containers.enabled: false' if nested containers are not needed.",
+            ],
+            source_logger=preflight_logger,
+        )
+        return 1
+
     nested_ports = nested_cfg["ports"]
     if nested_cfg["enabled"]:
         logger.info(
@@ -515,6 +534,24 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     desktop_vnc_endpoint: str | None = None
 
     if desktop_cfg["enabled"]:
+        if "virtual-desktop" not in active_pkgs:
+            log_drv.fail_and_render(
+                LogCategory.PREFLIGHT,
+                "Missing Package: virtual-desktop",
+                (
+                    "The configuration has virtual desktop enabled ('desktop.enabled: true'), "
+                    "but the configuration is missing the 'virtual-desktop' capability package that would provide this capability.\n\n"
+                    "To enable virtual desktop, add 'virtual-desktop' to your packages list in .pa-container/config.yaml:\n"
+                    "    packages:\n"
+                    "        - virtual-desktop"
+                ),
+                hints=[
+                    "Add 'virtual-desktop' to .pa-container/config.yaml under 'packages:'.",
+                    "Or set 'desktop.enabled: false' if virtual desktop is not needed.",
+                ],
+                source_logger=preflight_logger,
+            )
+            return 1
         desktop_novnc_port, desktop_vnc_port = resolve_desktop_ports(desktop_cfg)
         desktop_args = RUNTIME.desktop_run_args(
             desktop_cfg,

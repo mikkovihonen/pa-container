@@ -157,14 +157,14 @@ class TestBuildAgentBase:
             assert any(lbl.startswith("pa-container.build.time=") for lbl in labels)
             assert "pa-container.type=base" in labels
 
-    def test_desktop_flag_changes_base_tag_and_arg(self):
+    def test_uniform_base_image_tag(self):
         import build as build_mod
 
         with patch("build.subprocess.Popen", return_value=self._mock_popen()) as mock_popen:
             tag = build_mod.build_agent_base("podman", with_desktop=True)
-            assert tag == "pa-container-agent-base-desktop:local"
+            assert tag == build_mod.AGENT_BASE_IMAGE_TAG
             cmd = mock_popen.call_args[0][0]
-            assert "WITH_DESKTOP=true" in cmd
+            assert "WITH_DESKTOP" not in " ".join(cmd)
 
 
 class TestNodeBuildArgs:

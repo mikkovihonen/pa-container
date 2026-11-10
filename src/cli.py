@@ -118,6 +118,7 @@ class TestOptions(GlobalCliOptions):
     """Options for the 'test' subcommand."""
 
     packages: str = "all"
+    integration: bool = False
 
 
 @dataclass
@@ -361,6 +362,12 @@ def create_parser() -> argparse.ArgumentParser:
         "--packages",
         default="all",
         help="Comma-separated list of Agent Capability Packages to verify (default: 'all').",
+    )
+    test_parser.add_argument(
+        "--integration",
+        action="store_true",
+        default=False,
+        help="Execute end-to-end integration tests (ephemeral container launch with runtime privileges) for packages.",
     )
 
     # ─── 'clean' subcommand ──────────────────────────────────────────────────
@@ -624,6 +631,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             log_file=log_file,
             no_color=no_color,
             packages=getattr(args, "packages", "all") or "all",
+            integration=getattr(args, "integration", False),
         )
         return "test", t_options
 
@@ -912,6 +920,18 @@ def handle_desktop_command(options: DesktopOptions) -> int:
         return 0
 
     # Project-specific query
+    from images import read_project_packages
+
+    active_pkgs = read_project_packages(PROJECT_DIR)
+    if "virtual-desktop" not in active_pkgs:
+        console.print(
+            "[bold red]Error:[/bold red] The 'desktop' subcommand requires the 'virtual-desktop' capability package, but it is not enabled in .pa-container/config.yaml.\n\n"
+            "To enable this capability, add 'virtual-desktop' to the 'packages:' list in your .pa-container/config.yaml:\n"
+            "    packages:\n"
+            "        - virtual-desktop"
+        )
+        return 1
+
     desktop_info = get_project_desktop(PROJECT_DIR)
 
     if options.json:
@@ -1112,6 +1132,36 @@ def main(argv: Sequence[str] | None = None) -> None:
         if cmd == "desktop":
             sys.exit(handle_desktop_command(options))
             return
+
+        if cmd == "run":
+            t3_requested = any(
+                [
+                    getattr(options, "t3", False),
+                    getattr(options, "t3_lan", False),
+                    getattr(options, "t3_port", None) is not None,
+                    getattr(options, "t3_advertise_host", None) is not None,
+                    getattr(options, "t3_tunnel", None) is not None,
+                    getattr(options, "t3_tunnel_domain", None) is not None,
+                    getattr(options, "t3_tunnel_quick", False),
+                    getattr(options, "t3_tunnel_runner", None) is not None,
+                    getattr(options, "t3_tunnel_keyring_account", None) is not None,
+                    getattr(options, "t3_tunnel_tailscale_mode", None) is not None,
+                    getattr(options, "t3_public_url", None) is not None,
+                ]
+            )
+            if t3_requested:
+                from images import read_project_packages
+
+                active_pkgs = read_project_packages(PROJECT_DIR)
+                if "t3" not in active_pkgs:
+                    Console(stderr=True).print(
+                        "[bold red]Error:[/bold red] The '--t3' option requires the 't3' capability package, but it is not enabled in .pa-container/config.yaml.\n\n"
+                        "To enable this capability, add 't3' to the 'packages:' list in your .pa-container/config.yaml:\n"
+                        "    packages:\n"
+                        "        - t3"
+                    )
+                    sys.exit(1)
+                    return
 
         # Initialize log driver for 'run' and 'build' commands
         from global_config import load_global_config

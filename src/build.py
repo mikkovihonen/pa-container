@@ -268,10 +268,10 @@ def build_proxy(runtime: str, label: str | None = None) -> None:
 
 
 def build_agent_base(runtime: str, with_desktop: bool = False, label: str | None = None) -> str:
-    """Build the base runner image from coding-agent/Containerfile."""
+    """Build the uniform base runner image from coding-agent/Containerfile."""
     from datetime import UTC, datetime
 
-    base_tag = "pa-container-agent-base-desktop:local" if with_desktop else AGENT_BASE_IMAGE_TAG
+    base_tag = AGENT_BASE_IMAGE_TAG
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     logger.info(f"Building agent base image ({runtime}): {base_tag}")
     _run_command_with_logging(
@@ -284,8 +284,6 @@ def build_agent_base(runtime: str, with_desktop: bool = False, label: str | None
             f"root_commands_path={DEFAULT_ROOT_COMMANDS.parent}",
             "--build-arg",
             f"ROOT_COMMANDS_PATH={DEFAULT_ROOT_COMMANDS.name}",
-            "--build-arg",
-            f"WITH_DESKTOP={'true' if with_desktop else 'false'}",
             "--label",
             f"pa-container.build.time={build_ts}",
             "--label",
@@ -364,14 +362,33 @@ def build_project_image(
     """Build a project-specific agent image with baked-in packages and commands.sh."""
     import tempfile
 
+    from images import resolve_project_packages
     from packages import package_to_image_tag
 
-    active_packages = sorted(set(CORE_PACKAGES) | set(packages or kwargs.get("tools") or []))
-    if with_desktop and "virtual-desktop" not in active_packages:
-        active_packages.append("virtual-desktop")
+    resolved_specs: dict[str, list[str]] = {}
+    if project_path and Path(project_path).exists():
+        resolved_specs = resolve_project_packages(
+            Path(project_path),
+            extra_packages=packages or kwargs.get("tools"),
+        )
+    else:
+        raw_list = packages or kwargs.get("tools") or []
+        for item in raw_list:
+            if isinstance(item, str):
+                if "+" in item:
+                    pname, *pfeats = item.split("+")
+                    resolved_specs.setdefault(pname.strip(), []).extend(f.strip() for f in pfeats if f.strip())
+                else:
+                    resolved_specs.setdefault(item.strip(), [])
+
+    for cp in CORE_PACKAGES:
+        resolved_specs.setdefault(cp, [])
+
+    if with_desktop:
+        resolved_specs.setdefault("virtual-desktop", [])
 
     base_tag = build_agent_base(runtime, with_desktop=with_desktop)
-    ensure_package_images(active_packages, runtime=runtime, repo_root=REPO_ROOT)
+    ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
 
     root_cmd = Path(root_commands_path)
     logger.info(f"Assembling project-specific agent image ({runtime}): {image_tag}")
@@ -379,8 +396,8 @@ def build_project_image(
     cf_lines = [
         f"FROM {base_tag}",
     ]
-    for pkg in active_packages:
-        cf_lines.append(f"COPY --from={package_to_image_tag(pkg)} / /")
+    for pkg, feats in sorted(resolved_specs.items()):
+        cf_lines.append(f"COPY --from={package_to_image_tag(pkg, features=feats)} / /")
 
     cf_lines.extend(
         [
@@ -676,12 +693,20 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
 
 
 def execute_test(options: TestOptions, driver: LogDriver | None = None) -> int:
-    """Execute in-container smoke test verifications for packages."""
-    from packages import discover_packages, render_verification_results, verify_packages
+    """Execute in-container smoke test or integration test verifications for packages."""
+    from packages import (
+        discover_packages,
+        render_verification_results,
+        verify_packages,
+        verify_packages_integration,
+    )
+
+    is_integration = getattr(options, "integration", False)
+    test_type = "integration" if is_integration else "smoke"
 
     log_drv = driver or get_log_driver()
     if log_drv is not None and not log_drv.quiet and not log_drv.verbose and log_drv.console.is_terminal:
-        log_drv.console.print("[dim]ℹ Running package smoke tests[/dim]")
+        log_drv.console.print(f"[dim]ℹ Running package {test_type} tests[/dim]")
 
     try:
         runtime = validate_environment(LLAMA_BIN)
@@ -715,13 +740,23 @@ def execute_test(options: TestOptions, driver: LogDriver | None = None) -> int:
                     )
                 return 1
 
-    if log_drv is not None:
-        with log_drv.stage(LogCategory.BUILD, f"Smoke testing {len(target)} package(s)"):
-            results = verify_packages(target, runtime=runtime)
-    else:
-        results = verify_packages(target, runtime=runtime)
+    stage_title = f"{'Integration' if is_integration else 'Smoke'} testing {len(target)} package(s)"
+    table_title = f"Agent Capability Package (ACP) {'Integration' if is_integration else 'Smoke'} Test Results"
 
-    render_verification_results(results)
+    if is_integration:
+        if log_drv is not None:
+            with log_drv.stage(LogCategory.BUILD, stage_title):
+                results = verify_packages_integration(target, runtime=runtime)
+        else:
+            results = verify_packages_integration(target, runtime=runtime)
+    else:
+        if log_drv is not None:
+            with log_drv.stage(LogCategory.BUILD, stage_title):
+                results = verify_packages(target, runtime=runtime)
+        else:
+            results = verify_packages(target, runtime=runtime)
+
+    render_verification_results(results, title=table_title)
     failed = [r for r in results if not r.passed]
     return 1 if failed else 0
 

@@ -1,7 +1,5 @@
 #!/bin/bash
-# Install and stage Qdrant vector database.
-#
-# Run from ACP package builder, as root, at image build time.
+# Install and stage Qdrant vector database pre-built static binary.
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
 
