@@ -1,0 +1,23 @@
+schema_version: "2.0.0"
+name: "data-tools"
+version: "1.0.0"
+description: "Structured data processing capability: jq (JSON), yq (YAML/XML), and Miller mlr (CSV/TSV/JSON)"
+category: "devtools"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "jq"
+        - "yq"
+        - "miller"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "jq --version && yq --version && mlr --version"
+    expected_output_contains: "jq"
