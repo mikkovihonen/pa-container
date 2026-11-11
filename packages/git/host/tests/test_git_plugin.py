@@ -50,13 +50,28 @@ class TestGitPlugin:
         manifest = _make_dummy_manifest()
         pa_dir = tmp_path / ".pa-container"
         pa_dir.mkdir()
-        (pa_dir / "config.yaml").write_text(yaml.dump({"git": {"safe_directory": True, "rewrite_ssh_to_https": False}}))
+        (pa_dir / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "packages": [
+                        {
+                            "git": {
+                                "features": [],
+                                "config": {"safe_directory": True, "rewrite_ssh_to_https": False},
+                                "secrets": [],
+                            }
+                        }
+                    ]
+                }
+            )
+        )
 
         plugin = GitPlugin(manifest, tmp_path, project_dir=tmp_path)
         ctx = RunContext(
             project_dir=tmp_path,
             options=MagicMock(),
-            config={"git": {"safe_directory": True, "rewrite_ssh_to_https": False}},  # type: ignore[arg-type]
+            config={},
+            package_configs={"git": {"safe_directory": True, "rewrite_ssh_to_https": False}},
         )
         plugin.on_run_init(ctx)
         assert ctx.has_mode("git")

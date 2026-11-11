@@ -1,9 +1,24 @@
-schema_version: "3.0.0"
+schema_version: "0.7.0"
 name: "virtual-desktop"
 version: "2.0.0"
 description: "Headless Wayland desktop (labwc), wayvnc, noVNC, and agent-desktop automation CLI"
 category: "desktop"
 license: "MIT"
+
+config:
+    resolution: "1920x1080"
+    compositor: "labwc"
+    open_browser: false
+    vnc:
+        enabled: true
+        port: "auto"
+        expose: "localhost"
+    novnc:
+        enabled: true
+        port: "auto"
+        expose: "localhost"
+    gpu:
+        enabled: "auto"
 
 payload:
     type: build_script

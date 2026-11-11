@@ -39,7 +39,7 @@ from packages import discover_packages
 
 
 def _validate_packages(data: dict[str, Any]) -> list[str]:
-    """Validate packages list against discovered Agent Capability Packages and ensure at least one agent package."""
+    """Validate packages list strictly enforcing Canonical Package Specification and explicit secrets."""
     errors: list[str] = []
     packages_list = data.get("packages")
     if packages_list is None:
@@ -51,123 +51,169 @@ def _validate_packages(data: dict[str, Any]) -> list[str]:
 
     manifests = discover_packages()
     available_packages = set(manifests.keys())
+    app_version = get_app_version()
     agent_packages_count = 0
+
     for item in packages_list:
         if isinstance(item, str):
-            if "+" in item:
-                errors.append(
-                    f"  packages: string concatenation with '+' is not supported in '{item}'. "
-                    f"Use dictionary syntax, e.g. - {item.split('+')[0]}: [{', '.join(item.split('+')[1:])}]"
-                )
-            elif item not in available_packages:
-                errors.append(
-                    f"  packages: unknown package '{item}'. Available packages: {', '.join(sorted(available_packages))}"
-                )
-            else:
-                if manifests[item].category == "agents":
-                    agent_packages_count += 1
-        elif isinstance(item, dict):
-            if len(item) != 1:
-                errors.append(
-                    f"  packages: dictionary entry must have exactly one package name as key, got {list(item.keys())}"
-                )
-            for pkg_name, val in item.items():
-                if pkg_name not in available_packages:
-                    errors.append(
-                        f"  packages: unknown package '{pkg_name}'. Available packages: {', '.join(sorted(available_packages))}"
-                    )
-                else:
-                    if manifests[pkg_name].category == "agents":
-                        agent_packages_count += 1
-                    pkg_manifest = manifests[pkg_name]
-                    known_features = set(pkg_manifest.features.keys()) if pkg_manifest.features else set()
-                    feats: list[str] = []
-                    if isinstance(val, list):
-                        for f in val:
-                            if not isinstance(f, str):
-                                errors.append(f"  packages: {pkg_name}: expected feature name string, got {f!r}")
-                            else:
-                                feats.append(f)
-                    elif isinstance(val, dict):
-                        f_list = val.get("features")
-                        if f_list is not None:
-                            if not isinstance(f_list, list):
-                                errors.append(
-                                    f"  packages: {pkg_name}.features: expected list, got {type(f_list).__name__}"
-                                )
-                            else:
-                                for f in f_list:
-                                    if not isinstance(f, str):
-                                        errors.append(f"  packages: {pkg_name}.features: expected string, got {f!r}")
-                                    else:
-                                        feats.append(f)
-                    else:
-                        errors.append(
-                            f"  packages: {pkg_name}: expected list of features or object with 'features', got {type(val).__name__}"
-                        )
-                    if known_features:
-                        for f in feats:
-                            if f not in known_features:
-                                errors.append(
-                                    f"  packages: {pkg_name}: unknown feature '{f}'. Available features: {', '.join(sorted(known_features))}"
-                                )
-        else:
             errors.append(
-                f"  packages: expected string package name or dictionary entry, got {type(item).__name__} (value: {item!r})"
+                f"  packages: bare string package name '{item}' is not supported. "
+                f"Use Canonical Package Specification: - {item}: {{ features: [...], config: {{...}}, secrets: [...] }}"
             )
+            continue
+        elif not isinstance(item, dict):
+            errors.append(
+                f"  packages: expected dict item following Canonical Package Specification, got {type(item).__name__} (value: {item!r})"
+            )
+            continue
+
+        if len(item) != 1:
+            errors.append(
+                f"  packages: dictionary entry must have exactly one package name as key, got {list(item.keys())}"
+            )
+            continue
+
+        pkg_name, val = next(iter(item.items()))
+        if pkg_name not in available_packages:
+            errors.append(
+                f"  packages: unknown package '{pkg_name}'. Available packages: {', '.join(sorted(available_packages))}"
+            )
+            continue
+
+        pkg_manifest = manifests[pkg_name]
+        if pkg_manifest.category == "agents":
+            agent_packages_count += 1
+
+        if app_version is not None and pkg_manifest.schema_version != app_version:
+            errors.append(
+                f"  packages: {pkg_name}: manifest schema_version '{pkg_manifest.schema_version}' "
+                f"does not match pa-container version '{app_version}'"
+            )
+
+        if not isinstance(val, dict):
+            errors.append(
+                f"  packages: {pkg_name}: Canonical Package Specification required. Expected mapping containing 'features', 'config', and 'secrets', "
+                f"got {type(val).__name__}. Shorthand syntax is not supported."
+            )
+            continue
+
+        unrecognized_keys = set(val.keys()) - {"features", "config", "secrets"}
+        if unrecognized_keys:
+            errors.append(
+                f"  packages: {pkg_name}: unrecognized key(s) {sorted(unrecognized_keys)}. "
+                f"Configuration must be under 'config:', features under 'features:', and secrets under 'secrets:'."
+            )
+
+        # 1. Validate features
+        if "features" not in val:
+            errors.append(f"  packages: {pkg_name}: missing required key 'features' (use 'features: []' if none)")
+        else:
+            feats_raw = val["features"]
+            if not isinstance(feats_raw, list):
+                errors.append(f"  packages: {pkg_name}.features: expected list, got {type(feats_raw).__name__}")
+            else:
+                feats = []
+                for f in feats_raw:
+                    if not isinstance(f, str):
+                        errors.append(f"  packages: {pkg_name}.features: expected string, got {f!r}")
+                    else:
+                        feats.append(f)
+                known_features = set(pkg_manifest.features.keys()) if pkg_manifest.features else set()
+                if known_features:
+                    for f in feats:
+                        if f not in known_features:
+                            errors.append(
+                                f"  packages: {pkg_name}: unknown feature '{f}'. Available features: {', '.join(sorted(known_features))}"
+                            )
+
+        # 2. Validate config
+        if "config" not in val:
+            errors.append(f"  packages: {pkg_name}: missing required key 'config' (use 'config: {{}}' if default)")
+        elif not isinstance(val["config"], dict):
+            errors.append(f"  packages: {pkg_name}.config: expected mapping, got {type(val['config']).__name__}")
+
+        # 3. Validate secrets
+        mapped_secret_names: set[str] = set()
+        if "secrets" not in val:
+            errors.append(f"  packages: {pkg_name}: missing required key 'secrets' (use 'secrets: []' if none)")
+        elif not isinstance(val["secrets"], list):
+            errors.append(f"  packages: {pkg_name}.secrets: expected list, got {type(val['secrets']).__name__}")
+        else:
+            for s_idx, sec_item in enumerate(val["secrets"]):
+                if not isinstance(sec_item, dict):
+                    errors.append(
+                        f"  packages: {pkg_name}.secrets[{s_idx}]: expected mapping with 'name' and 'account', "
+                        f"got {type(sec_item).__name__}"
+                    )
+                    continue
+                s_name = sec_item.get("name")
+                s_account = sec_item.get("account")
+                if not isinstance(s_name, str) or not s_name.strip():
+                    errors.append(f"  packages: {pkg_name}.secrets[{s_idx}]: missing required field 'name'.")
+                if not isinstance(s_account, str) or not s_account.strip():
+                    errors.append(f"  packages: {pkg_name}.secrets[{s_idx}]: missing required field 'account'.")
+                if isinstance(s_name, str) and s_name.strip() and isinstance(s_account, str) and s_account.strip():
+                    mapped_secret_names.add(s_name.strip())
+
+        # 4. Hard error on unmapped required secrets
+        for slot in pkg_manifest.secrets:
+            if slot.required and slot.name not in mapped_secret_names:
+                errors.append(
+                    f"  packages: {pkg_name}: unmapped required secret '{slot.name}'. "
+                    f"Declare an explicit binding under 'secrets:' with both 'name' and 'account'."
+                )
 
     if agent_packages_count == 0:
         errors.append(
             "  packages: configuration must include at least one agent package (category: 'agents'), "
-            "e.g. - agents: [pi]"
+            "e.g. - agents: { features: [pi], config: {}, secrets: [] }"
         )
     return errors
 
 
 def _validate_package_configs(data: dict[str, Any]) -> list[str]:
-    """Validate package-specific root configuration sections contributed by ACPs."""
+    """Validate package configurations and reject deprecated root-level sections."""
     errors: list[str] = []
+
+    # Reject legacy root sections
+    LEGACY_ROOT_SECTIONS = ("desktop", "nested_containers", "git", "source_control")
+    for sec in LEGACY_ROOT_SECTIONS:
+        if sec in data:
+            errors.append(
+                f"  {sec}: Legacy root-level configuration section '{sec}' is not allowed. "
+                f"Package configuration must be declared in 'packages:' under the canonical package specification."
+            )
+
     manifests = discover_packages()
     from packages.discovery import get_package_dir
     from packages.loader import load_acp_plugin
 
     packages_list = data.get("packages") or []
-    active_pkg_names: set[str] = set()
-    for item in packages_list:
-        if isinstance(item, str):
-            active_pkg_names.add(item)
-        elif isinstance(item, dict):
-            active_pkg_names.update(item.keys())
+    if isinstance(packages_list, list):
+        for item in packages_list:
+            if isinstance(item, dict) and len(item) == 1:
+                pkg_name, val = next(iter(item.items()))
+                if isinstance(val, dict) and pkg_name in manifests:
+                    manifest = manifests[pkg_name]
+                    pkg_config = val.get("config")
+                    if isinstance(pkg_config, dict):
+                        pkg_dir = get_package_dir(manifest.name)
+                        try:
+                            plugin = load_acp_plugin(manifest, pkg_dir)
+                            if plugin is not None:
+                                schema_contrib = plugin.contribute_config_schema()
+                                if isinstance(schema_contrib, dict):
+                                    sub_keys = schema_contrib.get("keys", {})
+                                    if sub_keys:
+                                        from packages.loader import deep_merge
 
-    for manifest in manifests.values():
-        config_key = manifest.extension.config_key
-        if not config_key or config_key not in data:
-            continue
-
-        section = data[config_key]
-        if not isinstance(section, dict):
-            errors.append(f"  {config_key}: expected dict, got {type(section).__name__}")
-            continue
-
-        is_enabled = bool(section.get("enabled", False))
-        if is_enabled and manifest.name not in active_pkg_names:
-            errors.append(
-                f"  {config_key}: section is enabled ('enabled: true'), but package '{manifest.name}' "
-                f"is missing from 'packages:'. Add '{manifest.name}' to 'packages:' in .pa-container/config.yaml."
-            )
-
-        pkg_dir = get_package_dir(manifest.name)
-        try:
-            plugin = load_acp_plugin(manifest, pkg_dir)
-            if plugin is not None:
-                schema_contrib = plugin.contribute_config_schema()
-                if isinstance(schema_contrib, dict):
-                    sub_keys = schema_contrib.get("keys", {})
-                    if sub_keys:
-                        sub_errors = _validate_schema(section, sub_keys, config_key)
-                        errors.extend(sub_errors)
-        except Exception as e:
-            errors.append(f"  {config_key}: error validating package configuration: {e}")
+                                        merged_pkg_config = deep_merge(manifest.config, pkg_config)
+                                        sub_errors = _validate_schema(
+                                            merged_pkg_config, sub_keys, f"packages.{pkg_name}.config"
+                                        )
+                                        errors.extend(sub_errors)
+                        except Exception as e:
+                            errors.append(f"  packages.{pkg_name}.config: error validating package configuration: {e}")
 
     return errors
 

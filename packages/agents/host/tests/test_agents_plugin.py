@@ -58,21 +58,62 @@ def test_agents_plugin_secret_mappings(dummy_manifest: PackageManifest, tmp_path
     plugin = AgentsPlugin(dummy_manifest, tmp_path / "agents", tmp_path)
 
     # Empty/default config (only pi enabled) -> no external API secrets required
-    mappings_pi = plugin.get_secret_mappings({"packages": [{"agents": ["pi"]}]})
+    mappings_pi = plugin.get_secret_mappings(
+        {"packages": [{"agents": {"features": ["pi"], "config": {}, "secrets": []}}]}
+    )
     assert len(mappings_pi) == 0
 
-    # Claude enabled -> Anthropic API key mapping contributed
-    mappings_claude = plugin.get_secret_mappings({"packages": [{"agents": ["claude"]}]})
+    # Claude enabled with explicit secret -> Anthropic API key mapping contributed
+    mappings_claude = plugin.get_secret_mappings(
+        {
+            "packages": [
+                {
+                    "agents": {
+                        "features": ["claude"],
+                        "config": {},
+                        "secrets": [{"name": "anthropic", "account": "ANTHROPIC_API_KEY"}],
+                    }
+                }
+            ]
+        }
+    )
     assert len(mappings_claude) == 1
     assert mappings_claude[0].keyring_account == "ANTHROPIC_API_KEY"
 
-    # Antigravity enabled -> Gemini API key mapping contributed
-    mappings_agy = plugin.get_secret_mappings({"packages": [{"agents": ["antigravity"]}]})
+    # Antigravity enabled with explicit secret -> Gemini API key mapping contributed
+    mappings_agy = plugin.get_secret_mappings(
+        {
+            "packages": [
+                {
+                    "agents": {
+                        "features": ["antigravity"],
+                        "config": {},
+                        "secrets": [{"name": "gemini", "account": "GEMINI_API_KEY"}],
+                    }
+                }
+            ]
+        }
+    )
     assert len(mappings_agy) == 1
     assert mappings_agy[0].keyring_account == "GEMINI_API_KEY"
 
-    # Both enabled -> Both mappings contributed
-    mappings_both = plugin.get_secret_mappings({"packages": [{"agents": ["claude", "antigravity"]}]})
+    # Both enabled with explicit secrets -> Both mappings contributed
+    mappings_both = plugin.get_secret_mappings(
+        {
+            "packages": [
+                {
+                    "agents": {
+                        "features": ["claude", "antigravity"],
+                        "config": {},
+                        "secrets": [
+                            {"name": "anthropic", "account": "ANTHROPIC_API_KEY"},
+                            {"name": "gemini", "account": "GEMINI_API_KEY"},
+                        ],
+                    }
+                }
+            ]
+        }
+    )
     assert len(mappings_both) == 2
 
 
@@ -85,7 +126,11 @@ def test_agents_plugin_lifecycle_and_configure(dummy_manifest: PackageManifest, 
     config_data = {
         "packages": [
             {
-                "agents": ["pi", "opencode"],
+                "agents": {
+                    "features": ["pi", "opencode"],
+                    "config": {},
+                    "secrets": [],
+                }
             }
         ],
         "agent": {

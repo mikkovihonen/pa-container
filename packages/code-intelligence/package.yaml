@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "0.7.0"
 name: "code-intelligence"
 version: "1.0.0"
 description: "Codebase search, syntactic parsing, and context packing (ripgrep, fd, ast-grep, tree-sitter, colgrep, repomix, tokencount)"

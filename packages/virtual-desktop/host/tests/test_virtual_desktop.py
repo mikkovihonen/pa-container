@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import yaml
 from pa_packages.virtual_desktop.host.desktop import (
     ActiveDesktopInfo,
     DesktopOptions,
@@ -20,30 +21,34 @@ from util import is_port_available
 
 
 def test_read_desktop_config_defaults(tmp_path: Path):
-    (tmp_path / "config.yaml").write_text("schema_version: '0.6.6'\n")
+    (tmp_path / "config.yaml").write_text("schema_version: '0.7.0'\n")
     import pytest
 
-    with pytest.raises(ValueError, match="Missing required 'desktop' configuration section"):
+    with pytest.raises(ValueError, match="Missing required 'virtual-desktop' package configuration"):
         read_desktop_config(tmp_path)
 
 
 def test_read_desktop_config_custom(tmp_path: Path):
     content = """
-desktop:
-  enabled: true
-  resolution: "2560x1440"
-  compositor: "labwc"
-  open_browser: true
-  vnc:
-    enabled: true
-    port: 5901
-    expose: "lan"
-  novnc:
-    enabled: true
-    port: 6081
-    expose: "lan"
-  gpu:
-    enabled: false
+packages:
+  - virtual-desktop:
+      features: []
+      config:
+        enabled: true
+        resolution: "2560x1440"
+        compositor: "labwc"
+        open_browser: true
+        vnc:
+          enabled: true
+          port: 5901
+          expose: "lan"
+        novnc:
+          enabled: true
+          port: 6081
+          expose: "lan"
+        gpu:
+          enabled: false
+      secrets: []
 """
     (tmp_path / "config.yaml").write_text(content)
     cfg = read_desktop_config(tmp_path)
@@ -62,24 +67,28 @@ def test_read_desktop_config_sanitization(tmp_path: Path):
     import pytest
 
     content = """
-desktop:
-  enabled: "yes"
-  resolution: "invalid_resolution"
-  compositor: "kde"
-  open_browser: false
-  vnc:
-    enabled: true
-    port: 999999
-    expose: "world"
-  novnc:
-    enabled: true
-    port: "not_a_number"
-    expose: "localhost"
-  gpu:
-    enabled: "auto"
+packages:
+  - virtual-desktop:
+      features: []
+      config:
+        enabled: "yes"
+        resolution: "invalid_resolution"
+        compositor: "kde"
+        open_browser: false
+        vnc:
+          enabled: true
+          port: 999999
+          expose: "world"
+        novnc:
+          enabled: true
+          port: "not_a_number"
+          expose: "localhost"
+        gpu:
+          enabled: "auto"
+      secrets: []
 """
     (tmp_path / "config.yaml").write_text(content)
-    with pytest.raises(ValueError, match="Invalid 'desktop.enabled': expected bool"):
+    with pytest.raises(ValueError, match="Invalid 'virtual-desktop.enabled': expected bool"):
         read_desktop_config(tmp_path)
 
 
@@ -400,11 +409,16 @@ def test_virtual_desktop_plugin(tmp_path: Path):
 
     pa_dir = tmp_path / ".pa-container"
     pa_dir.mkdir(parents=True)
+    cfg_data = {
+        "resolution": "1280x720",
+        "compositor": "labwc",
+        "open_browser": False,
+        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "gpu": {"enabled": False},
+    }
     (pa_dir / "config.yaml").write_text(
-        "desktop:\n  enabled: true\n  resolution: '1280x720'\n  compositor: 'labwc'\n  open_browser: false\n"
-        "  vnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
-        "  novnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
-        "  gpu:\n    enabled: false\n"
+        yaml.dump({"packages": [{"virtual-desktop": {"features": [], "config": cfg_data, "secrets": []}}]})
     )
     plugin = VirtualDesktopPlugin(manifest=None, package_dir=Path("."), project_dir=tmp_path)  # type: ignore[arg-type]
     spec = ContainerRunSpec()
@@ -415,6 +429,7 @@ def test_virtual_desktop_plugin(tmp_path: Path):
         proxy_url=None,
         options=RunOptions(),
         config={},  # type: ignore[arg-type]
+        package_configs={"virtual-desktop": cfg_data},
     )
     plugin.on_container_configure(spec, ctx)
     assert ctx.has_mode("desktop")
@@ -432,11 +447,16 @@ def test_virtual_desktop_gpu_passthrough(tmp_path: Path):
 
     pa_dir = tmp_path / ".pa-container"
     pa_dir.mkdir(parents=True)
+    cfg_data = {
+        "resolution": "1920x1080",
+        "compositor": "labwc",
+        "open_browser": False,
+        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "gpu": {"enabled": "auto"},
+    }
     (pa_dir / "config.yaml").write_text(
-        "desktop:\n  enabled: true\n  resolution: '1920x1080'\n  compositor: 'labwc'\n  open_browser: false\n"
-        "  vnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
-        "  novnc:\n    enabled: true\n    port: auto\n    expose: localhost\n"
-        "  gpu:\n    enabled: auto\n"
+        yaml.dump({"packages": [{"virtual-desktop": {"features": [], "config": cfg_data, "secrets": []}}]})
     )
     plugin = VirtualDesktopPlugin(manifest=None, package_dir=Path("."), project_dir=tmp_path)  # type: ignore[arg-type]
     spec = ContainerRunSpec()
@@ -447,6 +467,7 @@ def test_virtual_desktop_gpu_passthrough(tmp_path: Path):
         proxy_url=None,
         options=RunOptions(),
         config={},  # type: ignore[arg-type]
+        package_configs={"virtual-desktop": cfg_data},
     )
 
     with patch("pathlib.Path.exists", return_value=True):

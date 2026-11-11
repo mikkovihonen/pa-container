@@ -154,14 +154,14 @@ class SecretMappingConfig:
     """Declarative secret mapping from OS keyring to proxy token replacer."""
 
     name: str
-    keyring_account: str
-    placeholder: str
+    placeholder: str = ""
     hosts: list[str] = field(default_factory=list)
     keyring_service: str = "pa-container"
     header: str | None = None
     pattern: str | None = None
     json_path: str | None = None
     required: bool = True
+    keyring_account: str = ""
 
 
 @dataclass(frozen=True)
@@ -193,10 +193,12 @@ class PackageManifest:
     schema_version: str
     name: str
     version: str
+    core: bool = False
     description: str = ""
     category: str = "devtools"
     license: str = "unknown"
     build_memory_mib: int = 0
+    config: dict[str, Any] = field(default_factory=dict)
     payload: PayloadConfig = field(default_factory=lambda: PayloadConfig(type="none"))
     skill: SkillConfig = field(default_factory=SkillConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
@@ -334,20 +336,20 @@ def _parse_secrets(secrets_data: Any) -> list[SecretMappingConfig]:
         return []
     result: list[SecretMappingConfig] = []
     for item in secrets_data:
-        if isinstance(item, dict) and "name" in item and "keyring_account" in item and "placeholder" in item:
+        if isinstance(item, dict) and "name" in item:
             hosts_raw = item.get("hosts") or []
             hosts = [str(h).strip() for h in hosts_raw if str(h).strip()] if isinstance(hosts_raw, list) else []
             result.append(
                 SecretMappingConfig(
                     name=str(item["name"]),
-                    keyring_account=str(item["keyring_account"]),
-                    placeholder=str(item["placeholder"]),
+                    placeholder=str(item.get("placeholder", "")),
                     hosts=hosts,
                     keyring_service=str(item.get("keyring_service", "pa-container")),
                     header=str(item["header"]) if item.get("header") else None,
                     pattern=str(item["pattern"]) if item.get("pattern") else None,
                     json_path=str(item["json_path"]) if item.get("json_path") else None,
                     required=bool(item.get("required", True)),
+                    keyring_account=str(item.get("keyring_account", "")),
                 )
             )
     return result
@@ -467,15 +469,19 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
     )
 
     build_memory_mib = int(data.get("build_memory_mib") or 0)
+    core = bool(data.get("core", False))
+    config_dict = dict(data.get("config") or {}) if isinstance(data.get("config"), dict) else {}
 
     return PackageManifest(
         schema_version=schema_version,
         name=name,
         version=version,
+        core=core,
         description=description,
         category=category,
         license=license_str,
         build_memory_mib=build_memory_mib,
+        config=config_dict,
         payload=payload,
         skill=skill,
         mcp=mcp,

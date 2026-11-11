@@ -24,29 +24,38 @@ logger = get_category_logger(__name__, LogCategory.DESKTOP)
 def read_desktop_config(config_dir: Path | None = None) -> DesktopConfig:
     """Read and validate the desktop configuration from project config.yaml."""
     cfg = load_project_config(config_dir)
-    section = cfg.get("desktop")
-    if not isinstance(section, dict):
-        raise ValueError("Missing required 'desktop' configuration section in project config")
+    packages_list = cfg.get("packages")
+    section = None
+    if isinstance(packages_list, list):
+        for item in packages_list:
+            if isinstance(item, dict) and "virtual-desktop" in item:
+                val = item["virtual-desktop"]
+                if isinstance(val, dict):
+                    section = val.get("config", {})
+                    break
 
-    for key in ("enabled", "resolution", "compositor", "vnc", "novnc", "open_browser", "gpu"):
+    if section is None:
+        raise ValueError("Missing required 'virtual-desktop' package configuration in project config")
+
+    for key in ("resolution", "compositor", "vnc", "novnc", "open_browser", "gpu"):
         if key not in section:
-            raise ValueError(f"Missing required 'desktop.{key}' configuration in project config")
+            raise ValueError(f"Missing required 'virtual-desktop.config.{key}' configuration in project config")
 
-    enabled = section["enabled"]
+    enabled = section.get("enabled", True)
     if not isinstance(enabled, bool):
-        raise ValueError(f"Invalid 'desktop.enabled': expected bool, got {type(enabled).__name__}")
+        raise ValueError(f"Invalid 'virtual-desktop.enabled': expected bool, got {type(enabled).__name__}")
 
     resolution = str(section["resolution"]).strip()
     if not re.match(r"^\d+x\d+$", resolution):
-        raise ValueError(f"Invalid 'desktop.resolution': expected WIDTHxHEIGHT format, got {resolution!r}")
+        raise ValueError(f"Invalid 'virtual-desktop.resolution': expected WIDTHxHEIGHT format, got {resolution!r}")
 
     compositor = str(section["compositor"]).strip().lower()
     if compositor not in ("labwc",):
-        raise ValueError(f"Invalid 'desktop.compositor': unsupported compositor {compositor!r}")
+        raise ValueError(f"Invalid 'virtual-desktop.compositor': unsupported compositor {compositor!r}")
 
     open_browser = section["open_browser"]
     if not isinstance(open_browser, bool):
-        raise ValueError(f"Invalid 'desktop.open_browser': expected bool, got {type(open_browser).__name__}")
+        raise ValueError(f"Invalid 'virtual-desktop.open_browser': expected bool, got {type(open_browser).__name__}")
 
     # VNC endpoint settings
     vnc_sec = section["vnc"]

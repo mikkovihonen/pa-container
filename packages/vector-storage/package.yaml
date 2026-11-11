@@ -1,4 +1,4 @@
-schema_version: "2.1.0"
+schema_version: "0.7.0"
 name: "vector-storage"
 version: "1.1.0"
 description: "Embedded vector storage and SIMD vector search extensions: sqlite-vec, USearch, and optional Qdrant daemon"

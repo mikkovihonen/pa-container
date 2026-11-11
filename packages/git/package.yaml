@@ -1,9 +1,13 @@
-schema_version: "3.0.0"
+schema_version: "0.7.0"
 name: "git"
 version: "2.56.0"
 description: "Fast, scalable, distributed revision control system and Git MCP server"
 category: "scm"
 license: "GPL-2.0"
+
+config:
+    safe_directory: true
+    rewrite_ssh_to_https: true
 
 payload:
     type: build_script

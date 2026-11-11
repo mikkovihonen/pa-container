@@ -64,7 +64,6 @@ from network import (
     read_enabled_agents,
     read_flow_export_enabled,
     read_llama_config,
-    read_nested_containers_config,
     read_network_config,
     read_proxy_config,
     read_read_only_pa_container,
@@ -299,12 +298,18 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     active_pkgs = images.read_project_packages(PROJECT_DIR)
     active_plugins = load_project_plugins(PROJECT_DIR)
 
+    from packages.loader import resolve_project_package_declarations
+
+    pkg_configs, pkg_secrets = resolve_project_package_declarations(PROJECT_DIR)
+
     ctx = RunContext(
         project_dir=PROJECT_DIR,
         options=options,
         config=project_raw_cfg,
         runtime=CONTAINER_RUNTIME,
         active_packages=active_pkgs,
+        package_configs=pkg_configs,
+        package_secrets=pkg_secrets,
     )
 
     for plugin in active_plugins.values():
@@ -385,29 +390,19 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     except Exception as e:
         logger.warning(f"Error during crash recovery cleanup: {e}", exc_info=True)
 
-    nested_cfg = read_nested_containers_config(pa_container_dir)
-    if pkg_privileges.get("nested_containers"):
-        nested_cfg["enabled"] = True
-    if nested_cfg["enabled"] and "podman" not in active_pkgs:
-        log_drv.fail_and_render(
-            LogCategory.PREFLIGHT,
-            "Missing Package: podman",
-            (
-                "The configuration has nested containers enabled ('nested_containers.enabled: true'), "
-                "but the configuration is missing the 'podman' capability package that would provide this capability.\n\n"
-                "To enable nested containers, add 'podman' to your packages list in .pa-container/config.yaml:\n"
-                "    packages:\n"
-                "        - podman"
-            ),
-            hints=[
-                "Add 'podman' to .pa-container/config.yaml under 'packages:'.",
-                "Or set 'nested_containers.enabled: false' if nested containers are not needed.",
-            ],
-            source_logger=preflight_logger,
-        )
-        return 1
-
-    nested_ports = nested_cfg["ports"]
+    podman_cfg = ctx.get_package_config("podman")
+    nested_enabled = "podman" in active_pkgs
+    nested_ports_raw = podman_cfg.get("ports") or {}
+    nested_ports = {
+        "expose": nested_ports_raw.get("expose", "localhost"),
+        "publish": nested_ports_raw.get("publish", []),
+    }
+    nested_cfg = {
+        "enabled": nested_enabled,
+        "storage": podman_cfg.get("storage", "volume"),
+        "security": podman_cfg.get("security", "disable"),
+        "ports": nested_ports,
+    }
     if nested_cfg["enabled"]:
         logger.info(
             f"Nested containers enabled (storage={nested_cfg['storage']}, security={nested_cfg['security']}): "

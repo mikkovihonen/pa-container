@@ -1,4 +1,4 @@
-schema_version: "2.1.0"
+schema_version: "0.7.0"
 name: "browser-runtime"
 version: "1.0.0"
 description: "Shared runtime libraries for headless Chromium, Playwright, and Puppeteer"

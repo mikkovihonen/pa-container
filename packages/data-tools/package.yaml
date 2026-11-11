@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "0.7.0"
 name: "data-tools"
 version: "1.0.0"
 description: "Structured data processing capability: jq (JSON), yq (YAML/XML), and Miller mlr (CSV/TSV/JSON)"

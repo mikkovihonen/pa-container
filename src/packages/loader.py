@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.abc
 import importlib.machinery
 import importlib.util
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from packages.discovery import get_package_dir
 from packages.manifest import load_package_manifest
 from packages.plugin import ACPPlugin
+from yaml_strict import load_yaml_strict
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -150,15 +152,75 @@ def load_project_plugins(
 
     if project_dir is not None:
         active_pkgs = read_project_packages(project_dir, extra_packages=extra_packages)
-        if "git" not in active_pkgs and "git" in manifests:
-            cfg_path = project_dir / ".pa-container" / "config.yaml"
-            if (project_dir / ".git").exists() or (cfg_path.is_file() and "git:" in cfg_path.read_text()):
-                active_pkgs.append("git")
     else:
         active_pkgs = list(extra_packages or [])
 
     active_manifests = {p: manifests[p] for p in active_pkgs if p in manifests}
     return load_active_plugins(active_manifests, packages_dir=packages_dir, project_dir=project_dir)
+
+
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively deep merge override mapping into base mapping."""
+    merged = copy.deepcopy(base)
+    for k, v in override.items():
+        if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
+            merged[k] = deep_merge(merged[k], v)
+        else:
+            merged[k] = copy.deepcopy(v)
+    return merged
+
+
+def resolve_project_package_declarations(
+    project_dir: Path,
+    repo_root: Path | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, str]]]]:
+    """Resolve merged package configurations and explicit secret bindings from .pa-container/config.yaml."""
+    cfg_path = project_dir / ".pa-container" / "config.yaml"
+    if not cfg_path.is_file():
+        return {}, {}
+
+    try:
+        raw_data = load_yaml_strict(cfg_path.read_text())
+    except Exception:
+        return {}, {}
+
+    if not isinstance(raw_data, dict):
+        return {}, {}
+
+    pkgs_list = raw_data.get("packages")
+    if not isinstance(pkgs_list, list):
+        return {}, {}
+
+    from packages.discovery import discover_packages
+
+    manifests = discover_packages(repo_root)
+    pkg_configs: dict[str, dict[str, Any]] = {}
+    pkg_secrets: dict[str, list[dict[str, str]]] = {}
+
+    for item in pkgs_list:
+        if isinstance(item, dict) and len(item) == 1:
+            pkg_name, val = next(iter(item.items()))
+            if not isinstance(val, dict):
+                continue
+            manifest = manifests.get(pkg_name)
+            defaults = copy.deepcopy(manifest.config) if manifest else {}
+            overrides = val.get("config") or {}
+            if isinstance(overrides, dict):
+                pkg_configs[pkg_name] = deep_merge(defaults, overrides)
+            else:
+                pkg_configs[pkg_name] = defaults
+
+            raw_secrets = val.get("secrets") or []
+            if isinstance(raw_secrets, list):
+                pkg_secrets[pkg_name] = [
+                    {"name": str(s.get("name")), "account": str(s.get("account"))}
+                    for s in raw_secrets
+                    if isinstance(s, dict) and s.get("name") and s.get("account")
+                ]
+            else:
+                pkg_secrets[pkg_name] = []
+
+    return pkg_configs, pkg_secrets
 
 
 def get_package_host_module(package_name: str, module_name: str, packages_dir: Path | None = None) -> Any:

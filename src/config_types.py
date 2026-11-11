@@ -203,6 +203,24 @@ class ProjectAgentSectionConfig(TypedDict, total=False):
     ports: dict[str, object]
 
 
+class PackageSecretDeclaration(TypedDict):
+    """Explicit secret binding declaration for a package."""
+
+    name: str
+    account: str
+
+
+class PackageDeclaration(TypedDict, total=False):
+    """Canonical package specification item."""
+
+    features: list[str]
+    config: dict[str, object]
+    secrets: list[PackageSecretDeclaration]
+
+
+PackageCanonicalItem = dict[str, PackageDeclaration]
+
+
 class ProjectConfig(TypedDict, total=False):
     """Top-level parsed representation of .pa-container/config.yaml."""
 
@@ -211,11 +229,9 @@ class ProjectConfig(TypedDict, total=False):
     llama: LlamaConfig
     network: NetworkConfig
     proxy: ProxyConfig
-    nested_containers: NestedContainersConfig
     agent: ProjectAgentSectionConfig
     security: SecurityConfig
-    source_control: SourceControlConfig
-    packages: list[str]
+    packages: list[PackageCanonicalItem]
     egress: ProjectEgressConfig
     tmpfs: ProjectTmpfsConfig
     volumes: ProjectVolumesConfig

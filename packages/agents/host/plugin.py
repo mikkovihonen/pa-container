@@ -23,7 +23,7 @@ from .synthesis import load_project_models
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from config_types import ProjectConfig
+    from config_types import PackageSecretDeclaration, ProjectConfig
     from packages.manifest import PackageManifest
 
     from .base import AgentDriver
@@ -93,35 +93,53 @@ class AgentsPlugin(ACPAgentPlugin):
         return agents if agents else ["pi"]
 
     def get_secret_mappings(self, config: ProjectConfig) -> list[SecretTokenMapping]:
-        """Contribute secret mappings linking OS keyring credentials to proxy token replacer rules."""
+        """Contribute secret mappings linking explicitly declared OS keyring credentials to proxy token replacer rules."""
         mappings: list[SecretTokenMapping] = []
-        enabled = self._resolve_enabled_agents(config)
+        pkgs_list = config.get("packages") or []
+        agents_secrets: list[PackageSecretDeclaration] = []
+        if isinstance(pkgs_list, list):
+            for item in pkgs_list:
+                if isinstance(item, dict) and "agents" in item:
+                    val = item["agents"]
+                    if isinstance(val, dict):
+                        agents_secrets = val.get("secrets") or []
+                    break
 
-        if "claude" in enabled:
+        secret_defs: dict[str, tuple[str, str, tuple[str, ...], str, str]] = {
+            "anthropic": (
+                "Anthropic API Key",
+                "ANTHROPIC_API_KEY_PLACEHOLDER",
+                ("api.anthropic.com",),
+                "x-api-key",
+                "ANTHROPIC_API_KEY_PLACEHOLDER",
+            ),
+            "gemini": (
+                "Google Gemini API Key",
+                "GEMINI_API_KEY_PLACEHOLDER",
+                ("generativelanguage.googleapis.com",),
+                "x-goog-api-key",
+                "GEMINI_API_KEY_PLACEHOLDER",
+            ),
+        }
+
+        for s in agents_secrets:
+            if not isinstance(s, dict):
+                continue
+            name = str(s.get("name", "")).strip().lower()
+            account = str(s.get("account", "")).strip()
+            if not name or not account or name not in secret_defs:
+                continue
+            desc, placeholder, hosts, header, pattern = secret_defs[name]
             mappings.append(
                 SecretTokenMapping(
-                    name="Anthropic API Key",
-                    keyring_account="ANTHROPIC_API_KEY",
-                    placeholder="ANTHROPIC_API_KEY_PLACEHOLDER",
-                    hosts=("api.anthropic.com",),
+                    name=desc,
+                    keyring_account=account,
+                    placeholder=placeholder,
+                    hosts=hosts,
                     keyring_service="pa-container",
-                    header="x-api-key",
-                    pattern="ANTHROPIC_API_KEY_PLACEHOLDER",
-                    required=False,
-                )
-            )
-
-        if "antigravity" in enabled:
-            mappings.append(
-                SecretTokenMapping(
-                    name="Google Gemini API Key",
-                    keyring_account="GEMINI_API_KEY",
-                    placeholder="GEMINI_API_KEY_PLACEHOLDER",
-                    hosts=("generativelanguage.googleapis.com",),
-                    keyring_service="pa-container",
-                    header="x-goog-api-key",
-                    pattern="GEMINI_API_KEY_PLACEHOLDER",
-                    required=False,
+                    header=header,
+                    pattern=pattern,
+                    required=True,
                 )
             )
 

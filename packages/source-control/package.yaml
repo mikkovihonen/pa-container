@@ -1,9 +1,55 @@
-schema_version: "3.0.0"
+schema_version: "0.7.0"
 name: "source-control"
 version: "1.0.0"
 description: "Unified source control management, authentication credentials, and CLI tooling (GitHub, GitLab, Gitea, GitCafe)"
 category: "scm"
 license: "MIT"
+
+config:
+    auto_detect_host_cli: false
+    setup_git_credentials: true
+
+secrets:
+    - name: "github"
+      required: true
+      placeholder: "GH_TOKEN_PLACEHOLDER"
+      hosts:
+          - "api.github.com"
+          - "*.github.com"
+      header: "Authorization"
+      pattern: "token (ghp_[A-Za-z0-9_]{36})"
+    - name: "gitlab"
+      required: true
+      placeholder: "GITLAB_TOKEN_PLACEHOLDER"
+      hosts:
+          - "gitlab.com"
+          - "*.gitlab.com"
+      header: "PRIVATE-TOKEN"
+      pattern: "(glpat-[A-Za-z0-9_\\-]{20,32})"
+    - name: "forgejo"
+      required: true
+      placeholder: "GITEA_TOKEN_PLACEHOLDER"
+      hosts:
+          - "gitea.com"
+          - "codeberg.org"
+    - name: "azure_devops"
+      required: true
+      placeholder: "AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"
+      hosts:
+          - "dev.azure.com"
+          - "*.visualstudio.com"
+    - name: "bitbucket"
+      required: true
+      placeholder: "BITBUCKET_TOKEN_PLACEHOLDER"
+      hosts:
+          - "bitbucket.org"
+          - "api.bitbucket.org"
+    - name: "gitcafe"
+      required: true
+      placeholder: "GITCAFE_TOKEN_PLACEHOLDER"
+      hosts:
+          - "gitcafe.com"
+          - "*.gitcafe.com"
 
 payload:
     type: "build_script"

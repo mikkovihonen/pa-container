@@ -63,6 +63,8 @@ class RunContext:
     proxy_url: str | None = None
     modes: set[str] = field(default_factory=set)
     attributes: dict[str, Any] = field(default_factory=dict)
+    package_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    package_secrets: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     exit_stack: ExitStack | None = None
 
     def add_mode(self, mode: str) -> None:
@@ -80,6 +82,14 @@ class RunContext:
     def get_attribute(self, key: str, default: Any = None) -> Any:
         """Retrieve an arbitrary context attribute."""
         return self.attributes.get(key, default)
+
+    def get_package_config(self, package_name: str) -> dict[str, Any]:
+        """Retrieve resolved configuration dictionary for a package."""
+        return self.package_configs.get(package_name, {})
+
+    def get_package_secrets(self, package_name: str) -> list[dict[str, str]]:
+        """Retrieve explicit secret mappings for a package."""
+        return self.package_secrets.get(package_name, [])
 
 
 @dataclass(frozen=True)

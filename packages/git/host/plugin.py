@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 sys.dont_write_bytecode = True
 
@@ -10,7 +10,6 @@ from packages.plugin import ACPPlugin, ContainerRunSpec, RunContext
 
 from .git import (
     get_sanitized_git_config_json,
-    read_git_config,
     resolve_git_hooks_mounts,
     warn_missing_gitignore,
 )
@@ -49,13 +48,13 @@ class GitPlugin(ACPPlugin):
 
     def on_run_init(self, context: RunContext) -> None:
         """Register 'git' mode and parse git configuration."""
-        pa_dir = (self.project_dir / ".pa-container") if self.project_dir else None
-        try:
-            cfg = read_git_config(pa_dir)
-        except Exception as e:
-            logger.debug(f"Could not read git config during init: {e}")
-            cfg = {"safe_directory": True, "rewrite_ssh_to_https": True}
+        cfg_raw = context.get_package_config("git")
+        if not cfg_raw:
+            cfg_raw = (
+                dict(self.manifest.config) if self.manifest else {"safe_directory": True, "rewrite_ssh_to_https": True}
+            )
 
+        cfg = cast("ProjectGitConfig", cfg_raw)
         self.git_cfg = cfg
         context.add_mode("git")
         context.set_attribute("git.config", cfg)
@@ -73,12 +72,14 @@ class GitPlugin(ACPPlugin):
         """Configure container runtime arguments, environment variables, and git hooks mounts."""
         cfg = self.git_cfg
         if cfg is None:
-            pa_dir = (self.project_dir / ".pa-container") if self.project_dir else None
-            try:
-                cfg = read_git_config(pa_dir)
-            except Exception as e:
-                logger.debug(f"Could not read git config: {e}")
-                cfg = {"safe_directory": True, "rewrite_ssh_to_https": True}
+            cfg_raw = context.get_package_config("git")
+            if not cfg_raw:
+                cfg_raw = (
+                    dict(self.manifest.config)
+                    if self.manifest
+                    else {"safe_directory": True, "rewrite_ssh_to_https": True}
+                )
+            cfg = cast("ProjectGitConfig", cfg_raw)
             self.git_cfg = cfg
             context.add_mode("git")
             context.set_attribute("git.config", cfg)

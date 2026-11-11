@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "0.7.0"
 name: "zig"
 version: "0.17.1"
 description: "Zig programming language toolchain and zls language server"

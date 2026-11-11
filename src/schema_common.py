@@ -141,21 +141,6 @@ SCHEMA: dict[str, Any] = {
             },
         },
     },
-    "nested_containers": {
-        "type": dict,
-        "keys": {
-            "enabled": {"type": bool},
-            "storage": {"type": str},
-            "security": {"type": str},
-            "ports": {
-                "type": dict,
-                "keys": {
-                    "expose": {"type": str},
-                    "publish": {"type": list},
-                },
-            },
-        },
-    },
     "tmpfs": {
         "type": dict,
         "keys": {

@@ -17,7 +17,7 @@ sys.dont_write_bytecode = True
 
 from global_config import load_global_config
 from logging_driver import LogCategory, fail_and_render, get_category_logger, get_log_driver
-from packages import collect_distro_packages, ensure_package_images
+from packages import collect_distro_packages, ensure_package_images, get_core_packages
 from util import EnvironmentError, validate_environment
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
@@ -193,9 +193,6 @@ def _build_dns_args() -> list[str]:
     return args
 
 
-CORE_PACKAGES: list[str] = ["python"]
-
-
 def build_package(package_name: str, runtime: str = "podman", label: str | None = None) -> None:
     """Build a specific Agent Capability Package image."""
     from packages import build_package as pkg_build
@@ -209,8 +206,9 @@ def build_proxy(runtime: str, label: str | None = None) -> None:
 
     from images import compute_proxy_image_hash
 
-    # Proxy requires python package
-    ensure_package_images(["python"], runtime=runtime, repo_root=REPO_ROOT)
+    # Proxy requires core packages (e.g. python)
+    core_pkgs = get_core_packages(REPO_ROOT)
+    ensure_package_images(core_pkgs, runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     proxy_hash = compute_proxy_image_hash(REPO_ROOT)
@@ -280,7 +278,8 @@ def build_agent(runtime: str, label: str | None = None) -> None:
     )
 
     base_tag = build_agent_base(runtime)
-    resolved_specs = resolve_package_dependencies({p: [] for p in CORE_PACKAGES}, repo_root=REPO_ROOT)
+    core_pkgs = get_core_packages(REPO_ROOT)
+    resolved_specs = resolve_package_dependencies({p: [] for p in core_pkgs}, repo_root=REPO_ROOT)
     ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 sys.dont_write_bytecode = True
@@ -19,7 +20,6 @@ Neither .env files nor host environment variables are accepted as credential sto
 
 if TYPE_CHECKING:
     import logging
-    from pathlib import Path
 
     from .types import SourceControlConfig
 
@@ -149,62 +149,79 @@ def _probe_host_cli(cmd: tuple[str, ...]) -> str | None:
 
 
 def resolve_source_control_tokens(
-    config_dir: Path | None = None,
+    config_dir_or_secrets: list[Any] | Path | None = None,
     log: logging.Logger | logging.LoggerAdapter[Any] | None = None,
+    config_dir: Path | None = None,
     raw_config: dict[str, Any] | None = None,
+    secrets: list[Any] | None = None,
 ) -> dict[str, str]:
-    """Resolve tokens for all source control providers according to security precedence.
+    """Resolve tokens for all source control providers exclusively from declared secrets.
 
     Returns a mapping of environment variable names to token values to be injected into
     the container.
     """
     sc_log = log or logger
-    cfg = read_source_control_config(config_dir, raw_config=raw_config)
-    if not cfg["enabled"]:
-        sc_log.debug("Source control integration disabled in config.yaml.")
-        return {}
+    secret_list: list[Any] = []
+    effective_config_dir: Path | None = config_dir
 
-    providers_cfg = cfg["providers"]
-    auto_detect_cli = cfg["auto_detect_host_cli"]
+    if isinstance(config_dir_or_secrets, list):
+        secret_list = list(config_dir_or_secrets)
+    elif isinstance(config_dir_or_secrets, Path):
+        effective_config_dir = config_dir_or_secrets
+    elif secrets:
+        secret_list = list(secrets)
+
+    auto_detect_host_cli = False
+    cfg = (
+        raw_config
+        if raw_config is not None
+        else (load_project_config(effective_config_dir) if effective_config_dir else {})
+    )
+    if cfg:
+        pkgs = cfg.get("packages") or []
+        if isinstance(pkgs, list):
+            for item in pkgs:
+                if isinstance(item, dict) and "source-control" in item:
+                    val = item["source-control"]
+                    if isinstance(val, dict):
+                        if not secret_list:
+                            secret_list = list(val.get("secrets") or [])
+                        pkg_cfg = val.get("config") or {}
+                        if isinstance(pkg_cfg, dict):
+                            auto_detect_host_cli = bool(pkg_cfg.get("auto_detect_host_cli", False))
+                    break
 
     resolved_env: dict[str, str] = {}
+    provider_by_name = {p.name: p for p in PROVIDER_DEFINITIONS}
 
-    for provider in PROVIDER_DEFINITIONS:
-        p_cfg = providers_cfg.get(provider.name)
-        if not isinstance(p_cfg, dict):
-            p_cfg = {}
-        keyring_service = str(p_cfg.get("keyring_service") or DEFAULT_KEYRING_SERVICE)
+    for item in secret_list:
+        if not isinstance(item, dict):
+            continue
+        slot_name = str(item.get("name", "")).strip()
+        account = str(item.get("account", "")).strip()
+        if not slot_name or not account:
+            continue
+        provider = provider_by_name.get(slot_name)
+        if not provider:
+            continue
 
-        # Extract configured keyring variable(s) or fallback to provider candidate accounts
-        configured_vars = p_cfg.get("keyring_var")
-        if configured_vars:
-            if isinstance(configured_vars, (list, tuple)):
-                candidates = [str(k).strip() for k in configured_vars if str(k).strip()]
-            else:
-                candidates = [str(configured_vars).strip()]
-        else:
-            candidates = list(provider.default_keyring_vars)
-
-        token: str | None = None
-        source: str = ""
-
-        # 1. OS Keyring (the only accepted credential store)
-        for account in candidates:
-            secret = get_keyring_secret(account, service=keyring_service)
-            if secret:
-                token = secret.strip()
-                source = f"OS keyring (service='{keyring_service}', account='{account}')"
-                break
-
-        # 2. Host CLI active session (if auto_detect_host_cli: true)
-        if not token and auto_detect_cli and provider.host_cli_cmd:
+        secret = get_keyring_secret(account, service=DEFAULT_KEYRING_SERVICE)
+        if not secret and auto_detect_host_cli and provider.host_cli_cmd:
             cli_token = _probe_host_cli(provider.host_cli_cmd)
             if cli_token:
-                token = cli_token
-                source = f"host CLI ({provider.host_cli_cmd[0]})"
+                secret = cli_token
+                sc_log.info(f"Resolved {provider.name} source control token from host CLI: {mask_token(secret)}")
 
-        if token:
-            sc_log.info(f"Resolved {provider.name} source control token from {source}: {mask_token(token)}")
+        if secret:
+            token = secret.strip()
+            sc_log.info(
+                f"Resolved {provider.name} source control token from OS keyring (account='{account}'): {mask_token(token)}"
+            )
             resolved_env[provider.canonical_env_var] = token
+        else:
+            raise ValueError(
+                f"Required secret for '{provider.name}' (keyring account '{account}') was not found in OS Keyring. "
+                f"Run: uv run keyring set {DEFAULT_KEYRING_SERVICE} {account}"
+            )
 
     return resolved_env

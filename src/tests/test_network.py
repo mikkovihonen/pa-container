@@ -911,21 +911,30 @@ class TestReadNestedContainersConfig:
         from network import read_nested_containers_config
 
         self._write(tmp_path, "something_else: 1\n")
-        with pytest.raises(ValueError, match="Missing required 'nested_containers'"):
+        with pytest.raises(ValueError, match="Missing required 'packages'"):
             read_nested_containers_config(tmp_path)
+
+    def test_podman_package_absent_returns_disabled(self, tmp_path):
+        from network import read_nested_containers_config
+
+        self._write(tmp_path, "packages: []\n")
+        assert read_nested_containers_config(tmp_path)["enabled"] is False
 
     def test_all_values_configured(self, tmp_path):
         from network import read_nested_containers_config
 
         self._write(
             tmp_path,
-            "nested_containers:\n"
-            "  enabled: true\n"
-            "  storage: tmpfs\n"
-            "  security: engine_t\n"
-            "  ports:\n"
-            "    expose: lan\n"
-            "    publish: [3000, '18080:8080']\n",
+            "packages:\n"
+            "  - podman:\n"
+            "      features: []\n"
+            "      config:\n"
+            "        storage: tmpfs\n"
+            "        security: engine_t\n"
+            "        ports:\n"
+            "          expose: lan\n"
+            "          publish: [3000, '18080:8080']\n"
+            "      secrets: []\n",
         )
         assert read_nested_containers_config(tmp_path) == {
             "enabled": True,
@@ -934,22 +943,19 @@ class TestReadNestedContainersConfig:
             "ports": {"expose": "lan", "publish": [(3000, 3000), (18080, 8080)]},
         }
 
-    def test_enabled_truthy_string_raises(self, tmp_path):
-        from network import read_nested_containers_config
-
-        self._write(
-            tmp_path,
-            "nested_containers:\n  enabled: 'yes'\n  storage: volume\n  security: disable\n  ports: {}\n",
-        )
-        with pytest.raises(ValueError, match="Invalid 'nested_containers.enabled': expected bool"):
-            read_nested_containers_config(tmp_path)
-
     def test_unknown_modes_raise(self, tmp_path):
         from network import read_nested_containers_config
 
         self._write(
             tmp_path,
-            "nested_containers:\n  enabled: true\n  storage: nfs\n  security: yolo\n  ports: {}\n",
+            "packages:\n"
+            "  - podman:\n"
+            "      features: []\n"
+            "      config:\n"
+            "        storage: nfs\n"
+            "        security: yolo\n"
+            "        ports: {}\n"
+            "      secrets: []\n",
         )
         with pytest.raises(ValueError, match="Invalid 'nested_containers.storage'"):
             read_nested_containers_config(tmp_path)
@@ -957,7 +963,7 @@ class TestReadNestedContainersConfig:
     def test_malformed_yaml_raises(self, tmp_path):
         from network import read_nested_containers_config
 
-        self._write(tmp_path, "nested_containers: [unclosed\n")
+        self._write(tmp_path, "packages: [unclosed\n")
         with pytest.raises(ValueError):
             read_nested_containers_config(tmp_path)
 
@@ -969,7 +975,14 @@ class TestReadNestedPorts:
         from network import read_nested_containers_config
 
         (tmp_path / "config.yaml").write_text(
-            f"nested_containers:\n  enabled: true\n  storage: volume\n  security: disable\n{body}"
+            "packages:\n"
+            "  - podman:\n"
+            "      features: []\n"
+            "      config:\n"
+            "        storage: volume\n"
+            "        security: disable\n"
+            f"{body}\n"
+            "      secrets: []\n"
         )
         return read_nested_containers_config(tmp_path)["ports"]
 
@@ -978,49 +991,51 @@ class TestReadNestedPorts:
             self._ports(tmp_path, "")
 
     def test_bare_port_maps_to_itself(self, tmp_path):
-        assert self._ports(tmp_path, "  ports:\n    publish: [3000]\n")["publish"] == [(3000, 3000)]
+        assert self._ports(tmp_path, "        ports:\n          publish: [3000]\n")["publish"] == [(3000, 3000)]
 
     def test_explicit_mapping_is_host_then_agent(self, tmp_path):
-        assert self._ports(tmp_path, "  ports:\n    publish: ['18080:8080']\n")["publish"] == [(18080, 8080)]
+        assert self._ports(tmp_path, "        ports:\n          publish: ['18080:8080']\n")["publish"] == [
+            (18080, 8080)
+        ]
 
     def test_quoted_and_unquoted_forms_agree(self, tmp_path):
-        assert self._ports(tmp_path, "  ports:\n    publish: ['3000', 3001]\n")["publish"] == [
+        assert self._ports(tmp_path, "        ports:\n          publish: ['3000', 3001]\n")["publish"] == [
             (3000, 3000),
             (3001, 3001),
         ]
 
     def test_unknown_expose_raises(self, tmp_path):
         with pytest.raises(ValueError, match="Invalid 'nested_containers.ports.expose'"):
-            self._ports(tmp_path, "  ports:\n    expose: everywhere\n")
+            self._ports(tmp_path, "        ports:\n          expose: everywhere\n")
 
     def test_lan_is_honoured(self, tmp_path):
-        assert self._ports(tmp_path, "  ports:\n    expose: lan\n")["expose"] == "lan"
+        assert self._ports(tmp_path, "        ports:\n          expose: lan\n")["expose"] == "lan"
 
     def test_unparseable_entry_raises(self, tmp_path):
         with pytest.raises(ValueError, match="contains non-integer port"):
-            self._ports(tmp_path, "  ports:\n    publish: ['nope', 3000]\n")
+            self._ports(tmp_path, "        ports:\n          publish: ['nope', 3000]\n")
 
     def test_out_of_range_entry_raises(self, tmp_path):
         with pytest.raises(ValueError, match="out of range"):
-            self._ports(tmp_path, "  ports:\n    publish: [0, 70000, 3000]\n")
+            self._ports(tmp_path, "        ports:\n          publish: [0, 70000, 3000]\n")
 
     def test_duplicate_host_port_raises(self, tmp_path):
         with pytest.raises(ValueError, match="Duplicate host port"):
-            self._ports(tmp_path, "  ports:\n    publish: ['3000:80', '3000:90']\n")
+            self._ports(tmp_path, "        ports:\n          publish: ['3000:80', '3000:90']\n")
 
     def test_same_agent_port_on_two_host_ports_is_kept(self, tmp_path):
-        assert self._ports(tmp_path, "  ports:\n    publish: ['3000:80', '3001:80']\n")["publish"] == [
+        assert self._ports(tmp_path, "        ports:\n          publish: ['3000:80', '3001:80']\n")["publish"] == [
             (3000, 80),
             (3001, 80),
         ]
 
     def test_non_list_publish_raises(self, tmp_path):
         with pytest.raises(ValueError, match="must be a list"):
-            self._ports(tmp_path, "  ports:\n    publish: 3000\n")
+            self._ports(tmp_path, "        ports:\n          publish: 3000\n")
 
     def test_non_mapping_ports_raises(self, tmp_path):
         with pytest.raises(ValueError, match="must be a mapping"):
-            self._ports(tmp_path, "  ports: [3000]\n")
+            self._ports(tmp_path, "        ports: [3000]\n")
 
 
 class TestReadAgentPorts:

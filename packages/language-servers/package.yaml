@@ -1,4 +1,4 @@
-schema_version: "2.1.0"
+schema_version: "0.7.0"
 name: "language-servers"
 version: "1.0.0"
 description: "Unified language server capability providing lsp-bridge core and optional language servers"

@@ -292,36 +292,54 @@ def _read_nested_ports(section: Mapping[str, Any]) -> PortPublishConfig:
     return _read_ports_section(section, "nested_containers.ports")
 
 
-def read_nested_containers_config(config_dir: Path | None = None) -> NestedContainersConfig:
-    """Nested-container settings from config.yaml ``nested_containers``."""
-    section = load_project_config(config_dir).get("nested_containers")
-    if not isinstance(section, dict):
-        raise ValueError("Missing required 'nested_containers' configuration section in project config")
-    for key in ("enabled", "storage", "security", "ports"):
-        if key not in section:
-            raise ValueError(f"Missing required 'nested_containers.{key}' configuration")
+def read_nested_containers_config(
+    config_dir: Path | None = None,
+    raw_config: dict[str, Any] | None = None,
+) -> NestedContainersConfig:
+    """Nested-container settings from packages list (podman) in config.yaml."""
+    cfg = raw_config if raw_config is not None else load_project_config(config_dir)
+    pkgs_list = cfg.get("packages")
+    if pkgs_list is None:
+        raise ValueError("Missing required 'packages' configuration in project config")
+    podman_entry = None
+    if isinstance(pkgs_list, list):
+        for item in pkgs_list:
+            if isinstance(item, dict) and "podman" in item:
+                podman_entry = item["podman"]
+                break
+    if podman_entry is None:
+        return {
+            "enabled": False,
+            "storage": "volume",
+            "security": "disable",
+            "ports": {"expose": "localhost", "publish": []},
+        }
 
-    enabled = section["enabled"]
-    if not isinstance(enabled, bool):
-        raise ValueError(f"Invalid 'nested_containers.enabled': expected bool, got {type(enabled).__name__}")
+    podman_cfg = podman_entry.get("config") if isinstance(podman_entry, dict) else {}
+    if not isinstance(podman_cfg, dict):
+        raise ValueError("Invalid 'packages.podman.config': expected mapping")
 
-    storage = str(section["storage"]).strip().lower()
+    storage = str(podman_cfg.get("storage", "volume")).strip().lower()
     if storage not in _NESTED_STORAGE_MODES:
         raise ValueError(
             f"Invalid 'nested_containers.storage': expected one of {_NESTED_STORAGE_MODES}, got {storage!r}"
         )
 
-    security = str(section["security"]).strip().lower()
+    security = str(podman_cfg.get("security", "disable")).strip().lower()
     if security not in _NESTED_SECURITY_MODES:
         raise ValueError(
             f"Invalid 'nested_containers.security': expected one of {_NESTED_SECURITY_MODES}, got {security!r}"
         )
 
+    if "ports" not in podman_cfg:
+        raise ValueError("Missing required 'nested_containers.ports'")
+    ports_cfg = _read_nested_ports(podman_cfg)
+
     return {
-        "enabled": enabled,
+        "enabled": True,
         "storage": storage,
         "security": security,
-        "ports": _read_nested_ports(section),
+        "ports": ports_cfg,
     }
 
 

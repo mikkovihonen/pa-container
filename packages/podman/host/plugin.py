@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 sys.dont_write_bytecode = True
 
 import project
 import volumes
 from logging_driver import LogCategory, get_category_logger
-from network import read_nested_containers_config
 from packages.plugin import ACPPlugin, ContainerRunSpec, RunContext
 from runtimes import get_runtime
+
+if TYPE_CHECKING:
+    from config_types import NestedContainersConfig
 
 logger = get_category_logger(__name__, LogCategory.PREFLIGHT)
 
@@ -24,19 +27,19 @@ class PodmanPlugin(ACPPlugin):
         context: RunContext,
     ) -> None:
         """Configure runtime arguments and volumes for nested containers."""
-        pa_dir = (self.project_dir / ".pa-container") if self.project_dir else None
-        try:
-            nested_cfg = read_nested_containers_config(pa_dir)
-        except Exception as e:
-            logger.debug(f"Could not read nested container config: {e}")
-            nested_cfg = {
-                "enabled": True,
-                "storage": "volume",
-                "security": "confined",
-                "ports": {"publish": [], "expose": "localhost"},
-            }
-
-        nested_cfg["enabled"] = True
+        cfg = context.get_package_config("podman")
+        if not cfg and self.manifest:
+            cfg = dict(self.manifest.config)
+        ports_sec = cfg.get("ports") or {}
+        nested_cfg = {
+            "enabled": True,
+            "storage": cfg.get("storage", "volume"),
+            "security": cfg.get("security", "disable"),
+            "ports": {
+                "expose": ports_sec.get("expose", "localhost"),
+                "publish": ports_sec.get("publish", []),
+            },
+        }
         rt = get_runtime()
         proj_dir = self.project_dir or Path.cwd()
         proj_key = project.project_key(proj_dir)
@@ -55,8 +58,9 @@ class PodmanPlugin(ACPPlugin):
                 logger.warning("Falling back to a tmpfs nested image store for this run.")
                 nested_cfg = {**nested_cfg, "storage": "tmpfs"}
 
-        nested_args = rt.nested_container_args(nested_cfg, proj_key)
-        port_args = rt.nested_port_args(nested_cfg)
+        nested_cfg_typed = cast("NestedContainersConfig", nested_cfg)
+        nested_args = rt.nested_container_args(nested_cfg_typed, proj_key)
+        port_args = rt.nested_port_args(nested_cfg_typed)
 
         logger.info(
             f"Nested containers enabled (storage={nested_cfg['storage']}, security={nested_cfg['security']}): "

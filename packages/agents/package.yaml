@@ -1,4 +1,4 @@
-schema_version: "3.0.0"
+schema_version: "0.7.0"
 name: "agents"
 version: "1.0.0"
 description: "Unified AI coding agents runtime capability (Pi, OpenCode, Claude Code, and Google Antigravity)"

@@ -13,6 +13,8 @@ from config_types import (
     LlamaConfig,
     NestedContainersConfig,
     NetworkConfig,
+    PackageDeclaration,
+    PackageSecretDeclaration,
     PortPublishConfig,
     ProjectConfig,
     ResourceLimits,
@@ -37,6 +39,8 @@ def test_typeddict_classes_runtime_subclass() -> None:
         AgentExtrasConfig,
         SecurityConfig,
         SourceControlConfig,
+        PackageSecretDeclaration,
+        PackageDeclaration,
         ProjectConfig,
     ):
         assert issubclass(cls, dict)
@@ -118,17 +122,25 @@ def test_project_config_subsections() -> None:
         "providers": {},
     }
 
+    pkg: PackageDeclaration = {
+        "features": ["pi"],
+        "config": {},
+        "secrets": [{"name": "key", "account": "acc"}],
+    }
+
     proj: ProjectConfig = {
         "schema_version": "1.0",
         "resources": {"default": limits},
         "llama": llama,
         "network": net,
-        "nested_containers": nested,
         "agent": agent,
         "security": sec,
-        "source_control": sc,
+        "packages": [{"agents": pkg}],
     }
 
     assert proj["schema_version"] == "1.0"
     assert proj["resources"]["default"]["memory"] == "4g"
     assert proj["network"]["ipv6"] is True
+    assert proj["packages"][0]["agents"]["features"] == ["pi"]
+    assert nested["enabled"] is True
+    assert sc["enabled"] is True

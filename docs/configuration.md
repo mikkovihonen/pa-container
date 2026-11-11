@@ -340,6 +340,7 @@ Each setup directory contains setup instructions and model definitions you can d
 
 ```yaml
 # .pa-container/config.yaml
+schema_version: "0.7.0"
 resources:
   agent: { memory: 16g, cpus: 8 }
   proxy: { memory: 4g, cpus: 4 }
@@ -354,7 +355,18 @@ proxy:
   open_browser: false         # auto-launch mitmweb in default browser on run: true | false
   max_view_flows: 2000        # max allowed flows in mitmweb RAM (denied flows always kept)
   stream_large_bodies: 10m    # stream bodies > threshold directly (e.g. 10m, off)
-packages: []                  # optional agent capability packages (e.g. [go, rust, code-intelligence])
+packages:
+  - agents:
+      features:
+        - pi
+      config: {}
+      secrets: []
+  - git:
+      features: []
+      config:
+        safe_directory: true
+        rewrite_ssh_to_https: true
+      secrets: []
 agent:
   env: {}                     # extra --env vars for the agent container
   mounts: []                  # extra bind mounts (absolute host paths)
@@ -365,13 +377,6 @@ agent:
   ports:
     expose: localhost         # agent host bind: localhost | lan
     publish: []               # host ports for agent services (e.g. [3773])
-nested_containers:
-  enabled: false              # let the agent run its own containers (off by default)
-  storage: volume             # nested image store: volume | tmpfs
-  security: disable           # agent SELinux label: disable | engine_t
-  ports:
-    expose: localhost         # host bind for published ports: localhost | lan
-    publish: []               # host ports for nested-container UIs, e.g. [3000]
 tmpfs:
   paths: []                   # volatile RAM mounts under /workspace
 volumes:
@@ -517,52 +522,61 @@ volumes:
 
 ### Git configuration
 
-The `git` section in `config.yaml` controls Git repository safety and protocol redirection inside the container sandbox:
+Git repository safety and protocol redirection inside the container sandbox are configured under the `git` package declaration in `packages`:
 
 ```yaml
-git:
-    # Configure git safe.directory to permit git operations inside the mounted workspace directory,
-    # preventing "dubious ownership" errors caused by UID differences between host and container.
-    # Default: true.
-    safe_directory: true
+packages:
+  - git:
+      features: []
+      config:
+        # Configure git safe.directory to permit git operations inside the mounted workspace directory,
+        # preventing "dubious ownership" errors caused by UID differences between host and container.
+        # Default: true.
+        safe_directory: true
 
-    # Automatically rewrite SSH remote URLs (git@github.com:, git@gitlab.com:, etc.) to HTTPS
-    # so fetch and pull operations succeed through the proxy without exposing host SSH keys.
-    # Default: true.
-    rewrite_ssh_to_https: true
+        # Automatically rewrite SSH remote URLs (git@github.com:, git@gitlab.com:, etc.) to HTTPS
+        # so fetch and pull operations succeed through the proxy without exposing host SSH keys.
+        # Default: true.
+        rewrite_ssh_to_https: true
+      secrets: []
 ```
+
+> Legacy root-level `git:` configuration is not supported and is rejected during validation.
 
 - **`safe_directory`**: Marks `/workspace` as safe for Git (running `git config --system --add safe.directory '*'`). This prevents Git 2.35.2+ dubious ownership errors when `/workspace` is mounted from a host user UID differing from container UID `1000`.
 - **`rewrite_ssh_to_https`**: Automatically redirects SSH git remotes for GitHub, GitLab, and Codeberg to HTTPS URLs. This allows background Git operations (such as T3 Code upstream branch checks) to fetch cleanly through the HTTP/HTTPS proxy allowlist without requiring host SSH keys or the `ssh` binary.
 
 ### Source control integration
 
-The `source_control` section in `config.yaml` manages credentials and authentication for Git hosting providers (GitHub, GitLab, Forgejo/Gitea, Azure DevOps, Bitbucket, GitCafe):
+Source control management and credentials for Git hosting providers (GitHub, GitLab, Forgejo/Gitea, Azure DevOps, Bitbucket, GitCafe) are owned and declared under the `source-control` package in `packages`:
 
 ```yaml
-source_control:
-    # Enable forwarding resolved source control tokens to the agent container.
-    # Default: false.
-    enabled: false
+packages:
+  - source-control:
+      features:
+        - github
+      config:
+        # Automatically discover tokens from active host CLI sessions (e.g. host `gh auth token`).
+        # Default: false.
+        auto_detect_host_cli: false
 
-    # Automatically discover tokens from active host CLI sessions (e.g. host `gh auth token`).
-    # Default: false.
-    auto_detect_host_cli: false
-
-    # Automatically configure Git credential helpers inside the container (e.g. `gh auth setup-git`)
-    # so Git HTTPS operations seamlessly authenticate using the token.
-    # Default: true.
-    setup_git_credentials: true
-
-    # Provider overrides, custom keyring variable names, or explicit tokens.
-    providers:
-        github:
-            keyring_var: PA_CONTAINER_T3_GH_TOKEN  # or list: [VAR1, VAR2]
+        # Automatically configure Git credential helpers inside the container (e.g. `gh auth setup-git`)
+        # so Git HTTPS operations seamlessly authenticate using the token.
+        # Default: true.
+        setup_git_credentials: true
+      secrets:
+        # Both 'name' (logical slot) and 'account' (OS Keyring account) are strictly required.
+        - name: github
+          account: GH_TOKEN
 ```
+
+> Legacy root-level `source_control:` configuration is not supported and is rejected during validation.
 
 #### Credential Storage
 
 For security, host process environment variables and unencrypted files are strictly rejected as credential stores. Tokens are resolved exclusively from:
+1. **OS Keyring** (explicitly mapped via `secrets:` where both `name` and `account` are required; unmapped required secret slots cause an immediate fatal error).
+2. **Host CLI active sessions** (only if `auto_detect_host_cli: true`).
 1. **OS Keyring** (service `"pa-container"` looking up configured `keyring_var`, falling back to default provider account names).
 2. **Host CLI active sessions** (only if `auto_detect_host_cli: true`).
 
@@ -734,34 +748,64 @@ packages:
   - t3
 ```
 
-#### Optional Feature Configuration
-Packages can define modular optional features that remain uninstalled and completely omitted from agent prompts (`SKILL.md`) unless explicitly configured. Feature configuration uses structured YAML dictionary syntax:
+#### Canonical Package Specification
 
-- **Compact List Mapping (Recommended)**:
-    ```yaml
-    packages:
-      - agents:
-          - pi
-          - claude
-      - source-control:
-          - github
-      - vector-storage:
-          - qdrant
-    ```
-- **Extended Mapping Syntax (`features: [...]`)**:
-    ```yaml
-    packages:
-      - language-servers:
-          features:
-            - rust-analyzer
-            - pyright
-            - zls
-      - document-tools:
-          features:
-            - docling
-    ```
+Every package inclusion in `packages` must use the structured **Canonical Package Specification**:
 
-> String concatenation syntax (`package+feature`) is not supported and is rejected during validation in favor of structured YAML dictionaries.
+```yaml
+packages:
+  - <package-name>:
+      features: [...]
+      config: {...}
+      secrets:
+        - name: <slot-name>
+          account: <keyring-account>
+```
+
+Key requirements:
+- **`features`**: List of enabled package features (or empty list `[]`).
+- **`config`**: Configuration overrides for package-contributed settings (or `{}` to accept package defaults defined in `package.yaml`).
+- **`secrets`**: Explicit keyring secret mappings. Both `name` (the logical secret slot) and `account` (host OS Keyring account) are strictly required with no default values allowed. Any required secret slot defined by an active package or feature that is not explicitly mapped will raise a fatal validation error.
+- **Core Packages**: Baseline packages marked with `core: true` in their `package.yaml` (such as `python`) are assembled automatically into every container build.
+- **Strict Format**: Shorthand formats (bare strings like `- git`, list shorthands like `- agents: [pi]`, or direct properties) are not supported and are rejected during validation.
+
+Example:
+
+```yaml
+packages:
+  - agents:
+      features:
+        - pi
+      config: {}
+      secrets: []
+
+  - git:
+      features: []
+      config:
+        safe_directory: true
+        rewrite_ssh_to_https: true
+      secrets: []
+
+  - podman:
+      features: []
+      config:
+        storage: volume
+        security: disable
+        ports:
+          expose: localhost
+          publish: []
+      secrets: []
+
+  - source-control:
+      features:
+        - github
+      config:
+        auto_detect_host_cli: false
+        setup_git_credentials: true
+      secrets:
+        - name: github
+          account: GH_TOKEN
+```
 
 **Available packages:**
 - **Coding Agents & Runtimes:**
@@ -869,20 +913,25 @@ When agents are enabled, pa-container automatically:
 For comprehensive details on agent drivers and configuration synthesis, see [Agents](agents.md).
 
 <a name="nested-containers"></a>
-### Nested containers
+### Nested containers (`podman`)
 
-`nested_containers` lets the agent run its own containers **inside** the agent container as rootless podman. It supports `podman build`, `podman run`, `docker compose up`, and testcontainers-style integration tests. It is **off by default**. Enabling it is a genuine (small, bounded) reduction in the agent container's confinement.
+Nested container virtualization is provided by the `podman` package. It lets the agent run its own containers **inside** the agent container as rootless podman. It supports `podman build`, `podman run`, `docker compose up`, and testcontainers-style integration tests. It is configured under the `podman` package in `packages`:
 
 ```yaml
 # .pa-container/config.yaml
-nested_containers:
-  enabled: false
-  storage: volume     # volume | tmpfs
-  security: disable   # disable | engine_t
-  ports:
-    expose: localhost # localhost | lan
-    publish: []       # e.g. [3000, 5173, "18080:8080"]
+packages:
+  - podman:
+      features: []
+      config:
+        storage: volume     # volume | tmpfs
+        security: disable   # disable | engine_t
+        ports:
+          expose: localhost # localhost | lan
+          publish: []       # e.g. [3000, 5173, "18080:8080"]
+      secrets: []
 ```
+
+> Legacy root-level `nested_containers:` configuration is not supported and is rejected during validation.
 
 | Key | Values | Meaning |
 |-----|--------|---------|
@@ -1295,45 +1344,47 @@ pa logs clean
 pa logs clean --all-projects --older-than 7d
 ```
 
-### Virtual desktop and GUI support (`desktop:`)
+### Virtual desktop and GUI support (`virtual-desktop`)
 
-`desktop` enables a headless Wayland display stack (`labwc`), Xwayland backwards compatibility, and streaming services (`wayvnc` on port 5900, `noVNC` on port 6080) for running and testing GUI applications inside `pa-container`.
+Virtual desktop support is provided by the `virtual-desktop` package. It enables a headless Wayland display stack (`labwc`), Xwayland backwards compatibility, and streaming services (`wayvnc` on port 5900, `noVNC` on port 6080) for running and testing GUI applications inside `pa-container`:
 
 ```yaml
-desktop:
-    # Enable headless Wayland virtual desktop.
-    # Default: false.
-    enabled: false
+packages:
+  - virtual-desktop:
+      features: []
+      config:
+        # Virtual display resolution (WIDTHxHEIGHT).
+        # Default: 1920x1080.
+        resolution: "1920x1080"
 
-    # Virtual display resolution (WIDTHxHEIGHT).
-    # Default: 1920x1080.
-    resolution: "1920x1080"
+        # Wayland compositor implementation (labwc).
+        # Default: labwc.
+        compositor: "labwc"
 
-    # Wayland compositor implementation (labwc).
-    # Default: labwc.
-    compositor: "labwc"
+        # Automatically launch noVNC web interface in the default host browser on start.
+        # Default: false.
+        open_browser: false
 
-    # Native VNC server streaming endpoint.
-    vnc:
-        enabled: true
-        port: auto          # 'auto' or explicit port 1-65535
-        expose: localhost   # 'localhost' (127.0.0.1) or 'lan' (0.0.0.0)
+        # Native VNC server streaming endpoint.
+        vnc:
+          enabled: true
+          port: auto          # 'auto' or explicit port 1-65535
+          expose: localhost   # 'localhost' (127.0.0.1) or 'lan' (0.0.0.0)
 
-    # Browser-based HTML5 noVNC endpoint.
-    novnc:
-        enabled: true
-        port: auto          # 'auto' or explicit port 1-65535
-        expose: localhost   # 'localhost' (127.0.0.1) or 'lan' (0.0.0.0)
+        # Browser-based HTML5 noVNC endpoint.
+        novnc:
+          enabled: true
+          port: auto          # 'auto' or explicit port 1-65535
+          expose: localhost   # 'localhost' (127.0.0.1) or 'lan' (0.0.0.0)
 
-    # Automatically launch noVNC web interface in the default host browser on start.
-    # Default: false.
-    open_browser: false
-
-    # Graphics acceleration mode.
-    # Default: auto.
-    gpu:
-        enabled: auto       # 'auto', true, or false
+        # Graphics acceleration mode.
+        # Default: auto.
+        gpu:
+          enabled: auto       # 'auto', true, or false
+      secrets: []
 ```
+
+> Legacy root-level `desktop:` configuration is not supported and is rejected during validation.
 
 Key features:
 - **Zero Bloat for CLI Projects**: The shared base image (`pa-container-agent:local`) ships with zero GUI packages. Desktop packages (`labwc`, `xwayland`, `wayvnc`, `novnc`, `websockify`, `grim`, `wlrctl`, `wtype`, Mesa, GTK, fonts, and NSS DB tools) are installed **only** when `desktop.enabled: true` in your workspace configuration.

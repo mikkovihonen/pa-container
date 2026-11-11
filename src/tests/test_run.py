@@ -449,9 +449,6 @@ class TestExecuteRunFatalErrors:
         monkeypatch.setattr(run.containers, "sweep_orphaned_servers", lambda d: None)
         monkeypatch.setattr(run.containers, "sweep_orphaned_proxies", lambda r, d: None)
         monkeypatch.setattr(run.containers, "cleanup_orphaned_agent_containers", lambda r: None)
-        monkeypatch.setattr(
-            run, "read_nested_containers_config", lambda d: {"enabled": False, "ports": {"publish": []}}
-        )
         monkeypatch.setattr(run, "read_agent_ports", lambda d: {"publish": [(3773, 3773)], "expose": "localhost"})
         monkeypatch.setattr(run.containers, "unavailable_host_ports", lambda p, e: [3773])
         monkeypatch.setattr(run.containers, "port_holders", lambda r, p, k: {3773: "other-container"})

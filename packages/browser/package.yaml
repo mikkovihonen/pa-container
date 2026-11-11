@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "0.7.0"
 name: "browser"
 version: "1.0.0"
 description: "Web browser automation and MCP tools: Chrome for Testing and @playwright/mcp server"

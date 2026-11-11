@@ -59,6 +59,12 @@ def discover_packages(repo_root: Path | None = None) -> dict[str, PackageManifes
     return manifests
 
 
+def get_core_packages(repo_root: Path | None = None) -> list[str]:
+    """Return the sorted list of package names marked declaratively with core: true."""
+    manifests = discover_packages(repo_root)
+    return sorted([name for name, m in manifests.items() if m.core])
+
+
 def compute_package_hash(
     package_name: str,
     repo_root: Path | None = None,

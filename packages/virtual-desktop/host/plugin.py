@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import threading
 import webbrowser
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 sys.dont_write_bytecode = True
 
@@ -11,7 +11,6 @@ from logging_driver import LogCategory, get_category_logger
 from packages.plugin import ACPPlugin, ContainerRunSpec, RunContext
 
 from .desktop import (
-    read_desktop_config,
     resolve_desktop_ports,
 )
 
@@ -89,7 +88,7 @@ class VirtualDesktopPlugin(ACPPlugin):
         return {
             "type": dict,
             "keys": {
-                "enabled": {"type": bool},
+                "enabled": {"type": bool, "required": False},
                 "resolution": {"type": str},
                 "compositor": {"type": str},
                 "open_browser": {"type": bool},
@@ -119,18 +118,15 @@ class VirtualDesktopPlugin(ACPPlugin):
         }
 
     def on_run_init(self, context: RunContext) -> None:
-        """Register desktop mode and configuration in the run context if enabled."""
-        pa_dir = (self.project_dir / ".pa-container") if self.project_dir else None
-        try:
-            cfg = read_desktop_config(pa_dir)
-        except Exception as e:
-            logger.debug(f"Could not read desktop config during init: {e}")
-            return
+        """Register desktop mode and configuration in the run context."""
+        raw_cfg = context.get_package_config("virtual-desktop")
+        if not raw_cfg and self.manifest:
+            raw_cfg = dict(self.manifest.config)
 
-        if cfg.get("enabled"):
-            self.desktop_cfg = cfg
-            context.add_mode("desktop")
-            context.set_attribute("desktop.config", cfg)
+        cfg: DesktopConfig = cast("DesktopConfig", raw_cfg or {})
+        self.desktop_cfg = cfg
+        context.add_mode("desktop")
+        context.set_attribute("desktop.config", cfg)
 
     def on_container_configure(
         self,
@@ -140,15 +136,10 @@ class VirtualDesktopPlugin(ACPPlugin):
         """Configure container run arguments for virtual desktop and GPU passthrough."""
         cfg = self.desktop_cfg
         if cfg is None:
-            pa_dir = (self.project_dir / ".pa-container") if self.project_dir else None
-            try:
-                cfg = read_desktop_config(pa_dir)
-            except Exception as e:
-                logger.debug(f"Could not read desktop config: {e}")
-                return
-
-            if not cfg.get("enabled"):
-                return
+            raw_cfg = context.get_package_config("virtual-desktop")
+            if not raw_cfg and self.manifest:
+                raw_cfg = dict(self.manifest.config)
+            cfg = cast("DesktopConfig", raw_cfg or {})
             self.desktop_cfg = cfg
             context.add_mode("desktop")
             context.set_attribute("desktop.config", cfg)
@@ -213,7 +204,7 @@ class VirtualDesktopPlugin(ACPPlugin):
             )
 
         logger.info(
-            f"Virtual Desktop enabled ({cfg['resolution']}, {cfg['compositor']}):\n"
+            f"Virtual Desktop enabled ({cfg.get('resolution', '1920x1080')}, {cfg.get('compositor', 'labwc')}):\n"
             f"  noVNC Web UI: {self.novnc_url}\n"
             f"  VNC Endpoint: {self.vnc_endpoint}"
         )

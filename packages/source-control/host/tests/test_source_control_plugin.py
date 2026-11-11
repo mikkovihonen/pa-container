@@ -80,7 +80,7 @@ class TestReadSourceControlConfig:
 
 class TestResolveSourceControlTokens:
     def test_returns_empty_when_disabled(self, tmp_path: Path) -> None:
-        (tmp_path / "config.yaml").write_text(yaml.dump({"source_control": {"enabled": False}}))
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": []}))
         tokens = resolve_source_control_tokens(tmp_path)
         assert tokens == {}
 
@@ -88,7 +88,7 @@ class TestResolveSourceControlTokens:
         (tmp_path / "config.yaml").write_text(
             yaml.dump(
                 {
-                    "source_control": {"enabled": True},
+                    "packages": [{"source-control": {"features": ["github"], "config": {}, "secrets": []}}],
                     "agent": {
                         "env": {
                             "GH_TOKEN": "gho_untrusted_agent_env",
@@ -103,12 +103,32 @@ class TestResolveSourceControlTokens:
         monkeypatch.setenv("GITEA_TOKEN", "gtea_untrusted_env")
         monkeypatch.setenv("AZURE_DEVOPS_EXT_PAT", "az_untrusted_env")
 
-        with patch("pa_packages.source_control.host.source_control.get_keyring_secret", return_value=None):
-            tokens = resolve_source_control_tokens(tmp_path)
+        tokens = resolve_source_control_tokens(tmp_path)
         assert tokens == {}
 
     def test_resolves_from_os_keyring(self, tmp_path: Path) -> None:
-        (tmp_path / "config.yaml").write_text(yaml.dump({"source_control": {"enabled": True}}))
+        (tmp_path / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "packages": [
+                        {
+                            "source-control": {
+                                "features": ["github", "gitlab", "forgejo", "azure_devops", "bitbucket", "gitcafe"],
+                                "config": {},
+                                "secrets": [
+                                    {"name": "github", "account": "GH_TOKEN"},
+                                    {"name": "gitlab", "account": "GITLAB_TOKEN"},
+                                    {"name": "forgejo", "account": "GITEA_TOKEN"},
+                                    {"name": "azure_devops", "account": "AZURE_DEVOPS_EXT_PAT"},
+                                    {"name": "bitbucket", "account": "BITBUCKET_TOKEN"},
+                                    {"name": "gitcafe", "account": "GITCAFE_TOKEN"},
+                                ],
+                            }
+                        }
+                    ]
+                }
+            )
+        )
 
         def mock_get_keyring(account: str, service: str = "pa-container") -> str | None:
             if account == "GH_TOKEN":
@@ -139,14 +159,17 @@ class TestResolveSourceControlTokens:
         (tmp_path / "config.yaml").write_text(
             yaml.dump(
                 {
-                    "source_control": {
-                        "enabled": True,
-                        "providers": {
-                            "github": {
-                                "keyring_var": "PA_CONTAINER_T3_GH_TOKEN",
+                    "packages": [
+                        {
+                            "source-control": {
+                                "features": ["github"],
+                                "config": {},
+                                "secrets": [
+                                    {"name": "github", "account": "PA_CONTAINER_T3_GH_TOKEN"},
+                                ],
                             }
-                        },
-                    }
+                        }
+                    ]
                 }
             )
         )
@@ -162,19 +185,45 @@ class TestResolveSourceControlTokens:
         assert tokens["GH_TOKEN"] == "gho_custom_keyring_token"
 
     def test_cli_probe_skipped_when_auto_detect_false(self, tmp_path: Path) -> None:
-        (tmp_path / "config.yaml").write_text(yaml.dump({"source_control": {"auto_detect_host_cli": False}}))
+        (tmp_path / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "packages": [
+                        {
+                            "source-control": {
+                                "features": ["github"],
+                                "config": {"auto_detect_host_cli": False},
+                                "secrets": [{"name": "github", "account": "GH_TOKEN"}],
+                            }
+                        }
+                    ]
+                }
+            )
+        )
 
         with (
             patch("pa_packages.source_control.host.source_control.get_keyring_secret", return_value=None),
             patch("pa_packages.source_control.host.source_control._probe_host_cli") as mock_probe,
         ):
-            tokens = resolve_source_control_tokens(tmp_path)
+            with pytest.raises(ValueError, match="Required secret for 'github'"):
+                resolve_source_control_tokens(tmp_path)
             assert mock_probe.call_count == 0
-            assert "GH_TOKEN" not in tokens
 
     def test_cli_probe_called_when_auto_detect_true(self, tmp_path: Path) -> None:
         (tmp_path / "config.yaml").write_text(
-            yaml.dump({"source_control": {"enabled": True, "auto_detect_host_cli": True}})
+            yaml.dump(
+                {
+                    "packages": [
+                        {
+                            "source-control": {
+                                "features": ["github"],
+                                "config": {"auto_detect_host_cli": True},
+                                "secrets": [{"name": "github", "account": "GH_TOKEN"}],
+                            }
+                        }
+                    ]
+                }
+            )
         )
 
         def mock_probe(cmd: tuple[str, ...]) -> str | None:
@@ -221,21 +270,34 @@ class TestSourceControlPlugin:
         plugin = SourceControlPlugin(manifest, tmp_path)
         schema = plugin.contribute_config_schema()
         assert schema["type"] is dict
-        assert "enabled" in schema["keys"]
         assert "auto_detect_host_cli" in schema["keys"]
         assert "setup_git_credentials" in schema["keys"]
-        assert "providers" in schema["keys"]
 
     def test_get_secret_mappings(self, tmp_path: Path) -> None:
         manifest = _make_dummy_manifest()
         plugin = SourceControlPlugin(manifest, tmp_path)
 
         # Disabled -> empty mappings
-        cfg_disabled: Any = {"source_control": {"enabled": False}}
+        cfg_disabled: Any = {"packages": []}
         assert plugin.get_secret_mappings(cfg_disabled) == []
 
         # Enabled -> mappings for providers
-        cfg_enabled: Any = {"source_control": {"enabled": True}}
+        cfg_enabled: Any = {
+            "packages": [
+                {
+                    "source-control": {
+                        "features": ["github", "gitlab", "forgejo", "azure_devops"],
+                        "config": {},
+                        "secrets": [
+                            {"name": "github", "account": "GH_TOKEN"},
+                            {"name": "gitlab", "account": "GITLAB_TOKEN"},
+                            {"name": "forgejo", "account": "GITEA_TOKEN"},
+                            {"name": "azure_devops", "account": "AZURE_DEVOPS_EXT_PAT"},
+                        ],
+                    }
+                }
+            ]
+        }
         mappings = plugin.get_secret_mappings(cfg_enabled)
         names = {m.name for m in mappings}
         assert "github-token" in names
@@ -248,13 +310,13 @@ class TestSourceControlPlugin:
         plugin = SourceControlPlugin(manifest, tmp_path, project_dir=tmp_path)
 
         options = MagicMock()
-        config: Any = {
-            "source_control": {
-                "enabled": True,
-                "setup_git_credentials": True,
-            }
-        }
-        ctx = RunContext(project_dir=tmp_path, options=options, config=config)
+        ctx = RunContext(
+            project_dir=tmp_path,
+            options=options,
+            config={},
+            package_configs={"source-control": {"setup_git_credentials": True}},
+            package_secrets={"source-control": [{"name": "github", "account": "GH_TOKEN"}]},
+        )
 
         def mock_get_keyring(account: str, service: str = "pa-container") -> str | None:
             if account == "GH_TOKEN":

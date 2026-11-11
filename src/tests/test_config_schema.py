@@ -24,7 +24,7 @@ def valid_config(tmp_path: Path) -> Path:
     config_path.write_text(
         yaml.dump(
             {
-                "schema_version": "0.1.0",
+                "schema_version": "0.7.0",
                 "resources": {
                     "agent": {"memory": "16g", "cpus": 8},
                     "proxy": {"memory": "4g", "cpus": 4},
@@ -37,25 +37,23 @@ def valid_config(tmp_path: Path) -> Path:
                     "stream_large_bodies": "10m",
                     "open_browser": False,
                 },
-                "packages": [{"agents": ["pi"]}],
+                "packages": [
+                    {
+                        "agents": {
+                            "features": ["pi"],
+                            "config": {},
+                            "secrets": [],
+                        }
+                    }
+                ],
                 "agent": {
                     "env": {},
                     "mounts": [],
                     "read_only_pa_container": True,
                 },
-                "nested_containers": {
-                    "enabled": False,
-                    "storage": "volume",
-                    "security": "disable",
-                    "ports": {"expose": "localhost", "publish": []},
-                },
                 "tmpfs": {"paths": []},
                 "flow_export": {"enabled": False},
                 "egress": {"allow": {}},
-                "git": {
-                    "safe_directory": True,
-                    "rewrite_ssh_to_https": True,
-                },
                 "security": {
                     "read_only_git_hooks": True,
                     "blocked_mount_paths": [],
@@ -65,15 +63,6 @@ def valid_config(tmp_path: Path) -> Path:
                 "logging": {
                     "log_level": "INFO",
                     "retention": {"max_days": 14, "max_launches": 10},
-                },
-                "desktop": {
-                    "enabled": False,
-                    "resolution": "1920x1080",
-                    "compositor": "labwc",
-                    "open_browser": False,
-                    "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
-                    "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
-                    "gpu": {"enabled": "auto"},
                 },
             }
         )
@@ -175,7 +164,7 @@ class TestValidateConfig:
             is_valid, errors, schema_version = validate_config(valid_config)
         assert is_valid is True
         assert errors == []
-        assert schema_version == "0.1.0"
+        assert schema_version == "0.7.0"
 
     def test_missing_config_file(self, tmp_path: Path):
         """When config.yaml doesn't exist, validation fails."""
@@ -209,10 +198,10 @@ class TestValidateConfig:
         """When schema_version matches app version, validation passes (if schema is valid)."""
         from config_schema import validate_config
 
-        with patch("config_schema.get_app_version", return_value="0.1.0"):
+        with patch("config_schema.get_app_version", return_value="0.7.0"):
             is_valid, errors, schema_version = validate_config(valid_config)
         assert is_valid is True
-        assert schema_version == "0.1.0"
+        assert schema_version == "0.7.0"
 
     def test_missing_required_fields(self, config_with_schema_version_only: Path):
         """When required fields are missing, validation fails."""
@@ -271,55 +260,53 @@ class TestValidateConfig:
         assert any("YAML" in e for e in errors)
 
 
-class TestNestedContainersSchema:
-    """The nested_containers section is required, like every other section."""
+class TestLegacyNestedContainersRejected:
+    """The root-level nested_containers section is rejected with fatal error."""
 
-    def test_missing_section_fails(self, valid_config: Path):
+    def test_legacy_nested_containers_rejected(self, valid_config: Path):
         import yaml as _yaml
 
         from config_schema import validate_config
 
         data = _yaml.safe_load(valid_config.read_text())
-        del data["nested_containers"]
+        data["nested_containers"] = {
+            "enabled": False,
+            "storage": "volume",
+            "security": "disable",
+            "ports": {"expose": "localhost", "publish": []},
+        }
         valid_config.write_text(_yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("nested_containers" in e and "missing" in e for e in errors)
+        assert any("Legacy root-level configuration section 'nested_containers' is not allowed" in e for e in errors)
 
-    def test_wrong_storage_type_fails(self, valid_config: Path):
+    def test_podman_package_config_valid(self, valid_config: Path):
         import yaml as _yaml
 
         from config_schema import validate_config
 
         data = _yaml.safe_load(valid_config.read_text())
-        data["nested_containers"]["storage"] = 42  # must be a str
+        data["packages"].append(
+            {
+                "podman": {
+                    "features": [],
+                    "config": {
+                        "storage": "volume",
+                        "security": "disable",
+                        "ports": {"expose": "localhost", "publish": []},
+                    },
+                    "secrets": [],
+                }
+            }
+        )
         valid_config.write_text(_yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is False
-        assert any("storage" in e for e in errors)
-
-    def test_enabled_accepts_only_bool(self, valid_config: Path):
-        import yaml as _yaml
-
-        from config_schema import validate_config
-
-        data = _yaml.safe_load(valid_config.read_text())
-        data["nested_containers"]["enabled"] = True
-        valid_config.write_text(_yaml.dump(data))
-        with patch("config_schema.get_app_version", return_value=None):
-            is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is True, errors
-
-        for invalid in ("true", 1):
-            data["nested_containers"]["enabled"] = invalid
-            valid_config.write_text(_yaml.dump(data))
-            with patch("config_schema.get_app_version", return_value=None):
-                is_valid, errors, _ = validate_config(valid_config)
-            assert is_valid is False
+        assert is_valid is True
+        assert errors == []
 
 
 class TestValidateModels:
@@ -764,7 +751,21 @@ class TestPackagesSchema:
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["packages"] = sorted(discover_packages().keys())
+        pkgs = []
+        for name in sorted(discover_packages().keys()):
+            secrets = []
+            if name == "source-control":
+                secrets = [
+                    {"name": "github", "account": "ACC"},
+                    {"name": "gitlab", "account": "ACC"},
+                    {"name": "forgejo", "account": "ACC"},
+                    {"name": "azure_devops", "account": "ACC"},
+                    {"name": "bitbucket", "account": "ACC"},
+                    {"name": "gitcafe", "account": "ACC"},
+                ]
+            features = ["pi"] if name == "agents" else []
+            pkgs.append({name: {"features": features, "config": {}, "secrets": secrets}})
+        data["packages"] = pkgs
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -790,13 +791,81 @@ class TestPackagesSchema:
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["packages"] = ["unknown_pkg"]
+        data["packages"] = [{"unknown_pkg": {"features": [], "config": {}, "secrets": []}}]
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
         assert any("unknown package 'unknown_pkg'" in e for e in errors)
+
+    def test_bare_string_package_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"] = ["git"]
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("Canonical Package Specification" in e for e in errors)
+
+    def test_shorthand_list_package_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"] = [{"agents": ["pi"]}]
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("Canonical Package Specification" in e for e in errors)
+
+    def test_secret_missing_account_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"] = [
+            {
+                "agents": {
+                    "features": ["pi"],
+                    "config": {},
+                    "secrets": [{"name": "key"}],
+                }
+            }
+        ]
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("missing required field 'account'" in e for e in errors)
+
+    def test_unmapped_required_secret_slot_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"].append(
+            {
+                "source-control": {
+                    "features": ["github"],
+                    "config": {},
+                    "secrets": [],
+                }
+            }
+        )
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("unmapped required secret 'github'" in e for e in errors)
 
     def test_invalid_packages_types(self, valid_config: Path):
         from config_schema import validate_config
@@ -816,7 +885,7 @@ class TestPackagesSchema:
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("expected string package name" in e for e in errors)
+        assert any("expected dict item" in e for e in errors)
 
     def test_duplicate_key_error_handling(self, tmp_path: Path):
         from config_schema import validate_config
@@ -838,12 +907,33 @@ class TestPackagesSchema:
         assert len(errors) == 1
         assert "duplicate key" in errors[0].lower()
 
-    def test_git_config_valid(self, valid_config: Path):
+    def test_legacy_git_section_rejected(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["git"] = {"safe_directory": True, "rewrite_ssh_to_https": False}
+        data["git"] = {"safe_directory": True}
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("Legacy root-level configuration section 'git' is not allowed" in e for e in errors)
+
+    def test_git_package_config_valid(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"].append(
+            {
+                "git": {
+                    "features": [],
+                    "config": {"safe_directory": True, "rewrite_ssh_to_https": False},
+                    "secrets": [],
+                }
+            }
+        )
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -851,50 +941,18 @@ class TestPackagesSchema:
         assert is_valid is True
         assert errors == []
 
-    def test_git_config_invalid_type(self, valid_config: Path):
+    def test_legacy_source_control_section_rejected(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["git"] = {"safe_directory": ["invalid"]}
+        data["source_control"] = {"enabled": True}
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("git.safe_directory" in e for e in errors)
-
-    def test_source_control_config_valid(self, valid_config: Path):
-        from config_schema import validate_config
-
-        with valid_config.open("r") as f:
-            data = yaml.safe_load(f)
-        data.setdefault("packages", []).append("source-control")
-        data["source_control"] = {
-            "enabled": True,
-            "auto_detect_host_cli": False,
-            "setup_git_credentials": True,
-            "providers": {"github": {"token": "ghp_123"}},
-        }
-        valid_config.write_text(yaml.dump(data))
-
-        with patch("config_schema.get_app_version", return_value=None):
-            is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is True
-        assert errors == []
-
-    def test_source_control_config_invalid_type(self, valid_config: Path):
-        from config_schema import validate_config
-
-        with valid_config.open("r") as f:
-            data = yaml.safe_load(f)
-        data["source_control"] = {"enabled": ["invalid"]}
-        valid_config.write_text(yaml.dump(data))
-
-        with patch("config_schema.get_app_version", return_value=None):
-            is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is False
-        assert any("source_control.enabled" in e for e in errors)
+        assert any("Legacy root-level configuration section 'source_control' is not allowed" in e for e in errors)
 
 
 class TestAgentsSchema:
@@ -918,7 +976,7 @@ class TestAgentsSchema:
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["packages"] = ["git"]
+        data["packages"] = [{"git": {"features": [], "config": {}, "secrets": []}}]
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
@@ -941,31 +999,9 @@ class TestAgentsSchema:
 
 
 class TestDesktopSchema:
-    """The desktop section is optional, but validated when present."""
+    """The root-level desktop section is obsolete and rejected; virtual-desktop package is used instead."""
 
-    def test_desktop_section_valid(self, valid_config: Path):
-        from config_schema import validate_config
-
-        with valid_config.open("r") as f:
-            data = yaml.safe_load(f)
-        data["packages"].append("virtual-desktop")
-        data["desktop"] = {
-            "enabled": True,
-            "resolution": "1920x1080",
-            "compositor": "labwc",
-            "open_browser": False,
-            "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
-            "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
-            "gpu": {"enabled": "auto"},
-        }
-        valid_config.write_text(yaml.dump(data))
-
-        with patch("config_schema.get_app_version", return_value=None):
-            is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is True
-        assert errors == []
-
-    def test_desktop_enabled_without_package_fails(self, valid_config: Path):
+    def test_legacy_desktop_section_rejected(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
@@ -976,17 +1012,32 @@ class TestDesktopSchema:
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("virtual-desktop" in e for e in errors)
+        assert any("Legacy root-level configuration section 'desktop' is not allowed" in e for e in errors)
 
-    def test_desktop_invalid_type_fails(self, valid_config: Path):
+    def test_desktop_package_config_valid(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
-        data["desktop"] = "not_a_dict"
+        data["packages"].append(
+            {
+                "virtual-desktop": {
+                    "features": [],
+                    "config": {
+                        "resolution": "1920x1080",
+                        "compositor": "labwc",
+                        "open_browser": False,
+                        "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
+                        "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
+                        "gpu": {"enabled": "auto"},
+                    },
+                    "secrets": [],
+                }
+            }
+        )
         valid_config.write_text(yaml.dump(data))
 
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is False
-        assert any("desktop" in e for e in errors)
+        assert is_valid is True
+        assert errors == []
