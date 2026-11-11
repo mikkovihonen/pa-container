@@ -217,6 +217,30 @@ class TestComputeImageHash:
             (cfg_dir / "config.yaml").write_text("packages:\n  - vector-storage+qdrant\n")
             images.resolve_project_packages(repo)
 
+    def test_resolve_project_packages_includes_core_by_default(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        resolved = images.resolve_project_packages(repo)
+        assert "python" in resolved
+
+        resolved_no_core = images.resolve_project_packages(repo, include_core=False)
+        assert "python" not in resolved_no_core
+
+    def test_read_project_packages_include_core_flag(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        # Default is False (only explicit/extra packages)
+        assert images.read_project_packages(repo) == []
+        assert images.read_project_packages(repo, include_core=False) == []
+        # With include_core=True, core packages like python are returned
+        assert "python" in images.read_project_packages(repo, include_core=True)
+
+        cfg_dir = repo / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['go']\n")
+        assert images.read_project_packages(repo) == ["go"]
+        assert images.read_project_packages(repo, include_core=True) == ["go", "python"]
+
     def test_resolve_agent_image_with_packages_only(self, tmp_path):
         repo = tmp_path / "repo"
         repo.mkdir()

@@ -260,10 +260,6 @@ class AgentsPlugin(ACPAgentPlugin):
         if active_skills_paths:
             spec.env["PA_AGENT_SKILLS_DIRS"] = ":".join(active_skills_paths)
 
-        active_skills_paths = [
-            f"/home/agent/{d.get_skills_path()}"
-            for d in selected_drivers
-            if d.get_skills_path()
-        ]
+        active_skills_paths = [f"/home/agent/{d.get_skills_path()}" for d in selected_drivers if d.get_skills_path()]
         if active_skills_paths:
             spec.env["PA_AGENT_SKILLS_DIRS"] = ":".join(active_skills_paths)

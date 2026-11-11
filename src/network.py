@@ -658,26 +658,39 @@ class ContainerNetworkManager:
                         r_copy["name"] = f"{r_copy.get('name', 'Gateway Allowlist')} ({gw['name']})"
                     effective_allowlist["global"]["rules"].append(r_copy)
 
+        active_feats: dict[str, list[str]] = {}
         if self.project_dir:
             try:
                 from images import resolve_project_packages
-                from packages import aggregate_egress_hosts, discover_packages
 
-                active_feats = resolve_project_packages(self.project_dir)
-                all_manifests = discover_packages()
-                active_manifests = [all_manifests[p] for p in active_feats if p in all_manifests]
-
-                pkg_hosts = aggregate_egress_hosts(active_manifests, active_features=active_feats)
-                if pkg_hosts:
-                    effective_allowlist["global"]["rules"].append(
-                        {
-                            "name": "Package Egress Allowlist",
-                            "mode": "allow",
-                            "hosts": pkg_hosts,
-                        }
-                    )
+                active_feats = resolve_project_packages(self.project_dir, include_core=True)
             except Exception as e:
-                logger.debug(f"Could not aggregate package egress allowlist: {e}")
+                logger.debug(f"Could not resolve project packages: {e}")
+        else:
+            try:
+                from packages import get_core_packages
+
+                active_feats = {p: [] for p in get_core_packages()}
+            except Exception as e:
+                logger.debug(f"Could not get core packages: {e}")
+
+        try:
+            from packages import aggregate_egress_hosts, discover_packages
+
+            all_manifests = discover_packages()
+            active_manifests = [all_manifests[p] for p in active_feats if p in all_manifests]
+
+            pkg_hosts = aggregate_egress_hosts(active_manifests, active_features=active_feats)
+            if pkg_hosts:
+                effective_allowlist["global"]["rules"].append(
+                    {
+                        "name": "Package Egress Allowlist",
+                        "mode": "allow",
+                        "hosts": pkg_hosts,
+                    }
+                )
+        except Exception as e:
+            logger.debug(f"Could not aggregate package egress allowlist: {e}")
 
         effective_allowlist_file = runtime_dir / "allowlist.yaml"
         effective_allowlist_file.write_text(yaml.safe_dump(effective_allowlist, sort_keys=False))
@@ -725,26 +738,23 @@ class ContainerNetworkManager:
                             pat["regex"] = pat["regex"].replace(base_placeholder, inst_placeholder)
                     effective_replacer["rules"].append(r_copy)
 
-        if self.project_dir:
-            try:
-                from images import resolve_project_packages
-                from packages import aggregate_token_replacers, discover_packages
+        try:
+            from packages import aggregate_token_replacers, discover_packages
 
-                active_feats = resolve_project_packages(self.project_dir)
-                all_manifests = discover_packages()
-                active_manifests = [all_manifests[p] for p in active_feats if p in all_manifests]
+            all_manifests = discover_packages()
+            active_manifests = [all_manifests[p] for p in active_feats if p in all_manifests]
 
-                pkg_tokens = aggregate_token_replacers(active_manifests, active_features=active_feats)
-                for pt in pkg_tokens:
-                    rule_entry: dict[str, Any] = {
-                        "name": pt["name"],
-                        "hostnames": list(pt.get("hostnames") or ["*"]),
-                        "content_patterns": [dict(cp) for cp in pt.get("content_patterns") or []],
-                        "replace_with": dict(pt.get("replace_with") or {"strategy": "static", "value": "REDACTED"}),
-                    }
-                    effective_replacer["rules"].append(rule_entry)
-            except Exception as e:
-                logger.debug(f"Could not aggregate package token replacers: {e}")
+            pkg_tokens = aggregate_token_replacers(active_manifests, active_features=active_feats)
+            for pt in pkg_tokens:
+                rule_entry: dict[str, Any] = {
+                    "name": pt["name"],
+                    "hostnames": list(pt.get("hostnames") or ["*"]),
+                    "content_patterns": [dict(cp) for cp in pt.get("content_patterns") or []],
+                    "replace_with": dict(pt.get("replace_with") or {"strategy": "static", "value": "REDACTED"}),
+                }
+                effective_replacer["rules"].append(rule_entry)
+        except Exception as e:
+            logger.debug(f"Could not aggregate package token replacers: {e}")
 
         effective_replacer_file = runtime_dir / "token_replacer.yaml"
         effective_replacer_file.write_text(yaml.safe_dump(effective_replacer, sort_keys=False))

@@ -464,6 +464,42 @@ class TestBuildProjectImage:
             )
             assert "microdnf install" not in captured_cf[0]
 
+    def test_build_project_image_automatically_includes_core_packages(self, tmp_path):
+        """build_project_image should automatically include core packages (e.g. python) even when not requested."""
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        cfg_dir = proj_dir / ".pa-container"
+        cfg_dir.mkdir()
+        (cfg_dir / "config.yaml").write_text("packages: ['go']\n")
+
+        captured_cf = []
+
+        def capture_popen(cmd, *a, **kw):
+            cf_path = cmd[cmd.index("--file") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return self._mock_popen()
+
+        with (
+            patch("build.ensure_package_images") as mock_ensure,
+            patch("build.subprocess.Popen", side_effect=capture_popen),
+        ):
+            build_project_image(
+                "podman",
+                "/path/to/root/commands.sh",
+                "test.local",
+                "abc123",
+                project_path=str(proj_dir),
+            )
+            mock_ensure.assert_called_once()
+            ensured = mock_ensure.call_args[0][0]
+            assert "go" in ensured
+            assert "python" in ensured
+
+            cf = captured_cf[0]
+            assert "COPY --from=pa-container-pkg-go:local / /" in cf
+            assert "COPY --from=pa-container-pkg-python:local / /" in cf
+            assert "RUN microdnf install -y --nodocs python3 python3-pip uv && microdnf clean all" in cf
+
     def test_build_project_image_builds_base(self):
         """build_project_image ensures base image is built."""
         with (

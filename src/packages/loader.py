@@ -151,9 +151,12 @@ def load_project_plugins(
     packages_dir = get_packages_dir(repo_root)
 
     if project_dir is not None:
-        active_pkgs = read_project_packages(project_dir, extra_packages=extra_packages)
+        active_pkgs = read_project_packages(project_dir, extra_packages=extra_packages, include_core=True)
     else:
         active_pkgs = list(extra_packages or [])
+        from packages.discovery import get_core_packages
+
+        active_pkgs.extend(get_core_packages(repo_root))
 
     active_manifests = {p: manifests[p] for p in active_pkgs if p in manifests}
     return load_active_plugins(active_manifests, packages_dir=packages_dir, project_dir=project_dir)

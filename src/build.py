@@ -348,6 +348,7 @@ def build_project_image(
             Path(project_path),
             extra_packages=packages or kwargs.get("tools"),
             repo_root=REPO_ROOT,
+            include_core=True,
         )
     else:
         raw_list = packages or kwargs.get("tools") or []
@@ -358,6 +359,8 @@ def build_project_image(
                     resolved_specs.setdefault(pname.strip(), []).extend(f.strip() for f in pfeats if f.strip())
                 else:
                     resolved_specs.setdefault(item.strip(), [])
+        for cp in get_core_packages(REPO_ROOT):
+            resolved_specs.setdefault(cp, [])
         from packages import resolve_package_dependencies
 
         resolved_specs = resolve_package_dependencies(resolved_specs, repo_root=REPO_ROOT)

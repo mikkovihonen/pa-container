@@ -295,7 +295,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
     container_argv = options.container_argv
     project_raw_cfg = load_project_config(pa_container_dir)
-    active_pkgs = images.read_project_packages(PROJECT_DIR)
+    active_pkgs = images.read_project_packages(PROJECT_DIR, include_core=True)
     active_plugins = load_project_plugins(PROJECT_DIR)
 
     from packages.loader import resolve_project_package_declarations
@@ -350,7 +350,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         try:
             from packages import aggregate_runtime_privileges, discover_packages
 
-            active_pkgs = images.read_project_packages(PROJECT_DIR, extra_packages=driver_packages)
+            active_pkgs = images.read_project_packages(PROJECT_DIR, extra_packages=driver_packages, include_core=True)
             all_manifests = discover_packages()
             active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
             pkg_privileges = aggregate_runtime_privileges(active_manifests)
@@ -646,7 +646,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                         root_commands_path = str(root_commands_file)
                     else:
                         root_commands_path = str(DEFAULT_ROOT_COMMANDS)
-                    project_packages = images.read_project_packages(PROJECT_DIR, extra_packages=driver_packages)
+                    project_packages = images.read_project_packages(
+                        PROJECT_DIR, extra_packages=driver_packages, include_core=True
+                    )
                     ensure_package_images(project_packages, runtime=CONTAINER_RUNTIME, repo_root=REPO_ROOT)
                     build_project_image(
                         CONTAINER_RUNTIME,

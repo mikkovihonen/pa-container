@@ -39,6 +39,7 @@ def resolve_project_packages(
     extra_packages: list[str] | None = None,
     resolve_dependencies: bool = True,
     repo_root: Path | None = None,
+    include_core: bool = True,
 ) -> dict[str, list[str]]:
     """Resolve project packages and their active features from config.yaml and driver requirements.
 
@@ -50,6 +51,7 @@ def resolve_project_packages(
     """
     cfg_path = project_dir / ".pa-container" / "config.yaml"
     pkgs_dict: dict[str, set[str]] = {}
+    r_root = repo_root or REPO_ROOT
 
     def _add_pkg_entry(entry: Any) -> None:
         if isinstance(entry, str):
@@ -72,6 +74,12 @@ def resolve_project_packages(
                     feats_list = v.get("features")
                     if isinstance(feats_list, list):
                         pkgs_dict[pkg_name].update(str(f).strip() for f in feats_list if str(f).strip())
+
+    if include_core:
+        from packages import get_core_packages
+
+        for cp in get_core_packages(r_root):
+            pkgs_dict.setdefault(cp, set())
 
     if extra_packages:
         for p in extra_packages:
@@ -96,12 +104,24 @@ def resolve_project_packages(
 
     from packages import resolve_package_dependencies
 
-    return resolve_package_dependencies(raw_specs, repo_root=repo_root or REPO_ROOT)
+    return resolve_package_dependencies(raw_specs, repo_root=r_root)
 
 
-def read_project_packages(project_dir: Path, extra_packages: list[str] | None = None) -> list[str]:
+def read_project_packages(
+    project_dir: Path,
+    extra_packages: list[str] | None = None,
+    include_core: bool = False,
+    repo_root: Path | None = None,
+) -> list[str]:
     """Read the list of packages enabled in .pa-container/config.yaml plus any driver-requested packages."""
-    return sorted(resolve_project_packages(project_dir, extra_packages=extra_packages).keys())
+    return sorted(
+        resolve_project_packages(
+            project_dir,
+            extra_packages=extra_packages,
+            include_core=include_core,
+            repo_root=repo_root,
+        ).keys()
+    )
 
 
 def compute_image_hash(
@@ -125,7 +145,12 @@ def compute_image_hash(
         if cmd_path.exists() and cmd_path.stat().st_size > 0:
             files_to_hash.append(cmd_file)
 
-    packages_map = resolve_project_packages(project_dir, extra_packages=extra_packages, repo_root=r_root)
+    packages_map = resolve_project_packages(
+        project_dir,
+        extra_packages=extra_packages,
+        repo_root=r_root,
+        include_core=True,
+    )
     if not files_to_hash and not packages_map:
         return None
 
@@ -205,7 +230,12 @@ def resolve_agent_image(
 ) -> tuple[str, bool]:
     """Resolve the agent container image tag for this workspace."""
     has_deps = has_dependency_files(project_dir)
-    packages = read_project_packages(project_dir, extra_packages=extra_packages)
+    packages = read_project_packages(
+        project_dir,
+        extra_packages=extra_packages,
+        include_core=False,
+        repo_root=repo_root,
+    )
     if not has_deps and not packages:
         return PA_IMAGE_TAG, False
 
