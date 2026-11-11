@@ -71,6 +71,10 @@ class AgentDriver(ABC):
         """Return host path where agent session files are stored, if applicable."""
         return self.get_state_dir(project_dir) / "sessions"
 
+    def get_skills_path(self) -> str | None:
+        """Return relative path under /home/agent where skills are discovered."""
+        return None
+
     def is_gateway_enabled_for_agent(self, gateway: GatewayConfigItem) -> bool:
         """Check if an external gateway is allowed for this agent.
 

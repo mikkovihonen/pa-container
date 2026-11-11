@@ -14,4 +14,9 @@ npm install -g --prefix "${PA_STAGE}/usr/local" --ignore-scripts "/tmp/${pi_tarb
 rm -f "/tmp/${pi_tarball}"
 
 "${PA_STAGE}/usr/local/bin/pi" --version
+
+mkdir -p "${PA_STAGE}/usr/local/share/pa-container/agents/pi"
+echo ".pi/agent/skills" > "${PA_STAGE}/usr/local/share/pa-container/agents/pi/skills_path"
+echo "pi" > "${PA_STAGE}/usr/local/share/pa-container/default_agent"
+
 stage_record "pi" "${PI_VERSION}"

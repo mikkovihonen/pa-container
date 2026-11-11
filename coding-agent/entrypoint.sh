@@ -109,21 +109,66 @@ exec gosu agent bash -c '
     fi
 
     # ─── Dynamic Skill Projection Engine ───────────────────────────────────────
-    # Automatically project installed skills from ACP packages into active agent directories
-    for _pkg_skill in /usr/local/share/pa-container/packages/*/skill/SKILL.md; do
+    _share_packages_dir="${PA_SHARE_PACKAGES_DIR:-/usr/local/share/pa-container/packages}"
+    _share_agents_dir="${PA_SHARE_AGENTS_DIR:-/usr/local/share/pa-container/agents}"
+
+    _target_agent_skills_dirs=()
+    if [ -n "$PA_AGENT_SKILLS_DIRS" ]; then
+        IFS=":" read -ra _target_agent_skills_dirs <<< "$PA_AGENT_SKILLS_DIRS"
+    else
+        for _path_file in "$_share_agents_dir"/*/skills_path; do
+            [ -f "$_path_file" ] || continue
+            _p="$(cat "$_path_file")"
+            case "$_p" in
+                /*) _target_agent_skills_dirs+=("$_p") ;;
+                *)  _target_agent_skills_dirs+=("${PA_HOME_AGENT_DIR:-/home/agent}/$_p") ;;
+            esac
+        done
+    fi
+
+    # Legacy core packages unbundled from baseline (reconciled without .pa-projected marker)
+    _legacy_acp_packages=" code-intelligence data-tools podman "
+    _known_acp_packages="${_legacy_acp_packages}"
+    if [ -f "$_share_packages_dir/../acp-packages.txt" ]; then
+        _known_acp_packages="$(cat "$_share_packages_dir/../acp-packages.txt" 2>/dev/null) ${_legacy_acp_packages}"
+    fi
+
+    # 1. Prune stale projected skills no longer present in this container image
+    for _agent_skills in "${_target_agent_skills_dirs[@]}"; do
+        [ -d "$_agent_skills" ] || continue
+        for _existing_skill_dir in "$_agent_skills"/*; do
+            [ -d "$_existing_skill_dir" ] || continue
+            _existing_skill_name="$(basename "$_existing_skill_dir")"
+
+            _is_managed=false
+            if [ -f "$_existing_skill_dir/.pa-projected" ]; then
+                _is_managed=true
+            else
+                case "$_known_acp_packages" in
+                    *" $_existing_skill_name "*) _is_managed=true ;;
+                esac
+            fi
+
+            if [ "$_is_managed" = "true" ]; then
+                if [ ! -f "$_share_packages_dir/$_existing_skill_name/skill/SKILL.md" ]; then
+                    rm -rf "$_existing_skill_dir"
+                fi
+            fi
+        done
+    done
+
+    # 2. Automatically project installed skills from ACP packages into active agent directories
+    for _pkg_skill in "$_share_packages_dir"/*/skill/SKILL.md; do
         [ -f "$_pkg_skill" ] || continue
         _dir_part="$(dirname "$_pkg_skill")"
         _skill_name="$(basename "$_dir_part")"
         if [ "$_skill_name" = "skill" ]; then
             _skill_name="$(basename "$(dirname "$_dir_part")")"
         fi
-        for _agent_skills in \
-            /home/agent/.pi/agent/skills \
-            /home/agent/.gemini/antigravity/skills \
-            /home/agent/.claude/skills \
-            /home/agent/.config/opencode/skills; do
+        for _agent_skills in "${_target_agent_skills_dirs[@]}"; do
             mkdir -p "$_agent_skills/$_skill_name"
             cp -a "$_pkg_skill" "$_agent_skills/$_skill_name/SKILL.md" 2>/dev/null || true
+            touch "$_agent_skills/$_skill_name/.pa-projected" 2>/dev/null || true
         done
     done
 
@@ -138,7 +183,13 @@ exec gosu agent bash -c '
     fi
 
     if [ "$#" -eq 0 ]; then
-        set -- "${PA_CONTAINER_AGENT:-pi}"
+        if [ -n "$PA_CONTAINER_AGENT" ]; then
+            set -- "$PA_CONTAINER_AGENT"
+        elif [ -s /usr/local/share/pa-container/default_agent ]; then
+            set -- "$(cat /usr/local/share/pa-container/default_agent)"
+        else
+            set -- bash
+        fi
     fi
 
     exec "$@"

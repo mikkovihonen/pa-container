@@ -49,6 +49,9 @@ class OpenCodeDriver(AgentDriver):
             AgentMount(source=data_dir, destination="/home/agent/.local/share/opencode"),
         ]
 
+    def get_skills_path(self) -> str | None:
+        return ".config/opencode/skills"
+
     def get_sessions_dir(self, project_dir: Path) -> Path | None:
         return self.get_state_dir(project_dir) / "data"
 

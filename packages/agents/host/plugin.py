@@ -255,3 +255,15 @@ class AgentsPlugin(ACPAgentPlugin):
         # Environment agent markers
         spec.env["PA_CONTAINER_AGENT"] = active_driver.name
         spec.env["PA_CONTAINER_ENABLED_AGENTS"] = ",".join(selected_names)
+
+        active_skills_paths = [f"/home/agent/{d.get_skills_path()}" for d in selected_drivers if d.get_skills_path()]
+        if active_skills_paths:
+            spec.env["PA_AGENT_SKILLS_DIRS"] = ":".join(active_skills_paths)
+
+        active_skills_paths = [
+            f"/home/agent/{d.get_skills_path()}"
+            for d in selected_drivers
+            if d.get_skills_path()
+        ]
+        if active_skills_paths:
+            spec.env["PA_AGENT_SKILLS_DIRS"] = ":".join(active_skills_paths)

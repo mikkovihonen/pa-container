@@ -86,4 +86,8 @@ cat << EOF > "${acp_stage_dir}/active.json"
 EOF
 
 "${PA_STAGE}/usr/local/bin/antigravity" --version
+
+mkdir -p "${PA_STAGE}/usr/local/share/pa-container/agents/antigravity"
+echo ".gemini/antigravity/skills" > "${PA_STAGE}/usr/local/share/pa-container/agents/antigravity/skills_path"
+
 stage_record "antigravity" "${ANTIGRAVITY_VERSION}"

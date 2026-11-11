@@ -25,4 +25,8 @@ chmod 0755 "${PA_STAGE}/usr/local/bin/opencode"
 rm -f "/tmp/${oc_tarball}"
 
 "${PA_STAGE}/usr/local/bin/opencode" --version
+
+mkdir -p "${PA_STAGE}/usr/local/share/pa-container/agents/opencode"
+echo ".config/opencode/skills" > "${PA_STAGE}/usr/local/share/pa-container/agents/opencode/skills_path"
+
 stage_record "opencode" "${OPENCODE_VERSION}"

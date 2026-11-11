@@ -165,5 +165,6 @@ def test_agents_plugin_lifecycle_and_configure(dummy_manifest: PackageManifest, 
 
     assert spec.env["PA_CONTAINER_AGENT"] == "pi"
     assert spec.env["PA_CONTAINER_ENABLED_AGENTS"] == "pi"
+    assert spec.env["PA_AGENT_SKILLS_DIRS"] == "/home/agent/.pi/agent/skills"
     assert any(m.destination == "/home/agent/.pi/agent" for m in spec.mounts)
     assert "/home/agent/.pi/agent/bin" in spec.chown_paths

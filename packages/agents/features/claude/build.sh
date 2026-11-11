@@ -27,4 +27,8 @@ chmod 0755 "${PA_STAGE}/usr/local/bin/claude"
 rm -f "/tmp/${claude_tarball}"
 
 "${PA_STAGE}/usr/local/bin/claude" --version
+
+mkdir -p "${PA_STAGE}/usr/local/share/pa-container/agents/claude"
+echo ".claude/skills" > "${PA_STAGE}/usr/local/share/pa-container/agents/claude/skills_path"
+
 stage_record "claude" "${CLAUDE_VERSION}"

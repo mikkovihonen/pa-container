@@ -87,6 +87,9 @@ class AntigravityDriver(AgentDriver):
             AgentMount(source=config_dir, destination="/home/agent/.gemini/config"),
         ]
 
+    def get_skills_path(self) -> str | None:
+        return ".gemini/antigravity/skills"
+
     def synthesize_config(
         self,
         server_configs: list[ServerConfigItem],

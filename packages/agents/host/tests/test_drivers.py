@@ -209,6 +209,15 @@ def test_entrypoint_sh_no_single_quote_collisions():
     assert proc.stderr == ""
 
 
+def test_entrypoint_sh_no_hardcoded_agent_references():
+    """Verify that coding-agent/entrypoint.sh has zero hardcoded coding agent names or paths."""
+    entrypoint_path = Path(__file__).resolve().parent.parent.parent.parent.parent / "coding-agent" / "entrypoint.sh"
+    content = entrypoint_path.read_text(encoding="utf-8")
+    for agent in ("pi", "claude", "opencode", "antigravity"):
+        assert f".{agent}" not in content, f"Found hardcoded .{agent} path in entrypoint.sh"
+        assert f":-{agent}" not in content, f"Found hardcoded default agent fallback :-{agent} in entrypoint.sh"
+
+
 def test_synthesize_config_projects_package_mcp_servers(tmp_path: Path):
     project_dir = tmp_path / "proj"
     project_dir.mkdir(parents=True)

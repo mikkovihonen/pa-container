@@ -76,6 +76,9 @@ class ClaudeDriver(AgentDriver):
             AgentMount(source=claude_dir, destination="/home/agent/.claude"),
         ]
 
+    def get_skills_path(self) -> str | None:
+        return ".claude/skills"
+
     def synthesize_config(
         self,
         server_configs: list[ServerConfigItem],

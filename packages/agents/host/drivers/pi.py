@@ -42,6 +42,9 @@ class PiAgentDriver(AgentDriver):
     def get_shadow_paths(self) -> list[str]:
         return ["/home/agent/.pi/agent/bin"]
 
+    def get_skills_path(self) -> str | None:
+        return ".pi/agent/skills"
+
     def synthesize_config(
         self,
         server_configs: list[ServerConfigItem],
