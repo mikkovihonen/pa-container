@@ -64,15 +64,27 @@ def read_containerfile_args(path: Path) -> dict[str, str]:
             if manifest.is_file():
                 data = yaml.safe_load(manifest.read_text())
                 if isinstance(data, dict):
-                    pkg_data = data.get("package", {})
-                    v = str(pkg_data.get("version", ""))
-                    name = str(pkg_data.get("name", pkg_dir.name))
-                    if name == "tree-sitter-cli":
-                        args["TREE_SITTER_VERSION"] = v
-                    elif name == "aardvark-dns":
-                        args["AARDVARK_VERSION"] = v
+                    features = data.get("features")
+                    if isinstance(features, dict):
+                        for feat_name, feat_data in features.items():
+                            if isinstance(feat_data, dict):
+                                payload_env = feat_data.get("payload", {}).get("env", {})
+                                if isinstance(payload_env, dict):
+                                    for env_k, env_v in payload_env.items():
+                                        args[str(env_k)] = str(env_v)
+                                version = feat_data.get("version")
+                                if version:
+                                    args[f"{feat_name.replace('-', '_').upper()}_VERSION"] = str(version)
                     else:
-                        args[f"{name.replace('-', '_').upper()}_VERSION"] = v
+                        pkg_data = data.get("package", {})
+                        v = str(pkg_data.get("version") or data.get("version") or "")
+                        name = str(pkg_data.get("name", pkg_dir.name))
+                        if name == "tree-sitter-cli":
+                            args["TREE_SITTER_VERSION"] = v
+                        elif name == "aardvark-dns":
+                            args["AARDVARK_VERSION"] = v
+                        else:
+                            args[f"{name.replace('-', '_').upper()}_VERSION"] = v
         return args
     if not path.is_file():
         target = path.parents[0] / "packages" if path.name == "Containerfile" else REPO_ROOT / "packages"

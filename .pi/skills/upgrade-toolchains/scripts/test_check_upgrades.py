@@ -263,7 +263,19 @@ class TestGroupsAndResolvers(unittest.TestCase):
         # AZURE_DEVOPS_VERSION -> resolved by az
         # BUN_VERSION -> resolved by cafe
         # VIRTUAL_DESKTOP_VERSION -> internal platform package
-        companion_args = {"ZIG_VERSION", "AZURE_DEVOPS_VERSION", "BUN_VERSION", "VIRTUAL_DESKTOP_VERSION"}
+        companion_args = {
+            "ZIG_VERSION",
+            "AZURE_DEVOPS_VERSION",
+            "BUN_VERSION",
+            "VIRTUAL_DESKTOP_VERSION",
+            "AI_FRAMEWORKS_VERSION",
+            "BROWSER_VERSION",
+            "BROWSER_RUNTIME_VERSION",
+            "C_CPP_VERSION",
+            "CODE_INTELLIGENCE_VERSION",
+            "DATA_TOOLS_VERSION",
+            "DEVELOPER_TOOLS_VERSION",
+        }
 
         # Tools with non-standard version ARG naming:
         special_names = {

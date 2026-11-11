@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from contextlib import ExitStack
     from pathlib import Path
 
-    from agents.base import AgentDriver, AgentMount
     from cli import RunOptions
     from config_types import ProjectConfig
     from packages.manifest import PackageManifest
@@ -18,12 +17,29 @@ if TYPE_CHECKING:
 sys.dont_write_bytecode = True
 
 
+@dataclass(frozen=True)
+class ContainerMount:
+    """Represents a host-to-container mount."""
+
+    source: Path
+    destination: str
+    read_only: bool = False
+
+    def to_run_args(self) -> list[str]:
+        """Convert mount to podman run CLI arguments."""
+        mode = ":ro" if self.read_only else ""
+        return ["--volume", f"{self.source}:{self.destination}{mode}"]
+
+
+AgentMount = ContainerMount
+
+
 @dataclass
 class ContainerRunSpec:
     """Mutable container launch arguments assembled by core and mutated by plugins."""
 
     env: dict[str, str] = field(default_factory=dict)
-    mounts: list[AgentMount] = field(default_factory=list)
+    mounts: list[ContainerMount] = field(default_factory=list)
     volumes: list[str] = field(default_factory=list)
     devices: list[str] = field(default_factory=list)
     cap_add: list[str] = field(default_factory=list)
@@ -144,6 +160,6 @@ class ACPAgentPlugin(ACPPlugin, ABC):
     """Abstract interface for packages with category 'agents'."""
 
     @abstractmethod
-    def get_agent_driver(self) -> AgentDriver:
+    def get_agent_driver(self) -> Any:
         """Instantiate and return the AgentDriver."""
         raise NotImplementedError

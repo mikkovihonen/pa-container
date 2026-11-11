@@ -14,7 +14,7 @@ from packages.plugin import RunContext
 
 
 def test_t3_settings_synthesis(tmp_path: Path):
-    from agents import get_agent_driver
+    from pa_packages.agents.host.registry import get_agent_driver
 
     t3_dir = tmp_path / "t3"
     opencode = get_agent_driver("opencode")
@@ -29,7 +29,7 @@ def test_t3_settings_synthesis(tmp_path: Path):
 
 
 def test_t3_policy_synthesis(tmp_path: Path):
-    from agents import get_agent_driver
+    from pa_packages.agents.host.registry import get_agent_driver
 
     t3_dir = tmp_path / "t3"
     opencode = get_agent_driver("opencode")
@@ -46,7 +46,7 @@ def test_t3_plugin_configure(tmp_path: Path):
 
     pa_dir = tmp_path / ".pa-container"
     pa_dir.mkdir(parents=True)
-    (pa_dir / "config.yaml").write_text("packages: ['opencode', 't3']\n")
+    (pa_dir / "config.yaml").write_text("packages:\n  - agents:\n      - opencode\n  - t3: []\n")
 
     pkg_dir = Path(__file__).resolve().parent.parent.parent
     plugin = T3Plugin(manifest=None, package_dir=pkg_dir, project_dir=tmp_path)  # type: ignore[arg-type]

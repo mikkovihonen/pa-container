@@ -249,9 +249,9 @@ def test_verify_packages_subset_and_all():
             output="",
         )
         # Subset
-        results = verify_packages(["gh"])
+        results = verify_packages(["git"])
         assert len(results) == 1
-        mock_verify.assert_called_with("gh", runtime="podman", repo_root=None)
+        mock_verify.assert_called_with("git", runtime="podman", repo_root=None)
 
         # All
         results_all = verify_packages("all")
@@ -306,14 +306,14 @@ def test_execute_test_cli():
     ):
         mock_verify.return_value = [
             PackageVerificationResult(
-                package="gh",
-                command="gh --version",
+                package="git",
+                command="git --version",
                 passed=True,
                 duration_ms=100.0,
-                output="gh version 2.0.0",
+                output="git version 2.56.0",
             )
         ]
-        opts = TestOptions(packages="gh")
+        opts = TestOptions(packages="git")
         assert execute_test(opts) == 0
 
     # Failure in test
@@ -324,15 +324,15 @@ def test_execute_test_cli():
     ):
         mock_verify.return_value = [
             PackageVerificationResult(
-                package="gh",
-                command="gh --version",
+                package="git",
+                command="git --version",
                 passed=False,
                 duration_ms=100.0,
                 output="",
                 error="boom",
             )
         ]
-        opts = TestOptions(packages="gh")
+        opts = TestOptions(packages="git")
         assert execute_test(opts) == 1
 
 
@@ -449,11 +449,10 @@ def test_execute_test_cli_integration_flag():
 @pytest.mark.smoke
 @pytest.mark.integration
 def test_live_package_smoke():
-    """Live smoke test asserting that gh verifies in-container cleanly."""
+    """Live smoke test asserting that source-control verifies in-container cleanly."""
     if not shutil.which("podman"):
         pytest.skip("podman not installed")
     if os.environ.get("CI") and not os.environ.get("PA_CONTAINER_LIVE_TESTS"):
         pytest.skip("Live container tests skipped in CI without PA_CONTAINER_LIVE_TESTS=1")
-    res = verify_package("gh")
+    res = verify_package("source-control")
     assert res.passed is True
-    assert "gh version" in res.output

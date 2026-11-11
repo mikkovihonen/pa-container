@@ -417,10 +417,54 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
 
     manifests = discover_packages()
     agents: list[str] = []
-    for p in pkgs:
-        p_name = str(p).strip().lower()
-        if p_name in manifests and manifests[p_name].category == "agents":
-            agents.append(p_name)
+
+    for entry in pkgs:
+        if isinstance(entry, str):
+            p_name = entry.strip().lower()
+            if p_name in manifests and manifests[p_name].category == "agents":
+                if p_name == "agents":
+                    manifest = manifests["agents"]
+                    def_feats = (
+                        [feat_name for feat_name, feat in manifest.features.items() if getattr(feat, "default", False)]
+                        if manifest.features
+                        else ["pi"]
+                    )
+                    for f in def_feats:
+                        if f not in agents:
+                            agents.append(f)
+                else:
+                    if p_name not in agents:
+                        agents.append(p_name)
+        elif isinstance(entry, dict):
+            for k, v in entry.items():
+                p_name = str(k).strip().lower()
+                if p_name in manifests and manifests[p_name].category == "agents":
+                    if p_name == "agents":
+                        feats: list[str] = []
+                        if isinstance(v, list):
+                            feats = [str(f).strip().lower() for f in v if str(f).strip()]
+                        elif isinstance(v, dict):
+                            feat_list = v.get("features", [])
+                            if isinstance(feat_list, list):
+                                feats = [str(f).strip().lower() for f in feat_list if str(f).strip()]
+                        if not feats:
+                            manifest = manifests["agents"]
+                            feats = (
+                                [
+                                    feat_name
+                                    for feat_name, feat in manifest.features.items()
+                                    if getattr(feat, "default", False)
+                                ]
+                                if manifest.features
+                                else ["pi"]
+                            )
+                        for f in feats:
+                            if f not in agents:
+                                agents.append(f)
+                    else:
+                        if p_name not in agents:
+                            agents.append(p_name)
+
     if not agents:
         raise ValueError(
             "No agent package configured in 'packages'. At least one package of category 'agents' is required."
@@ -429,25 +473,13 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
 
 
 def read_default_agent(config_dir: Path | None = None) -> str:
-    """Agent engine type from the first configured agent package in config.yaml 'packages'."""
+    """Agent engine type from 'agent.default' or first configured agent package in config.yaml 'packages'."""
+    cfg = load_project_config(config_dir)
+    agent_sec = cfg.get("agent")
+    if isinstance(agent_sec, dict) and agent_sec.get("default"):
+        return str(agent_sec["default"]).strip().lower()
     enabled = read_enabled_agents(config_dir)
     return enabled[0]
-
-
-def read_git_config(config_dir: Path | None = None) -> dict[str, bool]:
-    """Git settings from config.yaml ``git``."""
-    section = load_project_config(config_dir).get("git")
-    if not isinstance(section, dict):
-        raise ValueError("Missing required 'git' configuration section in project config")
-    for key in ("safe_directory", "rewrite_ssh_to_https"):
-        if key not in section:
-            raise ValueError(f"Missing required 'git.{key}' configuration")
-        if not isinstance(section[key], bool):
-            raise ValueError(f"Invalid 'git.{key}': expected bool, got {type(section[key]).__name__}")
-    return {
-        "safe_directory": section["safe_directory"],
-        "rewrite_ssh_to_https": section["rewrite_ssh_to_https"],
-    }
 
 
 def read_logging_config(config_dir: Path | None = None) -> LoggingProjectConfig:
@@ -610,14 +642,14 @@ class ContainerNetworkManager:
 
         if self.project_dir:
             try:
-                from images import read_project_packages
+                from images import resolve_project_packages
                 from packages import aggregate_egress_hosts, discover_packages
 
-                active_pkgs = read_project_packages(self.project_dir)
+                active_feats = resolve_project_packages(self.project_dir)
                 all_manifests = discover_packages()
-                active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
+                active_manifests = [all_manifests[p] for p in active_feats if p in all_manifests]
 
-                pkg_hosts = aggregate_egress_hosts(active_manifests)
+                pkg_hosts = aggregate_egress_hosts(active_manifests, active_features=active_feats)
                 if pkg_hosts:
                     effective_allowlist["global"]["rules"].append(
                         {
@@ -677,14 +709,14 @@ class ContainerNetworkManager:
 
         if self.project_dir:
             try:
-                from images import read_project_packages
+                from images import resolve_project_packages
                 from packages import aggregate_token_replacers, discover_packages
 
-                active_pkgs = read_project_packages(self.project_dir)
+                active_feats = resolve_project_packages(self.project_dir)
                 all_manifests = discover_packages()
-                active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
+                active_manifests = [all_manifests[p] for p in active_feats if p in all_manifests]
 
-                pkg_tokens = aggregate_token_replacers(active_manifests)
+                pkg_tokens = aggregate_token_replacers(active_manifests, active_features=active_feats)
                 for pt in pkg_tokens:
                     rule_entry: dict[str, Any] = {
                         "name": pt["name"],

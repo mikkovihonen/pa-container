@@ -13,12 +13,12 @@ Whether you run the default **Pi Coding Agent**, **OpenCode**, **Antigravity**, 
 
 ## Supported Agents
 
-| Agent Identifier | Display Name | Toolchain Package | Default Command | T3 Code Driver |
+| Agent Identifier | Display Name | Capability Feature | Default Command | T3 Code Driver |
 | :--- | :--- | :--- | :--- | :--- |
-| `pi` | Pi Coding Agent | `pi` (`@earendil-works/pi-coding-agent`) | `pi` | `pi` |
-| `opencode` | OpenCode | `opencode` (`@opencode/cli`) | `opencode` | — |
-| `antigravity` | Google Antigravity | `antigravity` | `antigravity` | — |
-| `claude` | Anthropic Claude Code | `claude-code` | `claude` | `claudeAgent` |
+| `pi` | Pi Coding Agent | `agents[pi]` (`@earendil-works/pi-coding-agent`) | `pi` | `pi` |
+| `opencode` | OpenCode | `agents[opencode]` (`@opencode/cli`) | `opencode` | — |
+| `antigravity` | Google Antigravity | `agents[antigravity]` (Google Antigravity CLI / `agy`) | `agy` | `antigravity` |
+| `claude` | Anthropic Claude Code | `agents[claude]` (`@anthropic-ai/claude-code`) | `claude` | `claudeAgent` |
 
 ---
 
@@ -26,41 +26,40 @@ Whether you run the default **Pi Coding Agent**, **OpenCode**, **Antigravity**, 
 
 ### 1. Workspace Configuration (`config.yaml`)
 
-Specify enabled agents and the default active agent in `.pa-container/config.yaml`. Every agent—including Pi—can be enabled or disabled. At least one agent must be enabled in the configuration:
+Specify enabled agent features and the default active agent in `.pa-container/config.yaml`. Every agent—including Pi—can be enabled or disabled. Configure the `agents` package with its active features using YAML dictionary syntax:
 
 ```yaml
-agents:
-  # List of agents enabled for this workspace (at least one required).
+packages:
+  # Enable coding agents as features of the unified agents package.
   # Supported: pi, opencode, antigravity, claude
-  enabled:
-    - pi
-    - opencode
-  # Default active agent when --agent is omitted on the CLI.
-  default: pi
+  - agents:
+      - pi
+      - opencode
 
 agent:
+  default: pi            # Default active agent when --agent is omitted on CLI
   command: ["run"]       # Optional command arguments override
   options: ["--verbose"] # Optional CLI options appended to invocation
 ```
 
-When configured in `config.yaml`, `pa-container` automatically builds and includes the toolchains for all enabled agents in the project container image and sets up the appropriate state directories and mounts.
+When configured in `config.yaml`, `pa-container` automatically stages the toolchains for all enabled agents in the project container image and sets up the appropriate state directories and mounts.
 
 ### 2. Command-Line Override (`--agent`)
 
 You can select any enabled agent for a single invocation using the `--agent` command-line flag:
 
 ```bash
-# Launch OpenCode in interactive mode (must be in agents.enabled)
+# Launch OpenCode in interactive mode (must be an active feature of agents)
 pa run --agent opencode
 
-# Launch Google Antigravity (must be in agents.enabled)
+# Launch Google Antigravity (must be an active feature of agents)
 pa run --agent antigravity
 
-# Launch Claude Code (must be in agents.enabled)
+# Launch Claude Code (must be an active feature of agents)
 pa run --agent claude
 ```
 
-If an agent is not listed in `agents.enabled`, `pa-container` rejects the invocation with an error.
+If an agent is not listed under active features of `agents`, `pa-container` rejects the invocation with an error.
 
 ---
 
@@ -120,35 +119,31 @@ allow:
 
 ---
 
-## Agent Capability Packages (ACPs)
+## Unified Agent Capability Package (`packages/agents`)
 
-Agent runtimes are packaged as independent Agent Capability Packages in `packages/`:
+All agent runtimes are consolidated into the unified `packages/agents` Agent Capability Package:
 
-- `packages/opencode/package.yaml`
-- `packages/antigravity/package.yaml`
-- `packages/claude-code/package.yaml`
-- `packages/pi/package.yaml`
+- `packages/agents/package.yaml`: Package manifest declaring optional features `pi`, `opencode`, `claude`, and `antigravity`.
+- `packages/agents/host/`: Lifted host runtime abstractions (`base.py`, `registry.py`, `synthesis.py`, `plugin.py`, and `drivers/`).
+- `packages/agents/features/`: Feature build scripts (`features/pi/build.sh`, `features/opencode/build.sh`, `features/claude/build.sh`, `features/antigravity/build.sh`).
+- `packages/agents/skill/`: Modular skill documentation with target-agent projections.
 
-Each package defines its binary payloads, skills (`skill/SKILL.md`), MCP server configurations, egress allowlists, and verification commands.
+Each feature defines its binary payload, skill fragments, MCP server configurations, egress allowlists, and verification commands.
 
-When an agent is selected:
-1. `pa-container` checks if the capability image `pa-container-pkg-<agent>:local` exists and matches the content hash of the package directory.
+When agent features are configured:
+1. `pa-container` checks if the capability image `pa-container-pkg-agents:local` exists and matches the content hash of the active features.
 2. If absent or stale, the package image is built automatically.
-3. The package image is dynamically composed into the project-specific agent container image via `COPY --from=pa-container-pkg-<agent>:local / /`.
+3. The package image is dynamically composed into the project-specific agent container image via `COPY --from=pa-container-pkg-agents:local / /`.
 
 ---
 
-## Adding Custom Agent Packages
+## Adding Custom Agent Features
 
-New agents can be integrated into `pa-container` dynamically as self-contained Agent Capability Packages (ACPs) without modifying the core codebase:
+New agent engines can be integrated into `pa-container` as modular features under `packages/agents/` or as separate ACP packages:
 
-1. Create the package directory under `packages/<agent-name>/` with a `package.yaml` manifest:
-    - Declare `category: "agents"` and `schema_version: "3.0.0"`.
-    - Declare `extension.entrypoint: "host.plugin:<PluginClassName>"` and `extension.driver_class: "host.driver:<DriverClassName>"`.
-    - Define in-container binary payloads, skills (`container/skill/SKILL.md`), and token mappings.
-2. In `packages/<agent-name>/host/driver.py`, create a driver inheriting from `agents.base.AgentDriver`:
-    - Implement `name`, `required_packages`, `get_mounts()`, `get_command()`, and `synthesize_config()`.
-3. In `packages/<agent-name>/host/plugin.py`, create a plugin inheriting from `packages.plugin.ACPAgentPlugin`:
-    - Implement `get_agent_driver(self) -> AgentDriver` returning your driver instance.
-    - Optionally declare `get_secret_mappings()` or implement container lifecycle hooks (`on_container_configure`, `post_start`).
-4. Write host-side unit tests under `packages/<agent-name>/host/tests/`. The test suite and mypy will discover and verify them automatically.
+1. In `packages/agents/package.yaml`, declare the new feature under `features:`:
+    - Define `payload`, `runtime`, `skill_fragment`, and `verification`.
+2. In `packages/agents/host/drivers/<engine>.py`, create a driver inheriting from `AgentDriver`:
+    - Implement `name`, `get_mounts()`, `get_command()`, `get_environment()`, and `synthesize_config()`.
+3. In `packages/agents/host/registry.py`, register the driver in `AVAILABLE_AGENTS` and `DRIVER_CLASSES`.
+4. Write host-side unit tests under `packages/agents/host/tests/`. The test suite and mypy will discover and verify them automatically.

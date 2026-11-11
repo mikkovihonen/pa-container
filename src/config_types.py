@@ -163,13 +163,6 @@ class ProjectToolsConfig(TypedDict, total=False):
     include: list[str]
 
 
-class ProjectGitConfig(TypedDict, total=False):
-    """Project-level git safety configuration."""
-
-    safe_directory: bool
-    rewrite_ssh_to_https: bool
-
-
 class ProjectFlowExportConfig(TypedDict, total=False):
     """Flow export addon configuration."""
 
@@ -197,6 +190,7 @@ class ProjectVolumesConfig(TypedDict, total=False):
 class ProjectAgentSectionConfig(TypedDict, total=False):
     """Configuration section for the agent in .pa-container/config.yaml."""
 
+    default: str
     type: str
     command: list[str] | str | None
     options: dict[str, object]
@@ -226,7 +220,6 @@ class ProjectConfig(TypedDict, total=False):
     tmpfs: ProjectTmpfsConfig
     volumes: ProjectVolumesConfig
     flow_export: ProjectFlowExportConfig
-    git: ProjectGitConfig
     agents: ProjectAgentsConfig
     logging: LoggingProjectConfig
 

@@ -1,4 +1,4 @@
-schema_version: "2.0.0"
+schema_version: "3.0.0"
 name: "git"
 version: "2.56.0"
 description: "Fast, scalable, distributed revision control system and Git MCP server"
@@ -38,6 +38,10 @@ skill:
 runtime:
     dependencies:
         - "python"
+
+extension:
+    entrypoint: "host.plugin:GitPlugin"
+    config_key: "git"
 
 verification:
     command: "git --version && mcp-server-git --help"

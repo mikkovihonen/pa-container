@@ -1,0 +1,175 @@
+schema_version: "3.0.0"
+name: "source-control"
+version: "1.0.0"
+description: "Unified source control management, authentication credentials, and CLI tooling (GitHub, GitLab, Gitea, GitCafe)"
+category: "scm"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+extension:
+    entrypoint: "host.plugin:SourceControlPlugin"
+    config_key: "source_control"
+
+features:
+    github:
+        description: "GitHub CLI (gh), pull request workflows, and GitHub MCP server"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/github/build.sh"
+            build_deps:
+                - "curl"
+                - "tar"
+            env:
+                GH_VERSION: "2.103.3"
+                GH_SHA256_AMD64: "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d"
+                GH_SHA256_ARM64: "ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63"
+        skill_fragment: "skill/features/github.md"
+        mcp:
+            enabled: true
+            server_id: "github"
+            transport: "stdio"
+            command: "/usr/local/bin/gh"
+            args: ["mcp"]
+            env:
+                GITHUB_PERSONAL_ACCESS_TOKEN: "${GH_TOKEN}"
+        egress:
+            allow_hosts:
+                - "api.github.com"
+                - "github.com"
+                - "raw.githubusercontent.com"
+                - "objects.githubusercontent.com"
+        token_replacer:
+            - name: "github-token"
+              hostnames:
+                  - "api.github.com"
+                  - "*.github.com"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "Authorization"
+                    regex: "token (ghp_[A-Za-z0-9_]{36})"
+              replace_with:
+                  strategy: "static"
+                  value: "token [REDACTED_GH_TOKEN]"
+            - name: "github-bearer"
+              hostnames:
+                  - "api.github.com"
+                  - "*.github.com"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "Authorization"
+                    regex: "Bearer (gho_[A-Za-z0-9_]{36})"
+              replace_with:
+                  strategy: "static"
+                  value: "Bearer [REDACTED_GH_OAUTH]"
+        verification:
+            command: "gh --version"
+            expected_output_contains: "gh version 2.103"
+
+    gitlab:
+        description: "GitLab CLI (glab) and repository workflows"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/gitlab/build.sh"
+            build_deps:
+                - "curl"
+                - "tar"
+            env:
+                GLAB_VERSION: "1.128.0"
+                GLAB_SHA256_AMD64: "bc024819e7598b19429a199cd87f640d98b2b67416d8ad796f19e4260b57a7c7"
+                GLAB_SHA256_ARM64: "60d0512085a8c1be7c5ef51aa7e4ee28213444cea0376b3260707d90489199ea"
+        skill_fragment: "skill/features/gitlab.md"
+        egress:
+            allow_hosts:
+                - "gitlab.com"
+                - "*.gitlab.com"
+        token_replacer:
+            - name: "gitlab-token"
+              hostnames:
+                  - "gitlab.com"
+                  - "*.gitlab.com"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "PRIVATE-TOKEN"
+                    regex: "(glpat-[A-Za-z0-9_\\-]{20,32})"
+              replace_with:
+                  strategy: "static"
+                  value: "[REDACTED_GITLAB_TOKEN]"
+        verification:
+            command: "glab --version"
+            expected_output_contains: "glab 1.128"
+
+    gitea:
+        description: "Gitea / Forgejo CLI (tea) and repository workflows"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/gitea/build.sh"
+            build_deps:
+                - "curl"
+            env:
+                TEA_VERSION: "0.16.0"
+                TEA_SHA256_AMD64: "9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636"
+                TEA_SHA256_ARM64: "0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879"
+        skill_fragment: "skill/features/gitea.md"
+        egress:
+            allow_hosts:
+                - "gitea.com"
+                - "codeberg.org"
+        verification:
+            command: "tea --version"
+            expected_output_contains: "0.16"
+
+    cafe:
+        description: "GitCafe CLI tool and git assistant with embedded Bun runtime"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/cafe/build.sh"
+            build_deps:
+                - "curl"
+                - "unzip"
+                - "tar"
+            env:
+                CAFE_VERSION: "0.13.0"
+                CAFE_SHA256: "17d5cb6d72b9db84e1e44043d02f8a7e8212304a2e7fea20ace89b863aec3460"
+                BUN_VERSION: "1.4.4"
+                BUN_SHA256_AMD64: "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"
+                BUN_SHA256_ARM64: "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"
+        skill_fragment: "skill/features/cafe.md"
+        egress:
+            allow_hosts:
+                - "gitcafe.com"
+                - "*.gitcafe.com"
+        verification:
+            command: "cafe --version"
+
+    azure-devops:
+        description: "Azure DevOps credentials and PAT configuration"
+        default: false
+        egress:
+            allow_hosts:
+                - "dev.azure.com"
+                - "*.visualstudio.com"
+        skill_fragment: "skill/features/azure-devops.md"
+
+    bitbucket:
+        description: "Bitbucket credentials and repository workflows"
+        default: false
+        egress:
+            allow_hosts:
+                - "bitbucket.org"
+                - "api.bitbucket.org"
+        skill_fragment: "skill/features/bitbucket.md"
+
+verification:
+    command: "test -d /usr/local/share/pa-container/entrypoint.d/agent"

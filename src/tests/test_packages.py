@@ -29,7 +29,7 @@ def test_discover_packages():
     assert "podman" in pkgs
     assert "python" in pkgs
     assert "node" in pkgs
-    assert "gh" in pkgs
+    assert "source-control" in pkgs
     assert "code-intelligence" in pkgs
     assert "virtual-desktop" in pkgs
 
@@ -131,17 +131,18 @@ def test_parse_package_manifest_full():
 
 def test_projection_helpers():
     pkgs = discover_packages()
-    active_manifests = [pkgs[k] for k in ("gh", "podman") if k in pkgs]
+    active_manifests = [pkgs[k] for k in ("source-control", "podman") if k in pkgs]
+    active_features = {"source-control": ["github"]}
 
-    mcp_servers = get_mcp_servers_dict(active_manifests)
+    mcp_servers = get_mcp_servers_dict(active_manifests, active_features=active_features)
     assert "github" in mcp_servers
     assert mcp_servers["github"]["command"] == "/usr/local/bin/gh"
 
-    egress = aggregate_egress_hosts(active_manifests)
+    egress = aggregate_egress_hosts(active_manifests, active_features=active_features)
     assert "api.github.com" in egress
     assert "docker.io" in egress
 
-    tokens = aggregate_token_replacers(active_manifests)
+    tokens = aggregate_token_replacers(active_manifests, active_features=active_features)
     token_names = [t["name"] for t in tokens]
     assert "github-token" in token_names
     gh_token = next(t for t in tokens if t["name"] == "github-token")
@@ -156,11 +157,12 @@ def test_projection_helpers():
 
 def test_generate_package_containerfile():
     pkgs = discover_packages()
-    gh = pkgs["gh"]
-    cf_gh = generate_package_containerfile(gh, get_package_dir("gh"))
-    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS extractor" in cf_gh
-    assert "FROM scratch" in cf_gh
-    assert "COPY --from=extractor /out/ /" in cf_gh
+    sc = pkgs["source-control"]
+    cf_sc = generate_package_containerfile(sc, get_package_dir("source-control"), active_features=["github"])
+    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder" in cf_sc
+    assert "bash /build/features/github/build.sh" in cf_sc
+    assert "FROM scratch" in cf_sc
+    assert "COPY --from=builder /out/ /" in cf_sc
 
     podman = pkgs["podman"]
     cf_podman = generate_package_containerfile(podman, get_package_dir("podman"))

@@ -85,29 +85,6 @@ class TestAgentLaunchReadOnlyPiContainerMount:
         assert flags == []
 
 
-class TestAgentLaunchReadOnlyGitHooksMount:
-    def test_read_only_git_hooks_flag_included_for_directory(self, tmp_path):
-        git_dir = tmp_path / ".git"
-        git_dir.mkdir()
-        hooks_dir = git_dir / "hooks"
-        read_only_git_hooks = True
-        flags = []
-        if read_only_git_hooks and git_dir.is_dir():
-            hooks_dir.mkdir(parents=True, exist_ok=True)
-            flags = ["--volume", f"{hooks_dir}:/workspace/.git/hooks:ro"]
-        assert flags == ["--volume", f"{hooks_dir}:/workspace/.git/hooks:ro"]
-        assert hooks_dir.is_dir()
-
-    def test_read_only_git_hooks_flag_included_for_worktree_file(self, tmp_path):
-        git_file = tmp_path / ".git"
-        git_file.write_text("gitdir: /outside/path/to/gitdir\n")
-        read_only_git_hooks = True
-        flags = []
-        if read_only_git_hooks and git_file.is_file():
-            flags = ["--volume", f"{git_file}:/workspace/.git:ro"]
-        assert flags == ["--volume", f"{git_file}:/workspace/.git:ro"]
-
-
 class TestAgentLaunchSecurityOpts:
     def test_no_new_privileges_included_when_nested_disabled(self):
         nested_enabled = False
@@ -118,38 +95,6 @@ class TestAgentLaunchSecurityOpts:
         nested_enabled = True
         opts = ["--security-opt", "no-new-privileges"] if not nested_enabled else []
         assert opts == []
-
-
-class TestAgentLaunchGitFlags:
-    def test_git_safe_directory_and_rewrite_flags_enabled(self):
-        git_cfg = {"safe_directory": True, "rewrite_ssh_to_https": True}
-        flags = [
-            "--env",
-            f"GIT_SAFE_DIRECTORY={'true' if git_cfg['safe_directory'] else 'false'}",
-            "--env",
-            f"GIT_REWRITE_SSH={'true' if git_cfg['rewrite_ssh_to_https'] else 'false'}",
-        ]
-        assert flags == [
-            "--env",
-            "GIT_SAFE_DIRECTORY=true",
-            "--env",
-            "GIT_REWRITE_SSH=true",
-        ]
-
-    def test_git_safe_directory_and_rewrite_flags_disabled(self):
-        git_cfg = {"safe_directory": False, "rewrite_ssh_to_https": False}
-        flags = [
-            "--env",
-            f"GIT_SAFE_DIRECTORY={'true' if git_cfg['safe_directory'] else 'false'}",
-            "--env",
-            f"GIT_REWRITE_SSH={'true' if git_cfg['rewrite_ssh_to_https'] else 'false'}",
-        ]
-        assert flags == [
-            "--env",
-            "GIT_SAFE_DIRECTORY=false",
-            "--env",
-            "GIT_REWRITE_SSH=false",
-        ]
 
 
 class TestAgentLaunchSourceControlFlags:
@@ -314,7 +259,7 @@ class TestRunMounts:
     def test_driver_mount_chown_intermediate_paths(self):
         from pathlib import Path
 
-        from agents.base import AgentMount
+        from packages.plugin import ContainerMount as AgentMount
 
         mounts = [
             AgentMount(source=Path("/host/cfg"), destination="/home/agent/.config/opencode"),
@@ -344,9 +289,9 @@ class TestRunMounts:
 class TestAgentResolution:
     def test_agent_driver_required_packages_access(self):
         """Verify that driver.required_packages property is accessed without being called as a function."""
-        from agents import get_agent_driver
+        from pa_packages.agents.host.registry import get_agent_driver
 
-        for agent_name in ("pi", "opencode", "antigravity", "claude-code"):
+        for agent_name in ("pi", "opencode", "antigravity", "claude"):
             driver = get_agent_driver(agent_name)
             packages = driver.required_packages
             assert isinstance(packages, list)
@@ -358,9 +303,9 @@ class TestAgentResolution:
 
         pa_dir = tmp_path / ".pa-container"
         pa_dir.mkdir(parents=True)
-        (pa_dir / "config.yaml").write_text(yaml.dump({"packages": ["claude-code"]}))
+        (pa_dir / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["claude"]}]}))
         enabled = read_enabled_agents(pa_dir)
-        assert enabled == ["claude-code"]
+        assert enabled == ["claude"]
         assert "pi" not in enabled
 
     def test_run_cleanup_orphaned_agent_containers_called(self, monkeypatch):
@@ -495,9 +440,6 @@ class TestExecuteRunFatalErrors:
         monkeypatch.setattr(run, "read_agent_extras", lambda d: {"mounts": []})
         monkeypatch.setattr(run, "read_read_only_pa_container", lambda d: False)
         monkeypatch.setattr(run, "read_security_config", lambda d: {"blocked_mount_paths": []})
-        monkeypatch.setattr(run, "read_git_config", lambda d: {})
-        monkeypatch.setattr(run, "read_source_control_config", lambda d: {})
-        monkeypatch.setattr(run, "resolve_source_control_tokens", lambda d, log: {})
         monkeypatch.setattr(run, "validate_mount_paths", lambda m, b: [])
         monkeypatch.setattr(run, "read_enabled_agents", lambda d: ["pi"])
         monkeypatch.setattr(run, "read_default_agent", lambda d: "pi")

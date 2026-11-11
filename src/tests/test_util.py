@@ -6,7 +6,6 @@ Run with:
 """
 
 import errno
-import json
 import os
 import signal
 import subprocess
@@ -21,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from util import (
     EnvironmentError,
     get_free_port,
-    get_sanitized_git_config_json,
     handle_signal,
     run_quiet,
     stop_process_group,
@@ -675,119 +673,6 @@ class TestStopProcessGroup:
 
 
 # ---------------------------------------------------------------------------
-# get_sanitized_git_config_json
-# ---------------------------------------------------------------------------
-
-
-class TestGetSanitizedGitConfigJson:
-    def test_sanitizes_url_credentials(self):
-        mock_logger = MagicMock()
-        # Use global .gitconfig origin so the line is not skipped
-        output = "file:/home/user/.gitconfig\tremote.origin.url=https://user:pass@github.com/org/repo.git\n"
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert "user" not in result["remote.origin.url"]
-        assert "pass" not in result["remote.origin.url"]
-        assert result["remote.origin.url"] == "https://github.com/org/repo.git"
-
-    def test_strips_credential_from_url(self):
-        mock_logger = MagicMock()
-        output = "credential.helper\tstore\n"
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert "credential.helper" not in result
-
-    def test_skips_file_origin(self):
-        mock_logger = MagicMock()
-        output = (
-            "file:.git/config\tuser.name=Test User\n"
-            "file:/home/user/project/.git/config\tuser.email=local@example.com\n"
-            "file:/home/user/.gitconfig\tuser.signingkey=GLOBALKEY\n"
-        )
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert "user.name" not in result
-        assert "user.email" not in result
-        assert result.get("user.signingkey") == "GLOBALKEY"
-
-    def test_skips_credential_dot_prefix(self):
-        mock_logger = MagicMock()
-        output = "credential.helper\tstore\ncredential.https://github.com.username\tmyuser\n"
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert "credential.helper" not in result
-        assert "credential.https://github.com.username" not in result
-
-    def test_returns_empty_dict_on_git_error(self):
-        mock_logger = MagicMock()
-        with patch("util.subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "git")):
-            result = get_sanitized_git_config_json(mock_logger)
-        assert result == "{}"
-
-    def test_returns_empty_dict_on_missing_git(self):
-        mock_logger = MagicMock()
-        with patch("util.subprocess.check_output", side_effect=FileNotFoundError):
-            result = get_sanitized_git_config_json(mock_logger)
-        assert result == "{}"
-
-    def test_normal_config_works(self):
-        mock_logger = MagicMock()
-        output = (
-            "file:/home/user/.gitconfig\tremote.origin.url=https://github.com/org/repo.git\n"
-            "file:/home/user/.gitconfig\tuser.email=test@example.com\n"
-        )
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert result["remote.origin.url"] == "https://github.com/org/repo.git"
-        assert result["user.email"] == "test@example.com"
-
-    def test_strips_http_credentials(self):
-        mock_logger = MagicMock()
-        output = "file:/home/user/.gitconfig\tremote.origin.url=http://admin:secret@github.com/org/repo.git\n"
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert result["remote.origin.url"] == "http://github.com/org/repo.git"
-
-    def test_strips_https_credentials(self):
-        mock_logger = MagicMock()
-        output = "file:/home/user/.gitconfig\tremote.origin.url=https://admin:secret@github.com/org/repo.git\n"
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert result["remote.origin.url"] == "https://github.com/org/repo.git"
-
-    def test_filters_by_allowlist(self):
-        mock_logger = MagicMock()
-        output = (
-            "file:/home/user/.gitconfig\tuser.name=Alice\n"
-            "file:/home/user/.gitconfig\tuser.email=alice@example.com\n"
-            "file:/home/user/.gitconfig\tcustom.setting=foobar\n"
-        )
-        allowlist = ["user.name", "user.email"]
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger, allowlist=allowlist))
-        assert result == {"user.name": "Alice", "user.email": "alice@example.com"}
-
-    def test_strips_dangerous_hooks_and_extra_headers(self):
-        mock_logger = MagicMock()
-        output = (
-            "file:/home/user/.gitconfig\tcore.sshCommand=ssh -i /root/key\n"
-            "file:/home/user/.gitconfig\tcore.fsmonitor=run_hook.sh\n"
-            "file:/home/user/.gitconfig\tcore.editor=vim\n"
-            "file:/home/user/.gitconfig\thttp.extraHeader=Authorization: Bearer secret\n"
-            "file:/home/user/.gitconfig\tfilter.lfs.clean=git-lfs clean\n"
-            "file:/home/user/.gitconfig\tuser.name=Alice\n"
-        )
-        with patch("util.subprocess.check_output", return_value=output):
-            result = json.loads(get_sanitized_git_config_json(mock_logger))
-        assert "core.sshCommand" not in result
-        assert "core.fsmonitor" not in result
-        assert "core.editor" not in result
-        assert "http.extraHeader" not in result
-        assert "filter.lfs.clean" not in result
-        assert result.get("user.name") == "Alice"
-
-
-# ---------------------------------------------------------------------------
 # run_quiet
 # ---------------------------------------------------------------------------
 
@@ -858,97 +743,6 @@ class TestRunQuiet:
         assert kwargs["timeout"] == 5
         assert kwargs["capture_output"] is True
         assert kwargs["text"] is True
-
-
-# ---------------------------------------------------------------------------
-# check_repo_gitignore and warn_missing_gitignore
-# ---------------------------------------------------------------------------
-
-
-class TestCheckRepoGitignore:
-    def test_non_git_repo_returns_empty(self, tmp_path):
-        from util import check_repo_gitignore
-
-        missing = check_repo_gitignore(tmp_path)
-        assert missing == []
-
-    def test_git_repo_with_all_entries(self, tmp_path):
-        from util import check_repo_gitignore
-
-        (tmp_path / ".git").mkdir()
-        (tmp_path / ".gitignore").write_text(".pa-container/\n")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                subprocess.CompletedProcess(args=[], returncode=0, stdout=str(tmp_path) + "\n"),
-            ]
-            missing = check_repo_gitignore(tmp_path)
-            assert missing == []
-
-    def test_git_repo_missing_entries(self, tmp_path):
-        from util import check_repo_gitignore
-
-        (tmp_path / ".git").mkdir()
-        (tmp_path / ".gitignore").write_text("# empty\n")
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                subprocess.CompletedProcess(args=[], returncode=0, stdout=str(tmp_path) + "\n"),
-                subprocess.CompletedProcess(args=[], returncode=1),
-            ]
-            missing = check_repo_gitignore(tmp_path)
-            assert missing == [".pa-container/"]
-
-    def test_check_repo_tracked_pa_container_finds_tracked_files(self, tmp_path):
-        from util import check_repo_tracked_pa_container
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = subprocess.CompletedProcess(
-                args=[], returncode=0, stdout=".pa-container/config.yaml\n.pa-container/models.yaml\n"
-            )
-            tracked = check_repo_tracked_pa_container(tmp_path)
-            assert tracked == [".pa-container/config.yaml", ".pa-container/models.yaml"]
-
-    def test_check_repo_tracked_pa_container_empty_when_no_files_tracked(self, tmp_path):
-        from util import check_repo_tracked_pa_container
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="")
-            tracked = check_repo_tracked_pa_container(tmp_path)
-            assert tracked == []
-
-    def test_warn_missing_gitignore_logs_warning_for_missing_entry(self, tmp_path):
-        from util import warn_missing_gitignore
-
-        mock_logger = MagicMock()
-        with (
-            patch("util.check_repo_gitignore", return_value=[".pa-container/"]),
-            patch("util.check_repo_tracked_pa_container", return_value=[]),
-        ):
-            warn_missing_gitignore(tmp_path, mock_logger)
-            mock_logger.warning.assert_called_once()
-            assert ".pa-container/" in str(mock_logger.warning.call_args)
-
-    def test_warn_missing_gitignore_logs_warning_for_tracked_files(self, tmp_path):
-        from util import warn_missing_gitignore
-
-        mock_logger = MagicMock()
-        with (
-            patch("util.check_repo_gitignore", return_value=[]),
-            patch("util.check_repo_tracked_pa_container", return_value=[".pa-container/config.yaml"]),
-        ):
-            warn_missing_gitignore(tmp_path, mock_logger)
-            mock_logger.warning.assert_called_once()
-            assert "git rm -r --cached .pa-container" in str(mock_logger.warning.call_args)
-
-    def test_warn_missing_gitignore_logs_nothing_when_clean(self, tmp_path):
-        from util import warn_missing_gitignore
-
-        mock_logger = MagicMock()
-        with (
-            patch("util.check_repo_gitignore", return_value=[]),
-            patch("util.check_repo_tracked_pa_container", return_value=[]),
-        ):
-            warn_missing_gitignore(tmp_path, mock_logger)
-            mock_logger.warning.assert_not_called()
 
 
 class TestGetHostExternalIp:

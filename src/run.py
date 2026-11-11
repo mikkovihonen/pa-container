@@ -13,22 +13,25 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
+    from pa_packages.agents.host.base import AgentMount
+
     from cli import RunOptions
     from config_types import GatewayConfigItem
     from logging_driver import LogDriver
 
 sys.dont_write_bytecode = True
 
-import containers
-import images
-import project
-import volumes
-from agents import (
-    AgentMount,
+from pa_packages.agents.host.registry import (
     get_agent_driver,
-    load_project_models,
     resolve_selected_agent_names,
 )
+from pa_packages.agents.host.synthesis import load_project_models
+
+import containers
+import images
+import packages.loader  # noqa: F401
+import project
+import volumes
 from build import DEFAULT_ROOT_COMMANDS, build_agent, build_project_image, build_proxy
 from config import (
     ADMIN_PASSWORD,
@@ -60,7 +63,6 @@ from network import (
     read_default_agent,
     read_enabled_agents,
     read_flow_export_enabled,
-    read_git_config,
     read_llama_config,
     read_nested_containers_config,
     read_network_config,
@@ -77,15 +79,12 @@ from packages.plugin import ContainerRunSpec, RunContext
 from runtimes import PodmanRuntime
 from security import read_security_config, validate_mount_paths
 from server import Server
-from source_control import read_source_control_config, resolve_source_control_tokens
 from util import (
     EnvironmentError,
     extract_ipv4_from_ip_addr,
-    get_sanitized_git_config_json,
     handle_signal,
     run_quiet,
     validate_environment,
-    warn_missing_gitignore,
 )
 
 logger = get_category_logger(__name__, LogCategory.AGENT)
@@ -219,7 +218,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         )
         return 1
 
-    warn_missing_gitignore(PROJECT_DIR, preflight_logger)
     models_path: Path = pa_container_dir / "models.yaml"
     if not models_path.is_file():
         err = f"Config file not found: expected {models_path}"
@@ -275,9 +273,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         agent_extras = read_agent_extras(pa_container_dir)
         read_only_pa_container = read_read_only_pa_container(pa_container_dir)
         security_cfg = read_security_config(pa_container_dir)
-        git_cfg = read_git_config(pa_container_dir)
-        sc_cfg = read_source_control_config(pa_container_dir)
-        sc_tokens = resolve_source_control_tokens(pa_container_dir, log=logger)
     except Exception as e:
         log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
@@ -728,41 +723,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 )
             ]
 
-            git_entry = PROJECT_DIR / ".git"
-            git_hooks_mount: list[str] = []
-            if security_cfg.get("read_only_git_hooks", True):
-                if git_entry.is_dir():
-                    git_hooks_dir = git_entry / "hooks"
-                    git_hooks_dir.mkdir(parents=True, exist_ok=True)
-                    git_hooks_mount = ["--volume", f"{git_hooks_dir}:/workspace/.git/hooks:ro"]
-                elif git_entry.is_file():
-                    # Git worktree or submodule: protect the .git pointer file from tampering
-                    git_hooks_mount = ["--volume", f"{git_entry}:/workspace/.git:ro"]
-                    try:
-                        res = subprocess.run(
-                            ["git", "rev-parse", "--git-path", "hooks"],
-                            cwd=PROJECT_DIR,
-                            capture_output=True,
-                            text=True,
-                            check=False,
-                            timeout=5,
-                        )
-                        if res.returncode == 0 and res.stdout.strip():
-                            raw_hooks_path = Path(res.stdout.strip())
-                            resolved_hooks = (
-                                raw_hooks_path
-                                if raw_hooks_path.is_absolute()
-                                else (PROJECT_DIR / raw_hooks_path).resolve()
-                            )
-                            resolved_project = PROJECT_DIR.resolve()
-                            if resolved_hooks.is_relative_to(resolved_project):
-                                rel = resolved_hooks.relative_to(resolved_project)
-                                resolved_hooks.mkdir(parents=True, exist_ok=True)
-                                git_hooks_mount.append("--volume")
-                                git_hooks_mount.append(f"{resolved_hooks}:/workspace/{rel}:ro")
-                    except Exception as e:
-                        logger.warning(f"Could not resolve git worktree hooks path: {e}")
-
             selected_mounts: list[AgentMount] = []
             seen_mount_dests: set[str] = set()
             for d in selected_agent_drivers:
@@ -853,7 +813,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 "--volume",
                 f"{PROJECT_DIR}:/workspace",
                 *(["--volume", f"{pa_container_dir}:/workspace/.pa-container:ro"] if read_only_pa_container else []),
-                *git_hooks_mount,
                 *RUNTIME.tmpfs_args("/workspace/.pa-container/exports"),
                 *volume_args,
                 *RUNTIME.port_publish_args(agent_ports),
@@ -876,16 +835,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 *[flag for k, v in plugin_spec.env.items() for flag in ("--env", f"{k}={v}")],
                 "--env",
                 f"LLAMA_PORTS={portconfig}",
-                "--env",
-                f"HOST_GIT_CONFIG={get_sanitized_git_config_json(logger=logger, allowlist=security_cfg.get('git_config_allowlist'))}",
-                "--env",
-                f"GIT_SAFE_DIRECTORY={'true' if git_cfg['safe_directory'] else 'false'}",
-                "--env",
-                f"GIT_REWRITE_SSH={'true' if git_cfg['rewrite_ssh_to_https'] else 'false'}",
-                "--env",
-                f"SETUP_GIT_CREDENTIALS={'true' if sc_cfg['setup_git_credentials'] else 'false'}",
                 *(["--env", f"PA_CONTAINER_VERSION={schema_version}"] if schema_version else []),
-                *[flag for k, v in {**sc_tokens, **agent_extras["env"]}.items() for flag in ("--env", f"{k}={v}")],
+                *[flag for k, v in agent_extras["env"].items() for flag in ("--env", f"{k}={v}")],
                 *[flag for m in agent_extras["mounts"] for flag in ("--volume", m)],
                 *[flag for c in agent_extras["capabilities"] for flag in ("--cap-add", c)],
                 *[flag for d in active_devices for flag in ("--device", d)],

@@ -37,7 +37,7 @@ def valid_config(tmp_path: Path) -> Path:
                     "stream_large_bodies": "10m",
                     "open_browser": False,
                 },
-                "packages": ["pi"],
+                "packages": [{"agents": ["pi"]}],
                 "agent": {
                     "env": {},
                     "mounts": [],
@@ -869,6 +869,7 @@ class TestPackagesSchema:
 
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
+        data.setdefault("packages", []).append("source-control")
         data["source_control"] = {
             "enabled": True,
             "auto_detect_host_cli": False,

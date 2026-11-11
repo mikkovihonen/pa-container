@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agents.base import AgentDriver
+    from pa_packages.agents.host.base import AgentDriver
 
 sys.dont_write_bytecode = True
 

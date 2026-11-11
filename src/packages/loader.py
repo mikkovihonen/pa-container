@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import importlib.abc
+import importlib.machinery
 import importlib.util
 import sys
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from packages.discovery import get_package_dir
+from packages.manifest import load_package_manifest
 from packages.plugin import ACPPlugin
 
 if TYPE_CHECKING:
@@ -32,6 +35,9 @@ def _ensure_parent_modules(module_name: str, package_dir: Path) -> None:
                 sub_dir = package_dir.joinpath(*rel_parts)
                 parent_mod.__path__ = [str(sub_dir)] if sub_dir.is_dir() else []
             parent_mod.__package__ = parent_name
+            parent_spec = importlib.machinery.ModuleSpec(parent_name, None, is_package=True)
+            parent_spec.submodule_search_locations = parent_mod.__path__
+            parent_mod.__spec__ = parent_spec
             sys.modules[parent_name] = parent_mod
 
 
@@ -139,12 +145,18 @@ def load_project_plugins(
     from images import read_project_packages
     from packages.discovery import discover_packages, get_packages_dir
 
-    if project_dir is not None:
-        active_pkgs = read_project_packages(project_dir, extra_packages=extra_packages)
-    else:
-        active_pkgs = list(extra_packages or [])
     manifests = discover_packages(repo_root)
     packages_dir = get_packages_dir(repo_root)
+
+    if project_dir is not None:
+        active_pkgs = read_project_packages(project_dir, extra_packages=extra_packages)
+        if "git" not in active_pkgs and "git" in manifests:
+            cfg_path = project_dir / ".pa-container" / "config.yaml"
+            if (project_dir / ".git").exists() or (cfg_path.is_file() and "git:" in cfg_path.read_text()):
+                active_pkgs.append("git")
+    else:
+        active_pkgs = list(extra_packages or [])
+
     active_manifests = {p: manifests[p] for p in active_pkgs if p in manifests}
     return load_active_plugins(active_manifests, packages_dir=packages_dir, project_dir=project_dir)
 
@@ -165,3 +177,49 @@ def get_package_host_module(package_name: str, module_name: str, packages_dir: P
     if mod_key in sys.modules:
         return sys.modules[mod_key]
     return importlib.import_module(mod_key)
+
+
+class ACPMetaPathFinder(importlib.abc.MetaPathFinder):
+    """MetaPathFinder that resolves pa_packages.<pkg_name>.host.<module> dynamically."""
+
+    def find_spec(
+        self,
+        fullname: str,
+        path: Any,
+        target: Any = None,
+    ) -> importlib.machinery.ModuleSpec | None:
+        if not fullname.startswith("pa_packages"):
+            return None
+
+        if fullname == "pa_packages":
+            spec = importlib.machinery.ModuleSpec("pa_packages", None, is_package=True)
+            return spec
+
+        parts = fullname.split(".")
+        if len(parts) < 2:
+            return None
+
+        safe_pkg_name = parts[1]
+        pkg_name = safe_pkg_name.replace("_", "-")
+        try:
+            pkg_dir = get_package_dir(pkg_name)
+        except Exception:
+            try:
+                pkg_dir = get_package_dir(safe_pkg_name)
+            except Exception:
+                return None
+
+        manifest_path = pkg_dir / "package.yaml"
+        if not manifest_path.is_file():
+            return None
+
+        manifest = load_package_manifest(manifest_path)
+        load_acp_plugin(manifest, pkg_dir)
+        if fullname in sys.modules:
+            mod = sys.modules[fullname]
+            return getattr(mod, "__spec__", None)
+        return None
+
+
+if not any(isinstance(finder, ACPMetaPathFinder) for finder in sys.meta_path):
+    sys.meta_path.append(ACPMetaPathFinder())

@@ -204,7 +204,8 @@ class T3Plugin(ACPPlugin):
             return
 
         options = context.options
-        from agents import get_agent_driver
+        from pa_packages.agents.host.registry import get_agent_driver
+
         from network import read_default_agent, read_enabled_agents
 
         pa_dir = self.project_dir / ".pa-container"

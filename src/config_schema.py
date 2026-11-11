@@ -53,20 +53,73 @@ def _validate_packages(data: dict[str, Any]) -> list[str]:
     available_packages = set(manifests.keys())
     agent_packages_count = 0
     for item in packages_list:
-        if not isinstance(item, str):
-            errors.append(f"  packages: expected string package name, got {type(item).__name__} (value: {item!r})")
-        elif item not in available_packages:
-            errors.append(
-                f"  packages: unknown package '{item}'. Available packages: {', '.join(sorted(available_packages))}"
-            )
+        if isinstance(item, str):
+            if "+" in item:
+                errors.append(
+                    f"  packages: string concatenation with '+' is not supported in '{item}'. "
+                    f"Use dictionary syntax, e.g. - {item.split('+')[0]}: [{', '.join(item.split('+')[1:])}]"
+                )
+            elif item not in available_packages:
+                errors.append(
+                    f"  packages: unknown package '{item}'. Available packages: {', '.join(sorted(available_packages))}"
+                )
+            else:
+                if manifests[item].category == "agents":
+                    agent_packages_count += 1
+        elif isinstance(item, dict):
+            if len(item) != 1:
+                errors.append(
+                    f"  packages: dictionary entry must have exactly one package name as key, got {list(item.keys())}"
+                )
+            for pkg_name, val in item.items():
+                if pkg_name not in available_packages:
+                    errors.append(
+                        f"  packages: unknown package '{pkg_name}'. Available packages: {', '.join(sorted(available_packages))}"
+                    )
+                else:
+                    if manifests[pkg_name].category == "agents":
+                        agent_packages_count += 1
+                    pkg_manifest = manifests[pkg_name]
+                    known_features = set(pkg_manifest.features.keys()) if pkg_manifest.features else set()
+                    feats: list[str] = []
+                    if isinstance(val, list):
+                        for f in val:
+                            if not isinstance(f, str):
+                                errors.append(f"  packages: {pkg_name}: expected feature name string, got {f!r}")
+                            else:
+                                feats.append(f)
+                    elif isinstance(val, dict):
+                        f_list = val.get("features")
+                        if f_list is not None:
+                            if not isinstance(f_list, list):
+                                errors.append(
+                                    f"  packages: {pkg_name}.features: expected list, got {type(f_list).__name__}"
+                                )
+                            else:
+                                for f in f_list:
+                                    if not isinstance(f, str):
+                                        errors.append(f"  packages: {pkg_name}.features: expected string, got {f!r}")
+                                    else:
+                                        feats.append(f)
+                    else:
+                        errors.append(
+                            f"  packages: {pkg_name}: expected list of features or object with 'features', got {type(val).__name__}"
+                        )
+                    if known_features:
+                        for f in feats:
+                            if f not in known_features:
+                                errors.append(
+                                    f"  packages: {pkg_name}: unknown feature '{f}'. Available features: {', '.join(sorted(known_features))}"
+                                )
         else:
-            if manifests[item].category == "agents":
-                agent_packages_count += 1
+            errors.append(
+                f"  packages: expected string package name or dictionary entry, got {type(item).__name__} (value: {item!r})"
+            )
 
     if agent_packages_count == 0:
         errors.append(
             "  packages: configuration must include at least one agent package (category: 'agents'), "
-            "e.g. 'pi', 'opencode', 'antigravity', 'claude-code'"
+            "e.g. - agents: [pi]"
         )
     return errors
 
@@ -79,7 +132,12 @@ def _validate_package_configs(data: dict[str, Any]) -> list[str]:
     from packages.loader import load_acp_plugin
 
     packages_list = data.get("packages") or []
-    active_pkg_names = {p for p in packages_list if isinstance(p, str)}
+    active_pkg_names: set[str] = set()
+    for item in packages_list:
+        if isinstance(item, str):
+            active_pkg_names.add(item)
+        elif isinstance(item, dict):
+            active_pkg_names.update(item.keys())
 
     for manifest in manifests.values():
         config_key = manifest.extension.config_key

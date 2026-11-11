@@ -95,39 +95,6 @@ if [ -d /usr/local/share/pa-container/entrypoint.d/root ]; then
     done
 fi
 
-# ─── Git workspace safety & protocol rewriting (config.yaml git.*) ───────────
-if [ "${GIT_SAFE_DIRECTORY:-true}" = "true" ]; then
-    git config --system --add safe.directory '*'
-fi
-
-if [ "${GIT_REWRITE_SSH:-true}" = "true" ]; then
-    git config --system --add url."https://github.com/".insteadOf "git@github.com:"
-    git config --system --add url."https://github.com/".insteadOf "ssh://git@github.com/"
-    git config --system --add url."https://gitlab.com/".insteadOf "git@gitlab.com:"
-    git config --system --add url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
-    git config --system --add url."https://codeberg.org/".insteadOf "git@codeberg.org:"
-    git config --system --add url."https://codeberg.org/".insteadOf "ssh://git@codeberg.org/"
-    git config --system --add url."https://bitbucket.org/".insteadOf "git@bitbucket.org:"
-    git config --system --add url."https://bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
-    git config --system --add url."https://git.cafe/".insteadOf "git@git.cafe:"
-    git config --system --add url."https://git.cafe/".insteadOf "ssh://git@git.cafe/"
-fi
-
-if [ -n "$HOST_GIT_CONFIG" ]; then
-    if command -v jq >/dev/null 2>&1; then
-        while IFS=$'\t' read -r key value; do
-            if [[ -n "$key" ]]; then
-                gosu agent git config --global "$key" "$value"
-            fi
-        done < <(echo "$HOST_GIT_CONFIG" | jq -r 'to_entries[] | [.key, .value] | @tsv')
-    else
-        while IFS=$'\t' read -r key value; do
-            if [[ -n "$key" ]]; then
-                gosu agent git config --global "$key" "$value"
-            fi
-        done < <(echo "$HOST_GIT_CONFIG" | sed -E 's/[{}]//g; s/"([^"]+)": *"([^"]*)"/\1\t\2/g' | tr ',' '\n' | sed -E 's/^[[:space:]]+//')
-    fi
-fi
 
 
 exec gosu agent bash -c '
@@ -160,19 +127,6 @@ exec gosu agent bash -c '
         done
     done
 
-    # ─── Source control credential helpers (SETUP_GIT_CREDENTIALS) ────────────
-    if [ "${SETUP_GIT_CREDENTIALS}" = "true" ]; then
-        if [ -n "${GH_TOKEN}" ]; then
-            if command -v gh >/dev/null 2>&1; then
-                gh auth setup-git >/dev/null 2>&1 || true
-            fi
-        fi
-        if [ -n "${GITLAB_TOKEN}" ]; then
-            if command -v glab >/dev/null 2>&1; then
-                glab auth setup-git >/dev/null 2>&1 || true
-            fi
-        fi
-    fi
 
     if [ -x .pa-container/dependencies/agent/commands.sh ]; then
         .pa-container/dependencies/agent/commands.sh
@@ -183,22 +137,9 @@ exec gosu agent bash -c '
         exec "/usr/local/share/pa-container/modes/${PA_CONTAINER_MODE}.sh" "$@"
     fi
 
-    case "${PA_CONTAINER_AGENT}" in
-        pi)
-            exec pi "$@"
-            ;;
-        opencode)
-            exec opencode "$@"
-            ;;
-        antigravity)
-            exec agy "$@"
-            ;;
-        claude)
-            exec claude "$@"
-            ;;
-        *)
-            echo "ERROR: Unknown agent \"${PA_CONTAINER_AGENT}\". Supported agents: pi, opencode, antigravity, claude" >&2
-            exit 1
-            ;;
-    esac
+    if [ "$#" -eq 0 ]; then
+        set -- "${PA_CONTAINER_AGENT:-pi}"
+    fi
+
+    exec "$@"
 ' -- "$@"

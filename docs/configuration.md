@@ -694,6 +694,12 @@ All runtime stacks, language toolchains, and tools are opt-in per workspace as A
 
 ```yaml
 packages:
+  # Coding agents (unified capability with optional engines)
+  - agents:
+      - pi
+      - claude
+      - opencode
+      - antigravity
   # Language toolchains
   - go
   - rust
@@ -704,47 +710,45 @@ packages:
   - node
   # Language servers (unified LSP bridge with optional language servers)
   - language-servers:
-      features:
-        - rust-analyzer
-        - pyright
+      - rust-analyzer
+      - pyright
   # Domain capabilities with optional features
   - code-intelligence
   - data-tools
   - document-tools:
-      features:
-        - docling
+      - docling
   - developer-tools
   - browser
-  - vector-storage+qdrant
+  - vector-storage:
+      - qdrant
   - ai-frameworks
   # Container virtualization & desktop GUI
   - podman
   - virtual-desktop
-  # VCS & forge CLIs
+  # Version control & source control authentication
   - git
-  - gh
-  - glab
-  - tea
-  - az
-  - cafe
-  # Agent control panels & runtimes
+  - source-control:
+      - github
+      - gitlab
+  # Agent control panels
   - t3
-  - pi
-  - opencode
-  - antigravity
-  - claude-code
 ```
 
 #### Optional Feature Configuration
-Packages can define modular optional features that remain uninstalled and completely omitted from agent prompts (`SKILL.md`) unless explicitly configured. Both string shorthand and structured mapping syntax are supported:
+Packages can define modular optional features that remain uninstalled and completely omitted from agent prompts (`SKILL.md`) unless explicitly configured. Feature configuration uses structured YAML dictionary syntax:
 
-- **String Shorthand (`package+feature`)**:
+- **Compact List Mapping (Recommended)**:
     ```yaml
     packages:
-      - vector-storage+qdrant
-      - document-tools+docling
+      - agents:
+          - pi
+          - claude
+      - source-control:
+          - github
+      - vector-storage:
+          - qdrant
     ```
-- **Mapping Syntax (`package: {features: [...]}`)**:
+- **Extended Mapping Syntax (`features: [...]`)**:
     ```yaml
     packages:
       - language-servers:
@@ -757,7 +761,15 @@ Packages can define modular optional features that remain uninstalled and comple
             - docling
     ```
 
+> String concatenation syntax (`package+feature`) is not supported and is rejected during validation in favor of structured YAML dictionaries.
+
 **Available packages:**
+- **Coding Agents & Runtimes:**
+    - `agents`: Unified AI coding agents capability package. Optional features:
+        - `pi`: Native Pi coding agent CLI runtime (default feature).
+        - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration.
+        - `claude`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (`claude`).
+        - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (`agy`).
 - **Core Runtimes & Virtualization:**
     - `python`: CPython 3.15 runtime with `uv` and `pip`.
     - `node`: Node.js 26 runtime with `npm` and `npx`.
@@ -785,19 +797,17 @@ Packages can define modular optional features that remain uninstalled and comple
     - `browser`: Headless web browsing and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`).
     - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `USearch`). Optional feature: `qdrant` (Qdrant vector database server).
     - `ai-frameworks`: Modern Python agent architectures and state graphs (`langgraph`, `pydantic-ai`, `smolagents`).
-- **Version Control & Forges:**
+- **Version Control & Source Control:**
     - `git`: High-performance Git engine with Git MCP server (`git`, `mcp-server-git`).
-    - `gh`: Official GitHub CLI with GitHub MCP server and isolated token redaction (`gh`).
-    - `glab`: Official GitLab CLI with isolated token redaction (`glab`).
-    - `tea`: Official Gitea and Forgejo CLI (`tea`, `fj`).
-    - `az`: Azure CLI with pre-installed `azure-devops` extension (`az`).
-    - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (`cafe`).
-- **Agent Control Panels & Runtimes:**
+    - `source-control`: Multi-provider forge authentication and Git credentials. Optional features:
+        - `github`: Official GitHub CLI with GitHub MCP server and isolated token redaction (`gh`).
+        - `gitlab`: Official GitLab CLI with isolated token redaction (`glab`).
+        - `gitea`: Official Gitea and Forgejo CLI (`tea`, `fj`).
+        - `azure-devops`: Azure CLI with pre-installed `azure-devops` extension (`az`).
+        - `bitbucket`: Bitbucket API integration.
+        - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (`cafe`).
+- **Agent Control Panels:**
     - `t3`: T3 Code web agent server for local UI control (`t3`). Required when using `--t3`.
-    - `pi`: Pi Coding Agent CLI runtime (`pi`).
-    - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration (`opencode`).
-    - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (`antigravity`, `agy`, `agy_acp_server.par`).
-    - `claude-code`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (`claude`, `claude-code`).
 
 #### Package Verification and Smoke Tests
 Verify installed packages or execute live in-container smoke and integration tests:

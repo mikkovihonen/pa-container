@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 import images
 import packages
 from config import PA_IMAGE_TAG
@@ -185,7 +187,8 @@ class TestComputeImageHash:
         cfg_dir.mkdir(parents=True)
         (cfg_dir / "config.yaml").write_text(
             "packages:\n"
-            "  - vector-storage+qdrant\n"
+            "  - vector-storage:\n"
+            "      - qdrant\n"
             "  - document-tools:\n"
             "      features:\n"
             "        - docling\n"
@@ -205,6 +208,10 @@ class TestComputeImageHash:
             "python",
             "vector-storage",
         ]
+
+        with pytest.raises(ValueError, match=r"string concatenation with '\+' is not supported"):
+            (cfg_dir / "config.yaml").write_text("packages:\n  - vector-storage+qdrant\n")
+            images.resolve_project_packages(repo)
 
     def test_resolve_agent_image_with_packages_only(self, tmp_path):
         repo = tmp_path / "repo"

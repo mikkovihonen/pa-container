@@ -1,0 +1,133 @@
+schema_version: "3.0.0"
+name: "agents"
+version: "1.0.0"
+description: "Unified AI coding agents runtime capability (Pi, OpenCode, Claude Code, and Google Antigravity)"
+category: "agents"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+extension:
+    entrypoint: "host.plugin:AgentsPlugin"
+    config_key: "agent"
+
+features:
+    pi:
+        description: "Native Pi coding agent (@earendil-works/pi-coding-agent)"
+        default: true
+        payload:
+            type: "build_script"
+            script: "features/pi/build.sh"
+            build_deps:
+                - "curl"
+            build_packages:
+                - "node"
+            env:
+                PI_VERSION: "1.5.0"
+                PI_SHA256: "5bfb66848a4c4b81c637ce8d2136be01945b70aac8e8556b091cb02241b385df"
+        runtime:
+            dependencies:
+                - "node"
+        skill_fragment: "skill/features/pi.md"
+        verification:
+            command: "pi --version"
+            expected_output_contains: "1.5"
+
+    opencode:
+        description: "OpenCode AI coding agent and developer assistant CLI"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/opencode/build.sh"
+            build_deps:
+                - "curl"
+                - "tar"
+            env:
+                OPENCODE_VERSION: "2.2.5"
+                OPENCODE_SHA256_AMD64: "92690eee07a680d3cb760ca02ba43878de9eab1b4e5d5dfae8795518c53628f4"
+                OPENCODE_SHA256_ARM64: "f8c5a82075fede9b5b044ed6c8a6d13ad807a7e62caea1cd0a878adef49eb053"
+        skill_fragment: "skill/features/opencode.md"
+        verification:
+            command: "opencode --version"
+            expected_output_contains: "2.2.5"
+
+    claude:
+        description: "Anthropic Claude Code agent executable and CLI"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/claude/build.sh"
+            build_deps:
+                - "curl"
+                - "tar"
+            env:
+                CLAUDE_CODE_VERSION: "2.1.319"
+                CLAUDE_SHA256_AMD64: "9b7b53954b8ffb886fafeefe9ef1e0e9e5c15e8aaf2f54d65ba64d0cca795dc7"
+                CLAUDE_SHA256_ARM64: "f1ce44ea6a383ff39463e82906ad2d9d6fe1bc92976d2ac38da965b15a6f8036"
+        egress:
+            allow_hosts:
+                - "api.anthropic.com"
+                - "statsig.anthropic.com"
+        token_replacer:
+            - name: "anthropic-key"
+              hostnames:
+                  - "api.anthropic.com"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "x-api-key"
+                    regex: ".*"
+              replace_with:
+                  strategy: "static"
+                  value: "ANTHROPIC_API_KEY_PLACEHOLDER"
+        skill_fragment: "skill/features/claude.md"
+        verification:
+            command: "claude --version"
+            expected_output_contains: "2.1.319"
+
+    antigravity:
+        description: "Google Antigravity agent CLI (agy) and T3 ACP runtime"
+        default: false
+        payload:
+            type: "build_script"
+            script: "features/antigravity/build.sh"
+            build_deps:
+                - "curl"
+                - "tar"
+                - "unzip"
+            env:
+                ANTIGRAVITY_VERSION: "1.5.2"
+                ANTIGRAVITY_BUILD_ID: "4951595792859136"
+                ANTIGRAVITY_SHA256_AMD64: "da696a8dc6122a63d5ffbdd21b02c8a62d5361fba0ed7d3bc2d2619889e62711"
+                ANTIGRAVITY_SHA256_ARM64: "cd155ecd9bc962037423e6826ed0b61d3b16d84d350cdc9a8c14478f24f5f235"
+                ANTIGRAVITY_ACP_VERSION: "1.4.5"
+                ANTIGRAVITY_ACP_SHA256_AMD64: "923923a0d7dc8073f66cc6f78647a3107e3a7ee2b7e1a24df8b3927b5188013b"
+                ANTIGRAVITY_ACP_SHA256_ARM64: "7d64246633ae094f67e3bbcd2d679e89048f91346d5339313336e7483f40f056"
+        egress:
+            allow_hosts:
+                - "generativelanguage.googleapis.com"
+                - "cloudresourcemanager.googleapis.com"
+                - "oauth2.googleapis.com"
+        token_replacer:
+            - name: "gemini-key"
+              hostnames:
+                  - "generativelanguage.googleapis.com"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "x-goog-api-key"
+                    regex: ".*"
+              replace_with:
+                  strategy: "static"
+                  value: "GEMINI_API_KEY_PLACEHOLDER"
+        skill_fragment: "skill/features/antigravity.md"
+        verification:
+            command: "agy --version"
+
+verification:
+    command: "test -d /usr/local/share/pa-container/packages/agents"

@@ -232,7 +232,7 @@ class TestContainerNetworkManagerPullSecrets:
         proj.mkdir()
         pa_dir = proj / ".pa-container"
         pa_dir.mkdir()
-        (pa_dir / "config.yaml").write_text("packages:\n  - gh\n")
+        (pa_dir / "config.yaml").write_text("packages:\n  - source-control:\n      - github\n")
 
         mgr = ContainerNetworkManager(
             container_runtime="podman",
@@ -1542,35 +1542,6 @@ class TestScanVolumePaths:
         assert paths == ["/workspace/a", "/workspace/b"]
 
 
-class TestReadGitConfig:
-    def test_missing_config_raises(self, tmp_path):
-        from network import read_git_config
-
-        (tmp_path / "config.yaml").write_text("{}\n")
-        with pytest.raises(ValueError, match="Missing required 'git' configuration section"):
-            read_git_config(tmp_path)
-
-    def test_explicit_false(self, tmp_path):
-        import yaml
-
-        from network import read_git_config
-
-        (tmp_path / "config.yaml").write_text(
-            yaml.dump({"git": {"safe_directory": False, "rewrite_ssh_to_https": False}})
-        )
-        cfg = read_git_config(tmp_path)
-        assert cfg == {"safe_directory": False, "rewrite_ssh_to_https": False}
-
-    def test_string_boolean_values_raise(self, tmp_path):
-        import yaml
-
-        from network import read_git_config
-
-        (tmp_path / "config.yaml").write_text(yaml.dump({"git": {"safe_directory": "0", "rewrite_ssh_to_https": "1"}}))
-        with pytest.raises(ValueError, match="Invalid 'git.safe_directory': expected bool"):
-            read_git_config(tmp_path)
-
-
 class TestReadAgentsConfig:
     def test_read_enabled_agents_missing_raises(self, tmp_path):
         from network import read_enabled_agents
@@ -1584,15 +1555,15 @@ class TestReadAgentsConfig:
 
         from network import read_enabled_agents
 
-        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["opencode", "claude-code"]}))
-        assert read_enabled_agents(tmp_path) == ["opencode", "claude-code"]
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["opencode", "claude"]}]}))
+        assert read_enabled_agents(tmp_path) == ["opencode", "claude"]
 
     def test_read_default_agent_with_default(self, tmp_path):
         import yaml
 
         from network import read_default_agent
 
-        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["pi", "opencode"]}))
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["pi", "opencode"]}]}))
         assert read_default_agent(tmp_path) == "pi"
 
     def test_read_default_agent_missing_raises(self, tmp_path):
@@ -1600,7 +1571,7 @@ class TestReadAgentsConfig:
 
         from network import read_default_agent
 
-        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["gh"]}))
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["source-control"]}))
         with pytest.raises(ValueError, match="No agent package configured in 'packages'"):
             read_default_agent(tmp_path)
 

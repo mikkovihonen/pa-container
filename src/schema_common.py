@@ -181,23 +181,6 @@ SCHEMA: dict[str, Any] = {
             "allow": {"type": dict},
         },
     },
-    "git": {
-        "type": dict,
-        "keys": {
-            "safe_directory": {"type": bool},
-            "rewrite_ssh_to_https": {"type": bool},
-        },
-    },
-    "source_control": {
-        "type": dict,
-        "required": False,
-        "keys": {
-            "enabled": {"type": bool, "required": False},
-            "auto_detect_host_cli": {"type": bool, "required": False},
-            "setup_git_credentials": {"type": bool, "required": False},
-            "providers": {"type": dict, "required": False},
-        },
-    },
     "security": {
         "type": dict,
         "keys": {

@@ -52,12 +52,11 @@ def resolve_project_packages(
     def _add_pkg_entry(entry: Any) -> None:
         if isinstance(entry, str):
             if "+" in entry:
-                parts = entry.split("+")
-                pkg_name = parts[0].strip()
-                feats = {f.strip() for f in parts[1:] if f.strip()}
-                if pkg_name:
-                    pkgs_dict.setdefault(pkg_name, set()).update(feats)
-            elif entry.strip():
+                raise ValueError(
+                    f"Invalid package specification '{entry}': string concatenation with '+' is not supported. "
+                    f"Use dictionary syntax, e.g. - {entry.split('+')[0]}: [{', '.join(entry.split('+')[1:])}]"
+                )
+            if entry.strip():
                 pkgs_dict.setdefault(entry.strip(), set())
         elif isinstance(entry, dict):
             for k, v in entry.items():
@@ -84,6 +83,8 @@ def resolve_project_packages(
             if isinstance(pkgs_list, list):
                 for item in pkgs_list:
                     _add_pkg_entry(item)
+        except ValueError:
+            raise
         except Exception as e:
             logger.debug(f"Could not resolve project packages from config: {e}")
 
