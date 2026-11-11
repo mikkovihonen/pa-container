@@ -185,44 +185,6 @@ class TestBuildAgentBase:
             assert tag == build_mod.AGENT_BASE_IMAGE_TAG
 
 
-class TestNodeBuildArgs:
-    """Tests for _node_build_args() — prebuilt-vs-compiled Node."""
-
-    def test_omitted_when_env_unset(self, monkeypatch):
-        """Unset means the Containerfile's own default (prebuilt) decides."""
-        import build
-
-        monkeypatch.delenv("NODE_SOURCE", raising=False)
-        assert build._node_build_args() == []
-
-    def test_both_modes_forwarded(self, monkeypatch):
-        import build
-
-        for value in ("prebuilt", "build"):
-            monkeypatch.setenv("NODE_SOURCE", value)
-            assert build._node_build_args() == ["--build-arg", f"NODE_SOURCE={value}"]
-
-    def test_case_and_whitespace_tolerated(self, monkeypatch):
-        import build
-
-        monkeypatch.setenv("NODE_SOURCE", "  BUILD  ")
-        assert build._node_build_args() == ["--build-arg", "NODE_SOURCE=build"]
-
-    def test_unknown_value_rejected_before_any_build_starts(self, monkeypatch):
-        """A typo must fail here, not after the proxy image has been rebuilt.
-
-        The build script would reject it too, but only once the toolchain image is
-        already being built — by which point `pa build` has regenerated the proxy's
-        mitmproxy CA and invalidated every project image.
-        """
-        import build
-        from util import EnvironmentError as UtilEnvironmentError
-
-        monkeypatch.setenv("NODE_SOURCE", "prebuild")
-        with pytest.raises(UtilEnvironmentError, match="NODE_SOURCE must be one of"):
-            build._node_build_args()
-
-
 # ---------------------------------------------------------------------------
 # _build_dns_args
 # ---------------------------------------------------------------------------
@@ -302,20 +264,6 @@ class TestMain:
         ):
             main(["--no-prune"])
             mock_prune.assert_not_called()
-
-    def test_main_rejects_bad_node_source_before_building_anything(self, monkeypatch):
-        monkeypatch.setenv("NODE_SOURCE", "prebuild")
-        with (
-            patch("build.validate_environment", return_value="podman"),
-            patch("build.check_build_memory", return_value=True),
-            patch("build.build_proxy") as mock_proxy,
-            patch("build.build_agent") as mock_agent,
-            patch("sys.exit", side_effect=SystemExit(1)),
-            pytest.raises(SystemExit),
-        ):
-            main()
-        mock_proxy.assert_not_called()
-        mock_agent.assert_not_called()
 
     def test_main_stops_before_building_when_memory_is_short(self):
         with (
@@ -652,15 +600,14 @@ class TestCheckBuildMemory:
         monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 276)
         assert build.check_build_memory("podman", fatal=False) is True
 
-    def test_non_pgo_lowers_the_requirement(self, monkeypatch):
+    def test_package_memory_preflight(self, monkeypatch):
         import build
 
         monkeypatch.delenv("PA_MEMORY_PREFLIGHT", raising=False)
-        monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 500)
-        monkeypatch.setenv("PYTHON_OPTIMIZE", "1")
-        assert build.check_build_memory("podman") is False
-        monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
-        assert build.check_build_memory("podman") is True
+        monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 1024)
+        assert build.check_build_memory("podman", packages=["podman"]) is False
+        monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: 2500)
+        assert build.check_build_memory("podman", packages=["podman"]) is True
 
     def test_escape_hatch_skips_the_check(self, monkeypatch):
         import build
@@ -680,23 +627,6 @@ class TestCheckBuildMemory:
         monkeypatch.delenv("PA_MEMORY_PREFLIGHT", raising=False)
         monkeypatch.setattr(build, "read_available_memory_mib", lambda rt: None)
         assert build.check_build_memory("podman") is True
-
-
-class TestPythonBuildArgs:
-    def test_omitted_when_env_unset(self, monkeypatch):
-        """Unset means the Containerfile's own default (PGO on) decides."""
-        import build
-
-        monkeypatch.delenv("PYTHON_OPTIMIZE", raising=False)
-        assert build._python_build_args() == []
-
-    def test_forwarded_when_set(self, monkeypatch):
-        import build
-
-        monkeypatch.setenv("PYTHON_OPTIMIZE", "0")
-        assert build._python_build_args() == ["--build-arg", "PYTHON_OPTIMIZE=0"]
-        monkeypatch.setenv("PYTHON_OPTIMIZE", "1")
-        assert build._python_build_args() == ["--build-arg", "PYTHON_OPTIMIZE=1"]
 
 
 # ---------------------------------------------------------------------------

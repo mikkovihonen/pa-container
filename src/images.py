@@ -37,6 +37,8 @@ def now_iso() -> str:
 def resolve_project_packages(
     project_dir: Path,
     extra_packages: list[str] | None = None,
+    resolve_dependencies: bool = True,
+    repo_root: Path | None = None,
 ) -> dict[str, list[str]]:
     """Resolve project packages and their active features from config.yaml and driver requirements.
 
@@ -88,7 +90,13 @@ def resolve_project_packages(
         except Exception as e:
             logger.debug(f"Could not resolve project packages from config: {e}")
 
-    return {k: sorted(v) for k, v in sorted(pkgs_dict.items())}
+    raw_specs = {k: sorted(v) for k, v in sorted(pkgs_dict.items())}
+    if not resolve_dependencies:
+        return raw_specs
+
+    from packages import resolve_package_dependencies
+
+    return resolve_package_dependencies(raw_specs, repo_root=repo_root or REPO_ROOT)
 
 
 def read_project_packages(project_dir: Path, extra_packages: list[str] | None = None) -> list[str]:
@@ -117,7 +125,7 @@ def compute_image_hash(
         if cmd_path.exists() and cmd_path.stat().st_size > 0:
             files_to_hash.append(cmd_file)
 
-    packages_map = resolve_project_packages(project_dir, extra_packages=extra_packages)
+    packages_map = resolve_project_packages(project_dir, extra_packages=extra_packages, repo_root=r_root)
     if not files_to_hash and not packages_map:
         return None
 

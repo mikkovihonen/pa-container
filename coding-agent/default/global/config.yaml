@@ -30,9 +30,8 @@ build:
     proxy: pa-container-agent-proxy:local
     base: pa-container-agent-base:local
   dns: "1.1.1.1"
-  python_optimize: true
   memory_preflight: true
-  node_source: prebuilt
+  fallback_memory_preflight_mib: 512
   prune_dangling: true
   purge_build_cache: false
 

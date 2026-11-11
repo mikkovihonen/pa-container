@@ -196,6 +196,7 @@ class PackageManifest:
     description: str = ""
     category: str = "devtools"
     license: str = "unknown"
+    build_memory_mib: int = 0
     payload: PayloadConfig = field(default_factory=lambda: PayloadConfig(type="none"))
     skill: SkillConfig = field(default_factory=SkillConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
@@ -465,6 +466,8 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         expected_output_contains=int_data.get("expected_output_contains"),
     )
 
+    build_memory_mib = int(data.get("build_memory_mib") or 0)
+
     return PackageManifest(
         schema_version=schema_version,
         name=name,
@@ -472,6 +475,7 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         description=description,
         category=category,
         license=license_str,
+        build_memory_mib=build_memory_mib,
         payload=payload,
         skill=skill,
         mcp=mcp,

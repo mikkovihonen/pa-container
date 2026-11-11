@@ -287,9 +287,8 @@ class BuildGlobalConfig:
 
     images: BuildImagesGlobalConfig = field(default_factory=BuildImagesGlobalConfig)
     dns: str = "1.1.1.1"
-    python_optimize: bool = True
     memory_preflight: bool = True
-    node_source: str = "prebuilt"
+    fallback_memory_preflight_mib: int = 512
     prune_dangling: bool = True
     purge_build_cache: bool = False
 

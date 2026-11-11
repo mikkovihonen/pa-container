@@ -20,6 +20,7 @@ from packages import (
     get_package_dir,
     package_to_image_tag,
     parse_package_manifest,
+    resolve_package_dependencies,
 )
 from packages.builder import generate_package_containerfile
 
@@ -365,3 +366,121 @@ def test_generate_package_containerfile_distro_package(tmp_path: Path):
     assert "AS assembler" in cf
     assert "FROM scratch" in cf
     assert "COPY --from=assembler /out/ /" in cf
+
+
+def test_resolve_package_dependencies_mocked():
+    import pytest
+
+    manifests = {
+        "pkg-a": parse_package_manifest(
+            {
+                "name": "pkg-a",
+                "version": "1.0.0",
+                "runtime": {"dependencies": ["pkg-b"]},
+            }
+        ),
+        "pkg-b": parse_package_manifest(
+            {
+                "name": "pkg-b",
+                "version": "1.0.0",
+                "runtime": {"dependencies": ["pkg-c"]},
+                "features": {
+                    "feat-default": {
+                        "default": True,
+                    },
+                    "feat-optional": {
+                        "default": False,
+                    },
+                },
+            }
+        ),
+        "pkg-c": parse_package_manifest(
+            {
+                "name": "pkg-c",
+                "version": "1.0.0",
+            }
+        ),
+        "pkg-feature-dep": parse_package_manifest(
+            {
+                "name": "pkg-feature-dep",
+                "version": "1.0.0",
+                "features": {
+                    "extra": {
+                        "runtime": {"dependencies": ["pkg-c"]},
+                    }
+                },
+            }
+        ),
+        "pkg-cycle-1": parse_package_manifest(
+            {
+                "name": "pkg-cycle-1",
+                "version": "1.0.0",
+                "runtime": {"dependencies": ["pkg-cycle-2"]},
+            }
+        ),
+        "pkg-cycle-2": parse_package_manifest(
+            {
+                "name": "pkg-cycle-2",
+                "version": "1.0.0",
+                "runtime": {"dependencies": ["pkg-cycle-1"]},
+            }
+        ),
+    }
+
+    # Transitive dependency: pkg-a -> pkg-b -> pkg-c
+    # pkg-b should also inherit its default feature "feat-default"
+    res = resolve_package_dependencies({"pkg-a": []}, manifests=manifests)
+    keys = list(res.keys())
+    assert keys == ["pkg-c", "pkg-b", "pkg-a"]
+    assert res["pkg-c"] == []
+    assert res["pkg-b"] == ["feat-default"]
+    assert res["pkg-a"] == []
+
+    # Feature-conditional dependency: inactive vs active
+    res_no_feat = resolve_package_dependencies({"pkg-feature-dep": []}, manifests=manifests)
+    assert res_no_feat == {"pkg-feature-dep": []}
+
+    res_with_feat = resolve_package_dependencies({"pkg-feature-dep": ["extra"]}, manifests=manifests)
+    assert list(res_with_feat.keys()) == ["pkg-c", "pkg-feature-dep"]
+    assert res_with_feat["pkg-feature-dep"] == ["extra"]
+
+    # Cycle detection
+    with pytest.raises(ValueError, match="Circular package dependency detected"):
+        resolve_package_dependencies({"pkg-cycle-1": []}, manifests=manifests)
+
+
+def test_resolve_package_dependencies_real():
+    # agents with pi depends on node
+    resolved = resolve_package_dependencies({"agents": ["pi"]})
+    keys = list(resolved.keys())
+    assert "node" in keys
+    assert "agents" in keys
+    assert keys.index("node") < keys.index("agents")
+    assert resolved["agents"] == ["pi"]
+    assert resolved["node"] == []
+
+    # git depends on python
+    resolved_git = resolve_package_dependencies({"git": []})
+    keys_git = list(resolved_git.keys())
+    assert "python" in keys_git
+    assert "git" in keys_git
+    assert keys_git.index("python") < keys_git.index("git")
+
+
+def test_manifest_build_memory_mib():
+    m1 = parse_package_manifest(
+        {
+            "name": "mem-tool",
+            "version": "1.0.0",
+            "build_memory_mib": 2048,
+        }
+    )
+    assert m1.build_memory_mib == 2048
+
+    m2 = parse_package_manifest(
+        {
+            "name": "default-tool",
+            "version": "1.0.0",
+        }
+    )
+    assert m2.build_memory_mib == 0

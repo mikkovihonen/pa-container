@@ -4,6 +4,7 @@ version: "6.1.4"
 description: "Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, podman-compose, and Docker CLI wrapper"
 category: "virtualization"
 license: "Apache-2.0"
+build_memory_mib: 2048
 
 payload:
     type: build_script

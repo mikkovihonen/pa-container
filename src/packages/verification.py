@@ -359,26 +359,13 @@ def verify_package_integration(
     (pa_cfg_dir / "config.yaml").write_text(yaml.dump(cfg_data))
 
     from images import resolve_project_packages
+    from packages.dependencies import resolve_package_dependencies
     from packages.projection import aggregate_runtime_privileges
 
-    resolved_pkgs = resolve_project_packages(temp_dir)
+    resolved_pkgs = resolve_project_packages(temp_dir, repo_root=repo_root)
     if package_name not in resolved_pkgs:
         resolved_pkgs[package_name] = []
-
-    # Runtime dependencies
-    deps: list[str] = []
-    for p_name, p_feats in resolved_pkgs.items():
-        p_manifest_file = get_package_dir(p_name, repo_root) / "package.yaml"
-        if p_manifest_file.is_file():
-            p_mf = load_package_manifest(p_manifest_file)
-            deps.extend(p_mf.runtime.dependencies)
-            for f in p_feats:
-                if f in p_mf.features:
-                    deps.extend(p_mf.features[f].runtime.dependencies)
-
-    for dep in deps:
-        if dep not in resolved_pkgs:
-            resolved_pkgs[dep] = []
+    resolved_pkgs = resolve_package_dependencies(resolved_pkgs, repo_root=repo_root)
 
     try:
         ensure_base_image(runtime=runtime)

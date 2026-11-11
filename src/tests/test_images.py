@@ -197,14 +197,18 @@ class TestComputeImageHash:
             "      - pyright\n"
             "  - python\n"
         )
+        raw = images.resolve_project_packages(repo, resolve_dependencies=False)
+        assert raw["vector-storage"] == ["qdrant"]
+        assert raw["document-tools"] == ["docling"]
+        assert raw["language-servers"] == ["pyright", "rust-analyzer"]
+        assert raw["python"] == []
+
         resolved = images.resolve_project_packages(repo)
-        assert resolved["vector-storage"] == ["qdrant"]
-        assert resolved["document-tools"] == ["docling"]
-        assert resolved["language-servers"] == ["pyright", "rust-analyzer"]
-        assert resolved["python"] == []
+        assert "node" in resolved
         assert images.read_project_packages(repo) == [
             "document-tools",
             "language-servers",
+            "node",
             "python",
             "vector-storage",
         ]

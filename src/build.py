@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -87,26 +88,6 @@ def _run_command_with_logging(cmd: list[str], **kwargs: Any) -> subprocess.Compl
 
 
 # ─── Build-memory preflight ──────────────────────────────────────────────────
-#
-# The python package compiles CPython (packages/python/build-python.sh). A
-# PGO compile job peaks near 900 MiB, and the podman machine defaults to 2 GiB total
-# regardless of core count — so on a busy VM the build dies minutes in with
-#   gcc: fatal error: Killed signal terminated program cc1
-# The build script refuses to start for that reason, but by then the build is already
-# running. This check happens BEFORE the build is launched, so the answer arrives
-# immediately.
-#
-# Thresholds mirror MIB_PER_JOB in packages/python/build-python.sh — keep
-# them in step.
-_MIB_PER_JOB_PGO = 900
-_MIB_PER_JOB_PLAIN = 400
-
-
-def _python_optimize_enabled() -> bool:
-    """Check if Python PGO profile optimization is enabled via configuration or environment."""
-    if "PYTHON_OPTIMIZE" in os.environ:
-        return os.environ["PYTHON_OPTIMIZE"].strip() not in ("0", "false", "no", "off")
-    return global_config.build.python_optimize
 
 
 def read_available_memory_mib(runtime: str) -> int | None:
@@ -137,8 +118,13 @@ def _parse_mem_available_mib(meminfo: str) -> int | None:
     return int(match.group(1)) // 1024 if match else None
 
 
-def check_build_memory(runtime: str, fatal: bool = True) -> bool:
-    """Verify that sufficient memory is available to compile CPython in the builder container."""
+def check_build_memory(
+    runtime: str,
+    required_mib: int | None = None,
+    packages: Sequence[str] | Mapping[str, Any] | None = None,
+    fatal: bool = True,
+) -> bool:
+    """Verify that sufficient memory is available to build capability packages."""
     val = os.environ.get("PA_MEMORY_PREFLIGHT")
     preflight_enabled = (
         (val.strip() not in ("0", "false", "no", "off")) if val is not None else global_config.build.memory_preflight
@@ -147,39 +133,43 @@ def check_build_memory(runtime: str, fatal: bool = True) -> bool:
         logger.debug("Build-memory preflight disabled.")
         return True
 
-    required = _MIB_PER_JOB_PGO if _python_optimize_enabled() else _MIB_PER_JOB_PLAIN
+    if required_mib is not None:
+        required = required_mib
+    elif packages:
+        from packages import discover_packages
+
+        all_manifests = discover_packages(REPO_ROOT)
+        pkg_names = list(packages.keys()) if isinstance(packages, Mapping) else list(packages)
+        reqs = [
+            all_manifests[p].build_memory_mib
+            for p in pkg_names
+            if p in all_manifests and all_manifests[p].build_memory_mib > 0
+        ]
+        required = max(reqs) if reqs else global_config.build.fallback_memory_preflight_mib
+    else:
+        required = global_config.build.fallback_memory_preflight_mib
+
     available = read_available_memory_mib(runtime)
     if available is None:
         logger.debug("Could not determine available build memory; proceeding.")
         return True
     if available >= required:
-        logger.info(f"Build memory: {available} MiB available (need ~{required} MiB to compile Python).")
+        logger.info(f"Build memory: {available} MiB available (need ~{required} MiB).")
         return True
 
     log = logger.error if fatal else logger.warning
     log(
-        f"Only {available} MiB of memory is available where images are built, but compiling "
-        f"Python needs ~{required} MiB for a single compile job. "
-        f"{'Not starting the build' if fatal else 'Continuing anyway'} — it would be OOM-killed "
-        f"(gcc: fatal error: Killed signal terminated program cc1)."
+        f"Only {available} MiB of memory is available where images are built, but the build "
+        f"requires ~{required} MiB. "
+        f"{'Not starting the build' if fatal else 'Continuing anyway'} — it may be OOM-killed."
     )
     log(
         "Fix one of:\n"
         "  * give the VM more memory:  podman machine stop && podman machine set --memory 4096 && podman machine start\n"
         "  * free memory in the VM:    stop containers you are not using (podman ps)\n"
-        "  * skip the PGO build:       PYTHON_OPTIMIZE=0 pa build  (~10-20% slower Python)\n"
-        "  * already-cached Python:    PA_MEMORY_PREFLIGHT=0 pa build  (skips this check)"
+        "  * skip memory preflight:    PA_MEMORY_PREFLIGHT=0 pa build"
     )
     return not fatal
-
-
-def _python_build_args() -> list[str]:
-    """Generate ``--build-arg`` flags passing ``PYTHON_OPTIMIZE`` settings to container build."""
-    value = os.environ.get("PYTHON_OPTIMIZE", "").strip()
-    return ["--build-arg", f"PYTHON_OPTIMIZE={'1' if _python_optimize_enabled() else '0'}"] if value else []
-
-
-_NODE_SOURCES = ("prebuilt", "build")
 
 
 def _build_dns_args() -> list[str]:
@@ -203,18 +193,8 @@ def _build_dns_args() -> list[str]:
     return args
 
 
-def _node_build_args() -> list[str]:
-    """Generate ``--build-arg`` flags specifying the Node.js installation source."""
-    value = os.environ.get("NODE_SOURCE")
-    if value is None:
-        cfg_val = global_config.build.node_source
-        value = cfg_val if cfg_val and cfg_val != "prebuilt" else ""
-    value = value.strip().lower()
-    if not value:
-        return []
-    if value not in _NODE_SOURCES:
-        raise EnvironmentError(f"NODE_SOURCE must be one of {', '.join(_NODE_SOURCES)} (got '{value}').")
-    return ["--build-arg", f"NODE_SOURCE={value}"]
+CORE_PACKAGES: list[str] = ["python"]
+
 
 def build_package(package_name: str, runtime: str = "podman", label: str | None = None) -> None:
     """Build a specific Agent Capability Package image."""
@@ -294,16 +274,28 @@ def build_agent(runtime: str, label: str | None = None) -> None:
     import tempfile
     from datetime import UTC, datetime
 
-    from packages import package_to_image_tag
+    from packages import (
+        package_to_image_tag,
+        resolve_package_dependencies,
+    )
 
     base_tag = build_agent_base(runtime)
+    resolved_specs = resolve_package_dependencies({p: [] for p in CORE_PACKAGES}, repo_root=REPO_ROOT)
+    ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     logger.info(f"Assembling shared agent image ({runtime}): {PA_IMAGE_TAG}")
 
+    distro_pkgs = collect_distro_packages(resolved_specs, repo_root=REPO_ROOT)
+
     cf_lines = [
         f"FROM {base_tag}",
     ]
+    if distro_pkgs:
+        pkgs_str = " ".join(distro_pkgs)
+        cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
+    for pkg, feats in resolved_specs.items():
+        cf_lines.append(f"COPY --from={package_to_image_tag(pkg, features=feats)} / /")
     cf_lines.extend(
         [
             "WORKDIR /workspace",
@@ -356,6 +348,7 @@ def build_project_image(
         resolved_specs = resolve_project_packages(
             Path(project_path),
             extra_packages=packages or kwargs.get("tools"),
+            repo_root=REPO_ROOT,
         )
     else:
         raw_list = packages or kwargs.get("tools") or []
@@ -366,6 +359,9 @@ def build_project_image(
                     resolved_specs.setdefault(pname.strip(), []).extend(f.strip() for f in pfeats if f.strip())
                 else:
                     resolved_specs.setdefault(item.strip(), [])
+        from packages import resolve_package_dependencies
+
+        resolved_specs = resolve_package_dependencies(resolved_specs, repo_root=REPO_ROOT)
 
     base_tag = build_agent_base(runtime)
     ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
@@ -381,7 +377,7 @@ def build_project_image(
     if distro_pkgs:
         pkgs_str = " ".join(distro_pkgs)
         cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
-    for pkg, feats in sorted(resolved_specs.items()):
+    for pkg, feats in resolved_specs.items():
         cf_lines.append(f"COPY --from={package_to_image_tag(pkg, features=feats)} / /")
 
     cf_lines.extend(
@@ -509,7 +505,6 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
 
     try:
         runtime = validate_environment(LLAMA_BIN)
-        _node_build_args()
     except EnvironmentError as e:
         if log_drv is not None:
             log_drv.fail_and_render(
@@ -566,6 +561,9 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
                                 source_logger=logger,
                             )
                         return 1
+
+            if not check_build_memory(runtime, packages=requested):
+                return 1
 
             total_stages = len(requested)
             for idx, p in enumerate(requested, start=1):

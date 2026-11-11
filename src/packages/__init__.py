@@ -10,6 +10,7 @@ from packages.builder import (
     ensure_package_images,
     package_image_is_current,
 )
+from packages.dependencies import resolve_package_dependencies
 from packages.discovery import (
     collect_distro_packages,
     compute_package_hash,
@@ -68,6 +69,7 @@ __all__ = [
     "get_packages_dir",
     "get_package_dir",
     "package_to_image_tag",
+    "resolve_package_dependencies",
     "compute_package_hash",
     "collect_distro_packages",
     "assemble_package_skill",

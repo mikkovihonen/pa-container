@@ -134,9 +134,8 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
     build_cfg = BuildGlobalConfig(
         images=images_cfg,
         dns=str(raw_bld["dns"]),
-        python_optimize=bool(raw_bld["python_optimize"]),
         memory_preflight=bool(raw_bld["memory_preflight"]),
-        node_source=str(raw_bld["node_source"]),
+        fallback_memory_preflight_mib=int(raw_bld.get("fallback_memory_preflight_mib", 512)),
         prune_dangling=bool(raw_bld["prune_dangling"]),
         purge_build_cache=bool(raw_bld["purge_build_cache"]),
     )
