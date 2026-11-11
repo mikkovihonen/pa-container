@@ -543,6 +543,8 @@ packages:
 
 > Legacy root-level `git:` configuration is not supported and is rejected during validation.
 
+- **`features`**: Optional Git capabilities.
+    - **`mcp`**: Installs `mcp-server-git` via script and registers the Git Model Context Protocol server (`/usr/local/bin/mcp-server-git`) for repository exploration and manipulation by agent models. Default: disabled (`features: []`).
 - **`safe_directory`**: Marks `/workspace` as safe for Git (running `git config --system --add safe.directory '*'`). This prevents Git 2.35.2+ dubious ownership errors when `/workspace` is mounted from a host user UID differing from container UID `1000`.
 - **`rewrite_ssh_to_https`**: Automatically redirects SSH git remotes for GitHub, GitLab, and Codeberg to HTTPS URLs. This allows background Git operations (such as T3 Code upstream branch checks) to fetch cleanly through the HTTP/HTTPS proxy allowlist without requiring host SSH keys or the `ssh` binary.
 

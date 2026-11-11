@@ -135,11 +135,12 @@ def collect_distro_packages(
         if manifest is None:
             continue
 
-        if manifest.payload.type == "distro_package":
+        if manifest.payload.packages:
             pkgs_set.update(manifest.payload.packages)
-        feat_set = set(active_feats) if active_feats else set()
+        feat_set = set(active_feats) if active_feats is not None else None
         for feat_name, feat in manifest.features.items():
-            if (feat_name in feat_set or (not feat_set and feat.default)) and feat.payload.type == "distro_package":
+            is_active = (feat_name in feat_set) if feat_set is not None else feat.default
+            if is_active and feat.payload.packages:
                 pkgs_set.update(feat.payload.packages)
 
     return sorted(p for p in pkgs_set if p)

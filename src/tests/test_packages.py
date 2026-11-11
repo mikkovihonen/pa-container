@@ -212,6 +212,17 @@ def test_assemble_package_skill(tmp_path: Path):
     assert "Feature B" in s2
 
 
+def test_git_package_skill_assembly():
+    git_dir = get_package_dir("git")
+    s_base = assemble_package_skill(git_dir, active_features=[])
+    assert "Git Version Control" in s_base
+    assert "Git MCP Server" not in s_base
+
+    s_mcp = assemble_package_skill(git_dir, active_features=["mcp"])
+    assert "Git Version Control" in s_mcp
+    assert "Git MCP Server" in s_mcp
+
+
 def test_manifest_features_and_extensions():
     data = {
         "schema_version": "2.1.0",
@@ -459,12 +470,18 @@ def test_resolve_package_dependencies_real():
     assert resolved["agents"] == ["pi"]
     assert resolved["node"] == []
 
-    # git depends on python
+    # git with mcp feature depends on python
+    resolved_git_mcp = resolve_package_dependencies({"git": ["mcp"]})
+    keys_git_mcp = list(resolved_git_mcp.keys())
+    assert "python" in keys_git_mcp
+    assert "git" in keys_git_mcp
+    assert keys_git_mcp.index("python") < keys_git_mcp.index("git")
+    assert resolved_git_mcp["git"] == ["mcp"]
+
+    # git without mcp feature does not depend on python
     resolved_git = resolve_package_dependencies({"git": []})
-    keys_git = list(resolved_git.keys())
-    assert "python" in keys_git
-    assert "git" in keys_git
-    assert keys_git.index("python") < keys_git.index("git")
+    assert "python" not in resolved_git
+    assert "git" in resolved_git
 
 
 def test_manifest_build_memory_mib():
@@ -484,3 +501,107 @@ def test_manifest_build_memory_mib():
         }
     )
     assert m2.build_memory_mib == 0
+
+
+def test_generate_package_containerfile_mixed_payload(tmp_path: Path):
+    manifest = parse_package_manifest(
+        {
+            "name": "mixed-pkg",
+            "version": "1.0.0",
+            "payload": {
+                "type": "distro_package",
+                "packages": ["git"],
+            },
+            "features": {
+                "mcp": {
+                    "payload": {
+                        "type": "build_script",
+                        "script": "features/mcp/build.sh",
+                        "build_deps": ["python3-pip"],
+                    }
+                }
+            },
+        }
+    )
+
+    # Without features: pure distro package uses AS assembler
+    cf_no_feat = generate_package_containerfile(manifest, tmp_path, active_features=[])
+    assert "AS assembler" in cf_no_feat
+    assert "AS builder" not in cf_no_feat
+
+    # With mcp feature: mixed payload uses AS builder
+    cf_with_feat = generate_package_containerfile(manifest, tmp_path, active_features=["mcp"])
+    assert "AS builder" in cf_with_feat
+    assert "python3-pip" in cf_with_feat
+    assert "git" in cf_with_feat
+    assert "bash /build/features/mcp/build.sh" in cf_with_feat
+
+
+def test_generate_package_containerfile_hybrid_payload(tmp_path: Path):
+    manifest = parse_package_manifest(
+        {
+            "name": "hybrid-pkg",
+            "version": "1.0.0",
+            "payload": {
+                "type": "build_script",
+                "packages": ["ripgrep", "fd-find"],
+                "script": "build.sh",
+                "build_deps": ["cargo"],
+            },
+        }
+    )
+    cf = generate_package_containerfile(manifest, tmp_path)
+    assert "AS builder" in cf
+    assert "cargo" in cf
+    assert "ripgrep" in cf
+    assert "fd-find" in cf
+    assert "bash /build/build.sh" in cf
+
+
+def test_collect_distro_packages_hybrid_and_feature_handling():
+    manifests = {
+        "pkg-hybrid": parse_package_manifest(
+            {
+                "name": "pkg-hybrid",
+                "version": "1.0.0",
+                "payload": {
+                    "type": "build_script",
+                    "packages": ["ripgrep", "fd-find"],
+                    "script": "build.sh",
+                },
+                "features": {
+                    "extra": {
+                        "default": True,
+                        "payload": {
+                            "type": "distro_package",
+                            "packages": ["tree-sitter-cli"],
+                        },
+                    }
+                },
+            }
+        ),
+    }
+
+    # active_feats=None -> uses default feature: ripgrep, fd-find, tree-sitter-cli
+    pkgs_default = collect_distro_packages({"pkg-hybrid": None}, manifests=manifests)
+    assert pkgs_default == ["fd-find", "ripgrep", "tree-sitter-cli"]
+
+    # active_feats=[] -> explicit empty list disables default features
+    pkgs_explicit_empty = collect_distro_packages({"pkg-hybrid": []}, manifests=manifests)
+    assert pkgs_explicit_empty == ["fd-find", "ripgrep"]
+
+
+def test_generate_package_containerfile_entrypoint_staging(tmp_path: Path):
+    manifest = parse_package_manifest(
+        {
+            "name": "hook-pkg",
+            "version": "1.0.0",
+            "payload": {
+                "type": "distro_package",
+                "packages": ["curl"],
+            },
+        }
+    )
+    cf = generate_package_containerfile(manifest, tmp_path)
+    assert "entrypoint.d/root" in cf
+    assert "entrypoint.d/agent" in cf

@@ -7,6 +7,10 @@ license: "MIT"
 
 payload:
     type: build_script
+    packages:
+        - "ripgrep"
+        - "fd-find"
+        - "tree-sitter-cli"
     script: "build.sh"
     build_deps:
         - "cargo"
@@ -21,18 +25,9 @@ payload:
     build_packages:
         - "node"
     env:
-        RIPGREP_VERSION: "15.2.0"
-        RIPGREP_SHA256_X86_64: "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c"
-        RIPGREP_SHA256_AARCH64: "a740b91c82eaf9914cfedd353572f2791cbe0162c84101ee0951058f4dcbc90d"
-        FD_VERSION: "v10.5.2"
-        FD_SHA256_X86_64: "7e2d07fa2b8807642aaec67b7e2972a9fbe4db26fcb340a7372392db42b26694"
-        FD_SHA256_AARCH64: "4b144f38bd7352cd4c95020b58e8e575476e60edcdf1dc5e0733e3d01efba6dd"
         AST_GREP_VERSION: "0.38.1"
         AST_GREP_SHA256_X86_64: "a6f7a1c2c7d5bb9fa3266915c22da20ec576a8c43466492f4f0d5569ccae0bd9"
         AST_GREP_SHA256_AARCH64: "304174825d929912018eafd44666a8cdfa322ae8b4e79cb3cd692da2e5385408"
-        TREE_SITTER_VERSION: "v0.25.3"
-        TREE_SITTER_SHA256_X86_64: "ad69bfbd54f9ebba1387bf0e7c2683896a5968f2f78768380af70f0c4dd8ceab"
-        TREE_SITTER_SHA256_AARCH64: "ead1d0bdb0d8daeb1b27833635790bc673403e53fb80b4f61c9b3db7bd446151"
         COLGREP_COMMIT: "c6c091d7ee14c81206bb28af90d8ff506fd0235e"
         REPOMIX_VERSION: "1.19.0"
 

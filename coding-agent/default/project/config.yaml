@@ -66,6 +66,10 @@ packages:
       config: {}
       secrets: []
 
+  # Git version control & optional MCP server
+  # To enable the Git MCP server (mcp-server-git), add 'mcp' under features:
+  #   features:
+  #     - mcp
   - git:
       features: []
       config:

@@ -1,7 +1,7 @@
 schema_version: "0.7.0"
 name: "git"
-version: "2.56.0"
-description: "Fast, scalable, distributed revision control system and Git MCP server"
+version: "2.47.1"
+description: "Fast, scalable, distributed revision control system and optional Git MCP server"
 category: "scm"
 license: "GPL-2.0"
 
@@ -10,43 +10,44 @@ config:
     rewrite_ssh_to_https: true
 
 payload:
-    type: build_script
-    script: "build.sh"
-    build_deps:
-        - "gcc"
-        - "make"
-        - "diffutils"
-        - "curl-devel"
-        - "expat-devel"
-        - "gettext"
-        - "openssl-devel"
-        - "zlib-devel"
-    build_packages:
-        - "python"
-    env:
-        GIT_VERSION: "2.56.0"
-        GIT_SHA256: "26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3"
+    type: distro_package
+    packages:
+        - "git"
 
-mcp:
-    enabled: true
-    server_id: "git"
-    transport: "stdio"
-    command: "/usr/local/bin/mcp-server-git"
-    args: []
+features:
+    mcp:
+        description: "Git Model Context Protocol (MCP) server for repository inspection and operations"
+        default: false
+        payload:
+            type: build_script
+            script: "features/mcp/build.sh"
+            build_deps:
+                - "python3-pip"
+            build_packages:
+                - "python"
+        mcp:
+            enabled: true
+            server_id: "git"
+            transport: "stdio"
+            command: "/usr/local/bin/mcp-server-git"
+            args: []
+        runtime:
+            dependencies:
+                - "python"
+        skill_fragment: "skill/features/mcp.md"
+        verification:
+            command: "mcp-server-git --help"
+            expected_output_contains: "mcp-server-git"
 
 skill:
     enabled: true
     source: "skill/SKILL.md"
     target_agents: ["all"]
 
-runtime:
-    dependencies:
-        - "python"
-
 extension:
     entrypoint: "host.plugin:GitPlugin"
     config_key: "git"
 
 verification:
-    command: "git --version && mcp-server-git --help"
-    expected_output_contains: "git version 2.56"
+    command: "git --version"
+    expected_output_contains: "git version"

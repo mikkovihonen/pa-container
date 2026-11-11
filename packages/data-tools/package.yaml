@@ -6,9 +6,8 @@ category: "devtools"
 license: "MIT"
 
 payload:
-    type: build_script
-    script: "build.sh"
-    build_deps:
+    type: distro_package
+    packages:
         - "jq"
         - "yq"
         - "miller"
