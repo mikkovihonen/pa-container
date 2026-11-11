@@ -13,6 +13,7 @@ from packages import (
     aggregate_runtime_privileges,
     aggregate_token_replacers,
     assemble_package_skill,
+    collect_distro_packages,
     compute_package_hash,
     discover_packages,
     get_mcp_servers_dict,
@@ -265,3 +266,102 @@ def test_manifest_features_and_extensions():
     assert m.hooks.container_args == "hooks.py:gen_args"
     assert m.integration.enabled is True
     assert m.integration.command == "subtool run"
+
+
+def test_distro_package_manifest_parsing():
+    import pytest
+
+    data = {
+        "name": "sys-tools",
+        "version": "1.0.0",
+        "payload": {
+            "type": "distro_package",
+            "packages": ["curl", "jq", "ripgrep"],
+        },
+    }
+    manifest = parse_package_manifest(data)
+    assert manifest.name == "sys-tools"
+    assert manifest.payload.type == "distro_package"
+    assert manifest.payload.packages == ["curl", "jq", "ripgrep"]
+
+    empty_data = {
+        "name": "invalid-pkg",
+        "version": "1.0.0",
+        "payload": {
+            "type": "distro_package",
+            "packages": [],
+        },
+    }
+    with pytest.raises(ValueError, match="distro_package"):
+        parse_package_manifest(empty_data)
+
+
+def test_collect_distro_packages():
+    manifests = {
+        "pkg-a": parse_package_manifest(
+            {
+                "name": "pkg-a",
+                "version": "1.0.0",
+                "payload": {
+                    "type": "distro_package",
+                    "packages": ["python3", "uv"],
+                },
+                "features": {
+                    "extra": {
+                        "payload": {
+                            "type": "distro_package",
+                            "packages": ["python3-pip", "git"],
+                        }
+                    }
+                },
+            }
+        ),
+        "pkg-b": parse_package_manifest(
+            {
+                "name": "pkg-b",
+                "version": "1.0.0",
+                "payload": {
+                    "type": "distro_package",
+                    "packages": ["uv", "jq"],
+                },
+            }
+        ),
+        "pkg-c": parse_package_manifest(
+            {
+                "name": "pkg-c",
+                "version": "1.0.0",
+                "payload": {
+                    "type": "build_script",
+                    "script": "build.sh",
+                },
+            }
+        ),
+    }
+
+    # pkg-a without features + pkg-b: should collect python3, uv, jq
+    pkgs = collect_distro_packages({"pkg-a": [], "pkg-b": []}, manifests=manifests)
+    assert pkgs == ["jq", "python3", "uv"]
+
+    # pkg-a with extra feature + pkg-b: should collect git, jq, python3, python3-pip, uv
+    pkgs_extra = collect_distro_packages({"pkg-a": ["extra"], "pkg-b": []}, manifests=manifests)
+    assert pkgs_extra == ["git", "jq", "python3", "python3-pip", "uv"]
+
+    # pkg-c has build_script, no distro packages
+    assert collect_distro_packages({"pkg-c": []}, manifests=manifests) == []
+
+
+def test_generate_package_containerfile_distro_package(tmp_path: Path):
+    manifest = parse_package_manifest(
+        {
+            "name": "distro-tool",
+            "version": "1.0.0",
+            "payload": {
+                "type": "distro_package",
+                "packages": ["curl"],
+            },
+        }
+    )
+    cf = generate_package_containerfile(manifest, tmp_path)
+    assert "AS assembler" in cf
+    assert "FROM scratch" in cf
+    assert "COPY --from=assembler /out/ /" in cf

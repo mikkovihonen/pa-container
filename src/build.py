@@ -16,7 +16,7 @@ sys.dont_write_bytecode = True
 
 from global_config import load_global_config
 from logging_driver import LogCategory, fail_and_render, get_category_logger, get_log_driver
-from packages import ensure_package_images
+from packages import collect_distro_packages, ensure_package_images
 from util import EnvironmentError, validate_environment
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
@@ -216,16 +216,6 @@ def _node_build_args() -> list[str]:
         raise EnvironmentError(f"NODE_SOURCE must be one of {', '.join(_NODE_SOURCES)} (got '{value}').")
     return ["--build-arg", f"NODE_SOURCE={value}"]
 
-
-CORE_PACKAGES: list[str] = [
-    "python",
-    "node",
-    "podman",
-    "code-intelligence",
-    "data-tools",
-]
-
-
 def build_package(package_name: str, runtime: str = "podman", label: str | None = None) -> None:
     """Build a specific Agent Capability Package image."""
     from packages import build_package as pkg_build
@@ -307,7 +297,6 @@ def build_agent(runtime: str, label: str | None = None) -> None:
     from packages import package_to_image_tag
 
     base_tag = build_agent_base(runtime)
-    ensure_package_images(CORE_PACKAGES, runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     logger.info(f"Assembling shared agent image ({runtime}): {PA_IMAGE_TAG}")
@@ -315,8 +304,6 @@ def build_agent(runtime: str, label: str | None = None) -> None:
     cf_lines = [
         f"FROM {base_tag}",
     ]
-    for pkg in CORE_PACKAGES:
-        cf_lines.append(f"COPY --from={package_to_image_tag(pkg)} / /")
     cf_lines.extend(
         [
             "WORKDIR /workspace",
@@ -380,18 +367,20 @@ def build_project_image(
                 else:
                     resolved_specs.setdefault(item.strip(), [])
 
-    for cp in CORE_PACKAGES:
-        resolved_specs.setdefault(cp, [])
-
     base_tag = build_agent_base(runtime)
     ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
 
     root_cmd = Path(root_commands_path)
     logger.info(f"Assembling project-specific agent image ({runtime}): {image_tag}")
 
+    distro_pkgs = collect_distro_packages(resolved_specs, repo_root=REPO_ROOT)
+
     cf_lines = [
         f"FROM {base_tag}",
     ]
+    if distro_pkgs:
+        pkgs_str = " ".join(distro_pkgs)
+        cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
     for pkg, feats in sorted(resolved_specs.items()):
         cf_lines.append(f"COPY --from={package_to_image_tag(pkg, features=feats)} / /")
 

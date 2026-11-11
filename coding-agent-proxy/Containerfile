@@ -10,14 +10,9 @@ RUN microdnf install -y --nodocs \
     jq \
     shadow-utils \
     util-linux \
-    bzip2-devel \
-    libffi-devel \
-    libzstd-devel \
-    ncurses-devel \
-    readline-devel \
-    sqlite-devel \
-    openssl-devel \
-    zlib-devel \
+    python3 \
+    python3-pip \
+    uv \
  && microdnf clean all
 
 # gosu for stepping down from root in entrypoint
@@ -26,17 +21,15 @@ RUN ARCH="$(uname -m)" \
  && curl -fsSL -o /usr/local/bin/gosu "https://github.com/tianon/gosu/releases/download/1.17/gosu-${GOSU_ARCH}" \
  && chmod +x /usr/local/bin/gosu \
  && ln -sf /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/tls/certs/ca-bundle.crt \
- && ln -sf /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/ssl/certs/ca-certificates.crt
-
-# Unified CPython 3.15 + uv copied directly from the python ACP package
-COPY --from=pa-container-pkg-python:local / /
+ && ln -sf /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/ssl/certs/ca-certificates.crt \
+ && ln -sf /usr/bin/pip3 /usr/local/bin/pip
 
 RUN ldconfig \
  && python3 --version \
- && pip --version \
+ && pip3 --version \
  && uv --version
 
-ENV UV_PYTHON=/usr/local/bin/python3
+ENV UV_PYTHON=/usr/bin/python3
 ENV UV_PYTHON_DOWNLOADS=never
 
 RUN useradd -m mitmproxy

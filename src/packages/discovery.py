@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -90,3 +91,49 @@ def compute_package_hash(
             logger.warning(f"Could not read package file {file_path} for hashing: {e}")
 
     return hasher.hexdigest()[:16]
+
+
+def collect_distro_packages(
+    packages_map: Mapping[str, Sequence[str] | None] | Sequence[tuple[str, Sequence[str] | None]],
+    manifests: dict[str, PackageManifest] | None = None,
+    repo_root: Path | None = None,
+) -> list[str]:
+    """Collect and deduplicate all distro packages required by the given packages and active features.
+
+    Args:
+        packages_map: Mapping of package names to features or list of (pkg, feats) tuples.
+        manifests: Optional pre-loaded package manifests mapping.
+        repo_root: Optional repository root path.
+
+    Returns:
+        Sorted list of unique distro package names to install via system package manager.
+    """
+    if manifests is None:
+        manifests = discover_packages(repo_root)
+
+    items: Sequence[tuple[str, Sequence[str] | None]] = (
+        list(packages_map.items()) if isinstance(packages_map, Mapping) else packages_map
+    )
+
+    pkgs_set: set[str] = set()
+    for pkg_name, active_feats in items:
+        manifest = manifests.get(pkg_name)
+        if manifest is None:
+            pdir = get_package_dir(pkg_name, repo_root)
+            mfile = pdir / "package.yaml"
+            if mfile.is_file():
+                try:
+                    manifest = load_package_manifest(mfile)
+                except Exception:
+                    manifest = None
+        if manifest is None:
+            continue
+
+        if manifest.payload.type == "distro_package":
+            pkgs_set.update(manifest.payload.packages)
+        feat_set = set(active_feats) if active_feats else set()
+        for feat_name, feat in manifest.features.items():
+            if (feat_name in feat_set or (not feat_set and feat.default)) and feat.payload.type == "distro_package":
+                pkgs_set.update(feat.payload.packages)
+
+    return sorted(p for p in pkgs_set if p)

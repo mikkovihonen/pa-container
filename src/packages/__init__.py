@@ -11,6 +11,7 @@ from packages.builder import (
     package_image_is_current,
 )
 from packages.discovery import (
+    collect_distro_packages,
     compute_package_hash,
     discover_packages,
     get_package_dir,
@@ -68,6 +69,7 @@ __all__ = [
     "get_package_dir",
     "package_to_image_tag",
     "compute_package_hash",
+    "collect_distro_packages",
     "assemble_package_skill",
     "build_package",
     "ensure_package_images",

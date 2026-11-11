@@ -119,6 +119,26 @@ class TestBuildProxy:
             assert "pa-container.type=shared" in labels
             assert "pa-container.type=project" not in labels
 
+    def test_build_agent_installs_distro_packages(self):
+        """build_agent should include microdnf install for distro packages in CORE_PACKAGES."""
+        captured_cf = []
+
+        def capture_popen(cmd, *a, **kw):
+            cf_path = cmd[cmd.index("--file") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return self._mock_popen()
+
+        with (
+            patch("build.build_agent_base", return_value="pa-container-agent-base:local"),
+            patch("build.ensure_package_images"),
+            patch("build.subprocess.Popen", side_effect=capture_popen),
+        ):
+            build_agent("podman")
+            assert len(captured_cf) == 1
+            assert "microdnf install -y --nodocs" in captured_cf[0]
+            assert "python3" in captured_cf[0]
+            assert "uv" in captured_cf[0]
+
     def test_containerfile_does_not_hardcode_type_label(self):
         from build import REPO_ROOT
 
@@ -445,6 +465,56 @@ class TestBuildProjectImage:
             assert "rust" in called_packages
             assert "COPY --from=pa-container-pkg-go:local / /" in captured_cf[0]
             assert "COPY --from=pa-container-pkg-rust:local / /" in captured_cf[0]
+
+    def test_build_project_image_with_distro_packages(self):
+        """When distro packages are required, a unified microdnf install command is generated."""
+        captured_cf = []
+
+        def capture_popen(cmd, *a, **kw):
+            cf_path = cmd[cmd.index("--file") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return self._mock_popen()
+
+        with (
+            patch("build.ensure_package_images"),
+            patch("build.subprocess.Popen", side_effect=capture_popen),
+        ):
+            build_project_image(
+                "podman",
+                "/path/to/root/commands.sh",
+                "test.local",
+                "abc123",
+                packages=["python"],
+            )
+            cf = captured_cf[0]
+            assert "RUN microdnf install -y --nodocs python3 python3-pip uv && microdnf clean all" in cf
+            assert "COPY --from=pa-container-pkg-python:local / /" in cf
+            # Verify microdnf install precedes the COPY --from lines
+            idx_install = cf.index("RUN microdnf install")
+            idx_copy = cf.index("COPY --from=pa-container-pkg-python:local")
+            assert idx_install < idx_copy
+
+    def test_build_project_image_without_distro_packages(self):
+        """When no distro packages are needed, microdnf install is omitted."""
+        captured_cf = []
+
+        def capture_popen(cmd, *a, **kw):
+            cf_path = cmd[cmd.index("--file") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return self._mock_popen()
+
+        with (
+            patch("build.collect_distro_packages", return_value=[]),
+            patch("build.ensure_package_images"),
+            patch("build.subprocess.Popen", side_effect=capture_popen),
+        ):
+            build_project_image(
+                "podman",
+                "/path/to/root/commands.sh",
+                "test.local",
+                "abc123",
+            )
+            assert "microdnf install" not in captured_cf[0]
 
     def test_build_project_image_builds_base(self):
         """build_project_image ensures base image is built."""

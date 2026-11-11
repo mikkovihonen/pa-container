@@ -13,7 +13,12 @@ sys.dont_write_bytecode = True
 
 from logging_driver import LogCategory, get_category_logger
 from packages.builder import ensure_package_images
-from packages.discovery import discover_packages, get_package_dir, package_to_image_tag
+from packages.discovery import (
+    collect_distro_packages,
+    discover_packages,
+    get_package_dir,
+    package_to_image_tag,
+)
 from packages.manifest import PackageManifest, load_package_manifest
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
@@ -113,7 +118,11 @@ def verify_package(
         ensure_package_images(packages_to_ensure, runtime=runtime, repo_root=repo_root)
 
         # Assemble ephemeral Containerfile layering base + runtime dependencies + target package
+        distro_pkgs = collect_distro_packages(packages_to_ensure, repo_root=repo_root)
         cf_lines = [f"FROM {BASE_AGENT_IMAGE}"]
+        if distro_pkgs:
+            pkgs_str = " ".join(distro_pkgs)
+            cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
         for dep in deps:
             dep_tag = package_to_image_tag(dep)
             cf_lines.append(f"COPY --from={dep_tag} / /")
@@ -376,7 +385,11 @@ def verify_package_integration(
         ensure_package_images(resolved_pkgs, runtime=runtime, repo_root=repo_root)
 
         # Assemble ephemeral Containerfile layering base + runtime dependencies + packages
+        distro_pkgs = collect_distro_packages(resolved_pkgs, repo_root=repo_root)
         cf_lines = [f"FROM {BASE_AGENT_IMAGE}"]
+        if distro_pkgs:
+            pkgs_str = " ".join(distro_pkgs)
+            cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
         for p_name, p_feats in resolved_pkgs.items():
             p_tag = package_to_image_tag(p_name, features=p_feats)
             cf_lines.append(f"COPY --from={p_tag} / /")

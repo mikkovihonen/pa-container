@@ -4,15 +4,12 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.dont_write_bytecode = True
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 from packages import (
     PackageVerificationResult,
@@ -86,6 +83,45 @@ def test_verify_package_success_mocked(tmp_path: Path):
         assert res.passed is True
         assert res.error is None
         assert "mock 1.0.0" in res.output
+
+
+def test_verify_package_with_distro_package_mocked(tmp_path: Path):
+    pkg_dir = tmp_path / "packages" / "distro-tool"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "package.yaml").write_text(
+        "name: distro-tool\n"
+        "version: 1.0.0\n"
+        "payload:\n"
+        "  type: distro_package\n"
+        "  packages:\n"
+        "    - curl\n"
+        "    - jq\n"
+        "verification:\n"
+        "    command: jq --version\n"
+        "    expected_output_contains: 'jq-1.7'\n"
+    )
+
+    captured_cf = []
+
+    def capture_run(cmd, *a, **kw):
+        if "build" in cmd:
+            cf_path = cmd[cmd.index("-f") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return MagicMock(returncode=0, stdout="Successfully built")
+        elif "run" in cmd:
+            return MagicMock(returncode=0, stdout="jq-1.7.1")
+        return MagicMock(returncode=0)
+
+    with (
+        patch("packages.verification.ensure_base_image"),
+        patch("packages.verification.ensure_package_images"),
+        patch("subprocess.run", side_effect=capture_run),
+    ):
+        res = verify_package("distro-tool", repo_root=tmp_path)
+        assert res.passed is True
+        assert len(captured_cf) == 1
+        assert "RUN microdnf install -y --nodocs curl jq && microdnf clean all" in captured_cf[0]
+        assert "COPY --from=pa-container-pkg-distro-tool:local / /" in captured_cf[0]
 
 
 def test_verify_package_exit_code_failure_mocked(tmp_path: Path):

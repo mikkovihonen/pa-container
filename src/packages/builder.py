@@ -123,7 +123,7 @@ def generate_package_containerfile(
             f' && if [ -d /build/mcp ]; then cp -a /build/mcp "{dest_prefix}/usr/local/share/pa-container/packages/{pkg_name}/"; fi'
         )
 
-    if ptype == "none":
+    if ptype in ("none", "distro_package"):
         lines.extend(
             [
                 f"FROM {FEDORA_BASE_IMAGE} AS assembler",
@@ -132,6 +132,33 @@ def generate_package_containerfile(
                 *copy_lines,
             ]
         )
+        # Execute active feature payloads
+        for feat_name in active_feats:
+            if feat_name in manifest.features:
+                f = manifest.features[feat_name]
+                if f.payload.type == "build_script" and f.payload.script:
+                    lines.append(f"RUN mkdir -p /out && bash /build/{f.payload.script}")
+                elif f.payload.type == "binary_download" and f.payload.platforms:
+                    lines.append("RUN set -euo pipefail; \\")
+                    lines.append('    ARCH="$(uname -m)"; \\')
+                    for f_arch, f_plat in f.payload.platforms.items():
+                        f_arch_match = "x86_64" if f_arch in ("x86_64", "amd64") else "aarch64"
+                        lines.append(f'    if [ "$ARCH" = "{f_arch_match}" ]; then \\')
+                        lines.append(f'        curl -fsSL --retry 3 -o /tmp/pkg.tar "{f_plat.url}"; \\')
+                        lines.append(f'        echo "{f_plat.sha256}  /tmp/pkg.tar" | sha256sum -c -; \\')
+                        lines.append("        mkdir -p /tmp/extracted; \\")
+                        lines.append("        if tar -tf /tmp/pkg.tar >/dev/null 2>&1; then \\")
+                        lines.append("            tar -xf /tmp/pkg.tar -C /tmp/extracted; \\")
+                        lines.append("        elif unzip -t /tmp/pkg.tar >/dev/null 2>&1; then \\")
+                        lines.append("            unzip -q /tmp/pkg.tar -d /tmp/extracted; \\")
+                        lines.append("        fi; \\")
+                        for src_rel, dest_abs in f_plat.extract_map.items():
+                            lines.append(f'        mkdir -p "$(dirname "/out{dest_abs}")"; \\')
+                            lines.append(f'        cp -a "/tmp/extracted/{src_rel}" "/out{dest_abs}"; \\')
+                            lines.append(f'        chmod 755 "/out{dest_abs}" 2>/dev/null || true; \\')
+                        lines.append("        rm -rf /tmp/pkg.tar /tmp/extracted; \\")
+                        lines.append("    fi; \\")
+                    lines.append("    true")
         _append_skill_and_metadata(builder_stage=True)
         lines.extend(
             [

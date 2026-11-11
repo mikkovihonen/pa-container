@@ -34,6 +34,7 @@ class PayloadConfig:
     build_packages: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
     outputs: list[dict[str, str]] = field(default_factory=list)
+    packages: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -231,6 +232,10 @@ def _parse_payload(payload_data: dict[str, Any]) -> PayloadConfig:
                     sha256=str(arch_data.get("sha256", "")),
                     extract_map=dict(arch_data.get("extract_map") or {}),
                 )
+    packages_raw = payload_data.get("packages") or []
+    packages = [str(p).strip() for p in packages_raw if str(p).strip()] if isinstance(packages_raw, list) else []
+    if payload_type == "distro_package" and not packages:
+        raise ValueError("Payload of type 'distro_package' must specify at least one package in 'packages'")
     return PayloadConfig(
         type=payload_type,
         platforms=platforms,
@@ -239,6 +244,7 @@ def _parse_payload(payload_data: dict[str, Any]) -> PayloadConfig:
         build_packages=list(payload_data.get("build_packages") or []),
         env=dict(payload_data.get("env") or {}),
         outputs=list(payload_data.get("outputs") or []),
+        packages=packages,
     )
 
 
