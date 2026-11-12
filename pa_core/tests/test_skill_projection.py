@@ -28,6 +28,7 @@ def _run_projection(
     share_pkgs_dir: Path,
     share_agents_dir: Path | None = None,
     agent_skills_dirs: list[Path] | None = None,
+    nounset: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Execute the skill projection script with isolated environment variables."""
     script = _extract_skill_projection_script()
@@ -40,8 +41,9 @@ def _run_projection(
         env["PA_SHARE_AGENTS_DIR"] = str(share_agents_dir)
     if agent_skills_dirs is not None:
         env["PA_AGENT_SKILLS_DIRS"] = ":".join(str(p) for p in agent_skills_dirs)
+    bash_flags = ["-e", "-u"] if nounset else ["-e"]
     return subprocess.run(
-        ["bash", "-e", "-c", script],
+        ["bash", *bash_flags, "-c", script],
         env=env,
         capture_output=True,
         text=True,
@@ -195,3 +197,21 @@ def test_skill_preserves_custom_user_skills(tmp_path: Path):
 
     # Git skill must also be projected
     assert (pi_skills / "git" / "SKILL.md").is_file()
+
+
+def test_skill_projection_works_with_nounset_enabled(tmp_path: Path):
+    """Verify that skill projection runs cleanly even under set -u (nounset) when PA_AGENT_SKILLS_DIRS is unset."""
+    home_agent = tmp_path / "home" / "agent"
+    share_pkgs = tmp_path / "share" / "packages"
+    share_agents = tmp_path / "share" / "agents"
+
+    pi_skills = home_agent / ".pi" / "agent" / "skills"
+    pi_skills.mkdir(parents=True)
+
+    git_skill = share_pkgs / "git" / "skill"
+    git_skill.mkdir(parents=True)
+    (git_skill / "SKILL.md").write_text("# Git Skill\n", encoding="utf-8")
+
+    # Run with nounset=True and without setting PA_AGENT_SKILLS_DIRS
+    res = _run_projection(home_agent, share_pkgs, share_agents_dir=share_agents, nounset=True)
+    assert res.returncode == 0

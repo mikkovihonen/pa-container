@@ -1,6 +1,5 @@
 #!/bin/bash
 # Sourced inside agent session to configure source control credential helpers
-set -euo pipefail
 
 if [ "${SETUP_GIT_CREDENTIALS:-true}" = "true" ]; then
     # GitHub CLI helper

@@ -883,6 +883,9 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     exports_dir=pa_container_dir / "exports",
                 )
 
+            if result.returncode != 0:
+                logger.warning(f"Agent container exited with non-zero exit code: {result.returncode}")
+
             return result.returncode
     except Exception as e:
         active_cat = LogCategory.AGENT

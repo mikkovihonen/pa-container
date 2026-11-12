@@ -108,12 +108,16 @@ exec gosu agent bash -c '
         done
     fi
 
+    # Ensure sourced hooks do not leave nounset active
+    set +u 2>/dev/null || true
+
     # ─── Dynamic Skill Projection Engine ───────────────────────────────────────
+    set +u 2>/dev/null || true
     _share_packages_dir="${PA_SHARE_PACKAGES_DIR:-/usr/local/share/pa-container/packages}"
     _share_agents_dir="${PA_SHARE_AGENTS_DIR:-/usr/local/share/pa-container/agents}"
 
     _target_agent_skills_dirs=()
-    if [ -n "$PA_AGENT_SKILLS_DIRS" ]; then
+    if [ -n "${PA_AGENT_SKILLS_DIRS:-}" ]; then
         IFS=":" read -ra _target_agent_skills_dirs <<< "$PA_AGENT_SKILLS_DIRS"
     else
         for _path_file in "$_share_agents_dir"/*/skills_path; do
@@ -134,7 +138,7 @@ exec gosu agent bash -c '
     fi
 
     # 1. Prune stale projected skills no longer present in this container image
-    for _agent_skills in "${_target_agent_skills_dirs[@]}"; do
+    for _agent_skills in "${_target_agent_skills_dirs[@]+"${_target_agent_skills_dirs[@]}"}"; do
         [ -d "$_agent_skills" ] || continue
         for _existing_skill_dir in "$_agent_skills"/*; do
             [ -d "$_existing_skill_dir" ] || continue
@@ -165,7 +169,7 @@ exec gosu agent bash -c '
         if [ "$_skill_name" = "skill" ]; then
             _skill_name="$(basename "$(dirname "$_dir_part")")"
         fi
-        for _agent_skills in "${_target_agent_skills_dirs[@]}"; do
+        for _agent_skills in "${_target_agent_skills_dirs[@]+"${_target_agent_skills_dirs[@]}"}"; do
             mkdir -p "$_agent_skills/$_skill_name"
             cp -a "$_pkg_skill" "$_agent_skills/$_skill_name/SKILL.md" 2>/dev/null || true
             touch "$_agent_skills/$_skill_name/.pa-projected" 2>/dev/null || true
@@ -178,12 +182,12 @@ exec gosu agent bash -c '
     fi
 
     # ─── Package Run Mode Execution (Orchestrators / Alternative Modes) ───────
-    if [ -n "$PA_CONTAINER_MODE" ] && [ -x "/usr/local/share/pa-container/modes/${PA_CONTAINER_MODE}.sh" ]; then
+    if [ -n "${PA_CONTAINER_MODE:-}" ] && [ -x "/usr/local/share/pa-container/modes/${PA_CONTAINER_MODE}.sh" ]; then
         exec "/usr/local/share/pa-container/modes/${PA_CONTAINER_MODE}.sh" "$@"
     fi
 
     if [ "$#" -eq 0 ]; then
-        if [ -n "$PA_CONTAINER_AGENT" ]; then
+        if [ -n "${PA_CONTAINER_AGENT:-}" ]; then
             set -- "$PA_CONTAINER_AGENT"
         elif [ -s /usr/local/share/pa-container/default_agent ]; then
             set -- "$(cat /usr/local/share/pa-container/default_agent)"
