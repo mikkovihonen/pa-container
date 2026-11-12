@@ -16,18 +16,27 @@ allow:
   #   containerEnvVar: OPPER_API_KEY
   #   keyringService: pa-container
   #   keyringAccount: OPPER_API_KEY
+  #   models:
+  #     - glm-5.3
+  #     - claude-sonnet-4-6
   #
   # - id: openai
   #   provider: openai
   #   containerEnvVar: OPENAI_API_KEY
   #   keyringService: pa-container
   #   keyringAccount: OPENAI_API_KEY
+  #   models:
+  #     - gpt-4o
+  #     - o3-mini
   #
   # - id: anthropic
   #   provider: anthropic
   #   containerEnvVar: ANTHROPIC_API_KEY
   #   keyringService: pa-container
   #   keyringAccount: ANTHROPIC_API_KEY
+  #   models:
+  #     - claude-3-7-sonnet
+  #     - claude-3-5-haiku
   #
   # --- Agent-Native Subscription / Account Logins ---
   # Agent-native gateways do not require host secrets or keyring accounts;

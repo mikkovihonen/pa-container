@@ -329,6 +329,26 @@ def _validate_models_yaml(
                         errors.append(
                             f"  allow[{i}]: gateway '{model_id}' requires 'containerEnvVar' to be a non-empty string"
                         )
+
+            if "models" in item:
+                models_val = item["models"]
+                if not isinstance(models_val, list):
+                    errors.append(f"  allow[{i}]: 'models' must be a list, got {type(models_val).__name__}")
+                elif len(models_val) == 0:
+                    errors.append(f"  allow[{i}]: 'models' list must not be empty")
+                else:
+                    for m_idx, m_item in enumerate(models_val):
+                        if isinstance(m_item, str):
+                            if not m_item.strip():
+                                errors.append(f"  allow[{i}].models[{m_idx}]: item must not be empty string")
+                        elif isinstance(m_item, dict):
+                            mid = m_item.get("id")
+                            if not mid or not isinstance(mid, str) or not mid.strip():
+                                errors.append(f"  allow[{i}].models[{m_idx}]: expected non-empty 'id' string")
+                        else:
+                            errors.append(
+                                f"  allow[{i}].models[{m_idx}]: expected string or dict, got {type(m_item).__name__}"
+                            )
         else:
             errors.append(f"  allow[{i}]: expected string or dict, got {type(item).__name__}")
             continue

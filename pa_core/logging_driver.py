@@ -19,10 +19,11 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.spinner import Spinner
+from rich.syntax import Syntax
 from rich.text import Text
 
 # ─── Log Categories ──────────────────────────────────────────────────────────
@@ -183,6 +184,58 @@ class _ConsoleLogHandler(logging.Handler):
 
 
 # ─── Unified Log Driver ──────────────────────────────────────────────────────
+
+
+def _render_error_panel(
+    title: str,
+    cat_str: str,
+    message: str,
+    hints: Sequence[Any] = (),
+    target_log: Path | str | None = None,
+) -> Panel:
+    from remediation import RemediationAction
+
+    renderables: list[Any] = []
+
+    body = Text()
+    body.append(message, style="bold")
+    renderables.append(body)
+
+    if hints:
+        renderables.append(Text())
+        renderables.append(Text("Suggested remediation:", style="yellow"))
+        for hint in hints:
+            if isinstance(hint, RemediationAction):
+                renderables.append(Text(f"  {hint.description}", style="dim yellow"))
+                if hint.snippet:
+                    renderables.append(Text())
+                    syntax = Syntax(
+                        hint.snippet,
+                        hint.snippet_lang,
+                        theme="monokai",
+                        background_color="default",
+                        indent_guides=True,
+                        padding=(0, 2),
+                    )
+                    renderables.append(syntax)
+                if hint.companion_commands:
+                    renderables.append(Text())
+                    renderables.append(Text("  Credential setup command:", style="dim yellow"))
+                    for cmd in hint.companion_commands:
+                        renderables.append(Text(f"    $ {cmd}", style="bold cyan"))
+            else:
+                renderables.append(Text(f"  {hint}", style="dim yellow"))
+
+    if target_log:
+        renderables.append(Text())
+        renderables.append(Text(f"Diagnostic log:\n  {target_log}", style="dim cyan"))
+
+    return Panel(
+        Group(*renderables),
+        title=f"[bold red]Error: {title} [category: {cat_str}][/bold red]",
+        border_style="red",
+        expand=False,
+    )
 
 
 class LogDriver:
@@ -494,7 +547,7 @@ class LogDriver:
         category: LogCategory | str,
         title: str,
         message: str,
-        hints: Sequence[str] = (),
+        hints: Sequence[Any] = (),
         log_path: Path | None = None,
     ) -> None:
         """Render a formatted diagnostics card for fatal errors."""
@@ -510,22 +563,12 @@ class LogDriver:
         self.pause_for_interactive()
 
         target_log = log_path or self.session_log_path
-
-        body = Text()
-        body.append(f"{message}\n", style="bold")
-
-        if hints:
-            body.append("\nSuggested remediation:\n", style="yellow")
-            for hint in hints:
-                body.append(f"  {hint}\n", style="dim yellow")
-
-        body.append(f"\nDiagnostic log:\n  {target_log}", style="dim cyan")
-
-        panel = Panel(
-            body,
-            title=f"[bold red]Error: {title} [category: {cat_str}][/bold red]",
-            border_style="red",
-            expand=False,
+        panel = _render_error_panel(
+            title=title,
+            cat_str=cat_str,
+            message=message,
+            hints=hints,
+            target_log=target_log,
         )
         self.console.print(panel)
 
@@ -534,7 +577,7 @@ class LogDriver:
         category: LogCategory | str,
         title: str,
         message: str,
-        hints: Sequence[str] = (),
+        hints: Sequence[Any] = (),
         log_path: Path | None = None,
         exc: BaseException | None = None,
         source_logger: CategoryLogger | logging.Logger | None = None,
@@ -850,7 +893,7 @@ def render_hard_error(
     category: LogCategory | str,
     title: str,
     message: str,
-    hints: Sequence[str] = (),
+    hints: Sequence[Any] = (),
     log_path: Path | None = None,
 ) -> None:
     """Module-level helper to render a hard error card via active driver or fallback console."""
@@ -860,17 +903,12 @@ def render_hard_error(
     else:
         cat_str = str(category.value if isinstance(category, LogCategory) else category)
         console = Console(stderr=True, highlight=False)
-        body = Text()
-        body.append(f"{message}\n", style="bold")
-        if hints:
-            body.append("\nSuggested remediation:\n", style="yellow")
-            for hint in hints:
-                body.append(f"  {hint}\n", style="dim yellow")
-        panel = Panel(
-            body,
-            title=f"[bold red]Error: {title} [category: {cat_str}][/bold red]",
-            border_style="red",
-            expand=False,
+        panel = _render_error_panel(
+            title=title,
+            cat_str=cat_str,
+            message=message,
+            hints=hints,
+            target_log=log_path,
         )
         console.print(panel)
 

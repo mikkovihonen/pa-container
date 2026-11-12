@@ -116,12 +116,27 @@ def extract_models_from_yaml(
                     gw_item["keyringService"] = str(item["keyringService"]).strip()
                 if item.get("keyringAccount"):
                     gw_item["keyringAccount"] = str(item["keyringAccount"]).strip()
+                if item.get("models"):
+                    raw_m = item["models"]
+                    if isinstance(raw_m, list):
+                        parsed_m: list[dict[str, Any]] = []
+                        for m in raw_m:
+                            if isinstance(m, dict) and m.get("id"):
+                                parsed_m.append(dict(m))
+                            elif isinstance(m, str) and m.strip():
+                                parsed_m.append({"id": m.strip(), "name": m.strip()})
+                        if parsed_m:
+                            gw_item["models"] = parsed_m
+
+            if "models" not in gw_item:
+                gw_item["models"] = [{"id": provider_name, "name": provider_name}]
 
             gateway_configs.append(gw_item)
             providers[provider_name] = {
                 "baseUrl": effective_base_url,
                 "api": gw_def.gateway_type,
                 "apiKey": f"{provider_name.upper().replace('-', '_')}_API_KEY_PLACEHOLDER",
+                "models": gw_item["models"],
             }
             continue
 

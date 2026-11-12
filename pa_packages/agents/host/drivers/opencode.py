@@ -89,17 +89,22 @@ class OpenCodeDriver(AgentDriver):
                 continue
             name = gw["name"]
             base_url = gw.get("baseUrl") or (gw.get("gatewayDef") and gw["gatewayDef"].base_url) or ""
+            gw_models_dict: dict[str, object] = {}
+            if gw.get("models"):
+                for m in gw["models"]:
+                    mid = str(m.get("id") or m.get("name"))
+                    mname = str(m.get("name") or mid)
+                    gw_models_dict[mid] = {"name": mname}
+            if not gw_models_dict:
+                gw_models_dict[name] = {"name": name}
+
             gw_entry: dict[str, object] = {
                 "name": name,
                 "package": "@opencode/ai/providers/openai-compatible",
                 "settings": {
                     "baseURL": base_url,
                 },
-                "models": {
-                    name: {
-                        "name": name,
-                    }
-                },
+                "models": gw_models_dict,
             }
             if gw.get("containerEnvVar"):
                 gw_entry["env"] = [gw["containerEnvVar"]]

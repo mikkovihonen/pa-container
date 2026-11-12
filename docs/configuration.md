@@ -278,6 +278,9 @@ allow:
     containerEnvVar: "OPPER_API_KEY"
     keyringService: "pa-container"
     keyringAccount: "OPPER_API_KEY"
+    models:
+      - glm-5.3
+      - claude-sonnet-4-6
 ```
 
 API keys MUST be stored in the OS user keyring (macOS Keychain, Linux GNOME Keyring / Secret Service, Windows Credential Manager) queried via `keyringService` and `keyringAccount` (defaulting to service `pa-container`). Host environment variables are strictly ignored to prevent credential leakage.

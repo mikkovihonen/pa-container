@@ -71,15 +71,50 @@ class PiAgentDriver(AgentDriver):
             if not self.is_gateway_enabled_for_agent(gw):
                 continue
             name = gw["name"]
-            base_url = gw.get("baseUrl") or (gw.get("gatewayDef") and gw["gatewayDef"].base_url) or ""
+            gw_def = gw.get("gatewayDef")
+            base_url = gw.get("baseUrl") or (gw_def and gw_def.base_url) or ""
+
+            gw_models: list[dict[str, object]] = []
+            if gw.get("models"):
+                for m in gw["models"]:
+                    if isinstance(m, dict) and m.get("id"):
+                        gw_models.append(dict(m))
+                    elif isinstance(m, str) and m.strip():
+                        gw_models.append({"id": m.strip(), "name": m.strip()})
+
+            if not gw_models:
+                gw_models = [{"id": name, "name": name}]
+
             providers[name] = {
                 "baseUrl": base_url,
                 "api": "openai-completions",
                 "apiKey": f"{name.upper().replace('-', '_')}_API_KEY_PLACEHOLDER",
+                "models": gw_models,
             }
 
         with models_json_path.open("w") as f:
             json.dump({"providers": providers}, f, indent=2)
+
+        # Clear any empty-string API keys in auth.json that could shadow models.json placeholders
+        auth_json_path = state_dir / "auth.json"
+        if auth_json_path.is_file():
+            try:
+                auth_data = json.loads(auth_json_path.read_text())
+                if isinstance(auth_data, dict):
+                    modified = False
+                    for gw in gateway_configs:
+                        gw_name = gw["name"]
+                        if (
+                            gw_name in auth_data
+                            and isinstance(auth_data[gw_name], dict)
+                            and not auth_data[gw_name].get("key")
+                        ):
+                            del auth_data[gw_name]
+                            modified = True
+                    if modified:
+                        auth_json_path.write_text(json.dumps(auth_data, indent=2))
+            except Exception:
+                pass
 
     def get_orchestrator_metadata(self, orchestrator: str) -> OrchestratorProviderMetadata | None:
         if orchestrator == "t3":

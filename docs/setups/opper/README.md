@@ -24,10 +24,18 @@ cp docs/setups/opper/opper.yaml ~/.config/pa-container/gateways/
 ```
 
 ### 2. Configure the Workspace Models Allowlist
-Add `opper` to `.pa-container/models.yaml` under `allow`:
+Add `opper` to `.pa-container/models.yaml` under `allow` with the models you want to use:
 ```yaml
 allow:
-  - "opper"
+  - id: opper
+    provider: opper
+    containerEnvVar: OPPER_API_KEY
+    keyringService: pa-container
+    keyringAccount: OPPER_API_KEY
+    models:
+      - glm-5.3
+      - claude-sonnet-4-6
+      - anthropic/claude-sonnet-4-6
 ```
 
 ### 3. Allow Proxy Egress

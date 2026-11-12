@@ -474,6 +474,52 @@ class TestValidateModels:
         assert is_valid is False
         assert any("can only be instantiated once per provider" in e for e in errors)
 
+    def test_allow_gateway_with_models_list_valid(self, tmp_path: Path):
+        """Gateway with a valid 'models' list passes validation."""
+        from config_schema import validate_models
+
+        content = (
+            "allow:\n"
+            "  - id: opper\n"
+            "    containerEnvVar: OPPER_API_KEY\n"
+            "    keyringService: pa-container\n"
+            "    keyringAccount: OPPER_API_KEY\n"
+            "    models:\n"
+            "      - glm-5.3\n"
+            "      - id: claude-sonnet-4-6\n"
+            "        name: Claude 4.6\n"
+        )
+        p = self._write_models(tmp_path, content)
+        is_valid, errors = validate_models(p)
+        assert is_valid is True
+        assert errors == []
+
+    def test_allow_gateway_with_models_invalid_types(self, tmp_path: Path):
+        """Gateway with invalid 'models' structure fails validation."""
+        from config_schema import validate_models
+
+        p1 = self._write_models(tmp_path, "allow:\n  - id: test\n    models: not-a-list\n", filename="m1.yaml")
+        valid1, errs1 = validate_models(p1)
+        assert valid1 is False
+        assert any("'models' must be a list" in e for e in errs1)
+
+        p2 = self._write_models(tmp_path, "allow:\n  - id: test\n    models: []\n", filename="m2.yaml")
+        valid2, errs2 = validate_models(p2)
+        assert valid2 is False
+        assert any("'models' list must not be empty" in e for e in errs2)
+
+        p3 = self._write_models(tmp_path, "allow:\n  - id: test\n    models:\n      - ''\n", filename="m3.yaml")
+        valid3, errs3 = validate_models(p3)
+        assert valid3 is False
+        assert any("must not be empty string" in e for e in errs3)
+
+        p4 = self._write_models(
+            tmp_path, "allow:\n  - id: test\n    models:\n      - name: no-id\n", filename="m4.yaml"
+        )
+        valid4, errs4 = validate_models(p4)
+        assert valid4 is False
+        assert any("expected non-empty 'id' string" in e for e in errs4)
+
 
 class TestModelDefinitionValidation:
     """Tests for validate_model_def_data in schema_common.py."""

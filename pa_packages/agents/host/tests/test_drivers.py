@@ -181,6 +181,22 @@ def test_agent_native_gateways_filtered_per_agent(tmp_path: Path):
     assert "anthropic-account" not in pi_cfg["providers"]
     assert "google-account" not in pi_cfg["providers"]
     assert "opper" in pi_cfg["providers"]
+    assert pi_cfg["providers"]["opper"]["models"] == [{"id": "opper", "name": "opper"}]
+
+    # 2b. Pi and OpenCode with custom models on gateway
+    gw_with_models = {
+        "name": "opper",
+        "baseUrl": "https://api.opper.ai",
+        "gatewayDef": gw_api_key["gatewayDef"],
+        "models": [{"id": "glm-5.3", "name": "GLM 5.3"}],
+    }
+    pi.synthesize_config([], [gw_with_models], None, project_dir)
+    pi_custom = json.loads((project_dir / ".pa-container" / "agents" / "pi" / "models.json").read_text())
+    assert pi_custom["providers"]["opper"]["models"] == [{"id": "glm-5.3", "name": "GLM 5.3"}]
+
+    opencode.synthesize_config([], [gw_with_models], None, project_dir)
+    opencode_custom = json.loads((project_dir / ".pa-container" / "agents" / "opencode" / "opencode.json").read_text())
+    assert "glm-5.3" in opencode_custom["provider"]["opper"]["models"]
 
     # 3. Claude must not pick google-account when synthesizing
     claude.synthesize_config([], [gw_google_native], None, project_dir)

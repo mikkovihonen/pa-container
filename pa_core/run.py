@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pa_packages.agents.host.base import AgentMount
 
     from cli import RunOptions
@@ -220,11 +222,15 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
     models_path: Path = pa_container_dir / "models.yaml"
     if not models_path.is_file():
+        from remediation import get_models_remediations
+
         err = f"Config file not found: expected {models_path}"
+        missing_hints: Sequence[Any] = get_models_remediations(models_path)
         log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
             "Missing Models Configuration",
             err,
+            hints=missing_hints,
             source_logger=preflight_logger,
         )
         return 1
@@ -257,11 +263,17 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     # Validate models schema (models.yaml).
     models_valid, models_errors = validate_models(models_path)
     if not models_valid:
+        from remediation import get_models_remediations
+
+        remediations: Sequence[Any] = get_models_remediations(models_path)
+        model_hints: Sequence[Any] = (
+            remediations if remediations else [f"Update {models_path} to match the expected schema."]
+        )
         log_drv.fail_and_render(
             LogCategory.PREFLIGHT,
             f"Invalid {models_path.name}",
             "\n".join(models_errors),
-            hints=[f"Update {models_path} to match the expected schema."],
+            hints=model_hints,
             source_logger=preflight_logger,
         )
         return 1

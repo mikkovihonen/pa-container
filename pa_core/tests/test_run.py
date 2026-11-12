@@ -411,6 +411,53 @@ class TestExecuteRunFatalErrors:
         assert mock_fail.call_args[0][1] == "Environment Check Failed"
         driver.shutdown()
 
+    def test_execute_run_invalid_models_yaml_with_remediation(self, tmp_path, monkeypatch):
+        from cli import RunOptions
+        from logging_driver import LogCategory, LogDriver
+        from remediation import RemediationAction
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        pa_dir = proj / ".pa-container"
+        pa_dir.mkdir()
+        (pa_dir / "config.yaml").write_text("schema_version: '0.6.6'\n")
+        models_yaml = pa_dir / "models.yaml"
+        models_yaml.write_text("allow:\n  - opper\n")
+
+        monkeypatch.setattr(run, "PROJECT_DIR", proj)
+        monkeypatch.setattr(run, "_init_runtime", lambda: None)
+        monkeypatch.setattr(run.project, "ensure_project_config", lambda *args, **kwargs: pa_dir)
+        monkeypatch.setattr(run, "validate_config", lambda p: (True, [], "0.6.6"))
+        monkeypatch.setattr(run, "validate_project_yaml", lambda d: [])
+        monkeypatch.setattr(
+            run, "validate_models", lambda p: (False, ["allow[0]: gateway 'opper' requires authentication."])
+        )
+
+        fake_remediation = RemediationAction(
+            description="Replace item 'opper' under 'allow:' in models.yaml with:",
+            snippet="- id: opper\n  provider: opper\n  containerEnvVar: OPPER_API_KEY",
+        )
+        monkeypatch.setattr(run, "get_models_remediations", lambda p: [fake_remediation], raising=False)
+        import remediation
+
+        monkeypatch.setattr(remediation, "get_models_remediations", lambda p: [fake_remediation])
+
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+        driver = LogDriver(proj, quiet=True)
+
+        with patch.object(driver, "fail_and_render", wraps=driver.fail_and_render) as mock_fail:
+            ret = run.execute_run(RunOptions(), driver=driver)
+
+        assert ret == 1
+        assert mock_fail.called
+        assert mock_fail.call_args[0][0] == LogCategory.PREFLIGHT
+        assert mock_fail.call_args[0][1] == "Invalid models.yaml"
+        hints = mock_fail.call_args[1]["hints"]
+        assert len(hints) == 1
+        assert hints[0] == fake_remediation
+        driver.shutdown()
+
     def test_execute_run_port_collision(self, tmp_path, monkeypatch):
         from cli import RunOptions
         from logging_driver import LogCategory, LogDriver

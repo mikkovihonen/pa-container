@@ -225,6 +225,33 @@ class TestLogDriver:
         assert driver.stages[-1].detail == "Invalid yaml structure"
         driver.shutdown()
 
+    def test_render_hard_error_with_remediation_action(self, tmp_path: Path, monkeypatch) -> None:
+        from remediation import RemediationAction
+
+        custom_state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))
+
+        driver = LogDriver(tmp_path, quiet=True)
+        driver.start_stage(LogCategory.PREFLIGHT, "Validating models")
+
+        action = RemediationAction(
+            description="Replace item in models.yaml with:",
+            snippet="- id: opper\n  provider: opper",
+            companion_commands=("uv run keyring set pa-container OPPER_API_KEY",),
+        )
+
+        with patch.object(driver.console, "print") as mock_print:
+            driver.render_hard_error(
+                LogCategory.PREFLIGHT,
+                "Invalid models.yaml",
+                "allow[3]: gateway 'opper' requires authentication.",
+                hints=[action],
+            )
+            assert mock_print.called
+
+        assert driver.stages[-1].failed is True
+        driver.shutdown()
+
     def test_fail_and_render(self, tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture) -> None:
         custom_state = tmp_path / "state"
         monkeypatch.setenv("XDG_STATE_HOME", str(custom_state))

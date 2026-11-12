@@ -11,7 +11,7 @@ introducing circular import dependencies.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
     from models import ServerConfig
@@ -58,6 +58,7 @@ class GatewayConfigItem(TypedDict, total=False):
     containerEnvVar: str
     keyringService: str
     keyringAccount: str
+    models: list[dict[str, Any]]
 
 
 # ─── Project Configuration TypedDicts ────────────────────────────────────────

@@ -248,6 +248,30 @@ def test_gateway_auth_enforcement_and_multi_instance(tmp_path: Path):
     with pytest.raises(ValueError, match="can only be instantiated once per provider"):
         extract_models_from_yaml(dup_native_data, gateways_dir=gw_dir)
 
+    # 8. Gateway models specified in models.yaml
+    gw_models_data = {
+        "allow": [
+            {
+                "id": "opper",
+                "containerEnvVar": "OPPER_KEY",
+                "keyringService": "pa-container",
+                "keyringAccount": "OPPER_KEY",
+                "models": [
+                    "glm-5.3",
+                    {"id": "claude-sonnet-4-6", "name": "Claude 4.6"},
+                ],
+            }
+        ]
+    }
+    synth, srvs, hosts, gws, def_m = extract_models_from_yaml(gw_models_data, gateways_dir=gw_dir)
+    assert len(gws) == 1
+    assert "models" in gws[0]
+    assert gws[0]["models"] == [
+        {"id": "glm-5.3", "name": "glm-5.3"},
+        {"id": "claude-sonnet-4-6", "name": "Claude 4.6"},
+    ]
+    assert synth["providers"]["opper"]["models"] == gws[0]["models"]
+
 
 def test_agent_drivers_placeholder_synchronization(tmp_path: Path):
     claude = get_agent_driver("claude")
