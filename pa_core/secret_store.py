@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import sys
 
 sys.dont_write_bytecode = True
@@ -14,11 +15,16 @@ logger = get_category_logger(__name__, LogCategory.SECURITY)
 DEFAULT_KEYRING_SERVICE = "pa-container"
 
 
+@functools.cache
 def get_keyring_secret(
     account: str,
     service: str = DEFAULT_KEYRING_SERVICE,
 ) -> str | None:
-    """Retrieve a secret directly from the OS keyring without checking environment variables."""
+    """Retrieve a secret directly from the OS keyring without checking environment variables.
+
+    Results are cached per-process to avoid redundant Keychain accesses and
+    system authorization prompts on macOS.
+    """
     try:
         import keyring
 

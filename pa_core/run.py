@@ -34,7 +34,6 @@ import project
 import volumes
 from build import DEFAULT_ROOT_COMMANDS, build_agent, build_project_image, build_proxy
 from config import (
-    ADMIN_PASSWORD,
     LLAMA_BIN,
     LLAMA_SERVER_LOCK_DIR,
     LOGS_DIR,
@@ -102,7 +101,10 @@ def _init_runtime() -> None:
     Called only from ``if __name__ == "__main__"`` so that test imports of
     this module do not trigger subprocess calls or environment checks.
     """
-    if not ADMIN_PASSWORD or ADMIN_PASSWORD == "CHANGEME":
+    from secret_store import get_keyring_secret
+
+    admin_password = get_keyring_secret("ADMIN_PASSWORD")
+    if not admin_password or admin_password == "CHANGEME":
         logger.error(
             "ERROR: ADMIN_PASSWORD must be set to a non-default value in the OS keyring "
             "(uv run keyring set pa-container ADMIN_PASSWORD). "

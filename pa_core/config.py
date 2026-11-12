@@ -28,7 +28,6 @@ from huggingface_hub.constants import HF_HUB_CACHE
 from global_config import load_global_config
 from logging_driver import LogCategory, get_category_logger
 from project import get_project_logs_dir
-from secret_store import get_keyring_secret
 
 # ─── Global Configuration ───────────────────────────────────────────────────
 
@@ -68,10 +67,6 @@ LLAMA_SERVER_LOCK_DIR: Path = GLOBAL_CACHE_DIR / "locks" / "servers"
 PROXY_LOCK_DIR: Path = GLOBAL_CACHE_DIR / "locks" / "proxies"
 LOGS_DIR: Path = get_project_logs_dir(PROJECT_DIR)
 TOKENS_DIR: Path = GLOBAL_CACHE_DIR / "tokens"
-if "ADMIN_PASSWORD" in os.environ:
-    logger.warning("ADMIN_PASSWORD in host environment is ignored; credentials must be stored in the OS keyring.")
-    del os.environ["ADMIN_PASSWORD"]
-ADMIN_PASSWORD: str = get_keyring_secret("ADMIN_PASSWORD") or ""
 
 # Optional explicit upstream network override. ``None`` means "use the runtime's
 # default" ("podman"); a non-empty value forces it.

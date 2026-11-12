@@ -11,43 +11,36 @@ sys.dont_write_bytecode = True
 
 class TestInitRuntime:
     def test_exits_on_default_admin_password(self, monkeypatch):
-        monkeypatch.setattr(run, "ADMIN_PASSWORD", "CHANGEME")
-        exited = []
-        monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
-        run._init_runtime()
-        assert exited == [1]
+        with patch("secret_store.get_keyring_secret", return_value="CHANGEME"):
+            exited = []
+            monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
+            run._init_runtime()
+            assert exited == [1]
 
     def test_exits_on_empty_admin_password(self, monkeypatch, caplog):
         import logging
 
-        monkeypatch.setattr(run, "ADMIN_PASSWORD", "")
-        exited = []
-        monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
-        with caplog.at_level(logging.ERROR):
-            run._init_runtime()
-        assert exited == [1]
-        assert "uv run keyring set pa-container ADMIN_PASSWORD" in caplog.text
-        assert "Host environment variables are not accepted" in caplog.text
+        with patch("secret_store.get_keyring_secret", return_value=""):
+            exited = []
+            monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
+            with caplog.at_level(logging.ERROR):
+                run._init_runtime()
+            assert exited == [1]
+            assert "uv run keyring set pa-container ADMIN_PASSWORD" in caplog.text
+            assert "Host environment variables are not accepted" in caplog.text
 
-    def test_admin_password_ignores_host_environment_variables(self, monkeypatch, caplog):
-        import importlib
+    def test_admin_password_fetched_from_keyring_only(self, monkeypatch, caplog):
         import logging
 
-        import config
-
         monkeypatch.setenv("ADMIN_PASSWORD", "env_should_be_ignored")
-        with patch("secret_store.get_keyring_secret", return_value="from_keyring_only"):
-            with caplog.at_level(logging.WARNING):
-                importlib.reload(config)
-            try:
-                assert config.ADMIN_PASSWORD == "from_keyring_only"
-                assert "ADMIN_PASSWORD in host environment is ignored" in caplog.text
-                assert "ADMIN_PASSWORD" not in os.environ
-            finally:
-                importlib.reload(config)
+        with (
+            patch("secret_store.get_keyring_secret", return_value="from_keyring_only") as mock_get,
+            caplog.at_level(logging.ERROR),
+        ):
+            run._init_runtime()
+        mock_get.assert_called_once_with("ADMIN_PASSWORD")
 
     def test_exits_on_environment_error(self, monkeypatch):
-        monkeypatch.setattr(run, "ADMIN_PASSWORD", "securepassword123")
         exited = []
         monkeypatch.setattr(run.sys, "exit", lambda code: exited.append(code))
 
@@ -55,18 +48,19 @@ class TestInitRuntime:
             raise run.EnvironmentError("Podman not found")
 
         monkeypatch.setattr(run, "validate_environment", mock_validate)
-        run._init_runtime()
+        with patch("secret_store.get_keyring_secret", return_value="securepassword123"):
+            run._init_runtime()
         assert exited == [1]
 
     def test_initializes_runtime_on_valid_environment(self, monkeypatch):
-        monkeypatch.setattr(run, "ADMIN_PASSWORD", "securepassword123")
         monkeypatch.setattr(run, "validate_environment", lambda bin_path: "podman")
 
         mock_rt = MagicMock()
         mock_rt.upstream_network = "podman"
         monkeypatch.setattr(run, "PodmanRuntime", lambda *a, **kw: mock_rt)
 
-        run._init_runtime()
+        with patch("secret_store.get_keyring_secret", return_value="securepassword123"):
+            run._init_runtime()
         assert run.CONTAINER_RUNTIME == "podman"
         assert run.PROXY_UPSTREAM_NETWORK == "podman"
 

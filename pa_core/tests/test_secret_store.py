@@ -3,11 +3,21 @@ from __future__ import annotations
 import sys
 from unittest.mock import patch
 
+import pytest
+
 import secret_store
 
 sys.dont_write_bytecode = True
 
 """Unit tests for pa_core/secret_store.py."""
+
+
+@pytest.fixture(autouse=True)
+def _clear_keyring_cache():
+    """Clear the lru_cache on get_keyring_secret between tests."""
+    secret_store.get_keyring_secret.cache_clear()
+    yield
+    secret_store.get_keyring_secret.cache_clear()
 
 
 def test_get_keyring_secret_success():

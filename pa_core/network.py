@@ -19,7 +19,7 @@ sys.dont_write_bytecode = True
 
 """Container network and proxy container lifecycle management."""
 
-from config import ADMIN_PASSWORD, PROJECT_DIR, PROXY_LOCK_DIR
+from config import PROJECT_DIR, PROXY_LOCK_DIR
 from runtimes import PodmanRuntime
 from util import (
     get_free_port,
@@ -1020,6 +1020,9 @@ class ContainerNetworkManager:
         return get_ref_count(self.paths["clients_file"])
 
     def _actually_start(self) -> None:
+        from secret_store import get_keyring_secret
+
+        self._admin_password = get_keyring_secret("ADMIN_PASSWORD") or ""
         # Pull secrets required by the mounted token_replacer config
         secrets = self._pull_secrets_from_config()
         proxy_cfg = read_proxy_config(self.config_dir)
@@ -1130,7 +1133,7 @@ class ContainerNetworkManager:
             "--env",
             f"IPV6_ENABLED={str(self.ipv6).lower()}",
             "--env",
-            f"ADMIN_PASSWORD={ADMIN_PASSWORD}",
+            f"ADMIN_PASSWORD={self._admin_password}",
             *(["--env", f"LLAMA_PORTS={self.llama_ports}"] if self.llama_ports else []),
             *(["--env", f"LLAMA_HOSTNAMES={self.llama_hostnames}"] if self.llama_hostnames else []),
             *(["--env", f"LLAMA_HOST_ADDR={llama_host_addr}"] if llama_host_addr else []),
