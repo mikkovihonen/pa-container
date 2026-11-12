@@ -54,6 +54,7 @@ features:
             env:
                 DISPLAY: ":0"
                 WAYLAND_DISPLAY: "wayland-0"
+        skill_fragment: "skill/features/wayland.md"
         verification:
             command: "command -v labwc && command -v wayvnc && command -v Xwayland"
             expected_output_contains: "labwc"
@@ -73,6 +74,7 @@ features:
         runtime:
             env:
                 DISPLAY: ":0"
+        skill_fragment: "skill/features/x11.md"
         verification:
             command: "command -v Xvfb && command -v x11vnc && command -v xdotool"
             expected_output_contains: "Xvfb"

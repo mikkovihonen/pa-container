@@ -408,6 +408,8 @@ def test_virtual_desktop_manifest_features():
     assert feats["x11"]["payload"]["script"] == "features/x11/build.sh"
     assert "wayland-0" in feats["wayland"]["runtime"]["env"]["WAYLAND_DISPLAY"]
     assert "WAYLAND_DISPLAY" not in feats["x11"]["runtime"]["env"]
+    assert feats["wayland"]["skill_fragment"] == "skill/features/wayland.md"
+    assert feats["x11"]["skill_fragment"] == "skill/features/x11.md"
 
     pkg_dir = REPO_ROOT / "pa_packages" / "virtual-desktop"
     assert (pkg_dir / "features" / "wayland" / "build.sh").is_file()
