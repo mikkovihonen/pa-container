@@ -447,9 +447,9 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
                         if manifest.features
                         else ["pi"]
                     )
-                    for f in def_feats:
-                        if f not in agents:
-                            agents.append(f)
+                    for df in def_feats:
+                        if df not in agents:
+                            agents.append(df)
                 else:
                     if p_name not in agents:
                         agents.append(p_name)
@@ -460,11 +460,23 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
                     if p_name == "agents":
                         feats: list[str] = []
                         if isinstance(v, list):
-                            feats = [str(f).strip().lower() for f in v if str(f).strip()]
+                            for vf in v:
+                                if isinstance(vf, str) and vf.strip():
+                                    feats.append(vf.strip().lower())
+                                elif isinstance(vf, dict) and len(vf) == 1:
+                                    f_key = str(next(iter(vf.keys()))).strip().lower()
+                                    if f_key:
+                                        feats.append(f_key)
                         elif isinstance(v, dict):
                             feat_list = v.get("features", [])
                             if isinstance(feat_list, list):
-                                feats = [str(f).strip().lower() for f in feat_list if str(f).strip()]
+                                for fl_item in feat_list:
+                                    if isinstance(fl_item, str) and fl_item.strip():
+                                        feats.append(fl_item.strip().lower())
+                                    elif isinstance(fl_item, dict) and len(fl_item) == 1:
+                                        f_key = str(next(iter(fl_item.keys()))).strip().lower()
+                                        if f_key:
+                                            feats.append(f_key)
                         if not feats:
                             manifest = manifests["agents"]
                             feats = (
@@ -476,9 +488,9 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
                                 if manifest.features
                                 else ["pi"]
                             )
-                        for f in feats:
-                            if f not in agents:
-                                agents.append(f)
+                        for af in feats:
+                            if af not in agents:
+                                agents.append(af)
                     else:
                         if p_name not in agents:
                             agents.append(p_name)

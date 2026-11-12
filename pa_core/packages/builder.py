@@ -250,7 +250,7 @@ def generate_dynamic_builder_containerfile(
     common_script_path = r_root / "pa_packages" / "common.sh"
     common_script = common_script_path.read_text().rstrip() if common_script_path.is_file() else ""
 
-    lines: list[str] = [
+    lines = [
         "# Auto-generated dynamic multi-stage build recipe by pa-container",
         f"FROM {FEDORA_BASE_IMAGE} AS builder-base",
         f"RUN microdnf install -y --nodocs {system_pkgs_str} && microdnf clean all",

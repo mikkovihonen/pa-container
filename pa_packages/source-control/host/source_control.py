@@ -20,6 +20,7 @@ Neither .env files nor host environment variables are accepted as credential sto
 
 if TYPE_CHECKING:
     import logging
+    from collections.abc import Mapping
 
     from .types import SourceControlConfig
 
@@ -152,8 +153,9 @@ def resolve_source_control_tokens(
     config_dir_or_secrets: list[Any] | Path | None = None,
     log: logging.Logger | logging.LoggerAdapter[Any] | None = None,
     config_dir: Path | None = None,
-    raw_config: dict[str, Any] | None = None,
+    raw_config: Mapping[str, Any] | None = None,
     secrets: list[Any] | None = None,
+    feature_configs: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Resolve tokens for all source control providers exclusively from declared secrets.
 
@@ -172,6 +174,7 @@ def resolve_source_control_tokens(
         secret_list = list(secrets)
 
     auto_detect_host_cli = False
+    feat_cfgs: dict[str, dict[str, Any]] = dict(feature_configs or {})
     cfg = (
         raw_config
         if raw_config is not None
@@ -185,7 +188,16 @@ def resolve_source_control_tokens(
                     val = item["source-control"]
                     if isinstance(val, dict):
                         if not secret_list:
-                            secret_list = list(val.get("secrets") or [])
+                            secret_list.extend(val.get("secrets") or [])
+                            feats = val.get("features") or []
+                            if isinstance(feats, list):
+                                for f in feats:
+                                    if isinstance(f, dict) and len(f) == 1:
+                                        f_name, f_val = next(iter(f.items()))
+                                        if isinstance(f_val, dict):
+                                            secret_list.extend(f_val.get("secrets") or [])
+                                            if f_name not in feat_cfgs and "config" in f_val:
+                                                feat_cfgs[f_name] = dict(f_val["config"] or {})
                         pkg_cfg = val.get("config") or {}
                         if isinstance(pkg_cfg, dict):
                             auto_detect_host_cli = bool(pkg_cfg.get("auto_detect_host_cli", False))
@@ -205,8 +217,13 @@ def resolve_source_control_tokens(
         if not provider:
             continue
 
+        prov_auto_detect = auto_detect_host_cli
+        prov_feat_cfg = feat_cfgs.get(provider.name) or feat_cfgs.get(provider.name.replace("_", "-"))
+        if prov_feat_cfg and "auto_detect_host_cli" in prov_feat_cfg:
+            prov_auto_detect = bool(prov_feat_cfg["auto_detect_host_cli"])
+
         secret = get_keyring_secret(account, service=DEFAULT_KEYRING_SERVICE)
-        if not secret and auto_detect_host_cli and provider.host_cli_cmd:
+        if not secret and prov_auto_detect and provider.host_cli_cmd:
             cli_token = _probe_host_cli(provider.host_cli_cmd)
             if cli_token:
                 secret = cli_token

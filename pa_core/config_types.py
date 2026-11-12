@@ -204,18 +204,30 @@ class ProjectAgentSectionConfig(TypedDict, total=False):
 
 
 class PackageSecretDeclaration(TypedDict):
-    """Explicit secret binding declaration for a package."""
+    """Explicit secret binding declaration for a package or feature."""
 
     name: str
     account: str
 
 
-class PackageDeclaration(TypedDict, total=False):
-    """Canonical package specification item."""
+class ComponentDeclaration(TypedDict, total=False):
+    """Base canonical declaration for a package or feature component."""
 
-    features: list[str]
     config: dict[str, object]
     secrets: list[PackageSecretDeclaration]
+
+
+class FeatureDeclaration(ComponentDeclaration, total=False):
+    """Canonical feature specification item."""
+
+
+FeatureCanonicalItem = dict[str, FeatureDeclaration]
+
+
+class PackageDeclaration(ComponentDeclaration, total=False):
+    """Canonical package specification item."""
+
+    features: list[FeatureCanonicalItem]
 
 
 PackageCanonicalItem = dict[str, PackageDeclaration]

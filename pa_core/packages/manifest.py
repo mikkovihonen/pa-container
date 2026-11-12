@@ -118,6 +118,8 @@ class FeatureConfig:
     token_replacer: list[TokenReplacerRule] = field(default_factory=list)
     skill_fragment: str | None = None
     verification: VerificationConfig = field(default_factory=VerificationConfig)
+    config: dict[str, Any] = field(default_factory=dict)
+    secrets: list[SecretMappingConfig] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -408,6 +410,8 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
                     token_replacer=_parse_token_replacers(feat_dict.get("token_replacer") or {}),
                     skill_fragment=feat_dict.get("skill_fragment"),
                     verification=_parse_verification(feat_dict.get("verification") or {}),
+                    config=dict(feat_dict.get("config") or {}),
+                    secrets=_parse_secrets(feat_dict.get("secrets") or []),
                 )
 
     # Extension

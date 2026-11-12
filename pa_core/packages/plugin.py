@@ -65,6 +65,8 @@ class RunContext:
     attributes: dict[str, Any] = field(default_factory=dict)
     package_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     package_secrets: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+    feature_configs: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
+    feature_secrets: dict[str, dict[str, list[dict[str, str]]]] = field(default_factory=dict)
     exit_stack: ExitStack | None = None
 
     def add_mode(self, mode: str) -> None:
@@ -90,6 +92,14 @@ class RunContext:
     def get_package_secrets(self, package_name: str) -> list[dict[str, str]]:
         """Retrieve explicit secret mappings for a package."""
         return self.package_secrets.get(package_name, [])
+
+    def get_feature_config(self, package_name: str, feature_name: str) -> dict[str, Any]:
+        """Retrieve resolved configuration dictionary for a feature within a package."""
+        return self.feature_configs.get(package_name, {}).get(feature_name, {})
+
+    def get_feature_secrets(self, package_name: str, feature_name: str) -> list[dict[str, str]]:
+        """Retrieve explicit secret mappings for a feature within a package."""
+        return self.feature_secrets.get(package_name, {}).get(feature_name, [])
 
 
 @dataclass(frozen=True)
@@ -131,6 +141,10 @@ class ACPPlugin:
 
     def contribute_config_schema(self) -> type[object] | dict[str, Any] | None:
         """Return the dataclass or schema type/dict for validating the package config section."""
+        return None
+
+    def contribute_feature_config_schema(self, feature_name: str) -> type[object] | dict[str, Any] | None:
+        """Return the dataclass or schema type/dict for validating a specific feature config section."""
         return None
 
     def get_secret_mappings(self, config: ProjectConfig) -> list[SecretTokenMapping]:

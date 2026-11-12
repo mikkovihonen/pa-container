@@ -173,32 +173,61 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def resolve_component_declaration(
+    val: dict[str, Any],
+    default_config: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Resolve merged configuration and explicit secret bindings for a component (package or feature)."""
+    defaults = copy.deepcopy(default_config or {})
+    overrides = val.get("config") or {}
+    resolved_config = deep_merge(defaults, overrides) if isinstance(overrides, dict) else defaults
+
+    raw_secrets = val.get("secrets") or []
+    if isinstance(raw_secrets, list):
+        resolved_secrets = [
+            {"name": str(s.get("name")), "account": str(s.get("account"))}
+            for s in raw_secrets
+            if isinstance(s, dict) and s.get("name") and s.get("account")
+        ]
+    else:
+        resolved_secrets = []
+
+    return resolved_config, resolved_secrets
+
+
 def resolve_project_package_declarations(
     project_dir: Path,
     repo_root: Path | None = None,
-) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, str]]]]:
-    """Resolve merged package configurations and explicit secret bindings from .pa-container/config.yaml."""
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, list[dict[str, str]]],
+    dict[str, dict[str, dict[str, Any]]],
+    dict[str, dict[str, list[dict[str, str]]]],
+]:
+    """Resolve merged package and feature configurations and secret bindings from .pa-container/config.yaml."""
     cfg_path = project_dir / ".pa-container" / "config.yaml"
     if not cfg_path.is_file():
-        return {}, {}
+        return {}, {}, {}, {}
 
     try:
         raw_data = load_yaml_strict(cfg_path.read_text())
     except Exception:
-        return {}, {}
+        return {}, {}, {}, {}
 
     if not isinstance(raw_data, dict):
-        return {}, {}
+        return {}, {}, {}, {}
 
     pkgs_list = raw_data.get("packages")
     if not isinstance(pkgs_list, list):
-        return {}, {}
+        return {}, {}, {}, {}
 
     from packages.discovery import discover_packages
 
     manifests = discover_packages(repo_root)
     pkg_configs: dict[str, dict[str, Any]] = {}
     pkg_secrets: dict[str, list[dict[str, str]]] = {}
+    feat_configs: dict[str, dict[str, dict[str, Any]]] = {}
+    feat_secrets: dict[str, dict[str, list[dict[str, str]]]] = {}
 
     for item in pkgs_list:
         if isinstance(item, dict) and len(item) == 1:
@@ -206,24 +235,25 @@ def resolve_project_package_declarations(
             if not isinstance(val, dict):
                 continue
             manifest = manifests.get(pkg_name)
-            defaults = copy.deepcopy(manifest.config) if manifest else {}
-            overrides = val.get("config") or {}
-            if isinstance(overrides, dict):
-                pkg_configs[pkg_name] = deep_merge(defaults, overrides)
-            else:
-                pkg_configs[pkg_name] = defaults
+            p_cfg, p_sec = resolve_component_declaration(val, manifest.config if manifest else {})
+            pkg_configs[pkg_name] = p_cfg
+            pkg_secrets[pkg_name] = p_sec
 
-            raw_secrets = val.get("secrets") or []
-            if isinstance(raw_secrets, list):
-                pkg_secrets[pkg_name] = [
-                    {"name": str(s.get("name")), "account": str(s.get("account"))}
-                    for s in raw_secrets
-                    if isinstance(s, dict) and s.get("name") and s.get("account")
-                ]
-            else:
-                pkg_secrets[pkg_name] = []
+            feat_configs[pkg_name] = {}
+            feat_secrets[pkg_name] = {}
+            raw_features = val.get("features") or []
+            if isinstance(raw_features, list):
+                for f_item in raw_features:
+                    if isinstance(f_item, dict) and len(f_item) == 1:
+                        f_name, f_val = next(iter(f_item.items()))
+                        if isinstance(f_val, dict):
+                            f_manifest = manifest.features.get(f_name) if manifest else None
+                            f_defaults = f_manifest.config if f_manifest else {}
+                            fc, fs = resolve_component_declaration(f_val, f_defaults)
+                            feat_configs[pkg_name][f_name] = fc
+                            feat_secrets[pkg_name][f_name] = fs
 
-    return pkg_configs, pkg_secrets
+    return pkg_configs, pkg_secrets, feat_configs, feat_secrets
 
 
 def get_package_host_module(package_name: str, module_name: str, packages_dir: Path | None = None) -> Any:

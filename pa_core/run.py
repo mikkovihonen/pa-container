@@ -299,7 +299,7 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
 
     from packages.loader import resolve_project_package_declarations
 
-    pkg_configs, pkg_secrets = resolve_project_package_declarations(PROJECT_DIR)
+    pkg_configs, pkg_secrets, feat_configs, feat_secrets = resolve_project_package_declarations(PROJECT_DIR)
 
     ctx = RunContext(
         project_dir=PROJECT_DIR,
@@ -309,6 +309,8 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         active_packages=active_pkgs,
         package_configs=pkg_configs,
         package_secrets=pkg_secrets,
+        feature_configs=feat_configs,
+        feature_secrets=feat_secrets,
     )
 
     for plugin in active_plugins.values():

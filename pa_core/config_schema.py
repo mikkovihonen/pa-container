@@ -1,3 +1,4 @@
+import contextlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,75 @@ SCHEMA_VERSION_MISMATCH = "schema_version mismatch"
 # ─── Validation ─────────────────────────────────────────────────────────────
 # All helpers are imported from ``schema_common.py``.
 from packages import discover_packages
+
+
+def _validate_canonical_component(
+    comp_type: str,
+    name: str,
+    val: Any,
+    manifest_secrets: list[Any],
+    path_prefix: str,
+    allow_features: bool = False,
+) -> list[str]:
+    """Reusable validation for any canonical component (package or feature)."""
+    errors: list[str] = []
+    spec_name = "Canonical Package Specification" if comp_type == "package" else "Canonical Feature Specification"
+    if not isinstance(val, dict):
+        expected_keys = "'features', 'config', and 'secrets'" if allow_features else "'config' and 'secrets'"
+        errors.append(
+            f"  {path_prefix}: {spec_name} required. Expected mapping containing {expected_keys}, "
+            f"got {type(val).__name__}. Shorthand syntax is not supported."
+        )
+        return errors
+
+    allowed_keys = {"features", "config", "secrets"} if allow_features else {"config", "secrets"}
+    unrecognized_keys = set(val.keys()) - allowed_keys
+    if unrecognized_keys:
+        msg_keys = (
+            "Configuration must be under 'config:', features under 'features:', and secrets under 'secrets:'."
+            if allow_features
+            else "Configuration must be under 'config:' and secrets under 'secrets:'."
+        )
+        errors.append(f"  {path_prefix}: unrecognized key(s) {sorted(unrecognized_keys)}. {msg_keys}")
+
+    # 1. Validate config
+    if "config" not in val:
+        errors.append(f"  {path_prefix}: missing required key 'config' (use 'config: {{}}' if default)")
+    elif not isinstance(val["config"], dict):
+        errors.append(f"  {path_prefix}.config: expected mapping, got {type(val['config']).__name__}")
+
+    # 2. Validate secrets
+    mapped_secret_names: set[str] = set()
+    if "secrets" not in val:
+        errors.append(f"  {path_prefix}: missing required key 'secrets' (use 'secrets: []' if none)")
+    elif not isinstance(val["secrets"], list):
+        errors.append(f"  {path_prefix}.secrets: expected list, got {type(val['secrets']).__name__}")
+    else:
+        for s_idx, sec_item in enumerate(val["secrets"]):
+            if not isinstance(sec_item, dict):
+                errors.append(
+                    f"  {path_prefix}.secrets[{s_idx}]: expected mapping with 'name' and 'account', "
+                    f"got {type(sec_item).__name__}"
+                )
+                continue
+            s_name = sec_item.get("name")
+            s_account = sec_item.get("account")
+            if not isinstance(s_name, str) or not s_name.strip():
+                errors.append(f"  {path_prefix}.secrets[{s_idx}]: missing required field 'name'.")
+            if not isinstance(s_account, str) or not s_account.strip():
+                errors.append(f"  {path_prefix}.secrets[{s_idx}]: missing required field 'account'.")
+            if isinstance(s_name, str) and s_name.strip() and isinstance(s_account, str) and s_account.strip():
+                mapped_secret_names.add(s_name.strip())
+
+    # 3. Hard error on unmapped required secrets
+    for slot in manifest_secrets:
+        if slot.required and slot.name not in mapped_secret_names:
+            errors.append(
+                f"  {path_prefix}: unmapped required secret '{slot.name}'. "
+                f"Declare an explicit binding under 'secrets:' with both 'name' and 'account'."
+            )
+
+    return errors
 
 
 def _validate_packages(data: dict[str, Any]) -> list[str]:
@@ -90,21 +160,21 @@ def _validate_packages(data: dict[str, Any]) -> list[str]:
                 f"does not match pa-container version '{app_version}'"
             )
 
+        # Validate package component fields (config, secrets)
+        pkg_comp_errors = _validate_canonical_component(
+            comp_type="package",
+            name=pkg_name,
+            val=val,
+            manifest_secrets=pkg_manifest.secrets,
+            path_prefix=f"packages: {pkg_name}",
+            allow_features=True,
+        )
+        errors.extend(pkg_comp_errors)
+
         if not isinstance(val, dict):
-            errors.append(
-                f"  packages: {pkg_name}: Canonical Package Specification required. Expected mapping containing 'features', 'config', and 'secrets', "
-                f"got {type(val).__name__}. Shorthand syntax is not supported."
-            )
             continue
 
-        unrecognized_keys = set(val.keys()) - {"features", "config", "secrets"}
-        if unrecognized_keys:
-            errors.append(
-                f"  packages: {pkg_name}: unrecognized key(s) {sorted(unrecognized_keys)}. "
-                f"Configuration must be under 'config:', features under 'features:', and secrets under 'secrets:'."
-            )
-
-        # 1. Validate features
+        # Validate features
         if "features" not in val:
             errors.append(f"  packages: {pkg_name}: missing required key 'features' (use 'features: []' if none)")
         else:
@@ -112,74 +182,63 @@ def _validate_packages(data: dict[str, Any]) -> list[str]:
             if not isinstance(feats_raw, list):
                 errors.append(f"  packages: {pkg_name}.features: expected list, got {type(feats_raw).__name__}")
             else:
-                feats = []
-                for f in feats_raw:
-                    if not isinstance(f, str):
-                        errors.append(f"  packages: {pkg_name}.features: expected string, got {f!r}")
-                    else:
-                        feats.append(f)
                 known_features = set(pkg_manifest.features.keys()) if pkg_manifest.features else set()
-                if known_features:
-                    for f in feats:
-                        if f not in known_features:
-                            errors.append(
-                                f"  packages: {pkg_name}: unknown feature '{f}'. Available features: {', '.join(sorted(known_features))}"
-                            )
-                # Check mandatory feature selection
-                if pkg_manifest.features_required and not feats:
+                active_features_count = 0
+                for f_idx, feat_item in enumerate(feats_raw):
+                    if isinstance(feat_item, str):
+                        errors.append(
+                            f"  packages: {pkg_name}.features: bare string feature name '{feat_item}' is not supported. "
+                            f"Use Canonical Feature Specification: - {feat_item}: {{ config: {{...}}, secrets: [...] }}"
+                        )
+                        continue
+                    if not isinstance(feat_item, dict):
+                        errors.append(
+                            f"  packages: {pkg_name}.features[{f_idx}]: expected dict item following Canonical Feature Specification, "
+                            f"got {type(feat_item).__name__} (value: {feat_item!r})"
+                        )
+                        continue
+                    if len(feat_item) != 1:
+                        errors.append(
+                            f"  packages: {pkg_name}.features[{f_idx}]: dictionary entry must have exactly one feature name as key, "
+                            f"got {list(feat_item.keys())}"
+                        )
+                        continue
+                    feat_name, feat_val = next(iter(feat_item.items()))
+                    active_features_count += 1
+                    if known_features and feat_name not in known_features:
+                        errors.append(
+                            f"  packages: {pkg_name}: unknown feature '{feat_name}'. Available features: {', '.join(sorted(known_features))}"
+                        )
+                        continue
+                    feat_manifest = pkg_manifest.features.get(feat_name)
+                    feat_secrets = feat_manifest.secrets if feat_manifest else []
+                    feat_comp_errors = _validate_canonical_component(
+                        comp_type="feature",
+                        name=feat_name,
+                        val=feat_val,
+                        manifest_secrets=feat_secrets,
+                        path_prefix=f"packages: {pkg_name}.features.{feat_name}",
+                        allow_features=False,
+                    )
+                    errors.extend(feat_comp_errors)
+
+                if pkg_manifest.features_required and active_features_count == 0:
                     known = sorted(pkg_manifest.features.keys()) if pkg_manifest.features else []
                     errors.append(
                         f"  packages: {pkg_name}: this package requires at least one feature. "
                         f"Available: {', '.join(known)}"
                     )
 
-        # 2. Validate config
-        if "config" not in val:
-            errors.append(f"  packages: {pkg_name}: missing required key 'config' (use 'config: {{}}' if default)")
-        elif not isinstance(val["config"], dict):
-            errors.append(f"  packages: {pkg_name}.config: expected mapping, got {type(val['config']).__name__}")
-
-        # 3. Validate secrets
-        mapped_secret_names: set[str] = set()
-        if "secrets" not in val:
-            errors.append(f"  packages: {pkg_name}: missing required key 'secrets' (use 'secrets: []' if none)")
-        elif not isinstance(val["secrets"], list):
-            errors.append(f"  packages: {pkg_name}.secrets: expected list, got {type(val['secrets']).__name__}")
-        else:
-            for s_idx, sec_item in enumerate(val["secrets"]):
-                if not isinstance(sec_item, dict):
-                    errors.append(
-                        f"  packages: {pkg_name}.secrets[{s_idx}]: expected mapping with 'name' and 'account', "
-                        f"got {type(sec_item).__name__}"
-                    )
-                    continue
-                s_name = sec_item.get("name")
-                s_account = sec_item.get("account")
-                if not isinstance(s_name, str) or not s_name.strip():
-                    errors.append(f"  packages: {pkg_name}.secrets[{s_idx}]: missing required field 'name'.")
-                if not isinstance(s_account, str) or not s_account.strip():
-                    errors.append(f"  packages: {pkg_name}.secrets[{s_idx}]: missing required field 'account'.")
-                if isinstance(s_name, str) and s_name.strip() and isinstance(s_account, str) and s_account.strip():
-                    mapped_secret_names.add(s_name.strip())
-
-        # 4. Hard error on unmapped required secrets
-        for slot in pkg_manifest.secrets:
-            if slot.required and slot.name not in mapped_secret_names:
-                errors.append(
-                    f"  packages: {pkg_name}: unmapped required secret '{slot.name}'. "
-                    f"Declare an explicit binding under 'secrets:' with both 'name' and 'account'."
-                )
-
     if agent_packages_count == 0:
         errors.append(
             "  packages: configuration must include at least one agent package (category: 'agents'), "
-            "e.g. - agents: { features: [pi], config: {}, secrets: [] }"
+            "e.g. - agents: { features: [- pi: { config: {}, secrets: [] }], config: {}, secrets: [] }"
         )
     return errors
 
 
 def _validate_package_configs(data: dict[str, Any]) -> list[str]:
-    """Validate package configurations and reject deprecated root-level sections."""
+    """Validate package and feature configurations and reject deprecated root-level sections."""
     errors: list[str] = []
 
     # Reject legacy root sections
@@ -203,10 +262,12 @@ def _validate_package_configs(data: dict[str, Any]) -> list[str]:
                 if isinstance(val, dict) and pkg_name in manifests:
                     manifest = manifests[pkg_name]
                     pkg_config = val.get("config")
+                    pkg_dir = get_package_dir(manifest.name)
+                    plugin = None
+                    with contextlib.suppress(Exception):
+                        plugin = load_acp_plugin(manifest, pkg_dir)
                     if isinstance(pkg_config, dict):
-                        pkg_dir = get_package_dir(manifest.name)
                         try:
-                            plugin = load_acp_plugin(manifest, pkg_dir)
                             if plugin is not None:
                                 schema_contrib = plugin.contribute_config_schema()
                                 if isinstance(schema_contrib, dict):
@@ -221,6 +282,35 @@ def _validate_package_configs(data: dict[str, Any]) -> list[str]:
                                         errors.extend(sub_errors)
                         except Exception as e:
                             errors.append(f"  packages.{pkg_name}.config: error validating package configuration: {e}")
+
+                    # Validate feature configs
+                    feats = val.get("features") or []
+                    if isinstance(feats, list):
+                        for f_item in feats:
+                            if isinstance(f_item, dict) and len(f_item) == 1:
+                                f_name, f_val = next(iter(f_item.items()))
+                                if isinstance(f_val, dict) and f_name in manifest.features:
+                                    feat_manifest = manifest.features[f_name]
+                                    f_config = f_val.get("config")
+                                    if isinstance(f_config, dict) and plugin is not None:
+                                        try:
+                                            feat_schema = plugin.contribute_feature_config_schema(f_name)
+                                            if isinstance(feat_schema, dict):
+                                                sub_keys = feat_schema.get("keys", {})
+                                                if sub_keys:
+                                                    from packages.loader import deep_merge
+
+                                                    merged_feat_config = deep_merge(feat_manifest.config, f_config)
+                                                    sub_errors = _validate_schema(
+                                                        merged_feat_config,
+                                                        sub_keys,
+                                                        f"packages.{pkg_name}.features.{f_name}.config",
+                                                    )
+                                                    errors.extend(sub_errors)
+                                        except Exception as e:
+                                            errors.append(
+                                                f"  packages.{pkg_name}.features.{f_name}.config: error validating feature configuration: {e}"
+                                            )
 
     return errors
 

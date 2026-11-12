@@ -69,11 +69,23 @@ def resolve_project_packages(
                     continue
                 pkgs_dict.setdefault(pkg_name, set())
                 if isinstance(v, list):
-                    pkgs_dict[pkg_name].update(str(f).strip() for f in v if str(f).strip())
+                    for f in v:
+                        if isinstance(f, str) and f.strip():
+                            pkgs_dict[pkg_name].add(f.strip())
+                        elif isinstance(f, dict) and len(f) == 1:
+                            f_key = str(next(iter(f.keys()))).strip()
+                            if f_key:
+                                pkgs_dict[pkg_name].add(f_key)
                 elif isinstance(v, dict):
                     feats_list = v.get("features")
                     if isinstance(feats_list, list):
-                        pkgs_dict[pkg_name].update(str(f).strip() for f in feats_list if str(f).strip())
+                        for f in feats_list:
+                            if isinstance(f, str) and f.strip():
+                                pkgs_dict[pkg_name].add(f.strip())
+                            elif isinstance(f, dict) and len(f) == 1:
+                                f_key = str(next(iter(f.keys()))).strip()
+                                if f_key:
+                                    pkgs_dict[pkg_name].add(f_key)
 
     if include_core:
         from packages import get_core_packages

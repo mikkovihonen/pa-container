@@ -40,7 +40,7 @@ def valid_config(tmp_path: Path) -> Path:
                 "packages": [
                     {
                         "agents": {
-                            "features": ["pi"],
+                            "features": [{"pi": {"config": {}, "secrets": []}}],
                             "config": {},
                             "secrets": [],
                         }
@@ -763,7 +763,15 @@ class TestPackagesSchema:
                     {"name": "bitbucket", "account": "ACC"},
                     {"name": "gitcafe", "account": "ACC"},
                 ]
-            features = ["pi"] if name == "agents" else (["github"] if name == "source-control" else [])
+            features = (
+                [{"pi": {"config": {}, "secrets": []}}]
+                if name == "agents"
+                else (
+                    [{"github": {"config": {}, "secrets": [{"name": "github", "account": "ACC"}]}}]
+                    if name == "source-control"
+                    else []
+                )
+            )
             pkgs.append({name: {"features": features, "config": {}, "secrets": secrets}})
         data["packages"] = pkgs
         valid_config.write_text(yaml.dump(data))
@@ -833,7 +841,7 @@ class TestPackagesSchema:
         data["packages"] = [
             {
                 "agents": {
-                    "features": ["pi"],
+                    "features": [{"pi": {"config": {}, "secrets": []}}],
                     "config": {},
                     "secrets": [{"name": "key"}],
                 }
@@ -854,7 +862,7 @@ class TestPackagesSchema:
         data["packages"].append(
             {
                 "source-control": {
-                    "features": ["github"],
+                    "features": [{"github": {"config": {}, "secrets": []}}],
                     "config": {},
                     "secrets": [],
                 }
@@ -866,6 +874,76 @@ class TestPackagesSchema:
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
         assert any("unmapped required secret 'github'" in e for e in errors)
+
+    def test_bare_string_feature_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"] = [
+            {
+                "agents": {
+                    "features": ["pi"],
+                    "config": {},
+                    "secrets": [],
+                }
+            }
+        ]
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("Canonical Feature Specification" in e for e in errors)
+
+    def test_feature_missing_config_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"] = [
+            {
+                "agents": {
+                    "features": [{"pi": {"secrets": []}}],
+                    "config": {},
+                    "secrets": [],
+                }
+            }
+        ]
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("missing required key 'config'" in e for e in errors)
+
+    def test_feature_secret_missing_account_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"] = [
+            {
+                "source-control": {
+                    "features": [
+                        {
+                            "github": {
+                                "config": {},
+                                "secrets": [{"name": "github"}],
+                            }
+                        }
+                    ],
+                    "config": {},
+                    "secrets": [],
+                }
+            }
+        ]
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("missing required field 'account'" in e for e in errors)
 
     def test_invalid_packages_types(self, valid_config: Path):
         from config_schema import validate_config
@@ -992,13 +1070,31 @@ features:
                         "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
                         "llama": {"startup_timeout": 180, "startup_attempts": 2},
                         "network": {"ipv6": False, "dns": "1.1.1.1"},
-                        "proxy": {"expose_ui": "localhost", "max_view_flows": 2000, "stream_large_bodies": "10m", "open_browser": False},
-                        "packages": [{"req-feats": {"features": ["alpha"], "config": {}, "secrets": []}}],
+                        "proxy": {
+                            "expose_ui": "localhost",
+                            "max_view_flows": 2000,
+                            "stream_large_bodies": "10m",
+                            "open_browser": False,
+                        },
+                        "packages": [
+                            {
+                                "req-feats": {
+                                    "features": [{"alpha": {"config": {}, "secrets": []}}],
+                                    "config": {},
+                                    "secrets": [],
+                                }
+                            }
+                        ],
                         "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
                         "tmpfs": {"paths": []},
                         "flow_export": {"enabled": False},
                         "egress": {"allow": {}},
-                        "security": {"read_only_git_hooks": True, "blocked_mount_paths": [], "blocked_ip_ranges": [], "git_config_allowlist": []},
+                        "security": {
+                            "read_only_git_hooks": True,
+                            "blocked_mount_paths": [],
+                            "blocked_ip_ranges": [],
+                            "git_config_allowlist": [],
+                        },
                         "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
                     }
                 )
@@ -1045,13 +1141,23 @@ features:
                         "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
                         "llama": {"startup_timeout": 180, "startup_attempts": 2},
                         "network": {"ipv6": False, "dns": "1.1.1.1"},
-                        "proxy": {"expose_ui": "localhost", "max_view_flows": 2000, "stream_large_bodies": "10m", "open_browser": False},
+                        "proxy": {
+                            "expose_ui": "localhost",
+                            "max_view_flows": 2000,
+                            "stream_large_bodies": "10m",
+                            "open_browser": False,
+                        },
                         "packages": [{"req-feats-empty": {"features": [], "config": {}, "secrets": []}}],
                         "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
                         "tmpfs": {"paths": []},
                         "flow_export": {"enabled": False},
                         "egress": {"allow": {}},
-                        "security": {"read_only_git_hooks": True, "blocked_mount_paths": [], "blocked_ip_ranges": [], "git_config_allowlist": []},
+                        "security": {
+                            "read_only_git_hooks": True,
+                            "blocked_mount_paths": [],
+                            "blocked_ip_ranges": [],
+                            "git_config_allowlist": [],
+                        },
                         "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
                     }
                 )
@@ -1096,13 +1202,31 @@ features:
                         "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
                         "llama": {"startup_timeout": 180, "startup_attempts": 2},
                         "network": {"ipv6": False, "dns": "1.1.1.1"},
-                        "proxy": {"expose_ui": "localhost", "max_view_flows": 2000, "stream_large_bodies": "10m", "open_browser": False},
-                        "packages": [{"req-feats-unknown": {"features": ["nonexistent"], "config": {}, "secrets": []}}],
+                        "proxy": {
+                            "expose_ui": "localhost",
+                            "max_view_flows": 2000,
+                            "stream_large_bodies": "10m",
+                            "open_browser": False,
+                        },
+                        "packages": [
+                            {
+                                "req-feats-unknown": {
+                                    "features": [{"nonexistent": {"config": {}, "secrets": []}}],
+                                    "config": {},
+                                    "secrets": [],
+                                }
+                            }
+                        ],
                         "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
                         "tmpfs": {"paths": []},
                         "flow_export": {"enabled": False},
                         "egress": {"allow": {}},
-                        "security": {"read_only_git_hooks": True, "blocked_mount_paths": [], "blocked_ip_ranges": [], "git_config_allowlist": []},
+                        "security": {
+                            "read_only_git_hooks": True,
+                            "blocked_mount_paths": [],
+                            "blocked_ip_ranges": [],
+                            "git_config_allowlist": [],
+                        },
                         "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
                     }
                 )

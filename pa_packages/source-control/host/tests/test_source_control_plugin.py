@@ -286,14 +286,19 @@ class TestSourceControlPlugin:
             "packages": [
                 {
                     "source-control": {
-                        "features": ["github", "gitlab", "forgejo", "azure_devops"],
-                        "config": {},
-                        "secrets": [
-                            {"name": "github", "account": "GH_TOKEN"},
-                            {"name": "gitlab", "account": "GITLAB_TOKEN"},
-                            {"name": "forgejo", "account": "GITEA_TOKEN"},
-                            {"name": "azure_devops", "account": "AZURE_DEVOPS_EXT_PAT"},
+                        "features": [
+                            {"github": {"config": {}, "secrets": [{"name": "github", "account": "GH_TOKEN"}]}},
+                            {"gitlab": {"config": {}, "secrets": [{"name": "gitlab", "account": "GITLAB_TOKEN"}]}},
+                            {"forgejo": {"config": {}, "secrets": [{"name": "forgejo", "account": "GITEA_TOKEN"}]}},
+                            {
+                                "azure_devops": {
+                                    "config": {},
+                                    "secrets": [{"name": "azure_devops", "account": "AZURE_DEVOPS_EXT_PAT"}],
+                                }
+                            },
                         ],
+                        "config": {},
+                        "secrets": [],
                     }
                 }
             ]
@@ -315,7 +320,9 @@ class TestSourceControlPlugin:
             options=options,
             config={},
             package_configs={"source-control": {"setup_git_credentials": True}},
-            package_secrets={"source-control": [{"name": "github", "account": "GH_TOKEN"}]},
+            package_secrets={"source-control": []},
+            feature_configs={"source-control": {"github": {"auto_detect_host_cli": False}}},
+            feature_secrets={"source-control": {"github": [{"name": "github", "account": "GH_TOKEN"}]}},
         )
 
         def mock_get_keyring(account: str, service: str = "pa-container") -> str | None:

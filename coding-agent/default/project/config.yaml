@@ -52,7 +52,10 @@ proxy:
 # Core baseline packages (declared via core: true) are always assembled.
 # Every package strictly uses the Canonical Package Specification:
 #   - <package-name>:
-#       features: [...]
+#       features:
+#         - <feature-name>:
+#             config: {...}
+#             secrets: [...]
 #       config: {...}
 #       secrets:
 #         - name: <name>
@@ -62,14 +65,18 @@ proxy:
 packages:
   - agents:
       features:
-        - pi
+        - pi:
+            config: {}
+            secrets: []
       config: {}
       secrets: []
 
   # Git version control & optional MCP server
   # To enable the Git MCP server (mcp-server-git), add 'mcp' under features:
   #   features:
-  #     - mcp
+  #     - mcp:
+  #         config: {}
+  #         secrets: []
   - git:
       features: []
       config:
@@ -92,13 +99,15 @@ packages:
   # Both 'name' and 'account' are strictly required with no defaults.
   # - source-control:
   #     features:
-  #       - github
+  #       - github:
+  #           config:
+  #             auto_detect_host_cli: false
+  #           secrets:
+  #             - name: github
+  #               account: GH_TOKEN
   #     config:
-  #       auto_detect_host_cli: false
   #       setup_git_credentials: true
-  #     secrets:
-  #       - name: github
-  #         account: GH_TOKEN
+  #     secrets: []
 
   # Headless Wayland Desktop & GUI Application Support
   # - virtual-desktop:

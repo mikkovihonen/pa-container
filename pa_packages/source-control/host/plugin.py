@@ -47,6 +47,16 @@ class SourceControlPlugin(ACPPlugin):
             },
         }
 
+    def contribute_feature_config_schema(self, feature_name: str) -> dict[str, Any] | None:
+        """Contribute validation schema dictionary for source-control features."""
+        return {
+            "type": dict,
+            "required": False,
+            "keys": {
+                "auto_detect_host_cli": {"type": bool, "required": False},
+            },
+        }
+
     def get_secret_mappings(self, config: ProjectConfig) -> list[SecretTokenMapping]:
         """Contribute declarative secret mappings for proxy token redaction."""
         pkgs_list = config.get("packages") or []
@@ -56,7 +66,14 @@ class SourceControlPlugin(ACPPlugin):
                 if isinstance(item, dict) and "source-control" in item:
                     val = item["source-control"]
                     if isinstance(val, dict):
-                        sc_secrets = val.get("secrets") or []
+                        sc_secrets.extend(val.get("secrets") or [])
+                        feats = val.get("features") or []
+                        if isinstance(feats, list):
+                            for f in feats:
+                                if isinstance(f, dict) and len(f) == 1:
+                                    f_val = next(iter(f.values()))
+                                    if isinstance(f_val, dict):
+                                        sc_secrets.extend(f_val.get("secrets") or [])
                     break
 
         mappings: list[SecretTokenMapping] = []
@@ -101,9 +118,16 @@ class SourceControlPlugin(ACPPlugin):
         self.sc_cfg = cast("SourceControlConfig", cfg)
 
         context.add_mode("source-control")
-        secrets = context.get_package_secrets("source-control")
+        secrets: list[dict[str, str]] = list(context.get_package_secrets("source-control"))
+        feat_secrets_map = context.feature_secrets.get("source-control", {})
+        for f_sec in feat_secrets_map.values():
+            secrets.extend(f_sec)
+
+        feat_configs_map = context.feature_configs.get("source-control", {})
         tokens = resolve_source_control_tokens(
             secrets=secrets,
+            feature_configs=feat_configs_map,
+            raw_config=context.config,
             log=logger,
         )
         self.resolved_tokens = tokens
