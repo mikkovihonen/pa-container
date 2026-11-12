@@ -1,7 +1,7 @@
 schema_version: "0.7.0"
 name: "virtual-desktop"
-version: "2.0.0"
-description: "Headless Wayland desktop (labwc), wayvnc, noVNC, and agent-desktop automation CLI"
+version: "2.1.0"
+description: "Headless virtual desktop with agent-desktop automation CLI; selectable Wayland (labwc, wayvnc) and X11 (Xvfb, x11vnc) display backends with noVNC streaming"
 category: "desktop"
 license: "MIT"
 
@@ -24,21 +24,58 @@ payload:
     type: build_script
     script: "build.sh"
     build_deps:
-        - "labwc"
-        - "xorg-x11-server-Xwayland"
-        - "wlr-randr"
-        - "wayvnc"
-        - "grim"
-        - "slurp"
         - "novnc"
         - "python3-websockify"
         - "mesa-dri-drivers"
-        - "mesa-libGL"
-        - "mesa-libEGL"
-        - "mesa-libGLES"
-        - "mesa-libgbm"
         - "dejavu-sans-fonts"
         - "liberation-sans-fonts"
+
+features:
+    required: true
+    wayland:
+        description: "Headless Wayland display stack: labwc compositor with Xwayland compatibility, wayvnc VNC server, and wlr-randr/grim/slurp/xdotool/wtype automation tooling"
+        default: true
+        payload:
+            type: build_script
+            script: "features/wayland/build.sh"
+            build_deps:
+                - "labwc"
+                - "xorg-x11-server-Xwayland"
+                - "wlr-randr"
+                - "wayvnc"
+                - "grim"
+                - "slurp"
+                - "xdotool"
+                - "wtype"
+                - "mesa-libEGL"
+                - "mesa-libGLES"
+                - "mesa-libgbm"
+        runtime:
+            env:
+                DISPLAY: ":0"
+                WAYLAND_DISPLAY: "wayland-0"
+        verification:
+            command: "command -v labwc && command -v wayvnc && command -v Xwayland"
+            expected_output_contains: "labwc"
+    x11:
+        description: "Headless X11 display stack: Xvfb display server, x11vnc VNC server, openbox window manager, and xdotool/wmctrl automation tooling"
+        default: false
+        payload:
+            type: build_script
+            script: "features/x11/build.sh"
+            build_deps:
+                - "xorg-x11-server-Xvfb"
+                - "x11vnc"
+                - "xdotool"
+                - "wmctrl"
+                - "openbox"
+                - "ImageMagick"
+        runtime:
+            env:
+                DISPLAY: ":0"
+        verification:
+            command: "command -v Xvfb && command -v x11vnc && command -v xdotool"
+            expected_output_contains: "Xvfb"
 
 skill:
     enabled: true
@@ -58,8 +95,6 @@ runtime:
     devices:
         - "/dev/dri"
     env:
-        DISPLAY: ":0"
-        WAYLAND_DISPLAY: "wayland-0"
         XDG_RUNTIME_DIR: "/run/user/1000"
         PA_CONTAINER_DESKTOP: "true"
 

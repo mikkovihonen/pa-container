@@ -92,6 +92,37 @@ packages:
         read_desktop_config(tmp_path)
 
 
+def test_read_desktop_config_x11_backend(tmp_path: Path):
+    """The 'compositor' key is wayland-only; an x11 backend config must validate without it."""
+    content = """
+packages:
+  - virtual-desktop:
+      features:
+        - x11: {config: {}, secrets: []}
+      config:
+        enabled: true
+        resolution: "1280x1024"
+        open_browser: false
+        vnc:
+          enabled: true
+          port: "auto"
+          expose: "localhost"
+        novnc:
+          enabled: true
+          port: "auto"
+          expose: "localhost"
+        gpu:
+          enabled: false
+      secrets: []
+"""
+    (tmp_path / "config.yaml").write_text(content)
+    cfg = read_desktop_config(tmp_path)
+    assert cfg["enabled"] is True
+    assert cfg["resolution"] == "1280x1024"
+    # compositor defaults to labwc when omitted (valid for wayland; ignored on x11)
+    assert cfg["compositor"] == "labwc"
+
+
 def test_check_desktop_health():
     with patch("urllib.request.urlopen") as mock_url:
         mock_url.return_value = MagicMock()
@@ -295,6 +326,11 @@ def test_agent_desktop_cli_structure():
     assert 'send_key "$k"' in content
     assert "IFS='+' read -ra parts" in content
 
+    # Backend awareness: exports the backend variable and reports both display backends
+    assert 'PA_DESKTOP_BACKEND="${PA_DESKTOP_BACKEND:-wayland}"' in content
+    assert 'if [ "${PA_DESKTOP_BACKEND}" = "x11" ]' in content
+    assert "pgrep -x x11vnc" in content
+
 
 def test_in_container_virtual_desktop_skill():
     from config import REPO_ROOT
@@ -357,9 +393,41 @@ def test_containerfile_and_entrypoint_desktop_skill_integration():
     assert "entrypoint.d/agent" in entrypoint
 
 
+def test_virtual_desktop_manifest_features():
+    """The package manifest must declare the wayland and x11 display backend features."""
+    from config import REPO_ROOT
+    from yaml_strict import load_yaml_strict
+
+    manifest = load_yaml_strict((REPO_ROOT / "pa_packages" / "virtual-desktop" / "package.yaml").read_text())
+    feats = manifest["features"]
+    assert feats["required"] is True
+    assert set(feats) == {"required", "wayland", "x11"}
+    assert feats["wayland"]["default"] is True
+    assert feats["x11"]["default"] is False
+    assert feats["wayland"]["payload"]["script"] == "features/wayland/build.sh"
+    assert feats["x11"]["payload"]["script"] == "features/x11/build.sh"
+    assert "wayland-0" in feats["wayland"]["runtime"]["env"]["WAYLAND_DISPLAY"]
+    assert "WAYLAND_DISPLAY" not in feats["x11"]["runtime"]["env"]
+
+    pkg_dir = REPO_ROOT / "pa_packages" / "virtual-desktop"
+    assert (pkg_dir / "features" / "wayland" / "build.sh").is_file()
+    assert (pkg_dir / "features" / "x11" / "build.sh").is_file()
+
+    # Feature skill fragments exist and describe their backends
+    wayland_frag = (pkg_dir / "container" / "skill" / "features" / "wayland.md").read_text()
+    x11_frag = (pkg_dir / "container" / "skill" / "features" / "x11.md").read_text()
+    assert "wayland-0" in wayland_frag and "labwc" in wayland_frag
+    assert "Xvfb" in x11_frag and "xdotool" in x11_frag
+    # Fragments are appended below the base skill; they must not carry frontmatter
+    assert not wayland_frag.startswith("---")
+    assert not x11_frag.startswith("---")
+
+
 def test_desktop_exit_prevention_and_supervisor():
     from config import REPO_ROOT
     from images import _IMAGE_DEFINITION_FILES
+
+    pkg_vd = REPO_ROOT / "pa_packages" / "virtual-desktop"
 
     # 1. Config tracking: core does not track labwc xmls in base image definition
     assert "labwc/menu.xml" not in _IMAGE_DEFINITION_FILES
@@ -367,35 +435,50 @@ def test_desktop_exit_prevention_and_supervisor():
 
     # 2. labwc menu.xml must not offer Exit or Poweroff
     assert not (REPO_ROOT / "coding-agent" / "labwc").exists()
-    menu_path = REPO_ROOT / "pa_packages" / "virtual-desktop" / "container" / "config" / "labwc" / "menu.xml"
+    menu_path = pkg_vd / "features" / "wayland" / "config" / "labwc" / "menu.xml"
     assert menu_path.is_file()
     menu_content = menu_path.read_text()
     assert '<action name="Exit"' not in menu_content
     assert "poweroff" not in menu_content.lower()
 
     # 3. labwc rc.xml must disable exit shortcuts
-    rc_path = REPO_ROOT / "pa_packages" / "virtual-desktop" / "container" / "config" / "labwc" / "rc.xml"
+    rc_path = pkg_vd / "features" / "wayland" / "config" / "labwc" / "rc.xml"
     assert rc_path.is_file()
     rc_content = rc_path.read_text()
     assert 'key="W-F4"' in rc_content
     assert 'key="C-A-BackSpace"' in rc_content
     assert '<action name="None"' in rc_content
 
-    # 4. pa_packages/virtual-desktop deploys labwc config and noVNC reconnect settings
-    pkg_vd_build = (REPO_ROOT / "pa_packages" / "virtual-desktop" / "container" / "build.sh").read_text()
-    assert "labwc" in pkg_vd_build
-    assert "mandatory.json" in pkg_vd_build
-    assert '"reconnect": true' in pkg_vd_build
+    # 4. Shared package build deploys noVNC reconnect settings; feature builds deploy their backends
+    shared_build = (pkg_vd / "container" / "build.sh").read_text()
+    assert "mandatory.json" in shared_build
+    assert '"reconnect": true' in shared_build
+    wayland_build = (pkg_vd / "features" / "wayland" / "build.sh").read_text()
+    assert "labwc" in wayland_build
+    assert "wayvnc" in wayland_build
+    x11_build = (pkg_vd / "features" / "x11" / "build.sh").read_text()
+    assert "Xvfb" in x11_build
+    assert "x11vnc" in x11_build
+    assert "openbox" in x11_build
 
-    # 5. agent hook seeds config and runs the auto-recovery supervisor loop
-    agent_hook_path = (
-        REPO_ROOT / "pa_packages" / "virtual-desktop" / "container" / "entrypoint.d" / "agent" / "60-desktop.sh"
-    )
-    assert agent_hook_path.is_file()
-    agent_hook = agent_hook_path.read_text()
-    assert "/etc/xdg/labwc/* /home/agent/.config/labwc/" in agent_hook
-    assert 'kill -0 "$_labwc_pid"' in agent_hook
-    assert 'kill -0 "$_wayvnc_pid"' in agent_hook
+    # 5. Wayland agent hook seeds compositor config and runs the auto-recovery supervisor loop
+    wayland_agent_hook = (pkg_vd / "features" / "wayland" / "entrypoint.d" / "agent" / "61-desktop.sh").read_text()
+    assert "/etc/xdg/labwc/* /home/agent/.config/labwc/" in wayland_agent_hook
+    assert 'kill -0 "$_labwc_pid"' in wayland_agent_hook
+    assert 'kill -0 "$_wayvnc_pid"' in wayland_agent_hook
+    assert '${PA_DESKTOP_BACKEND}" != "wayland"' in wayland_agent_hook
+
+    # 6. X11 agent hook supervises Xvfb, openbox, and x11vnc
+    x11_agent_hook = (pkg_vd / "features" / "x11" / "entrypoint.d" / "agent" / "61-desktop.sh").read_text()
+    assert 'kill -0 "$_xvfb_pid"' in x11_agent_hook
+    assert 'kill -0 "$_vnc_pid"' in x11_agent_hook
+    assert "openbox" in x11_agent_hook
+    assert '${PA_DESKTOP_BACKEND}" != "x11"' in x11_agent_hook
+
+    # 7. Shared agent hook serves noVNC for whichever backend is active
+    shared_agent_hook = (pkg_vd / "container" / "entrypoint.d" / "agent" / "60-desktop.sh").read_text()
+    assert "websockify" in shared_agent_hook
+    assert "PA_DESKTOP_BACKEND" in shared_agent_hook
 
     # Base entrypoint must NOT contain labwc or wayvnc
     entrypoint = (REPO_ROOT / "coding-agent" / "entrypoint.sh").read_text()
@@ -403,24 +486,15 @@ def test_desktop_exit_prevention_and_supervisor():
     assert "wayvnc" not in entrypoint
 
 
-def test_virtual_desktop_plugin(tmp_path: Path):
+def _make_run_context(tmp_path: Path, cfg_data: dict, features: list | None):
     from cli import RunOptions
     from packages.plugin import ContainerRunSpec, RunContext
 
     pa_dir = tmp_path / ".pa-container"
-    pa_dir.mkdir(parents=True)
-    cfg_data = {
-        "resolution": "1280x720",
-        "compositor": "labwc",
-        "open_browser": False,
-        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
-        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
-        "gpu": {"enabled": False},
-    }
+    pa_dir.mkdir(parents=True, exist_ok=True)
     (pa_dir / "config.yaml").write_text(
-        yaml.dump({"packages": [{"virtual-desktop": {"features": [], "config": cfg_data, "secrets": []}}]})
+        yaml.dump({"packages": [{"virtual-desktop": {"features": features or [], "config": cfg_data, "secrets": []}}]})
     )
-    plugin = VirtualDesktopPlugin(manifest=None, package_dir=Path("."), project_dir=tmp_path)  # type: ignore[arg-type]
     spec = ContainerRunSpec()
     ctx = RunContext(
         project_dir=tmp_path,
@@ -431,14 +505,151 @@ def test_virtual_desktop_plugin(tmp_path: Path):
         config={},  # type: ignore[arg-type]
         package_configs={"virtual-desktop": cfg_data},
     )
+    return spec, ctx
+
+
+def test_virtual_desktop_plugin(tmp_path: Path):
+    """Legacy configs without explicit features keep the default wayland backend."""
+    from config import REPO_ROOT
+
+    cfg_data = {
+        "resolution": "1280x720",
+        "compositor": "labwc",
+        "open_browser": False,
+        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "gpu": {"enabled": False},
+    }
+    spec, ctx = _make_run_context(tmp_path, cfg_data, features=[])
+    plugin = VirtualDesktopPlugin(
+        manifest=None,
+        package_dir=REPO_ROOT / "pa_packages" / "virtual-desktop",  # type: ignore[arg-type]
+        project_dir=tmp_path,
+    )
     plugin.on_container_configure(spec, ctx)
     assert ctx.has_mode("desktop")
+    assert ctx.get_attribute("desktop.backend") == "wayland"
     assert spec.env["PA_CONTAINER_DESKTOP"] == "true"
+    assert spec.env["PA_DESKTOP_BACKEND"] == "wayland"
     assert spec.env["PA_DESKTOP_RESOLUTION"] == "1280x720"
+    assert spec.env["WAYLAND_DISPLAY"] == "wayland-0"
     assert any(":6080" in p for p in spec.ports)
     assert any(":5900" in p for p in spec.ports)
     assert any("pa-container.desktop.enabled=true" in arg for arg in spec.extra_run_args)
+    assert any("pa-container.desktop.backend=wayland" in arg for arg in spec.extra_run_args)
+    # shared and wayland backend hooks are mounted
+    joined = " ".join(spec.extra_run_args)
+    assert "container/entrypoint.d/root/60-desktop.sh" in joined
+    assert "container/entrypoint.d/agent/60-desktop.sh" in joined
+    assert "features/wayland/entrypoint.d/root/61-desktop.sh" in joined
+    assert "features/wayland/entrypoint.d/agent/61-desktop.sh" in joined
+    assert "features/x11/" not in joined
     plugin.post_start(ctx)
+
+
+def test_virtual_desktop_plugin_x11_backend(tmp_path: Path):
+    """Selecting the x11 feature switches env, labels, and hook mounts to the X11 backend."""
+    from config import REPO_ROOT
+
+    cfg_data = {
+        "resolution": "1600x900",
+        "open_browser": False,
+        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "gpu": {"enabled": False},
+    }
+    spec, ctx = _make_run_context(tmp_path, cfg_data, features=[{"x11": {"config": {}, "secrets": []}}])
+    plugin = VirtualDesktopPlugin(
+        manifest=None,
+        package_dir=REPO_ROOT / "pa_packages" / "virtual-desktop",  # type: ignore[arg-type]
+        project_dir=tmp_path,
+    )
+    plugin.on_container_configure(spec, ctx)
+    assert ctx.get_attribute("desktop.backend") == "x11"
+    assert spec.env["PA_DESKTOP_BACKEND"] == "x11"
+    assert spec.env["PA_DESKTOP_RESOLUTION"] == "1600x900"
+    assert "WAYLAND_DISPLAY" not in spec.env
+    assert spec.env["DISPLAY"] == ":0"
+    assert any("pa-container.desktop.backend=x11" in arg for arg in spec.extra_run_args)
+    joined = " ".join(spec.extra_run_args)
+    assert "features/x11/entrypoint.d/root/61-desktop.sh" in joined
+    assert "features/x11/entrypoint.d/agent/61-desktop.sh" in joined
+    assert "features/wayland/" not in joined
+
+
+def test_virtual_desktop_plugin_explicit_wayland_feature(tmp_path: Path):
+    """Explicitly enabling the wayland feature behaves like the default backend."""
+    from config import REPO_ROOT
+
+    cfg_data = {
+        "resolution": "1920x1080",
+        "open_browser": False,
+        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "gpu": {"enabled": False},
+    }
+    spec, ctx = _make_run_context(tmp_path, cfg_data, features=[{"wayland": {"config": {}, "secrets": []}}])
+    plugin = VirtualDesktopPlugin(
+        manifest=None,
+        package_dir=REPO_ROOT / "pa_packages" / "virtual-desktop",  # type: ignore[arg-type]
+        project_dir=tmp_path,
+    )
+    plugin.on_container_configure(spec, ctx)
+    assert spec.env["PA_DESKTOP_BACKEND"] == "wayland"
+    assert spec.env["WAYLAND_DISPLAY"] == "wayland-0"
+
+
+def test_virtual_desktop_plugin_mutually_exclusive_backends(tmp_path: Path):
+    """Enabling both display backends must fail with a clear error."""
+    import pytest
+
+    from config import REPO_ROOT
+
+    cfg_data = {
+        "resolution": "1920x1080",
+        "open_browser": False,
+        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "gpu": {"enabled": False},
+    }
+    spec, ctx = _make_run_context(
+        tmp_path,
+        cfg_data,
+        features=[
+            {"wayland": {"config": {}, "secrets": []}},
+            {"x11": {"config": {}, "secrets": []}},
+        ],
+    )
+    plugin = VirtualDesktopPlugin(
+        manifest=None,
+        package_dir=REPO_ROOT / "pa_packages" / "virtual-desktop",  # type: ignore[arg-type]
+        project_dir=tmp_path,
+    )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        plugin.on_container_configure(spec, ctx)
+
+
+def test_virtual_desktop_plugin_unknown_feature(tmp_path: Path):
+    """An unknown backend feature must fail with a clear error."""
+    import pytest
+
+    from config import REPO_ROOT
+
+    cfg_data = {
+        "resolution": "1920x1080",
+        "open_browser": False,
+        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+        "gpu": {"enabled": False},
+    }
+    spec, ctx = _make_run_context(tmp_path, cfg_data, features=[{"mir": {"config": {}, "secrets": []}}])
+    plugin = VirtualDesktopPlugin(
+        manifest=None,
+        package_dir=REPO_ROOT / "pa_packages" / "virtual-desktop",  # type: ignore[arg-type]
+        project_dir=tmp_path,
+    )
+    with pytest.raises(ValueError, match="unknown display backend feature"):
+        plugin.on_container_configure(spec, ctx)
 
 
 def test_virtual_desktop_gpu_passthrough(tmp_path: Path):

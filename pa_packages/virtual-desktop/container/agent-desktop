@@ -36,6 +36,7 @@ shift
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export DISPLAY="${DISPLAY:-:0}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
+export PA_DESKTOP_BACKEND="${PA_DESKTOP_BACKEND:-wayland}"
 
 move_pointer() {
     local x="$1"
@@ -127,17 +128,39 @@ send_key() {
 case "$CMD" in
     status)
         echo "=== Virtual Desktop Status ==="
-        echo "WAYLAND_DISPLAY: ${WAYLAND_DISPLAY}"
+        echo "Backend:         ${PA_DESKTOP_BACKEND}"
         echo "DISPLAY:         ${DISPLAY}"
         echo "XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}"
-        if [ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]; then
-            echo "Compositor:      RUNNING (socket ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY})"
+        if [ "${PA_DESKTOP_BACKEND}" = "x11" ]; then
+            if [ -S /tmp/.X11-unix/X0 ]; then
+                echo "X Server:        RUNNING (display ${DISPLAY})"
+            else
+                echo "X Server:        STOPPED"
+            fi
+            if pgrep -x x11vnc >/dev/null 2>&1; then
+                echo "VNC Server:      RUNNING (x11vnc)"
+            else
+                echo "VNC Server:      STOPPED"
+            fi
+            if pgrep -x openbox >/dev/null 2>&1; then
+                echo "Window Manager:  RUNNING (openbox)"
+            else
+                echo "Window Manager:  STOPPED"
+            fi
+            if command -v xdpyinfo >/dev/null 2>&1; then
+                echo "Display Info:    $(xdpyinfo 2>/dev/null | grep -m1 "dimensions:" || true)"
+            fi
         else
-            echo "Compositor:      STOPPED"
-        fi
-        if command -v wlr-randr >/dev/null 2>&1; then
-            echo "Outputs:"
-            wlr-randr 2>/dev/null || echo "  (wlr-randr query failed)"
+            echo "WAYLAND_DISPLAY: ${WAYLAND_DISPLAY}"
+            if [ -S "${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}" ]; then
+                echo "Compositor:      RUNNING (socket ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY})"
+            else
+                echo "Compositor:      STOPPED"
+            fi
+            if command -v wlr-randr >/dev/null 2>&1; then
+                echo "Outputs:"
+                wlr-randr 2>/dev/null || echo "  (wlr-randr query failed)"
+            fi
         fi
         ;;
 

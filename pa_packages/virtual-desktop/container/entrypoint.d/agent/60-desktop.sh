@@ -1,17 +1,20 @@
 #!/bin/bash
+# Shared virtual-desktop agent hook (backend-independent): initializes the
+# agent NSS database and serves the noVNC web client via websockify. The
+# display server supervisor itself is provided by the active backend feature
+# hook (61-desktop.sh under features/wayland or features/x11).
 set -e
 
 if [ "${PA_CONTAINER_DESKTOP}" != "true" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-if [ ! -e /dev/dri ]; then
-    export GALLIUM_DRIVER=llvmpipe
-    export LP_NUM_THREADS=$(nproc 2>/dev/null || echo 4)
-    export MESA_GL_VERSION_OVERRIDE=4.5
-    export MESA_GLSL_VERSION_OVERRIDE=450
-    export LIBGL_ALWAYS_SOFTWARE=1
+if [ -z "${PA_DESKTOP_BACKEND:-}" ]; then
+    return 0 2>/dev/null || exit 0
 fi
+
+export DISPLAY="${DISPLAY:-:0}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
 
 # Initialize agent user NSS DB
 if command -v certutil >/dev/null 2>&1; then
@@ -24,71 +27,17 @@ if command -v certutil >/dev/null 2>&1; then
     fi
 fi
 
-export WLR_BACKENDS=headless
-export WLR_LIBINPUT_NO_DEVICES=1
-export WAYLAND_DISPLAY=wayland-0
-export DISPLAY=:0
-export XDG_RUNTIME_DIR=/run/user/1000
-
-# Seed labwc user configuration from /etc/xdg/labwc if not present
-mkdir -p /home/agent/.config/labwc
-if [ -d /etc/xdg/labwc ]; then
-    cp -n /etc/xdg/labwc/* /home/agent/.config/labwc/ 2>/dev/null || true
-fi
-
-_res="${PA_DESKTOP_RESOLUTION:-1920x1080}"
-_wayvnc_gpu_arg=""
-if [ -e /dev/dri ]; then
-    _wayvnc_gpu_arg="--gpu"
-fi
-
-# Supervise labwc and wayvnc so desktop session automatically recovers if exited
-(
-    while true; do
-        rm -f "$XDG_RUNTIME_DIR/wayland-0" "$XDG_RUNTIME_DIR/wayland-0.lock" 2>/dev/null || true
-        labwc -s /bin/true >/dev/null 2>&1 &
-        _labwc_pid=$!
-
-        # Wait up to 5 seconds for wayland-0 socket to become available
-        for _ in $(seq 1 50); do
-            if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
+# Start websockify in the background once the backend VNC server (port 5900)
+# accepts connections. It serves the noVNC web client and proxies websocket
+# clients to the VNC server.
+if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
+    (
+        for _ in $(seq 1 150); do
+            if (exec 3<>/dev/tcp/127.0.0.1/5900) 2>/dev/null; then
                 break
             fi
             sleep 0.1
         done
-
-        # Configure headless output resolution
-        if command -v wlr-randr >/dev/null 2>&1; then
-            wlr-randr --output HEADLESS-1 --mode "${_res}@60Hz" 2>/dev/null || \
-            wlr-randr --output HEADLESS-1 --custom-mode "${_res}@60Hz" 2>/dev/null || true
-        fi
-
-        # Start wayvnc attached to compositor
-        wayvnc --render-cursor ${_wayvnc_gpu_arg} 127.0.0.1 5900 >/dev/null 2>&1 &
-        _wayvnc_pid=$!
-
-        # Monitor compositor and VNC server; restart both if either terminates
-        while kill -0 "$_labwc_pid" 2>/dev/null && kill -0 "$_wayvnc_pid" 2>/dev/null; do
-            sleep 1
-        done
-
-        kill "$_labwc_pid" 2>/dev/null || true
-        kill "$_wayvnc_pid" 2>/dev/null || true
-        wait "$_labwc_pid" 2>/dev/null || true
-        wait "$_wayvnc_pid" 2>/dev/null || true
-        sleep 0.5
-    done
-) &
-
-# Wait up to 5 seconds for wayland-0 socket to become initially available
-for _ in $(seq 1 50); do
-    if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
-        break
-    fi
-    sleep 0.1
-done
-
-# Start websockify in background (serves noVNC web client and proxies to wayvnc)
-if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
-    websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1 &
+        websockify --web /usr/share/novnc 6080 127.0.0.1:5900 >/dev/null 2>&1
+    ) &
 fi

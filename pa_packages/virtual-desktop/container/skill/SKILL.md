@@ -16,20 +16,20 @@ Use this skill when you need to run, inspect, or automate GUI applications insid
 
 ## Environment Overview
 
-The container desktop runs a headless Wayland stacking compositor (`labwc`) with Xwayland backwards compatibility:
-- **Wayland Display**: `WAYLAND_DISPLAY=wayland-0`
+The container runs a headless virtual desktop with one active display backend, selected in `.pa-container/config.yaml` via the `virtual-desktop` package features (`wayland` or `x11`):
 - **X11 Display**: `DISPLAY=:0`
 - **Runtime Directory**: `XDG_RUNTIME_DIR=/run/user/1000`
-- **Resolution**: 1920x1080 (or custom configured resolution) at 60Hz
+- **Resolution**: 1920x1080 (or custom configured resolution)
+- **Backend**: `${PA_DESKTOP_BACKEND}` (wayland or x11)
 
-All services (`labwc`, `wayvnc`, `noVNC`) are pre-started when desktop support is enabled.
+The display server, VNC server, and `noVNC` web streaming service are pre-started when desktop support is enabled. See the display backend sections appended below for backend-specific displays and tooling.
 
 ## In-Container Automation (`agent-desktop`)
 
 The `agent-desktop` CLI utility provides direct observation and synthetic input primitives:
 
 ### 1. Check Status
-Verify compositor and display server status:
+Verify display server and streaming status:
 ```bash
 agent-desktop status
 ```
@@ -144,7 +144,7 @@ When automating or testing a graphical application, follow this verification loo
 
 When `chromium` is included under `tools.include` in `.pa-container/config.yaml`:
 - The binary is available on PATH as `chromium` and `google-chrome`.
-- It automatically connects to the Wayland compositor (`wayland-0`) with Ozone platform auto-detection.
+- It connects to the active virtual desktop display backend automatically.
 - All HTTP/HTTPS traffic is automatically routed through the project's mitmproxy container and trusts the mitmproxy CA certificate through its initialized NSS database.
 - DNS-over-HTTPS (DoH) is disabled by managed policy so DNS filtering remains effective.
 
@@ -153,7 +153,7 @@ When `chromium` is included under `tools.include` in `.pa-container/config.yaml`
 When running containerized GUI tools inside nested podman containers, forward the display sockets and GPU device:
 ```bash
 podman run --rm -it \
-    -e WAYLAND_DISPLAY="${WAYLAND_DISPLAY}" \
+    -e WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
     -e DISPLAY="${DISPLAY}" \
     -e XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
     -v "${XDG_RUNTIME_DIR}:${XDG_RUNTIME_DIR}" \
@@ -161,4 +161,4 @@ podman run --rm -it \
     --device /dev/dri \
     my-gui-tool-image
 ```
-This renders nested graphical output directly onto the main virtual desktop.
+This renders nested graphical output directly onto the main virtual desktop. The `WAYLAND_DISPLAY` variables only apply when the wayland backend is active.

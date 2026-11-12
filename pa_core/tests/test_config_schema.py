@@ -809,15 +809,14 @@ class TestPackagesSchema:
                     {"name": "bitbucket", "account": "ACC"},
                     {"name": "gitcafe", "account": "ACC"},
                 ]
-            features = (
-                [{"pi": {"config": {}, "secrets": []}}]
-                if name == "agents"
-                else (
-                    [{"github": {"config": {}, "secrets": [{"name": "github", "account": "ACC"}]}}]
-                    if name == "source-control"
-                    else []
-                )
-            )
+            if name == "agents":
+                features = [{"pi": {"config": {}, "secrets": []}}]
+            elif name == "source-control":
+                features = [{"github": {"config": {}, "secrets": [{"name": "github", "account": "ACC"}]}}]
+            elif name == "virtual-desktop":
+                features = [{"wayland": {"config": {}, "secrets": []}}]
+            else:
+                features = []
             pkgs.append({name: {"features": features, "config": {}, "secrets": secrets}})
         data["packages"] = pkgs
         valid_config.write_text(yaml.dump(data))
@@ -1349,7 +1348,7 @@ class TestDesktopSchema:
         data["packages"].append(
             {
                 "virtual-desktop": {
-                    "features": [],
+                    "features": [{"wayland": {"config": {}, "secrets": []}}],
                     "config": {
                         "resolution": "1920x1080",
                         "compositor": "labwc",
@@ -1368,3 +1367,90 @@ class TestDesktopSchema:
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is True
         assert errors == []
+
+    def test_desktop_package_x11_feature_valid(self, valid_config: Path):
+        """Selecting the x11 display backend feature is valid without the wayland-only 'compositor' key."""
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"].append(
+            {
+                "virtual-desktop": {
+                    "features": [{"x11": {"config": {}, "secrets": []}}],
+                    "config": {
+                        "resolution": "1280x1024",
+                        "open_browser": False,
+                        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+                        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
+                        "gpu": {"enabled": False},
+                    },
+                    "secrets": [],
+                }
+            }
+        )
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is True
+        assert errors == []
+
+    def test_desktop_package_features_required(self, valid_config: Path):
+        """virtual-desktop requires at least one display backend feature since v2.1.0."""
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"].append(
+            {
+                "virtual-desktop": {
+                    "features": [],
+                    "config": {
+                        "resolution": "1920x1080",
+                        "compositor": "labwc",
+                        "open_browser": False,
+                        "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
+                        "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
+                        "gpu": {"enabled": "auto"},
+                    },
+                    "secrets": [],
+                }
+            }
+        )
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any(
+            "virtual-desktop: this package requires at least one feature. Available: wayland, x11" in e for e in errors
+        )
+
+    def test_desktop_package_unknown_feature_rejected(self, valid_config: Path):
+        """Unknown display backend features are rejected against the package manifest."""
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"].append(
+            {
+                "virtual-desktop": {
+                    "features": [{"mir": {"config": {}, "secrets": []}}],
+                    "config": {
+                        "resolution": "1920x1080",
+                        "open_browser": False,
+                        "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
+                        "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
+                        "gpu": {"enabled": "auto"},
+                    },
+                    "secrets": [],
+                }
+            }
+        )
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is False
+        assert any("unknown feature 'mir'. Available features: wayland, x11" in e for e in errors)

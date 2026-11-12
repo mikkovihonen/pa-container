@@ -24,9 +24,12 @@ if TYPE_CHECKING:
 
 logger = get_category_logger(__name__, LogCategory.DESKTOP)
 
+DESKTOP_BACKENDS = ("wayland", "x11")
+DEFAULT_BACKEND = "wayland"
+
 
 class VirtualDesktopPlugin(ACPPlugin):
-    """ACP Plugin for virtual headless Wayland/noVNC desktop support."""
+    """ACP Plugin for virtual headless desktop support (wayland/x11 backends with noVNC streaming)."""
 
     def __init__(
         self,
@@ -36,6 +39,7 @@ class VirtualDesktopPlugin(ACPPlugin):
     ) -> None:
         super().__init__(manifest, package_dir, project_dir)
         self.desktop_cfg: DesktopConfig | None = None
+        self.backend: str | None = None
         self.novnc_port: int | None = None
         self.vnc_port: int | None = None
         self.novnc_url: str | None = None
@@ -117,8 +121,41 @@ class VirtualDesktopPlugin(ACPPlugin):
             },
         }
 
+    def _active_desktop_features(self, context: RunContext) -> set[str]:
+        """Resolve the virtual-desktop features enabled in the project configuration."""
+        feats: set[str] = set()
+        try:
+            from images import resolve_project_packages
+
+            specs = resolve_project_packages(context.project_dir)
+            feats = {str(f) for f in (specs.get("virtual-desktop") or [])}
+        except Exception as e:
+            logger.debug(f"Could not resolve virtual-desktop features from project config: {e}")
+        if not feats and self.manifest is not None:
+            feats = {name for name, f in self.manifest.features.items() if f.default}
+        return feats
+
+    def _resolve_backend(self, context: RunContext) -> str:
+        """Resolve the active display backend (wayland or x11) from the project configuration."""
+        feats = self._active_desktop_features(context)
+        if not feats:
+            return DEFAULT_BACKEND
+
+        unknown = sorted(feats - set(DESKTOP_BACKENDS))
+        if unknown:
+            raise ValueError(
+                f"virtual-desktop: unknown display backend feature(s): {', '.join(unknown)}. "
+                f"Available backends: {', '.join(DESKTOP_BACKENDS)}."
+            )
+        if len(feats) > 1:
+            raise ValueError(
+                "virtual-desktop: display backends are mutually exclusive; enable exactly one of "
+                f"{', '.join(DESKTOP_BACKENDS)} under 'features' for the virtual-desktop package."
+            )
+        return next(iter(feats))
+
     def on_run_init(self, context: RunContext) -> None:
-        """Register desktop mode and configuration in the run context."""
+        """Register desktop mode, configuration, and active display backend in the run context."""
         raw_cfg = context.get_package_config("virtual-desktop")
         if not raw_cfg and self.manifest:
             raw_cfg = dict(self.manifest.config)
@@ -127,6 +164,9 @@ class VirtualDesktopPlugin(ACPPlugin):
         self.desktop_cfg = cfg
         context.add_mode("desktop")
         context.set_attribute("desktop.config", cfg)
+
+        self.backend = self._resolve_backend(context)
+        context.set_attribute("desktop.backend", self.backend)
 
     def on_container_configure(
         self,
@@ -144,10 +184,14 @@ class VirtualDesktopPlugin(ACPPlugin):
             context.add_mode("desktop")
             context.set_attribute("desktop.config", cfg)
 
+        backend = self.backend or self._resolve_backend(context)
+        self.backend = backend
+
         self.novnc_port, self.vnc_port = resolve_desktop_ports(cfg)
         self.novnc_url = f"http://127.0.0.1:{self.novnc_port}/vnc.html?autoconnect=true&resize=scale"
         self.vnc_endpoint = f"127.0.0.1:{self.vnc_port}"
 
+        context.set_attribute("desktop.backend", backend)
         context.set_attribute("desktop.novnc_port", self.novnc_port)
         context.set_attribute("desktop.vnc_port", self.vnc_port)
         context.set_attribute("desktop.novnc_url", self.novnc_url)
@@ -162,15 +206,16 @@ class VirtualDesktopPlugin(ACPPlugin):
         spec.ports.append(f"{novnc_bind}{self.novnc_port}:6080")
         spec.ports.append(f"{vnc_bind}{self.vnc_port}:5900")
 
-        spec.env.update(
-            {
-                "PA_CONTAINER_DESKTOP": "true",
-                "DISPLAY": ":0",
-                "WAYLAND_DISPLAY": "wayland-0",
-                "XDG_RUNTIME_DIR": "/run/user/1000",
-                "PA_DESKTOP_RESOLUTION": resolution,
-            }
-        )
+        desktop_env = {
+            "PA_CONTAINER_DESKTOP": "true",
+            "PA_DESKTOP_BACKEND": backend,
+            "PA_DESKTOP_RESOLUTION": resolution,
+            "DISPLAY": ":0",
+            "XDG_RUNTIME_DIR": "/run/user/1000",
+        }
+        if backend == "wayland":
+            desktop_env["WAYLAND_DISPLAY"] = "wayland-0"
+        spec.env.update(desktop_env)
 
         gpu_cfg = cfg.get("gpu") or {}
         gpu_mode = gpu_cfg.get("enabled", "auto")
@@ -189,6 +234,8 @@ class VirtualDesktopPlugin(ACPPlugin):
             [
                 "--label",
                 "pa-container.desktop.enabled=true",
+                "--label",
+                f"pa-container.desktop.backend={backend}",
             ]
         )
 
@@ -203,8 +250,20 @@ class VirtualDesktopPlugin(ACPPlugin):
                 ["--volume", f"{agent_hook}:/usr/local/share/pa-container/entrypoint.d/agent/60-desktop.sh:ro"]
             )
 
+        for hook_kind in ("root", "agent"):
+            backend_hook = self.package_dir / "features" / backend / "entrypoint.d" / hook_kind / "61-desktop.sh"
+            if backend_hook.is_file():
+                spec.extra_run_args.extend(
+                    [
+                        "--volume",
+                        f"{backend_hook}:/usr/local/share/pa-container/entrypoint.d/{hook_kind}/61-desktop.sh:ro",
+                    ]
+                )
+
+        backend_desc = "labwc + wayvnc" if backend == "wayland" else "Xvfb + openbox + x11vnc"
         logger.info(
-            f"Virtual Desktop enabled ({cfg.get('resolution', '1920x1080')}, {cfg.get('compositor', 'labwc')}):\n"
+            f"Virtual Desktop enabled ({backend} backend: {backend_desc}, "
+            f"{cfg.get('resolution', '1920x1080')}):\n"
             f"  noVNC Web UI: {self.novnc_url}\n"
             f"  VNC Endpoint: {self.vnc_endpoint}"
         )

@@ -754,7 +754,8 @@ packages:
   - ai-frameworks
   # Container virtualization & desktop GUI
   - podman
-  - virtual-desktop
+  - virtual-desktop:
+      - wayland
   # Version control & source control authentication
   - git
   - source-control:
@@ -835,7 +836,7 @@ packages:
     - `node`: Node.js 26 runtime with `npm` and `npx`.
     - `podman`: Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, and `podman-compose`. Required when `nested_containers.enabled: true`.
     - `browser-runtime`: Shared headless browser libraries for Chromium and Playwright.
-    - `virtual-desktop`: Wayland / labwc virtual desktop environment with wayvnc and noVNC web streaming. Required for `pa desktop`.
+    - `virtual-desktop`: Headless virtual desktop with selectable display backends (Wayland via `labwc` + `wayvnc`, or X11 via `Xvfb` + `x11vnc`) and noVNC web streaming. Required for `pa desktop`.
 - **Language Toolchains:**
     - `go`: Official Go compiler toolchain and `gopls` language server (provides `/usr/local/bin/go`, `gofmt`, `gopls`).
     - `rust`: Official Rust toolchain with `rust-analyzer` language server, clippy, and rustfmt.
@@ -1362,24 +1363,29 @@ pa logs clean --all-projects --older-than 7d
 
 ### Virtual desktop and GUI support (`virtual-desktop`)
 
-Virtual desktop support is provided by the `virtual-desktop` package. It enables a headless Wayland display stack (`labwc`), Xwayland backwards compatibility, and streaming services (`wayvnc` on port 5900, `noVNC` on port 6080) for running and testing GUI applications inside `pa-container`:
+Virtual desktop support is provided by the `virtual-desktop` package. It enables a headless display stack plus streaming services (VNC on port 5900, `noVNC` web client on port 6080) for running and testing GUI applications inside `pa-container`. The package requires exactly one display backend feature:
+
+- `wayland` (default): headless Wayland stack with the `labwc` stacking compositor, Xwayland backwards compatibility (`:0`), the `wayvnc` VNC server, and `wlr-randr`/`grim`/`slurp` tooling.
+- `x11`: classic X11 stack with the `Xvfb` display server, the `openbox` window manager, the `x11vnc` VNC server, and `xdotool`/`wmctrl`/ImageMagick automation tooling.
 
 ```yaml
 packages:
   - virtual-desktop:
-      features: []
+      features:
+        # Display backend: exactly one of 'wayland' (default) or 'x11'.
+        - wayland: {config: {}, secrets: []}
       config:
         # Virtual display resolution (WIDTHxHEIGHT).
         # Default: 1920x1080.
         resolution: "1920x1080"
 
-        # Wayland compositor implementation (labwc).
-        # Default: labwc.
-        compositor: "labwc"
-
         # Automatically launch noVNC web interface in the default host browser on start.
         # Default: false.
         open_browser: false
+
+        # (wayland backend only) Wayland compositor implementation.
+        # Default: labwc.
+        compositor: "labwc"
 
         # Native VNC server streaming endpoint.
         vnc:
@@ -1403,11 +1409,29 @@ packages:
 > Legacy root-level `desktop:` configuration is not supported and is rejected during validation.
 
 Key features:
-- **Zero Bloat for CLI Projects**: The shared base image (`pa-container-agent:local`) ships with zero GUI packages. Desktop packages (`labwc`, `xwayland`, `wayvnc`, `novnc`, `websockify`, `grim`, `wlrctl`, `wtype`, Mesa, GTK, fonts, and NSS DB tools) are installed **only** when `desktop.enabled: true` in your workspace configuration.
+- **Zero Bloat for CLI Projects**: The shared base image (`pa-container-agent:local`) ships with zero GUI packages. Desktop packages (`labwc`, `Xwayland`, `wayvnc`, `Xvfb`, `openbox`, `x11vnc`, `novnc`, `websockify`, `grim`, `wlr-randr`, `xdotool`, `wmctrl`, Mesa, fonts, and NSS DB tools) are installed **only** when the `virtual-desktop` package is included with a display backend feature.
+- **Selectable Display Backends**: The `wayland` feature (default) runs `labwc` + Xwayland + `wayvnc` with `WAYLAND_DISPLAY=wayland-0` and `DISPLAY=:0`. The `x11` feature runs `Xvfb` + `openbox` + `x11vnc` with `DISPLAY=:0` and no Wayland socket. The backends are mutually exclusive; enable exactly one.
 - **`applehv` & Opportunistic Hardware Acceleration**: On Linux hosts or VMs exposing `/dev/dri`, hardware DRI acceleration is automatically passed through (`--device /dev/dri --group-add keep-groups`). On macOS under Apple's Virtualization Framework (`applehv`) where `/dev/dri` is absent, multi-threaded Mesa `llvmpipe` leverages Apple Silicon's ARM64 NEON SIMD vector JIT (`LP_NUM_THREADS=$(nproc)` and OpenGL 4.5 override) for 60 FPS 1080p rendering.
 - **Multi-Instance Support**: Multiple `pa-container` instances can run simultaneously without port collisions. When `port: auto` is set, `pa-container` dynamically claims free ephemeral host ports.
-- **In-Container Automation (`agent-desktop`)**: The agent can inspect and control the desktop using `/usr/local/bin/agent-desktop` (taking screenshots with `grim`, inspecting windows with `wlrctl`, and sending synthetic mouse clicks, drags, text, and key combinations with `wtype`/`xdotool`). When desktop support is enabled, `agent-desktop` is paired with the in-container `virtual-desktop` skill dynamically loaded into the agent's environment.
-- **Nested Containers**: Wayland (`wayland-0`), X11 (`:0`), `/dev/shm`, and `/dev/dri` are automatically forwarded into nested tool containers via `/etc/containers/containers.conf.d/60-pa-container-desktop.conf`.
+- **In-Container Automation (`agent-desktop`)**: The agent can inspect and control the desktop using `/usr/local/bin/agent-desktop` (taking screenshots with `grim` on Wayland or ImageMagick `import` on X11, inspecting windows with `wmctrl`, and sending synthetic mouse clicks, drags, text, and key combinations with `xdotool`, falling back to `wlrctl`/`wtype` on Wayland). When desktop support is enabled, `agent-desktop` is paired with the in-container `virtual-desktop` skill dynamically loaded into the agent's environment; the skill is extended with a backend-specific fragment for the active feature.
+- **Nested Containers**: The active display sockets, `/dev/shm`, and `/dev/dri` are automatically forwarded into nested tool containers via `/etc/containers/containers.conf.d/60-pa-container-desktop.conf` (Wayland socket `wayland-0` plus X11 `:0` on the wayland backend; X11 `:0` only on the x11 backend).
+
+#### Wayland backend (`wayland`)
+
+- Runs the `labwc` stacking compositor under `WLR_BACKENDS=headless` with exit-preventing keybinds disabled, plus Xwayland serving legacy X11-only applications on `:0`.
+- `wayvnc` streams the compositor on port 5900 with `--render-cursor` (hardware mode adds `--gpu` when `/dev/dri` is present).
+- `wlr-randr --output HEADLESS-1 --custom-mode <WIDTHxHEIGHT>@60Hz` changes the output resolution at runtime.
+- `grim` captures native Wayland screenshots; `slurp` selects regions.
+- `xdotool` provides synthetic mouse/keyboard automation for Xwayland clients; `wtype` provides text and key input for native Wayland clients.
+- Chromium and other Ozone-aware applications auto-detect and connect to `wayland-0`.
+
+#### X11 backend (`x11`)
+
+- Runs `Xvfb :0` as a software framebuffer display server; no Wayland component is installed.
+- `openbox` provides click-to-focus handling and window stacking; `x11vnc` streams `:0` on port 5900.
+- The display resolution is fixed at Xvfb startup; change `resolution` in the config and restart with `pa run` (Xvfb RANDR mode changes are not applied).
+- OpenGL applications render through software GLX (Mesa llvmpipe); there is no hardware presentation on this backend.
+- Automation uses `xdotool` (input), `wmctrl` (windows), and ImageMagick `import` (screenshots).
 
 ### Active Proxies Inspection (`pa proxy`)
 

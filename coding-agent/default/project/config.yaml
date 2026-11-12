@@ -109,12 +109,15 @@ packages:
   #       setup_git_credentials: true
   #     secrets: []
 
-  # Headless Wayland Desktop & GUI Application Support
+  # Headless Virtual Desktop & GUI Application Support
+  # Display backends (pick exactly one under 'features'):
+  #   wayland (default): labwc compositor + Xwayland, wayvnc, wlr-randr/grim tooling
+  #   x11:              Xvfb display server, openbox, x11vnc, xdotool/wmctrl tooling
   # - virtual-desktop:
-  #     features: []
+  #     features:
+  #       - wayland: {config: {}, secrets: []}
   #     config:
   #       resolution: 1920x1080
-  #       compositor: labwc
   #       open_browser: false
   #       vnc:
   #         enabled: true

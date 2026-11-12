@@ -26,6 +26,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Toolchain version upgrade audit and verification (`tools/check_upgrades.py`).** Added 100% audit and test coverage for all 39 version `ARG`s in `coding-agent-builder/Containerfile` with upstream version checkers for Node, Rust, Golang, Bun, ripgrep, fzf, jq, yq, uv, starship, zellij, zsh, tmux, podman, and others, accompanied by unit test coverage.
 
 ### Changed
+- **Selectable display backends for `virtual-desktop` (Wayland / X11).** The `virtual-desktop` package (v2.1.0) restructured its previously baked-in Wayland stack into selectable package features and added an X11 backend:
+    - The `wayland` feature (default) stages `labwc`, `Xwayland`, `wayvnc`, `wlr-randr`, `grim`, and `slurp` with a supervised auto-recovery compositor loop and compositor config seeding (exit keybinds remain disabled).
+    - The new `x11` feature stages `Xvfb`, `openbox`, `x11vnc`, `xdotool`, `wmctrl`, and ImageMagick `import`, supervised the same way.
+    - Features are required: exactly one backend must be enabled (e.g., `- virtual-desktop: {features: [- wayland: {config: {}, secrets: []}], config: {...}, secrets: []}`); the plugin rejects enabling both backends and falls back to `wayland` for configs without explicit features.
+    - Backend-aware runtime: `PA_DESKTOP_BACKEND` selects the active stack in the entrypoint hooks, `agent-desktop status`, and skill fragments; `WAYLAND_DISPLAY` is only set on the wayland backend; `pa desktop` and `pa desktop --json` report the backend and derived display per container via the `pa-container.desktop.backend` label.
+    - Shared package payload now stages `agent-desktop`, `noVNC`, `websockify` (with its Python package), fonts, Mesa DRI drivers, and X.Org modules; feature payloads stage backend binaries with their shared-library closures.
 - **GPL-3.0 License transition.** Relicensed the project under the GNU General Public License v3.0, replacing MIT license text in `LICENSE`, updating documentation and badges in `README.md`, and setting package metadata in `pyproject.toml`.
 - **Minimal project configuration seeds.** Slimmed down default project seed configurations (`allowlist.yaml` and `token_replacer.yaml`) to minimal baselines, moving external cloud provider rules into self-contained gateway definitions.
 

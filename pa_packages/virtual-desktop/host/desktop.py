@@ -37,7 +37,7 @@ def read_desktop_config(config_dir: Path | None = None) -> DesktopConfig:
     if section is None:
         raise ValueError("Missing required 'virtual-desktop' package configuration in project config")
 
-    for key in ("resolution", "compositor", "vnc", "novnc", "open_browser", "gpu"):
+    for key in ("resolution", "vnc", "novnc", "open_browser", "gpu"):
         if key not in section:
             raise ValueError(f"Missing required 'virtual-desktop.config.{key}' configuration in project config")
 
@@ -49,7 +49,9 @@ def read_desktop_config(config_dir: Path | None = None) -> DesktopConfig:
     if not re.match(r"^\d+x\d+$", resolution):
         raise ValueError(f"Invalid 'virtual-desktop.resolution': expected WIDTHxHEIGHT format, got {resolution!r}")
 
-    compositor = str(section["compositor"]).strip().lower()
+    # 'compositor' only applies to the wayland display backend; keep it optional
+    # so the same config shape is valid for the x11 backend.
+    compositor = str(section.get("compositor", "labwc")).strip().lower()
     if compositor not in ("labwc",):
         raise ValueError(f"Invalid 'virtual-desktop.compositor': unsupported compositor {compositor!r}")
 
@@ -180,6 +182,7 @@ class ActiveDesktopInfo:
     display: str
     is_healthy: bool
     created_at: str | None
+    backend: str = "wayland"
 
 
 def check_desktop_health(url: str | None, timeout: float = 1.0) -> bool:
@@ -243,6 +246,11 @@ def get_project_desktop(
         if not novnc_port and not vnc_port:
             return None
 
+        labels = c.get("Labels") or {}
+        if not isinstance(labels, dict):
+            labels = {}
+        backend = labels.get("pa-container.desktop.backend") or "wayland"
+
         novnc_url = f"http://127.0.0.1:{novnc_port}/vnc.html?autoconnect=true&resize=scale" if novnc_port else None
         vnc_endpoint = f"127.0.0.1:{vnc_port}" if vnc_port else None
         is_healthy = check_desktop_health(novnc_url)
@@ -257,7 +265,8 @@ def get_project_desktop(
             novnc_url=novnc_url,
             vnc_port=vnc_port,
             vnc_endpoint=vnc_endpoint,
-            display="wayland-0",
+            display="wayland-0" if backend == "wayland" else ":0",
+            backend=backend,
             is_healthy=is_healthy,
             created_at=str(created_at) if created_at else None,
         )
@@ -323,6 +332,7 @@ def list_active_desktops(runtime: str | None = None) -> list[ActiveDesktopInfo]:
             vnc_endpoint = f"127.0.0.1:{vnc_port}" if vnc_port else None
             is_healthy = check_desktop_health(novnc_url)
             created_at = c.get("Created") or c.get("CreatedAt")
+            backend = labels.get("pa-container.desktop.backend") or "wayland"
 
             desktops.append(
                 ActiveDesktopInfo(
@@ -334,7 +344,8 @@ def list_active_desktops(runtime: str | None = None) -> list[ActiveDesktopInfo]:
                     novnc_url=novnc_url,
                     vnc_port=vnc_port,
                     vnc_endpoint=vnc_endpoint,
-                    display="wayland-0",
+                    display="wayland-0" if backend == "wayland" else ":0",
+                    backend=backend,
                     is_healthy=is_healthy,
                     created_at=str(created_at) if created_at else None,
                 )
@@ -396,6 +407,7 @@ def handle_desktop_command(options: DesktopOptions | Any) -> int:
                     "vnc_port": d.vnc_port,
                     "vnc_endpoint": d.vnc_endpoint,
                     "display": d.display,
+                    "backend": d.backend,
                     "is_healthy": d.is_healthy,
                     "created_at": d.created_at,
                 }
@@ -424,6 +436,7 @@ def handle_desktop_command(options: DesktopOptions | Any) -> int:
         table.add_column("Project", style="bold cyan")
         table.add_column("Container")
         table.add_column("Status")
+        table.add_column("Backend")
         table.add_column("noVNC Web UI")
         table.add_column("VNC Endpoint")
 
@@ -435,6 +448,7 @@ def handle_desktop_command(options: DesktopOptions | Any) -> int:
                 d.project_name,
                 d.container_name,
                 status_str,
+                d.backend,
                 url_str,
                 vnc_str,
             )
@@ -477,6 +491,7 @@ def handle_desktop_command(options: DesktopOptions | Any) -> int:
             "vnc_port": desktop_info.vnc_port,
             "vnc_endpoint": desktop_info.vnc_endpoint,
             "display": desktop_info.display,
+            "backend": desktop_info.backend,
             "is_healthy": desktop_info.is_healthy,
         }
         console.print(json.dumps(data_single, indent=2))
@@ -513,6 +528,7 @@ def handle_desktop_command(options: DesktopOptions | Any) -> int:
 
     console.print(f"[bold]Project:[/bold]       {desktop_info.project_name} ([dim]{desktop_info.project_path}[/dim])")
     console.print(f"[bold]Container:[/bold]     {desktop_info.container_name} ([green]running[/green])")
+    console.print(f"[bold]Backend:[/bold]       {desktop_info.backend}")
     console.print(f"[bold]Display:[/bold]       {desktop_info.display}")
     console.print(f"[bold]noVNC Web UI:[/bold]  {url_str}")
     console.print(f"[bold]VNC Endpoint:[/bold]  {vnc_str}")
