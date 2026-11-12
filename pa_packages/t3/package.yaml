@@ -25,6 +25,7 @@ skill:
 runtime:
     dependencies:
         - "node"
+        - "source-control"
 
 extension:
     entrypoint: "host.plugin:T3Plugin"

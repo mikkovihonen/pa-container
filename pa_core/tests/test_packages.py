@@ -489,6 +489,15 @@ def test_resolve_package_dependencies_real():
     assert "python" not in resolved_git
     assert "git" in resolved_git
 
+    # t3 depends on node and source-control
+    resolved_t3 = resolve_package_dependencies({"t3": []})
+    keys_t3 = list(resolved_t3.keys())
+    assert "node" in keys_t3
+    assert "source-control" in keys_t3
+    assert "t3" in keys_t3
+    assert keys_t3.index("node") < keys_t3.index("t3")
+    assert keys_t3.index("source-control") < keys_t3.index("t3")
+
 
 def test_manifest_build_memory_mib():
     m1 = parse_package_manifest(

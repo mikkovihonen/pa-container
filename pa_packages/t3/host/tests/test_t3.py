@@ -41,6 +41,8 @@ def test_t3_policy_synthesis(tmp_path: Path):
 
 
 def test_t3_plugin_configure(tmp_path: Path):
+    from unittest.mock import patch
+
     from cli import RunOptions
     from packages.plugin import ContainerRunSpec
 
@@ -61,7 +63,8 @@ def test_t3_plugin_configure(tmp_path: Path):
     )
     ctx.add_mode("t3")
 
-    plugin.on_container_configure(spec, ctx)
+    with patch("util.is_port_available", return_value=True):
+        plugin.on_container_configure(spec, ctx)
     assert any("/home/agent/.t3" in arg for arg in spec.extra_run_args)
     assert spec.env["PA_CONTAINER_MODE"] == "t3"
     assert spec.env["T3_PORT"] == "3773"
