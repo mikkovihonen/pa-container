@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     import logging
     from collections.abc import Mapping
 
+    from packages.manifest import PackageManifest
+
     from .types import SourceControlConfig
 
 from logging_driver import LogCategory, get_category_logger
@@ -98,6 +100,63 @@ def mask_token(token: str) -> str:
     return f"{token[:4]}...{token[-4:]}"
 
 
+# In-container environment variable names that must never be overridden via
+# the 'agent.env' project configuration. These carry provider token
+# placeholders injected by the source-control plugin.
+GUARDED_TOKEN_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GITLAB_TOKEN",
+        "GLAB_TOKEN",
+        "GITEA_TOKEN",
+        "AZURE_DEVOPS_EXT_PAT",
+        "BITBUCKET_TOKEN",
+        "GITCAFE_TOKEN",
+    }
+)
+
+
+def resolve_source_control_placeholder_env(
+    secrets: list[Any],
+    manifest: PackageManifest | None = None,
+) -> dict[str, str]:
+    """Map declared source-control secret slots to in-container placeholder values.
+
+    Only placeholders derived from the package manifest ever enter the agent
+    container. The host-side proxy substitutes the real tokens (pulled from the
+    OS keyring / trusted host-side registry) when requests leave the container.
+
+    Args:
+        secrets: Declared secret slots (``{"name": ..., "account": ...}`` dicts).
+        manifest: The source-control package manifest carrying feature secrets
+            with ``placeholder`` fields. May be None (placeholders fall back to
+            ``<CANONICAL_ENV_VAR>_PLACEHOLDER``).
+
+    Returns:
+        A mapping of canonical environment variable name to placeholder value.
+    """
+    placeholders_by_slot: dict[str, str] = {}
+    if manifest is not None:
+        for sec in list(manifest.secrets) + [s for f in manifest.features.values() for s in f.secrets]:
+            if sec.name and sec.placeholder:
+                placeholders_by_slot[sec.name] = sec.placeholder
+
+    provider_by_name = {p.name: p for p in PROVIDER_DEFINITIONS}
+    env: dict[str, str] = {}
+    for item in secrets:
+        if not isinstance(item, dict):
+            continue
+        slot_name = str(item.get("name", "")).strip()
+        provider = provider_by_name.get(slot_name)
+        if not provider:
+            continue
+        env[provider.canonical_env_var] = placeholders_by_slot.get(
+            slot_name, f"{provider.canonical_env_var}_PLACEHOLDER"
+        )
+    return env
+
+
 def parse_source_control_config_dict(raw_section: Any) -> SourceControlConfig:
     """Parse and normalize a raw source_control dict."""
     section: dict[str, Any] = dict(raw_section) if isinstance(raw_section, dict) else {}
@@ -157,10 +216,12 @@ def resolve_source_control_tokens(
     secrets: list[Any] | None = None,
     feature_configs: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, str]:
-    """Resolve tokens for all source control providers exclusively from declared secrets.
+    """Resolve real tokens for all source control providers exclusively from declared secrets.
 
-    Returns a mapping of environment variable names to token values to be injected into
-    the container.
+    Returns a mapping of canonical environment variable names to real token
+    values. The values never enter the agent container: they are registered in
+    the trusted host-side secret registry so the proxy can substitute the
+    in-container placeholders in outgoing requests.
     """
     sc_log = log or logger
     secret_list: list[Any] = []

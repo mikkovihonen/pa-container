@@ -3,7 +3,7 @@
 <a name="proxy-egress-policy"></a>
 ## Proxy egress policy
 
-mitmproxy intercepts only **HTTP, HTTPS, and DNS** (and applies the allowlist and token redaction). The system denies every other protocol by default. The proxy's `iptables` `FORWARD` chain policy is `DROP`. The system permits the `llama-server` API explicitly. The egress policy is **per-project**. To let the agent use another protocol (uninspected, plain NAT), opt it in under `egress.allow` in this workspace's `.pa-container/config.yaml`. The system seeds this file with deny-all on first run:
+mitmproxy intercepts only **HTTP, HTTPS, and DNS** (and applies the allowlist and token substitution). The system denies every other protocol by default. The proxy's `iptables` `FORWARD` chain policy is `DROP`. The system permits the `llama-server` API explicitly. The egress policy is **per-project**. To let the agent use another protocol (uninspected, plain NAT), opt it in under `egress.allow` in this workspace's `.pa-container/config.yaml`. The system seeds this file with deny-all on first run:
 
 ```yaml
 # .pa-container/config.yaml

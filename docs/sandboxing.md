@@ -111,7 +111,7 @@ While cloud systems trend toward MicroVMs and lightweight CLI agents trend towar
    Transparent network auditing and domain allowlisting require isolating the agent's network stack so that traffic cannot escape uninspected. OCI container networks provide this out-of-the-box:
     - The agent runs inside an isolated, gateway-less container network (`--internal`).
     - L3/L4 routing rules redirect all HTTP, HTTPS, and DNS traffic transparently through a companion `mitmproxy` proxy container.
-    - Domain allowlists, secret redaction, and flow logging operate reliably without needing complex host-level packet filters, root-level firewall rules, or host OS-specific network hooks.
+    - Domain allowlists, secret substitution, and flow logging operate reliably without needing complex host-level packet filters, root-level firewall rules, or host OS-specific network hooks.
 
 2. **Standardized and Reproducible Project Workspaces**:
    Rather than relying on whatever tools happen to be installed on the host machine, containerization provides a hermetic, predictable environment:
@@ -188,7 +188,7 @@ From a threat-modeling perspective, the most realistic attack vectors against `p
 
 #### 3. Covert Data Exfiltration over Legitimate Channels
 * **The Attack**: The agent is legitimately permitted to communicate with LLM providers (e.g., Anthropic, OpenAI, OpenRouter) or remote Git repositories. Prompt injection can instruct the agent to stealthily encode private source code, internal system information, or unredacted credentials into prompt queries, telemetry headers, or commit metadata.
-* **The Danger**: While `pa-container`'s `token_replacer` addon automatically redacts known secrets registered in `token_replacer.yaml`, it cannot detect arbitrary proprietary text or unconfigured credentials. If sensitive data is embedded within normal natural-language prompt flows, it passes through the proxy to allowed endpoints.
+* **The Danger**: While `pa-container`'s `token_replacer` addon substitutes the tokens configured in `token_replacer.yaml` (redacting secrets or injecting real credentials for placeholders), it cannot detect arbitrary proprietary text or unconfigured credentials. If sensitive data is embedded within normal natural-language prompt flows, it passes through the proxy to allowed endpoints.
 
 #### 4. Persistent Cache & Shadow Volume Poisoning
 * **The Attack**: `pa-container` supports persistent shadow volumes (`.venv`, `node_modules`, `target/`) to accelerate build and dependency resolution across sessions without RAM overhead.
@@ -204,7 +204,7 @@ To maintain security, operators should treat the sandbox as one layer in a defen
 2. **Lock Project Configuration & Git Hooks**: Keep `agent.read_only_pa_container: true` and `security.read_only_git_hooks: true` enabled (both defaults). This locks configuration, dependency scripts, and `/workspace/.git/hooks` as read-only inside the container so the agent cannot plant backdoor hooks that trigger on the host.
 3. **Guard Host Mounts & Git Config**: Rely on `security.blocked_mount_paths` to prevent sensitive credentials (`~/.ssh`, `~/.aws`, Docker sockets) from being mounted, and `security.git_config_allowlist` to ensure only safe Git identity keys are shared into the container without execution hooks (`core.sshCommand`, `core.fsmonitor`).
 4. **Scrutinize Allowlist Additions & SSRF Protections**: Never add broad domain wildcards (`*`) to `allowlist.yaml`. `security.blocked_ip_ranges` strictly blocks connections to internal RFC 1918 subnets, loopback interfaces, and cloud metadata services (`169.254.169.254`).
-5. **Register All Secrets in `token_replacer.yaml`**: Ensure any sensitive API tokens, database passwords, or private keys used in the workspace are explicitly defined so the proxy can redact them before traffic leaves the container.
+5. **Register All Secrets in `token_replacer.yaml`**: Ensure any sensitive API tokens, database passwords, or private keys used in the workspace are explicitly defined so the proxy applies the configured substitution before traffic leaves the container.
 6. **Audit Flow Exports**: Use the `mitmweb` UI or inspect export flow logs (`.pa-container/exports/flows-*.jsonl`) to periodically verify the volume and destination of outbound agent traffic.
 7. **Privilege Hardening**: `pa-container` automatically enforces `--security-opt no-new-privileges` and mounts persistent shadow volumes and `tmpfs` RAM disks with `nodev,nosuid` to prevent setuid privilege escalation.
 

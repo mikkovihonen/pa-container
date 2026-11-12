@@ -17,4 +17,4 @@ The GitHub CLI (`gh`) and GitHub MCP server allow managing issues, pull requests
     ```bash
     gh api repos/{owner}/{repo}
     ```
-- **MCP Server**: The `github` MCP server is registered at runtime and uses `GH_TOKEN`.
+- **MCP Server**: The `github` MCP server is registered at runtime and uses the `GH_TOKEN` placeholder, which the proxy substitutes in outgoing requests.

@@ -3,7 +3,7 @@
 - A Fedora Minimal-based router container that transparently intercepts the agent's HTTP/HTTPS/DNS traffic through mitmproxy.
 - mitmproxy generates a self-signed certificate with its certificate authority on first run.
 - mitmweb provides a web UI (port 8081) for monitoring traffic, accessible only from the host (isolated from the agent container).
-- It runs [`allowlist`](allowlist.md), [`token_replacer`](token-replacer.md), and [`flow_export`](flow-export.md) addons on the intercepted traffic (host filtering + secret redaction + session flow export).
+- It runs [`allowlist`](allowlist.md), [`token_replacer`](token-replacer.md), and [`flow_export`](flow-export.md) addons on the intercepted traffic (host filtering + secret substitution + session flow export).
 - It forwards the isolated network's traffic to the Internet. Non-HTTP protocols are denied by default (fail-closed, opt-in via `PROXY_ALLOW_*`).
 
 ## Building the proxy container image

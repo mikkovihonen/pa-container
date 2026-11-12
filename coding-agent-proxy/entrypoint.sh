@@ -150,7 +150,8 @@ export ALLOWLIST_CONFIG_PATH="${ALLOWLIST_CONFIG_PATH:-/home/mitmproxy/config/al
 export TOKEN_REPLACER_CONFIG_PATH="${TOKEN_REPLACER_CONFIG_PATH:-/home/mitmproxy/config/token_replacer.yaml}"
 
 # Launch mitmweb as the mitmproxy user. Load the allowlist (host/IP filtering),
-# token_replacer (secret redaction), and flow_export (session flow history)
+# token_replacer (secret substitution: redaction and placeholder injection), and
+# flow_export (session flow history)
 # addons. The flow_export addon appends each captured flow (JSON Lines) to a
 # per-client-IP file /home/mitmproxy/exports/flows-<ip>.jsonl as it completes,
 # which is mounted from the host so run.py can read it after the session ends.

@@ -146,11 +146,17 @@ def test_projection_helpers():
 
     tokens = aggregate_token_replacers(active_manifests, active_features=active_features)
     token_names = [t["name"] for t in tokens]
-    assert "github-token" in token_names
-    gh_token = next(t for t in tokens if t["name"] == "github-token")
+    assert "github-token-inject" in token_names
+    gh_token = next(t for t in tokens if t["name"] == "github-token-inject")
     assert gh_token["replace_with"]["strategy"] == "static"
+    assert gh_token["replace_with"]["value"] == "${ENV:GH_TOKEN}"
     assert gh_token["content_patterns"][0]["field"] == "headers"
     assert gh_token["content_patterns"][0]["header_name"] == "Authorization"
+    assert gh_token["content_patterns"][0]["regex"] == "GH_TOKEN_PLACEHOLDER"
+    # The base64 variant covers git's 'Authorization: Basic' credentials.
+    assert any(cp.get("encoding") == "base64" for cp in gh_token["content_patterns"])
+    assert "github.com" in gh_token["hostnames"]
+    assert "raw.githubusercontent.com" in gh_token["hostnames"]
 
     privileges = aggregate_runtime_privileges(active_manifests)
     assert privileges["nested_containers"] is True

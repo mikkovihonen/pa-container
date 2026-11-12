@@ -22,6 +22,7 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from token_replacer import (
+    EncodedHeaderMatcher,
     FormBodyMatcher,
     HeaderMatcher,
     JsonBodyMatcher,
@@ -30,6 +31,7 @@ from token_replacer import (
     TokenReplacerAddon,
     _apply_strategy,
     _is_raw_regex,
+    _mask_token_for_log,
     _matches_hostname,
     _resolve_env_refs,
     _strip_port,
@@ -378,6 +380,145 @@ class TestHeaderMatcher:
 # ---------------------------------------------------------------------------
 
 
+import base64
+
+
+def _basic_header(user: str, password: str) -> str:
+    """Encode a user:password pair the way git does for HTTP Basic auth."""
+    return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+
+
+class TestEncodedHeaderMatcher:
+    def test_git_basic_auth_placeholder_replaced(self):
+        """git sends 'Basic base64(user:token)' — the placeholder hides inside base64."""
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="ghp_realtoken123",
+        )
+        original = _basic_header("x-access-token", "GH_TOKEN_PLACEHOLDER")
+        headers = {"Authorization": original}
+        found = matcher.match_and_replace(headers)
+
+        assert found == ["GH_TOKEN_PLACEHOLDER"]
+        assert headers["Authorization"] == _basic_header("x-access-token", "ghp_realtoken123")
+
+    def test_bearer_header_ignored(self):
+        """Non-Basic Authorization values are out of scope for the encoded matcher."""
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="ghp_realtoken123",
+        )
+        headers = {"Authorization": "Bearer GH_TOKEN_PLACEHOLDER"}
+        found = matcher.match_and_replace(headers)
+        assert found == []
+        assert headers["Authorization"] == "Bearer GH_TOKEN_PLACEHOLDER"
+
+    def test_pat_as_username_azure_style(self):
+        """Azure DevOps PATs travel as the username with an empty password."""
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="AZURE_DEVOPS_EXT_PAT_PLACEHOLDER",
+            strategy="static",
+            replacement_value="az_real_pat",
+        )
+        headers = {"Authorization": _basic_header("AZURE_DEVOPS_EXT_PAT_PLACEHOLDER", "")}
+        found = matcher.match_and_replace(headers)
+
+        assert found == ["AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"]
+        assert headers["Authorization"] == _basic_header("az_real_pat", "")
+
+    def test_scheme_match_is_case_insensitive(self):
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="real",
+        )
+        headers = {"Authorization": _basic_header("git", "GH_TOKEN_PLACEHOLDER").replace("Basic ", "basic ")}
+        found = matcher.match_and_replace(headers)
+        assert found == ["GH_TOKEN_PLACEHOLDER"]
+        assert headers["Authorization"].startswith("Basic ")
+
+    def test_invalid_base64_ignored(self):
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="real",
+        )
+        headers = {"Authorization": "Basic !!!not-base64!!!"}
+        assert matcher.match_and_replace(headers) == []
+        assert headers["Authorization"] == "Basic !!!not-base64!!!"
+
+    def test_non_utf8_payload_ignored(self):
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="real",
+        )
+        binary_b64 = base64.b64encode(b"\xff\xfe\x00\x01").decode()
+        headers = {"Authorization": f"Basic {binary_b64}"}
+        assert matcher.match_and_replace(headers) == []
+
+    def test_collect_only_does_not_modify(self):
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="real",
+        )
+        original = _basic_header("git", "GH_TOKEN_PLACEHOLDER")
+        headers = {"Authorization": original}
+        found = matcher.match_and_replace(headers, collect_only=True)
+        assert found == ["GH_TOKEN_PLACEHOLDER"]
+        assert headers["Authorization"] == original
+
+    def test_missing_header(self):
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="real",
+        )
+        assert matcher.match_and_replace({"Content-Type": "application/json"}) == []
+
+    def test_no_placeholder_match_leaves_header_alone(self):
+        matcher = EncodedHeaderMatcher(
+            header_name="Authorization",
+            regex="GH_TOKEN_PLACEHOLDER",
+            strategy="static",
+            replacement_value="real",
+        )
+        original = _basic_header("git", "already_a_real_token")
+        headers = {"Authorization": original}
+        assert matcher.match_and_replace(headers) == []
+        assert headers["Authorization"] == original
+
+
+class TestMaskTokenForLog:
+    def test_short_token_returned_as_is(self):
+        assert _mask_token_for_log("GH_TOKEN") == "GH_TOKEN"
+
+    def test_long_token_truncated(self):
+        masked = _mask_token_for_log("ghp_" + "a" * 36)
+        assert masked == "ghp_aaaaaa...(40 chars)"
+        assert "a" * 36 not in masked
+
+    def test_placeholder_is_still_recognizable(self):
+        masked = _mask_token_for_log("GH_TOKEN_PLACEHOLDER")
+        assert masked.startswith("GH_TOKEN_P")
+
+
+# ---------------------------------------------------------------------------
+# FormBodyMatcher original tests
+# ---------------------------------------------------------------------------
+
+
 class TestFormBodyMatcher:
     def test_form_field_replacement(self):
         matcher = FormBodyMatcher(
@@ -609,6 +750,43 @@ class TestValidateRule:
             "replace_with": {"strategy": "static", "value": "X"},
         }
         _validate_rule(rule)  # should not raise
+
+    def test_valid_encoded_header_rule(self):
+        rule = {
+            "name": "github-token-inject",
+            "hostnames": ["github.com"],
+            "content_patterns": [
+                {"field": "headers", "header_name": "Authorization", "regex": "GH_TOKEN_PLACEHOLDER"},
+                {
+                    "field": "headers",
+                    "header_name": "Authorization",
+                    "regex": "GH_TOKEN_PLACEHOLDER",
+                    "encoding": "base64",
+                },
+            ],
+            "replace_with": {"strategy": "static", "value": "${ENV:GH_TOKEN}"},
+        }
+        _validate_rule(rule)  # should not raise
+
+    def test_invalid_encoding_rejected(self):
+        rule = {
+            "name": "test",
+            "hostnames": ["example.com"],
+            "content_patterns": [{"field": "headers", "header_name": "Authorization", "regex": "X", "encoding": "hex"}],
+            "replace_with": {"strategy": "static", "value": "X"},
+        }
+        with pytest.raises(ValueError, match="invalid encoding 'hex'. Valid encodings"):
+            _validate_rule(rule)
+
+    def test_encoding_requires_headers_field(self):
+        rule = {
+            "name": "test",
+            "hostnames": ["example.com"],
+            "content_patterns": [{"field": "body.json", "path": "$.key", "regex": ".*", "encoding": "base64"}],
+            "replace_with": {"strategy": "static", "value": "X"},
+        }
+        with pytest.raises(ValueError, match="'encoding' is only supported for field 'headers'"):
+            _validate_rule(rule)
 
     def test_invalid_strategy(self):
         rule = {
@@ -876,6 +1054,50 @@ class TestTokenReplacerAddon:
         flow.request.set_content.assert_called()
         new_data = json.loads(flow.request.set_content.call_args[0][0])
         assert new_data["api_key"] == "REDACTED"
+
+    def test_on_request_git_basic_auth_replacement(self):
+        """End-to-end: git's base64 Basic auth placeholder gets swapped in the wire header."""
+        addon = TokenReplacerAddon.__new__(TokenReplacerAddon)
+        addon.rules = [
+            {
+                "name": "github-token-inject",
+                "hostnames": ["github.com", "api.github.com"],
+                "content_patterns": [
+                    {"field": "headers", "header_name": "Authorization", "regex": "GH_TOKEN_PLACEHOLDER"},
+                    {
+                        "field": "headers",
+                        "header_name": "Authorization",
+                        "regex": "GH_TOKEN_PLACEHOLDER",
+                        "encoding": "base64",
+                    },
+                ],
+                "replace_with": {"strategy": "static", "value": "ghp_realtoken"},
+                "_matchers": [
+                    HeaderMatcher(
+                        header_name="Authorization",
+                        regex="GH_TOKEN_PLACEHOLDER",
+                        strategy="static",
+                        replacement_value="ghp_realtoken",
+                    ),
+                    EncodedHeaderMatcher(
+                        header_name="Authorization",
+                        regex="GH_TOKEN_PLACEHOLDER",
+                        strategy="static",
+                        replacement_value="ghp_realtoken",
+                    ),
+                ],
+            }
+        ]
+        addon.global_config = {"log_replacements": False, "dry_run": False}
+
+        auth_value = _basic_header("git", "GH_TOKEN_PLACEHOLDER")
+        headers_dict = {"Authorization": auth_value}
+        flow = _make_flow(host="github.com", body=b"")
+        flow.request.headers = _make_headers_mock(headers_dict)
+
+        addon.request(flow)
+
+        assert headers_dict["Authorization"] == _basic_header("git", "ghp_realtoken")
 
     def test_on_request_no_match_hostname(self):
         addon = TokenReplacerAddon.__new__(TokenReplacerAddon)

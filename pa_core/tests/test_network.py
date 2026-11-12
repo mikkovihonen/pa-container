@@ -255,7 +255,75 @@ class TestContainerNetworkManagerPullSecrets:
         assert "api.github.com" in pkg_rules[0]["hosts"]
 
         replacer_data = yaml.safe_load(eff_replacer.read_text())
-        assert any(r.get("name") == "github-token" for r in replacer_data["rules"])
+        gh_rules = [r for r in replacer_data["rules"] if r.get("name") == "github-token-inject"]
+        assert len(gh_rules) == 1
+        assert gh_rules[0]["replace_with"]["value"] == "${ENV:GH_TOKEN}"
+        assert any(cp.get("encoding") == "base64" for cp in gh_rules[0]["content_patterns"])
+
+
+class TestContainerNetworkManagerPullSecretsRegistry:
+    """Trusted in-process registry fallback for ${ENV:...} references."""
+
+    def _make_manager(self, tmp_path):
+        return ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=tmp_path,
+        )
+
+    @pytest.fixture(autouse=True)
+    def _clear_registry(self):
+        from secret_store import clear_resolved_secrets
+
+        clear_resolved_secrets()
+        yield
+        clear_resolved_secrets()
+
+    def _write_replacer_config(self, tmp_path, var):
+        import yaml
+
+        config = {"rules": [{"replace_with": {"value": f"${{ENV:{var}}}"}}]}
+        config_file = tmp_path / "token_replacer.yaml"
+        config_file.write_text(yaml.dump(config))
+
+    def test_falls_back_to_resolved_secret_registry(self, tmp_path):
+        from secret_store import register_resolved_secret
+
+        self._write_replacer_config(tmp_path, "GH_TOKEN")
+        register_resolved_secret("GH_TOKEN", "gh_registry_secret")
+
+        with patch("secret_store.get_keyring_secret", return_value=None), patch.dict(os.environ, {}, clear=True):
+            mgr = self._make_manager(tmp_path)
+            secrets = mgr._pull_secrets_from_config()
+            assert secrets == {"GH_TOKEN": "gh_registry_secret"}
+            # ${ENV:...} references are exported into the proxy's process env.
+            assert os.environ["GH_TOKEN"] == "gh_registry_secret"
+
+    def test_registry_wins_over_keyring(self, tmp_path):
+        """Declared keyring accounts are authoritative over same-named keyring entries."""
+        from secret_store import register_resolved_secret
+
+        self._write_replacer_config(tmp_path, "GH_TOKEN")
+        register_resolved_secret("GH_TOKEN", "gh_declared_secret")
+
+        with (
+            patch("secret_store.get_keyring_secret", return_value="gh_wrong_keyring_secret"),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            mgr = self._make_manager(tmp_path)
+            secrets = mgr._pull_secrets_from_config()
+
+        assert secrets == {"GH_TOKEN": "gh_declared_secret"}
+
+    def test_missing_everywhere_yields_empty(self, tmp_path):
+        self._write_replacer_config(tmp_path, "GH_TOKEN")
+
+        with patch("secret_store.get_keyring_secret", return_value=None), patch.dict(os.environ, {}, clear=True):
+            mgr = self._make_manager(tmp_path)
+            secrets = mgr._pull_secrets_from_config()
+
+        assert secrets == {}
 
 
 # ---------------------------------------------------------------------------

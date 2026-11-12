@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,11 +14,23 @@ if TYPE_CHECKING:
 
 from pa_packages.source_control.host.plugin import SourceControlPlugin
 from pa_packages.source_control.host.source_control import (
+    GUARDED_TOKEN_ENV_VARS,
     _probe_host_cli,
     mask_token,
     read_source_control_config,
+    resolve_source_control_placeholder_env,
     resolve_source_control_tokens,
 )
+
+from secret_store import clear_resolved_secrets, get_resolved_secret
+
+
+@pytest.fixture(autouse=True)
+def _clear_secret_registry():
+    """Keep the in-process resolved-secret registry isolated between tests."""
+    clear_resolved_secrets()
+    yield
+    clear_resolved_secrets()
 
 
 class TestMaskToken:
@@ -264,6 +276,33 @@ def _make_dummy_manifest() -> PackageManifest:
     )
 
 
+class TestResolvePlaceholderEnv:
+    def test_maps_declared_slots_to_placeholders(self) -> None:
+        secrets = [
+            {"name": "github", "account": "PA_CUSTOM_GH"},
+            {"name": "gitlab", "account": "GITLAB_TOKEN"},
+        ]
+        env = resolve_source_control_placeholder_env(secrets, manifest=None)
+        assert env == {"GH_TOKEN": "GH_TOKEN_PLACEHOLDER", "GITLAB_TOKEN": "GITLAB_TOKEN_PLACEHOLDER"}
+
+    def test_unknown_slots_ignored(self) -> None:
+        env = resolve_source_control_placeholder_env([{"name": "unknown-prov", "account": "X"}], manifest=None)
+        assert env == {}
+
+    def test_manifest_placeholder_wins_over_fallback(self) -> None:
+        from packages.manifest import PackageManifest, SecretMappingConfig
+
+        manifest = PackageManifest(
+            name="source-control",
+            version="1.0.0",
+            schema_version="3.0.0",
+            description="test",
+            secrets=[SecretMappingConfig(name="github", placeholder="CUSTOM_GH_PLACEHOLDER")],
+        )
+        env = resolve_source_control_placeholder_env([{"name": "github", "account": "PA_CUSTOM_GH"}], manifest=manifest)
+        assert env == {"GH_TOKEN": "CUSTOM_GH_PLACEHOLDER"}
+
+
 class TestSourceControlPlugin:
     def test_contribute_config_schema(self, tmp_path: Path) -> None:
         manifest = _make_dummy_manifest()
@@ -273,44 +312,7 @@ class TestSourceControlPlugin:
         assert "auto_detect_host_cli" in schema["keys"]
         assert "setup_git_credentials" in schema["keys"]
 
-    def test_get_secret_mappings(self, tmp_path: Path) -> None:
-        manifest = _make_dummy_manifest()
-        plugin = SourceControlPlugin(manifest, tmp_path)
-
-        # Disabled -> empty mappings
-        cfg_disabled: Any = {"packages": []}
-        assert plugin.get_secret_mappings(cfg_disabled) == []
-
-        # Enabled -> mappings for providers
-        cfg_enabled: Any = {
-            "packages": [
-                {
-                    "source-control": {
-                        "features": [
-                            {"github": {"config": {}, "secrets": [{"name": "github", "account": "GH_TOKEN"}]}},
-                            {"gitlab": {"config": {}, "secrets": [{"name": "gitlab", "account": "GITLAB_TOKEN"}]}},
-                            {"forgejo": {"config": {}, "secrets": [{"name": "forgejo", "account": "GITEA_TOKEN"}]}},
-                            {
-                                "azure_devops": {
-                                    "config": {},
-                                    "secrets": [{"name": "azure_devops", "account": "AZURE_DEVOPS_EXT_PAT"}],
-                                }
-                            },
-                        ],
-                        "config": {},
-                        "secrets": [],
-                    }
-                }
-            ]
-        }
-        mappings = plugin.get_secret_mappings(cfg_enabled)
-        names = {m.name for m in mappings}
-        assert "github-token" in names
-        assert "gitlab-token" in names
-        assert "forgejo-token" in names
-        assert "azure_devops-token" in names
-
-    def test_lifecycle_hooks(self, tmp_path: Path) -> None:
+    def test_lifecycle_hooks_placeholder_only(self, tmp_path: Path) -> None:
         manifest = _make_dummy_manifest()
         plugin = SourceControlPlugin(manifest, tmp_path, project_dir=tmp_path)
 
@@ -318,7 +320,7 @@ class TestSourceControlPlugin:
         ctx = RunContext(
             project_dir=tmp_path,
             options=options,
-            config={},
+            config={"agent": {"env": {}}},
             package_configs={"source-control": {"setup_git_credentials": True}},
             package_secrets={"source-control": []},
             feature_configs={"source-control": {"github": {"auto_detect_host_cli": False}}},
@@ -336,8 +338,49 @@ class TestSourceControlPlugin:
         assert ctx.has_mode("source-control")
         assert ctx.get_attribute("source_control.tokens") == {"GH_TOKEN": "token_gh_secret"}
 
+        # Real tokens are registered host-side for the proxy — never injected.
+        assert get_resolved_secret("GH_TOKEN") == "token_gh_secret"
+
         spec = ContainerRunSpec()
         plugin.on_container_configure(spec, ctx)
 
-        assert spec.env["GH_TOKEN"] == "token_gh_secret"
+        # The container only ever sees the placeholder.
+        assert spec.env["GH_TOKEN"] == "GH_TOKEN_PLACEHOLDER"
+        assert "token_gh_secret" not in str(spec.env.values())
         assert spec.env["SETUP_GIT_CREDENTIALS"] == "true"
+
+    def test_on_preflight_rejects_agent_env_token_override(self, tmp_path: Path) -> None:
+        manifest = _make_dummy_manifest()
+        plugin = SourceControlPlugin(manifest, tmp_path, project_dir=tmp_path)
+
+        ctx = RunContext(
+            project_dir=tmp_path,
+            options=MagicMock(),
+            config={"agent": {"env": {"GH_TOKEN": "ghp_reallooking_pat", "OTHER": "ok"}}},
+        )
+        with pytest.raises(ValueError, match="agent.env must not override"):
+            plugin.on_preflight(ctx)
+
+    def test_on_preflight_accepts_unrelated_env(self, tmp_path: Path) -> None:
+        manifest = _make_dummy_manifest()
+        plugin = SourceControlPlugin(manifest, tmp_path, project_dir=tmp_path)
+
+        ctx = RunContext(
+            project_dir=tmp_path,
+            options=MagicMock(),
+            config={"agent": {"env": {"SOME_TOOL_CONFIG": "/path"}}},
+        )
+        plugin.on_preflight(ctx)
+
+    def test_guarded_env_vars_cover_all_providers(self) -> None:
+        for provider_env in (
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "GITLAB_TOKEN",
+            "GLAB_TOKEN",
+            "GITEA_TOKEN",
+            "AZURE_DEVOPS_EXT_PAT",
+            "BITBUCKET_TOKEN",
+            "GITCAFE_TOKEN",
+        ):
+            assert provider_env in GUARDED_TOKEN_ENV_VARS

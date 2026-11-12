@@ -53,7 +53,7 @@ The key components of the system are
 
 1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pa-container/models.yaml` and resolved against host model definitions at `~/.config/pa-container/models/<model-id>.yaml` or gateways at `~/.config/pa-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/project/` template and default model definitions from `coding-agent/default/global/models/` on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
 
-2. **`pa-container-agent-proxy`** (container): A transparent proxy container based on Fedora Minimal with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that redacts API keys, bearer tokens, cookies, and JWTs. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
+2. **`pa-container-agent-proxy`** (container): A transparent proxy container based on Fedora Minimal with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that substitutes tokens in outgoing traffic: it can redact secrets (API keys, bearer tokens, cookies, JWTs) or replace in-container placeholders with real credentials held by the proxy. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
 
 3. **`pa-container-agent`** (container): The main agent container. The system builds it from Fedora Minimal (`registry.fedoraproject.org/fedora-minimal:45`). It includes Node 26, Python 3.15.2, `uv` for dependency management, and (for nested containers) rootless podman plus `podman-compose`. Agent Capability Packages in `pa_packages/` provide discrete, self-contained capability layers composed dynamically via `COPY --from=pa-container-pkg-<name>:local / /`. No workspace needs to install them. The agent connects **only** to an internal `isolated-net` network. Its default route and DNS point at the proxy so all traffic goes through it. The proxy reaches the host `llama-server` via `host.containers.internal` on podman for macOS or directly on Linux. This requires no socat. With `nested_containers.enabled`, the agent runs its own rootless podman inside itself. Those containers live in the agent's namespaces. Their traffic also goes through the proxy (see [Nested containers](design-details.md#nested-containers)).
 
@@ -190,7 +190,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │           ├── models.yaml           # Allowed models allowlist for the workspace
 │           ├── config.yaml           # Orchestration: resources, tmpfs, flow_export, egress, nested_containers
 │           ├── allowlist.yaml        # Generic hostname allowlist (pypi/npm/github/apt)
-│           ├── token_replacer.yaml   # Generic token-redaction config
+│           ├── token_replacer.yaml   # Token substitution rules (redaction and placeholder injection)
 │           └── dependencies/         # Dependency command templates
 │               ├── agent/commands.sh
 │               └── root/commands.sh
@@ -200,7 +200,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │   ├── entrypoint.sh                 # iptables (redirect/DNAT, default-deny FORWARD) + mitmweb with addons
 │   └── addons/
 │       ├── allowlist/                # Hostname/IP allowlist addon (active)
-│       └── token_replacer/           # Token redaction addon (API keys, Bearer tokens, cookies, JWTs) (active)
+│       └── token_replacer/           # Token substitution addon (redaction and placeholder injection) (active)
 │
 ├── llama-server/                     # LLM server components
 │   ├── models/                       # Downloaded GGUF model files (gitignored)
@@ -217,7 +217,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
     ├── agent/                        # Agent launch config (sessions, config.json, …)
     ├── models.yaml                   # Allowed models allowlist
     ├── config.yaml                   # Orchestration: resource limits, tmpfs, flow-export, egress
-    ├── token_replacer.yaml           # Token redaction rules (mounted into this project's proxy)
+    ├── token_replacer.yaml           # Token substitution rules (mounted into this project's proxy)
     ├── allowlist.yaml                # Hostname allowlist (mounted into this project's proxy)
     └── exports/                      # Captured flow history for this project (gitignored)
 ```

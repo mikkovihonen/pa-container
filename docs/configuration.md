@@ -476,7 +476,7 @@ Device entries support the optional `mode` suffix (`r` for read-only, `w` for wr
 This provides protection against prompt injection and untrusted scripts by preventing the agent from modifying:
 - `config.yaml` (resource limits, network settings, security policies)
 - `allowlist.yaml` (punching unauthorized egress holes)
-- `token_replacer.yaml` (disabling secret redaction rules)
+- `token_replacer.yaml` (disabling secret substitution rules)
 - `dependencies/root/commands.sh` and `dependencies/agent/commands.sh` (poisoning future container builds)
 - `models.yaml`
 
@@ -566,7 +566,8 @@ packages:
         auto_detect_host_cli: false
 
         # Automatically configure Git credential helpers inside the container (e.g. `gh auth setup-git`)
-        # so Git HTTPS operations seamlessly authenticate using the token.
+        # so Git HTTPS operations authenticate. The helpers send the placeholder token; the proxy
+        # substitutes the real token in outgoing requests.
         # Default: true.
         setup_git_credentials: true
       secrets:
@@ -582,8 +583,18 @@ packages:
 For security, host process environment variables and unencrypted files are strictly rejected as credential stores. Tokens are resolved exclusively from:
 1. **OS Keyring** (explicitly mapped via `secrets:` where both `name` and `account` are required; unmapped required secret slots cause an immediate fatal error).
 2. **Host CLI active sessions** (only if `auto_detect_host_cli: true`).
-1. **OS Keyring** (service `"pa-container"` looking up configured `keyring_var`, falling back to default provider account names).
-2. **Host CLI active sessions** (only if `auto_detect_host_cli: true`).
+
+#### Placeholder-Only Container
+
+The agent container never holds a real source-control token. `pa run`:
+
+1. Resolves each token host-side from the OS keyring (or a host CLI session).
+2. Registers the value in a trusted host-side registry. Only the proxy reads this registry.
+3. Injects a placeholder into the container environment (e.g., `GH_TOKEN=GH_TOKEN_PLACEHOLDER`).
+
+The `token_replacer` rules from the `source-control` package tell the proxy to substitute the placeholders in outgoing HTTP traffic. The rules cover plain `Authorization` headers and base64-encoded `Basic` credentials that git sends. The proxy also handles the `PRIVATE-TOKEN` header for GitLab.
+
+`agent.env` must not override a guarded token variable (`GH_TOKEN`, `GITLAB_TOKEN`, `GITEA_TOKEN`, `AZURE_DEVOPS_EXT_PAT`, `BITBUCKET_TOKEN`, `GITCAFE_TOKEN`, and aliases). `pa run` rejects such a configuration before launch. A preflight scan also aborts the launch if a real credential would reach the container by any other path.
 
 ### Security hardening
 
@@ -849,8 +860,8 @@ packages:
 - **Version Control & Source Control:**
     - `git`: High-performance Git engine with Git MCP server (`git`, `mcp-server-git`).
     - `source-control`: Multi-provider forge authentication and Git credentials. Optional features:
-        - `github`: Official GitHub CLI with GitHub MCP server and isolated token redaction (`gh`).
-        - `gitlab`: Official GitLab CLI with isolated token redaction (`glab`).
+        - `github`: Official GitHub CLI with GitHub MCP server and proxy token substitution (`gh`).
+        - `gitlab`: Official GitLab CLI with proxy token substitution (`glab`).
         - `gitea`: Official Gitea and Forgejo CLI (`tea`, `fj`).
         - `azure-devops`: Azure CLI with pre-installed `azure-devops` extension (`az`).
         - `bitbucket`: Bitbucket API integration.

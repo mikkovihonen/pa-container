@@ -39,7 +39,6 @@ from packages.plugin import (
     ACPPlugin,
     ContainerRunSpec,
     RunContext,
-    SecretTokenMapping,
 )
 from packages.projection import (
     aggregate_egress_hosts,
@@ -65,7 +64,6 @@ __all__ = [
     "ACPAgentPlugin",
     "ContainerRunSpec",
     "RunContext",
-    "SecretTokenMapping",
     "load_acp_plugin",
     "load_active_plugins",
     "load_project_plugins",

@@ -6,6 +6,11 @@
 
 This mitmproxy addon intercepts HTTP requests that flow through the transparent proxy. It conditionally replaces sensitive token values (e.g., API keys, authorization bearer tokens, session cookies) in request bodies, headers, or query parameters.
 
+The addon supports two uses:
+
+1. **Redaction** — mask a real secret before it leaves the local network.
+2. **Placeholder injection** — replace a placeholder value (e.g., `GH_TOKEN_PLACEHOLDER`) with the real secret. pa-container uses this model: the agent container holds placeholder tokens only. The proxy substitutes the real values in outgoing traffic. Real secrets never enter the container.
+
 The addon applies the replacement only when **both** conditions match:
 1. **Hostname match** — the request's target hostname matches a configured pattern.
 2. **Content match** — the request body or headers contain a token that matches a configured pattern.
@@ -47,7 +52,7 @@ The addon applies the replacement only when **both** conditions match:
 |-----------|------|-------------|
 | Addon | `token_replacer.py` | Everything: matchers, rule engine, config loading |
 | Config | `token_replacer.yaml` | YAML rules: hostnames, content patterns, replacements |
-| Tests | `tests/test_token_replacer.py` | 61 unit tests covering all replacement paths |
+| Tests | `tests/test_token_replacer.py` | Unit tests covering all replacement paths |
 
 ### Replacing Sensitive Values from Environment Variables
 
@@ -75,7 +80,7 @@ rules:
 | `${ENV:MY_VAR,fallback}` | Resolved from `os.environ["MY_VAR"]`. Uses ``fallback`` if unset. |
 | Any other string | Passed through unchanged (no resolution). |
 
-Resolution happens at config load time — matchers always receive plain strings, so there is no runtime overhead per request. The resolved value is **never** logged; only the original (sensitive) token value is written to log output.
+Resolution happens at config load time — matchers always receive plain strings, so there is no runtime overhead per request. Log output masks matched values: it prints a 10-character prefix plus the length (for example `ghp_aaaaaa...(40 chars)`). A placeholder stays recognizable; a real secret never prints in full.
 
 > **Security note:** Environment variables are already accessible to the process. This feature simply avoids hardcoding secret values in YAML files that may be committed to version control.
 
@@ -132,7 +137,42 @@ rules:
     replace_with:
       strategy: "static"
       value: "REDACTED_API_KEY"
+
+  - name: "git basic auth injection"
+    hostnames:
+      - "github.com"
+    content_patterns:
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "GH_TOKEN_PLACEHOLDER"        # plain header value
+      - field: "headers"
+        header_name: "Authorization"
+        regex: "GH_TOKEN_PLACEHOLDER"
+        encoding: "base64"                   # matches inside base64 payloads
+    replace_with:
+      strategy: "static"
+      value: "${ENV:GH_TOKEN}"
 ```
+
+### Encoded Header Matching (`encoding: base64`)
+
+Git and many HTTP clients send credentials as `Authorization: Basic base64(user:password)`. The placeholder sits inside the base64 payload, so a plain header regex cannot see it.
+
+A content pattern with `field: "headers"` and `encoding: "base64"` handles this case:
+
+1. Read the header value. It must start with `Basic` (case-insensitive).
+2. Decode the base64 payload to a UTF-8 string.
+3. Apply the pattern `regex` to the decoded string.
+4. Apply the replacement, then re-encode the payload as base64.
+
+Rules for `encoding`:
+
+- Only `base64` is a valid value. Any other value fails config validation.
+- `encoding` is only valid with `field: "headers"`.
+- Header values that do not use the `Basic` scheme, or that do not decode to UTF-8, pass through without change.
+- Detection collects the **decoded** token (the placeholder). The addon masks it in log output.
+
+Example: the agent container sends `Authorization: Basic <base64("git:GH_TOKEN_PLACEHOLDER")>`. The rule replaces the placeholder and re-encodes the header. The upstream server receives the real token.
 
 ### Replacement Strategies
 
@@ -153,12 +193,13 @@ The `request(flow)` hook (and its mirror, `response(flow)`) executes in three ph
 
 Content types:
 | Field | Target | Parsing |
-|-------|--------|---------|
+|-------|--------|--------|
 | `body.json` | JSON body | `json.loads()` → JSONPath walk → regex filter |
 | `body.form` | URL-encoded form | `parse_qsl()` → field lookup → regex filter |
 | `body.query` | URL query string | `parse_qsl()` → field lookup → regex filter |
 | `body.raw` | Arbitrary text | Direct regex application |
 | `headers` | HTTP header value | Header lookup (case-insensitive) → regex application |
+| `headers` + `encoding: base64` | Base64 payload of a `Basic` auth header | Base64 decode → regex application → base64 re-encode |
 
 > **Note:** JSONPath array indices (e.g., `$.items[0].key`) are not supported.
 > Use `body.raw` with a regex to match tokens inside arrays, or restructure

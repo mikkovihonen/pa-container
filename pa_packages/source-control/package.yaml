@@ -34,11 +34,6 @@ features:
             - name: "github"
               required: true
               placeholder: "GH_TOKEN_PLACEHOLDER"
-              hosts:
-                  - "api.github.com"
-                  - "*.github.com"
-              header: "Authorization"
-              pattern: "token (ghp_[A-Za-z0-9_]{36})"
         payload:
             type: "build_script"
             script: "features/github/build.sh"
@@ -65,28 +60,24 @@ features:
                 - "raw.githubusercontent.com"
                 - "objects.githubusercontent.com"
         token_replacer:
-            - name: "github-token"
+            - name: "github-token-inject"
               hostnames:
                   - "api.github.com"
+                  - "github.com"
                   - "*.github.com"
+                  - "raw.githubusercontent.com"
+                  - "objects.githubusercontent.com"
               content_patterns:
                   - field: "headers"
                     header_name: "Authorization"
-                    regex: "token (ghp_[A-Za-z0-9_]{36})"
-              replace_with:
-                  strategy: "static"
-                  value: "token [REDACTED_GH_TOKEN]"
-            - name: "github-bearer"
-              hostnames:
-                  - "api.github.com"
-                  - "*.github.com"
-              content_patterns:
+                    regex: "GH_TOKEN_PLACEHOLDER"
                   - field: "headers"
                     header_name: "Authorization"
-                    regex: "Bearer (gho_[A-Za-z0-9_]{36})"
+                    encoding: "base64"
+                    regex: "GH_TOKEN_PLACEHOLDER"
               replace_with:
                   strategy: "static"
-                  value: "Bearer [REDACTED_GH_OAUTH]"
+                  value: "${ENV:GH_TOKEN}"
         verification:
             command: "gh --version"
             expected_output_contains: "gh version 2.103"
@@ -100,11 +91,6 @@ features:
             - name: "gitlab"
               required: true
               placeholder: "GITLAB_TOKEN_PLACEHOLDER"
-              hosts:
-                  - "gitlab.com"
-                  - "*.gitlab.com"
-              header: "PRIVATE-TOKEN"
-              pattern: "(glpat-[A-Za-z0-9_\\-]{20,32})"
         payload:
             type: "build_script"
             script: "features/gitlab/build.sh"
@@ -121,17 +107,24 @@ features:
                 - "gitlab.com"
                 - "*.gitlab.com"
         token_replacer:
-            - name: "gitlab-token"
+            - name: "gitlab-token-inject"
               hostnames:
                   - "gitlab.com"
                   - "*.gitlab.com"
               content_patterns:
                   - field: "headers"
                     header_name: "PRIVATE-TOKEN"
-                    regex: "(glpat-[A-Za-z0-9_\\-]{20,32})"
+                    regex: "GITLAB_TOKEN_PLACEHOLDER"
+                  - field: "headers"
+                    header_name: "Authorization"
+                    regex: "GITLAB_TOKEN_PLACEHOLDER"
+                  - field: "headers"
+                    header_name: "Authorization"
+                    encoding: "base64"
+                    regex: "GITLAB_TOKEN_PLACEHOLDER"
               replace_with:
                   strategy: "static"
-                  value: "[REDACTED_GITLAB_TOKEN]"
+                  value: "${ENV:GITLAB_TOKEN}"
         verification:
             command: "glab --version"
             expected_output_contains: "glab 1.128"
@@ -145,9 +138,6 @@ features:
             - name: "forgejo"
               required: true
               placeholder: "GITEA_TOKEN_PLACEHOLDER"
-              hosts:
-                  - "gitea.com"
-                  - "codeberg.org"
         payload:
             type: "build_script"
             script: "features/gitea/build.sh"
@@ -158,6 +148,22 @@ features:
                 TEA_SHA256_AMD64: "9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636"
                 TEA_SHA256_ARM64: "0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879"
         skill_fragment: "skill/features/gitea.md"
+        token_replacer:
+            - name: "gitea-token-inject"
+              hostnames:
+                  - "gitea.com"
+                  - "codeberg.org"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "Authorization"
+                    regex: "GITEA_TOKEN_PLACEHOLDER"
+                  - field: "headers"
+                    header_name: "Authorization"
+                    encoding: "base64"
+                    regex: "GITEA_TOKEN_PLACEHOLDER"
+              replace_with:
+                  strategy: "static"
+                  value: "${ENV:GITEA_TOKEN}"
         egress:
             allow_hosts:
                 - "gitea.com"
@@ -175,9 +181,6 @@ features:
             - name: "gitcafe"
               required: true
               placeholder: "GITCAFE_TOKEN_PLACEHOLDER"
-              hosts:
-                  - "gitcafe.com"
-                  - "*.gitcafe.com"
         payload:
             type: "build_script"
             script: "features/cafe/build.sh"
@@ -192,6 +195,22 @@ features:
                 BUN_SHA256_AMD64: "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"
                 BUN_SHA256_ARM64: "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"
         skill_fragment: "skill/features/cafe.md"
+        token_replacer:
+            - name: "gitcafe-token-inject"
+              hostnames:
+                  - "gitcafe.com"
+                  - "*.gitcafe.com"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "Authorization"
+                    regex: "GITCAFE_TOKEN_PLACEHOLDER"
+                  - field: "headers"
+                    header_name: "Authorization"
+                    encoding: "base64"
+                    regex: "GITCAFE_TOKEN_PLACEHOLDER"
+              replace_with:
+                  strategy: "static"
+                  value: "${ENV:GITCAFE_TOKEN}"
         egress:
             allow_hosts:
                 - "gitcafe.com"
@@ -208,13 +227,26 @@ features:
             - name: "azure_devops"
               required: true
               placeholder: "AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"
-              hosts:
-                  - "dev.azure.com"
-                  - "*.visualstudio.com"
         egress:
             allow_hosts:
                 - "dev.azure.com"
                 - "*.visualstudio.com"
+        token_replacer:
+            - name: "azure-devops-token-inject"
+              hostnames:
+                  - "dev.azure.com"
+                  - "*.visualstudio.com"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "Authorization"
+                    regex: "AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"
+                  - field: "headers"
+                    header_name: "Authorization"
+                    encoding: "base64"
+                    regex: "AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"
+              replace_with:
+                  strategy: "static"
+                  value: "${ENV:AZURE_DEVOPS_EXT_PAT}"
         skill_fragment: "skill/features/azure-devops.md"
 
     bitbucket:
@@ -226,13 +258,26 @@ features:
             - name: "bitbucket"
               required: true
               placeholder: "BITBUCKET_TOKEN_PLACEHOLDER"
-              hosts:
-                  - "bitbucket.org"
-                  - "api.bitbucket.org"
         egress:
             allow_hosts:
                 - "bitbucket.org"
                 - "api.bitbucket.org"
+        token_replacer:
+            - name: "bitbucket-token-inject"
+              hostnames:
+                  - "bitbucket.org"
+                  - "api.bitbucket.org"
+              content_patterns:
+                  - field: "headers"
+                    header_name: "Authorization"
+                    regex: "BITBUCKET_TOKEN_PLACEHOLDER"
+                  - field: "headers"
+                    header_name: "Authorization"
+                    encoding: "base64"
+                    regex: "BITBUCKET_TOKEN_PLACEHOLDER"
+              replace_with:
+                  strategy: "static"
+                  value: "${ENV:BITBUCKET_TOKEN}"
         skill_fragment: "skill/features/bitbucket.md"
 
 verification:

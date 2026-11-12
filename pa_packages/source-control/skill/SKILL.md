@@ -9,12 +9,13 @@ description: Source control operations, credentials, and CLI tooling for GitHub,
 
 The `source-control` capability manages authentication credentials, Git credential helpers, and repository automation across popular source code hosting platforms.
 
-Authentication tokens are securely injected from the host OS Keyring (service: `pa-container`) without storing secrets on disk inside the container.
+The container environment holds **placeholder tokens only** (for example, `GH_TOKEN=GH_TOKEN_PLACEHOLDER`). Real tokens stay on the host: `pa run` reads them from the OS Keyring (service: `pa-container`) and registers them with the egress proxy. The proxy substitutes the placeholders in outgoing HTTP traffic, including base64-encoded `Basic` credentials sent by git. No real credential is stored or printed inside the container.
 
 ## Automated Credential Helpers
 
 When `source_control.setup_git_credentials` is enabled (default `true`):
-- Active provider tokens are automatically configured for standard `git clone`, `git fetch`, and `git push` operations over HTTPS.
+- Git credential helpers are configured for standard `git clone`, `git fetch`, and `git push` operations over HTTPS.
+- The helpers send the placeholder token. The proxy replaces it with the real token before the request leaves the sandbox.
 - Authentication happens transparently without prompting for credentials.
 
 ### GitHub Integration (`gh`)
@@ -36,7 +37,7 @@ The GitHub CLI (`gh`) and GitHub MCP server allow managing issues, pull requests
     ```bash
     gh api repos/{owner}/{repo}
     ```
-- **MCP Server**: The `github` MCP server is registered at runtime and uses `GH_TOKEN`.
+- **MCP Server**: The `github` MCP server is registered at runtime and uses the `GH_TOKEN` placeholder, which the proxy substitutes in outgoing requests.
 
 ### GitLab Integration (`glab`)
 
@@ -91,7 +92,7 @@ Provides seamless authentication for Azure DevOps Git remotes (`https://dev.azur
 
 #### Credentials
 
-- Automatically injects `AZURE_DEVOPS_EXT_PAT` from the host OS Keyring.
+- Injects the `AZURE_DEVOPS_EXT_PAT` placeholder into the container. The proxy substitutes the real token from the host OS Keyring in outgoing requests.
 - Transparently configures Git URL rewrite rules for `dev.azure.com` remotes.
 
 ### Bitbucket Integration
@@ -100,5 +101,5 @@ Provides authentication credentials and proxy access for Bitbucket Cloud (`https
 
 #### Credentials
 
-- Automatically injects `BITBUCKET_TOKEN` from the host OS Keyring.
+- Injects the `BITBUCKET_TOKEN` placeholder into the container. The proxy substitutes the real token from the host OS Keyring in outgoing requests.
 - Whitelists Bitbucket API and Git host egress through the container proxy.

@@ -3,6 +3,7 @@ from __future__ import annotations
 """Security policy definitions and preflight validations for pa-container."""
 
 import ipaddress
+import re
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,57 @@ FORBIDDEN_CONTAINER_DESTINATION_PREFIXES: tuple[str, ...] = (
     "/lib64",
     "/root",
 )
+
+# Well-known credential formats with distinctive prefixes. Used for the
+# fail-closed scan of the final agent container environment: if any value
+# matches a real-token shape, the run aborts before the container starts.
+# Placeholders (e.g. GH_TOKEN_PLACEHOLDER) never match these patterns.
+_REAL_TOKEN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("GitHub classic PAT", re.compile(r"ghp_[A-Za-z0-9]{30,}")),
+    ("GitHub OAuth token", re.compile(r"gho_[A-Za-z0-9]{30,}")),
+    ("GitHub app token", re.compile(r"ghu_[A-Za-z0-9]{30,}")),
+    ("GitHub refresh token", re.compile(r"ghr_[A-Za-z0-9]{30,}")),
+    ("GitHub fine-grained PAT", re.compile(r"github_pat_[A-Za-z0-9_]{20,}")),
+    ("GitLab PAT", re.compile(r"glpat-[A-Za-z0-9_\-]{20,}")),
+    # Anthropic API keys ('sk-ant-api03-...'). The agent-native OAuth token
+    # ('sk-ant-oat01-...') is an intentional real secret and must NOT match.
+    ("Anthropic API key", re.compile(r"sk-ant-api\d*-[A-Za-z0-9_\-]{40,}")),
+    ("OpenAI API key", re.compile(r"sk-proj-[A-Za-z0-9_\-]{40,}")),
+    ("OpenAI legacy API key", re.compile(r"sk-[A-Za-z0-9]{40,}")),
+)
+
+
+def scan_env_for_real_tokens(
+    env: dict[str, str],
+    known_secrets: dict[str, str] | None = None,
+) -> list[str]:
+    """Scan final container env values for real credential material.
+
+    Fail-closed check executed before the agent container starts. A value is
+    a violation when it matches a well-known real-token format or equals a
+    secret resolved host-side (trusted registry values such as gateway keys
+    and source-control tokens).
+
+    Args:
+        env: The complete environment that will be passed to the agent container.
+        known_secrets: Real secret values resolved host-side (name -> value).
+
+    Returns:
+        A list of human-readable violation descriptions (empty when clean).
+    """
+    violations: list[str] = []
+    known_values: set[str] = {v for v in (known_secrets or {}).values() if v}
+    for key, value in env.items():
+        if not isinstance(value, str) or not value:
+            continue
+        if value in known_values:
+            violations.append(f"{key} carries a real host-side secret value")
+            continue
+        for label, pattern in _REAL_TOKEN_PATTERNS:
+            if pattern.search(value):
+                violations.append(f"{key} matches a {label} format")
+                break
+    return violations
 
 
 def read_security_config(config_dir: Path | None = None) -> SecurityConfig:

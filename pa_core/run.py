@@ -76,7 +76,8 @@ from network import (
 from packages.loader import load_project_plugins
 from packages.plugin import ContainerRunSpec, RunContext
 from runtimes import PodmanRuntime
-from security import read_security_config, validate_mount_paths
+from secret_store import all_resolved_secrets
+from security import read_security_config, scan_env_for_real_tokens, validate_mount_paths
 from server import Server
 from util import (
     EnvironmentError,
@@ -126,6 +127,24 @@ def _init_runtime() -> None:
     CONTAINER_RUNTIME = _CONTAINER_RUNTIME
     RUNTIME = PodmanRuntime(upstream_network=PROXY_UPSTREAM_NETWORK_ENV)
     PROXY_UPSTREAM_NETWORK = RUNTIME.upstream_network
+
+
+def _env_flags(env: dict[str, str]) -> list[str]:
+    """Convert an env dict into name-only ``--env KEY`` flag pairs.
+
+    Values are exported into this process's environment instead of being
+    embedded in the CLI argv, so credential material never shows up in host
+    process listings (``ps``). The container runtime resolves each name-only
+    flag from the parent process environment at launch time.
+
+    Call order matters: groups converted later win, mirroring the previous
+    ``--env KEY=VALUE`` flag ordering semantics.
+    """
+    flags: list[str] = []
+    for key, value in env.items():
+        os.environ[key] = str(value)
+        flags.extend(["--env", key])
+    return flags
 
 
 def process_gateway_configs(gateway_configs: list[GatewayConfigItem], pa_container_dir: Path) -> None:
@@ -747,7 +766,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             for d in selected_agent_drivers:
                 d_gateways = [gw for gw in gateway_configs if d.is_gateway_enabled_for_agent(gw)]
                 merged_driver_env.update(d.get_environment(agent_extras, gateway_configs=d_gateways))
-            driver_env = [flag for k, v in merged_driver_env.items() for flag in ("--env", f"{k}={v}")]
             ctx.container_name = agent_container_name
             ctx.network_name = network_name
             ctx.proxy_url = f"http://{proxy_isolated_ip}:8080" if proxy_isolated_ip else None
@@ -756,6 +774,45 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
             plugin_spec = ContainerRunSpec()
             for plugin in active_plugins.values():
                 plugin.on_container_configure(plugin_spec, ctx)
+
+            # Fail-closed preflight: the agent container holds placeholder
+            # tokens only. If any real credential material would reach the
+            # container (keyring-resolved source-control tokens, gateway API
+            # keys, well-known token formats), abort before launching.
+            final_agent_env = {**merged_driver_env, **plugin_spec.env, **agent_extras["env"]}
+            known_secrets = all_resolved_secrets()
+            for gw in gateway_configs:
+                gw_def = gw.get("gatewayDef")
+                auth = getattr(gw_def, "auth", None) if gw_def is not None else None
+                var_name = gw.get("containerEnvVar")
+                if (
+                    var_name
+                    and auth is not None
+                    and getattr(auth, "type", "") in ("api-key", "openid")
+                    and os.environ.get(var_name)
+                ):
+                    known_secrets.setdefault(var_name, os.environ[var_name])
+            env_leaks = scan_env_for_real_tokens(final_agent_env, known_secrets=known_secrets)
+            if env_leaks:
+                log_drv.fail_and_render(
+                    LogCategory.PREFLIGHT,
+                    "Real Secret in Container Environment",
+                    "The agent container would receive real credential material:\n"
+                    + "\n".join(f"  - {line}" for line in env_leaks),
+                    hints=[
+                        "The container holds placeholder tokens only; the proxy substitutes real values in outgoing traffic.",
+                        "Check agent.env and the package secrets in .pa-container/config.yaml.",
+                    ],
+                    source_logger=preflight_logger,
+                )
+                return 1
+
+            # Name-only env flags: values live in the process environment,
+            # never in the CLI argv. Conversion order mirrors the flag order
+            # so later groups still override earlier ones.
+            driver_env_flags = _env_flags(merged_driver_env)
+            plugin_env_flags = _env_flags(plugin_spec.env)
+            agent_env_flags = _env_flags(agent_extras["env"])
 
             driver_mount_chown: list[str] = []
             for m in selected_mounts:
@@ -842,12 +899,12 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 f"PA_CONTAINER_AGENT={agent_driver.name}",
                 "--env",
                 f"PA_CONTAINER_ENABLED_AGENTS={','.join(selected_agent_names)}",
-                *driver_env,
-                *[flag for k, v in plugin_spec.env.items() for flag in ("--env", f"{k}={v}")],
+                *driver_env_flags,
+                *plugin_env_flags,
                 "--env",
                 f"LLAMA_PORTS={portconfig}",
                 *(["--env", f"PA_CONTAINER_VERSION={schema_version}"] if schema_version else []),
-                *[flag for k, v in agent_extras["env"].items() for flag in ("--env", f"{k}={v}")],
+                *agent_env_flags,
                 *[flag for m in agent_extras["mounts"] for flag in ("--volume", m)],
                 *[flag for c in agent_extras["capabilities"] for flag in ("--cap-add", c)],
                 *[flag for d in active_devices for flag in ("--device", d)],

@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Security
+
+- **Fixed host credential exposure in agent container (`GH_TOKEN` leak).** The agent container previously received real source-control tokens (e.g., `GH_TOKEN`) in its environment and the container CLI argv. The container now receives placeholder values only (e.g., `GH_TOKEN=GH_TOKEN_PLACEHOLDER`):
+    - The `source-control` plugin resolves real tokens host-side from the OS keyring (or host CLI sessions) and registers them in a trusted in-process secret registry (`pa_core/secret_store.py`); only the proxy reads from this registry.
+    - The `token_replacer` rules in `pa_packages/source-control/package.yaml` are now injection rules: they match bare placeholder strings and substitute `${ENV:VAR}` values pulled from the registry/keyring.
+    - `pa run` uses name-only `--env KEY` flags and exports values into the process environment, so credentials no longer appear in host process listings (`ps`) or podman argv.
+    - `pa run` preflight now fail-closed: it scans the final container environment for registry-registered secrets and well-known token formats (`ghp_`, `gho_`, `ghu_`, `ghr_`, `github_pat_`, `glpat-`) and aborts the launch if real credential material would reach the container.
+    - `agent.env` overrides of guarded token variables (`GH_TOKEN`, `GITLAB_TOKEN`, `GITEA_TOKEN`, `AZURE_DEVOPS_EXT_PAT`, `BITBUCKET_TOKEN`, `GITCAFE_TOKEN`, and aliases) are rejected during preflight.
+- **Base64-encoded credential substitution in the proxy (`token_replacer`).** Added `EncodedHeaderMatcher` and an `encoding: base64` option for `headers` content patterns. It decodes `Authorization: Basic` payloads, applies the pattern regex, and re-encodes the substituted payload — covering git's base64 `user:token` credentials for GitHub, GitLab, Gitea/GitCafe, Azure DevOps, and Bitbucket. Only the `Basic` scheme is processed; non-base64 or non-UTF-8 payloads pass through unchanged. Matched values are now masked in proxy logs (10-character prefix plus length).
+- **Removed dead secret-mapping APIs.** Deleted `ACPPlugin.get_secret_mappings`, `SecretTokenMapping`, and the agents-plugin Anthropic/Gemini secret mappings; package manifest-driven token_replacer rules are the single source of truth for proxy credential injection.
+
 ### Added
 - **Ephemeral port auto-allocation for T3 Code (`--t3-port`).** Added `resolve_t3_port` in `src/run.py` to dynamically allocate ephemeral ports for T3 Code or accept an explicit `--t3-port <port|auto>`, avoiding port collisions across concurrent running workspaces. Propagated the assigned port to the container environment, tunnel managers, and log banner.
 - **Bundled external gateway definitions & dynamic proxy synthesis.** Added self-contained gateway definitions under `coding-agent/default/global/gateways/` (`anthropic`, `gemini`, `openai`, `groq`, `openrouter`, `deepseek`, `opper`). `ContainerNetworkManager` dynamically synthesizes runtime `allowlist.yaml` and `token_replacer.yaml` to inject gateway rules and secrets on the fly based on `.pa-container/models.yaml`.

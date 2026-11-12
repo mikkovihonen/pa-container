@@ -777,10 +777,17 @@ class ContainerNetworkManager:
         """Pull secrets required by the mounted token_replacer config.
 
         Scans the config file for ``${ENV:VAR}`` references (no default value)
-        in ``replace_with.value`` fields, then resolves each one from the host
-        environment. Returns a dict of var_name -> value for non-empty values.
+        in ``replace_with.value`` fields, then resolves each one from the
+        trusted host-side secret sources. Returns a dict of var_name -> value
+        for non-empty values.
 
-        Override this method to integrate with a host secret store
+        Resolution order:
+        1. The in-process registry of secrets resolved by trusted host-side
+           components (ACP plugins). This is authoritative — it reflects the
+           keyring account the user explicitly declared in config.yaml.
+        2. The OS keyring (service ``pa-container``, account = variable name).
+
+        Override this method to integrate with an external secret store
         (Vault, AWS Secrets Manager, Azure Key Vault, etc.).
         """
         _, effective_replacer_path = self._synthesize_proxy_configs()
@@ -791,7 +798,7 @@ class ContainerNetworkManager:
             )
             return {}
 
-        from secret_store import get_keyring_secret
+        from secret_store import get_keyring_secret, get_resolved_secret
         from yaml_strict import load_yaml_file
 
         loaded = load_yaml_file(effective_replacer_path)
@@ -804,15 +811,15 @@ class ContainerNetworkManager:
 
         secrets: dict[str, str] = {}
         for var in required_vars:
-            value = get_keyring_secret(var)
+            value = get_resolved_secret(var) or get_keyring_secret(var)
             if value:
                 secrets[var] = value
                 os.environ[var] = value
             else:
                 logger.warning(
                     f"Required secret '{var}' (referenced by token replacer config) "
-                    f"is not set in the host environment or user keyring. The container will use "
-                    f"the config's fallback default, if any. "
+                    f"was not found in the OS keyring or resolved host-side secrets. "
+                    f"The container will use the config's fallback default, if any. "
                     f"To store in keyring: uv run keyring set pa-container {var}"
                 )
         return secrets

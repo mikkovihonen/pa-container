@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from cli import RunOptions
     from config_types import ProjectConfig
     from packages.manifest import PackageManifest
-
 sys.dont_write_bytecode = True
 
 
@@ -102,21 +101,6 @@ class RunContext:
         return self.feature_secrets.get(package_name, {}).get(feature_name, [])
 
 
-@dataclass(frozen=True)
-class SecretTokenMapping:
-    """Explicit mapping from host OS keyring to in-container placeholder and proxy token replacer."""
-
-    name: str
-    keyring_account: str
-    placeholder: str
-    hosts: tuple[str, ...]
-    keyring_service: str = "pa-container"
-    header: str | None = None
-    pattern: str | None = None
-    json_path: str | None = None
-    required: bool = True
-
-
 class ACPPlugin:
     """Base interface for host-side ACP dynamic plugins."""
 
@@ -146,10 +130,6 @@ class ACPPlugin:
     def contribute_feature_config_schema(self, feature_name: str) -> type[object] | dict[str, Any] | None:
         """Return the dataclass or schema type/dict for validating a specific feature config section."""
         return None
-
-    def get_secret_mappings(self, config: ProjectConfig) -> list[SecretTokenMapping]:
-        """Contribute secret mappings linking OS keyring credentials to proxy token replacer rules."""
-        return []
 
     def on_run_init(self, context: RunContext) -> None:
         """Early initialization hook called right after RunContext is constructed."""

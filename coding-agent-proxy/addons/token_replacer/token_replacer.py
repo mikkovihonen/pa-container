@@ -17,6 +17,8 @@ Configuration file (YAML):
     See README.md for the full schema.
 """
 
+import base64
+import binascii
 import hashlib
 import json
 import logging
@@ -33,7 +35,9 @@ if TYPE_CHECKING:
     from mitmproxy.http import Headers, Request, Response
 
 type TokenReplacerTarget = Request | Response
-type TokenMatcher = JsonBodyMatcher | HeaderMatcher | FormBodyMatcher | QueryStringMatcher | RawBodyMatcher
+type TokenMatcher = (
+    JsonBodyMatcher | HeaderMatcher | EncodedHeaderMatcher | FormBodyMatcher | QueryStringMatcher | RawBodyMatcher
+)
 
 log = logging.getLogger(__name__)
 
@@ -193,6 +197,18 @@ def _apply_strategy(original_value: str, strategy: str, replacement_value: str) 
         return str(uuid.uuid4())
     else:
         raise ValueError(f"Unknown replacement strategy '{strategy}'")
+
+
+def _mask_token_for_log(token: str) -> str:
+    """Shorten a matched value for logging.
+
+    The prefix is long enough to identify a placeholder token
+    (e.g. ``GH_TOKEN_PLACEHOLDER``) while ensuring a real secret that
+    accidentally matches a rule never prints in full.
+    """
+    if len(token) <= 10:
+        return token
+    return f"{token[:10]}...({len(token)} chars)"
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +403,72 @@ class HeaderMatcher:
         return found_tokens
 
 
+class EncodedHeaderMatcher:
+    """Match and replace tokens inside base64-encoded HTTP header values.
+
+    Handles ``Authorization: Basic <base64>`` credentials (as sent by git
+    and most git CLIs): the payload is base64-decoded, the regex is applied
+    to the decoded ``user:password`` text, and the result is re-encoded.
+
+    Only the ``Basic`` scheme is processed. Headers that are not valid
+    base64 (or whose decoded bytes are not valid UTF-8) are left untouched.
+    """
+
+    _BASIC_SCHEME_PATTERN = re.compile(r"^\s*Basic\s+([A-Za-z0-9+/=]+)\s*$", re.IGNORECASE)
+
+    def __init__(self, header_name: str, regex: str, strategy: str, replacement_value: str):
+        self.header_name = header_name  # case-insensitive comparison
+        self.regex = re.compile(regex)
+        self.strategy = strategy
+        self.replacement_value = replacement_value
+
+    def match_and_replace(self, headers: Headers, collect_only: bool = False) -> list[str]:
+        """Find and replace tokens inside a base64-encoded header value.
+
+        Args:
+            headers: The request headers object (modified in-place if not collect_only).
+            collect_only: If True, only collect findings without modifying headers.
+
+        Returns list of original (decoded) token values found.
+        """
+        found_tokens: list[str] = []
+        actual_key = None
+        for key in headers:
+            if key.lower() == self.header_name.lower():
+                actual_key = key
+                break
+        if actual_key is None:
+            return found_tokens
+
+        value = headers[actual_key]
+        scheme_match = self._BASIC_SCHEME_PATTERN.match(value)
+        if not scheme_match:
+            return found_tokens
+
+        try:
+            decoded = base64.b64decode(scheme_match.group(1), validate=True).decode("utf-8")
+        except binascii.Error, UnicodeDecodeError, ValueError:
+            # Not valid base64 / not UTF-8 text — not a Basic credential we can process.
+            return found_tokens
+
+        matches = list(self.regex.finditer(decoded))
+        if not matches:
+            return found_tokens
+
+        found_tokens.extend(m.group(0) for m in matches)
+        if collect_only:
+            return found_tokens
+
+        # Re-encode with the placeholder substituted. The regex matches the
+        # bare placeholder, so no capture-group preservation is needed here.
+        new_decoded = self.regex.sub(
+            lambda m: _apply_strategy(m.group(0), self.strategy, self.replacement_value), decoded
+        )
+        new_encoded = base64.b64encode(new_decoded.encode("utf-8")).decode("ascii")
+        headers[actual_key] = f"Basic {new_encoded}"
+        return found_tokens
+
+
 class FormBodyMatcher:
     """Match and replace tokens in URL-encoded form bodies."""
 
@@ -476,6 +558,7 @@ class RawBodyMatcher:
 
 _VALID_STRATEGIES = {"static", "hash", "uuid"}
 _VALID_FIELDS = {"body.json", "body.form", "body.raw", "body.query", "headers"}
+_VALID_ENCODINGS = {"base64"}
 
 
 def _validate_rule(rule: dict[str, Any]) -> None:
@@ -540,6 +623,14 @@ def _validate_rule(rule: dict[str, Any]) -> None:
                 raise ValueError(f"Rule '{name}' pattern[{i}]: 'header_name' is required for headers")
             if not pattern_def.get("regex"):
                 raise ValueError(f"Rule '{name}' pattern[{i}]: 'regex' is required for headers")
+            encoding = pattern_def.get("encoding")
+            if encoding is not None and str(encoding).lower() != "base64":
+                raise ValueError(
+                    f"Rule '{name}' pattern[{i}]: invalid encoding '{encoding}'. "
+                    f"Valid encodings: {sorted(_VALID_ENCODINGS)}"
+                )
+        if pattern_def.get("encoding") is not None and field != "headers":
+            raise ValueError(f"Rule '{name}' pattern[{i}]: 'encoding' is only supported for field 'headers'")
 
 
 # ---------------------------------------------------------------------------
@@ -642,14 +733,24 @@ def _build_matchers(rule: dict[str, Any]) -> list[TokenMatcher]:
                 )
             )
         elif field == "headers":
-            matchers.append(
-                HeaderMatcher(
-                    header_name=pattern_def["header_name"],
-                    regex=pattern_def["regex"],
-                    strategy=strategy,
-                    replacement_value=replacement_value,
+            if str(pattern_def.get("encoding", "")).lower() == "base64":
+                matchers.append(
+                    EncodedHeaderMatcher(
+                        header_name=pattern_def["header_name"],
+                        regex=pattern_def["regex"],
+                        strategy=strategy,
+                        replacement_value=replacement_value,
+                    )
                 )
-            )
+            else:
+                matchers.append(
+                    HeaderMatcher(
+                        header_name=pattern_def["header_name"],
+                        regex=pattern_def["regex"],
+                        strategy=strategy,
+                        replacement_value=replacement_value,
+                    )
+                )
         else:
             log.warning(f"Unknown content field type: {field}")
 
@@ -760,7 +861,7 @@ class TokenReplacerAddon:
                     for token in rule_tokens:
                         log.info(
                             f"[token-replacer] Rule '{rule_name}' matched: "
-                            f"host={hostname}, token={token[:50]}..., status={status}"
+                            f"host={hostname}, token={_mask_token_for_log(token)}, status={status}"
                         )
                     total_tokens_found += len(rule_tokens)
 
@@ -812,7 +913,7 @@ class TokenReplacerAddon:
                     for token in rule_tokens:
                         log.info(
                             f"[token-replacer] Rule '{rule_name}' matched in response: "
-                            f"host={hostname}, token={token[:50]}..., status={status}"
+                            f"host={hostname}, token={_mask_token_for_log(token)}, status={status}"
                         )
                     total_tokens_found += len(rule_tokens)
 
@@ -855,7 +956,7 @@ class TokenReplacerAddon:
                 raw_str = body.decode("utf-8", errors="ignore")
                 _, tokens = matcher.match_and_replace(raw_str, collect_only=True)
                 return tokens
-        elif isinstance(matcher, HeaderMatcher):
+        elif isinstance(matcher, (HeaderMatcher, EncodedHeaderMatcher)):
             return matcher.match_and_replace(target.headers, collect_only=True)
         return []
 
@@ -883,6 +984,7 @@ class TokenReplacerAddon:
         query_matchers: list[QueryStringMatcher] = []
         raw_matchers: list[RawBodyMatcher] = []
         header_matchers: list[HeaderMatcher] = []
+        encoded_header_matchers: list[EncodedHeaderMatcher] = []
 
         for rule in rules:
             for matcher in rule.get("_matchers", []):
@@ -896,6 +998,8 @@ class TokenReplacerAddon:
                     raw_matchers.append(matcher)
                 elif isinstance(matcher, HeaderMatcher):
                     header_matchers.append(matcher)
+                elif isinstance(matcher, EncodedHeaderMatcher):
+                    encoded_header_matchers.append(matcher)
 
         # --- JSON body: parse once, apply all matchers, write back once ---
         if json_matchers:
@@ -1057,6 +1161,14 @@ class TokenReplacerAddon:
                 for start, end, new_text in reversed(filtered):
                     original_value = original_value[:start] + new_text + original_value[end:]
                 target.headers[actual_key] = original_value
+
+        # --- Encoded (base64 Basic auth) headers: each matcher decodes the
+        #     current header value, substitutes the placeholder, and re-encodes.
+        #     Rules match distinct bare placeholder strings, so sequential
+        #     application cannot cause cross-rule interference.
+        # ---
+        for matcher in encoded_header_matchers:
+            matcher.match_and_replace(target.headers)
 
 
 # ---------------------------------------------------------------------------

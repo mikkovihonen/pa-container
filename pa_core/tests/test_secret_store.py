@@ -45,3 +45,38 @@ def test_get_keyring_secret_for_admin_password():
         val = secret_store.get_keyring_secret("ADMIN_PASSWORD")
         assert val == "secure_admin_pass"
         mock_get.assert_called_once_with(secret_store.DEFAULT_KEYRING_SERVICE, "ADMIN_PASSWORD")
+
+
+@pytest.fixture(autouse=True)
+def _clear_resolved_registry():
+    """Keep the in-process resolved-secret registry isolated between tests."""
+    secret_store.clear_resolved_secrets()
+    yield
+    secret_store.clear_resolved_secrets()
+
+
+def test_register_and_get_resolved_secret():
+    assert secret_store.get_resolved_secret("GH_TOKEN") is None
+    secret_store.register_resolved_secret("GH_TOKEN", "gh_real_token")
+    assert secret_store.get_resolved_secret("GH_TOKEN") == "gh_real_token"
+
+
+def test_register_overwrites_previous_value():
+    secret_store.register_resolved_secret("GH_TOKEN", "first")
+    secret_store.register_resolved_secret("GH_TOKEN", "second")
+    assert secret_store.get_resolved_secret("GH_TOKEN") == "second"
+
+
+def test_all_resolved_secrets_returns_copy():
+    secret_store.register_resolved_secret("GH_TOKEN", "gh_real_token")
+    snapshot = secret_store.all_resolved_secrets()
+    assert snapshot == {"GH_TOKEN": "gh_real_token"}
+    snapshot["GH_TOKEN"] = "mutated"
+    assert secret_store.get_resolved_secret("GH_TOKEN") == "gh_real_token"
+
+
+def test_clear_resolved_secrets():
+    secret_store.register_resolved_secret("GH_TOKEN", "gh_real_token")
+    secret_store.clear_resolved_secrets()
+    assert secret_store.get_resolved_secret("GH_TOKEN") is None
+    assert secret_store.all_resolved_secrets() == {}

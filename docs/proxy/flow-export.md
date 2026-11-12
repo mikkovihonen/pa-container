@@ -114,7 +114,7 @@ Notes on serialization:
 - **`content`** is decoded as UTF-8 with `errors="replace"`; non-decodable bytes become the Unicode replacement character rather than failing the write. There is no size cap — large bodies are written in full.
 - Appending is **best-effort**: any failure in `_append` is caught and logged as a warning so a serialization or I/O problem never disrupts the proxied request.
 
-> **Security note:** the export contains full request and response bodies and headers, including any `Authorization` and cookie values that the [token_replacer](token-replacer.md) did **not** redact. Treat `flows-<ip>.jsonl` as sensitive.
+> **Security note:** the export contains full request and response bodies and headers. The [token_replacer](token-replacer.md) runs first and substitutes placeholders with real credentials in outgoing requests, so captured request headers and bodies may hold real tokens. Treat `flows-<ip>.jsonl` as sensitive.
 
 ### How It Works
 

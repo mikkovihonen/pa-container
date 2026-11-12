@@ -97,13 +97,82 @@ class TestAgentLaunchSourceControlFlags:
         flag = f"SETUP_GIT_CREDENTIALS={'true' if sc_cfg['setup_git_credentials'] else 'false'}"
         assert flag == "SETUP_GIT_CREDENTIALS=true"
 
-    def test_token_env_forwarding_and_override(self):
-        sc_tokens = {"GH_TOKEN": "gho_auto", "GITHUB_TOKEN": "gho_auto"}
-        agent_env = {"GH_TOKEN": "gho_user_override", "OTHER_VAR": "val"}
-        merged = {**sc_tokens, **agent_env}
-        assert merged["GH_TOKEN"] == "gho_user_override"
-        assert merged["GITHUB_TOKEN"] == "gho_auto"
-        assert merged["OTHER_VAR"] == "val"
+    def test_env_flags_are_name_only_and_export_values(self, monkeypatch):
+        import os
+
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("OTHER_VAR", raising=False)
+
+        flags = run._env_flags({"GH_TOKEN": "GH_TOKEN_PLACEHOLDER", "OTHER_VAR": "val"})
+
+        # Values must not appear in the flags — only name-only --env KEY pairs.
+        assert flags == ["--env", "GH_TOKEN", "--env", "OTHER_VAR"]
+        assert "GH_TOKEN_PLACEHOLDER" not in " ".join(flags)
+        # The process environment carries the values for the runtime to resolve.
+        assert os.environ["GH_TOKEN"] == "GH_TOKEN_PLACEHOLDER"
+        assert os.environ["OTHER_VAR"] == "val"
+
+    def test_env_flags_later_groups_win(self, monkeypatch):
+        import os
+
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        run._env_flags({"GH_TOKEN": "placeholder_from_plugin"})
+        run._env_flags({"GH_TOKEN": "value_from_agent_env"})
+        assert os.environ["GH_TOKEN"] == "value_from_agent_env"
+
+
+class TestScanEnvForRealTokens:
+    def test_placeholder_env_is_clean(self):
+        from security import scan_env_for_real_tokens
+
+        env = {
+            "GH_TOKEN": "GH_TOKEN_PLACEHOLDER",
+            "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY_PLACEHOLDER",
+            "PATH": "/usr/local/bin:/usr/bin",
+        }
+        assert scan_env_for_real_tokens(env, known_secrets={"GH_TOKEN": "ghp_real_token_value"}) == []
+
+    def test_real_token_format_is_violation(self):
+        from security import scan_env_for_real_tokens
+
+        env = {"GH_TOKEN": "ghp_" + "a" * 36}
+        violations = scan_env_for_real_tokens(env)
+        assert len(violations) == 1
+        assert "GH_TOKEN matches a GitHub classic PAT format" in violations[0]
+
+    def test_exact_registered_secret_is_violation(self):
+        from security import scan_env_for_real_tokens
+
+        env = {"GH_TOKEN": "custom_format_token_123"}
+        violations = scan_env_for_real_tokens(env, known_secrets={"GH_TOKEN": "custom_format_token_123"})
+        assert violations == ["GH_TOKEN carries a real host-side secret value"]
+
+    def test_multiple_violations_reported(self):
+        from security import scan_env_for_real_tokens
+
+        env = {
+            "GH_TOKEN": "gho_" + "b" * 36,
+            "GITLAB_TOKEN": "glpat-" + "c" * 20,
+        }
+        violations = scan_env_for_real_tokens(env)
+        assert len(violations) == 2
+
+    def test_gateway_api_key_format_is_violation(self):
+        from security import scan_env_for_real_tokens
+
+        env = {
+            "OPENAI_API_KEY": "sk-proj-" + "d" * 43,
+            "ANTHROPIC_API_KEY": "sk-ant-api03-" + "e" * 95,
+        }
+        violations = scan_env_for_real_tokens(env)
+        assert len(violations) == 2
+
+    def test_agent_native_oauth_token_is_allowed(self):
+        """Agent-native subscription tokens (sk-ant-oat01-...) pass the scan by design."""
+        from security import scan_env_for_real_tokens
+
+        env = {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-" + "f" * 100}
+        assert scan_env_for_real_tokens(env) == []
 
 
 class TestVolumeMountOptions:
