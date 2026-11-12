@@ -349,6 +349,7 @@ def build_project_image(
 
     from images import resolve_project_packages
     from packages import (
+        ensure_package_images,
         generate_dynamic_builder_containerfile,
         resolve_package_dependencies,
     )
@@ -376,6 +377,11 @@ def build_project_image(
 
     base_tag = build_agent_base(runtime)
     root_cmd = Path(root_commands_path)
+
+    use_prebuilt = bool(kwargs.get("use_prebuilt", True))
+    if use_prebuilt:
+        ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
+
     logger.info(f"Assembling project-specific agent image ({runtime}): {image_tag}")
 
     image_labels = {
@@ -392,6 +398,7 @@ def build_project_image(
         base_tag=base_tag,
         root_commands_path=root_cmd,
         image_labels=image_labels,
+        use_prebuilt_packages=use_prebuilt,
     )
 
     with tempfile.TemporaryDirectory(prefix="pa-project-build-") as tmpdir:
@@ -413,16 +420,24 @@ def build_project_image(
         _run_command_with_logging(cmd, label=label or f"Building project agent image: {image_tag}")
 
 
-def run_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int:
+def run_clean_pass(
+    purge_cache: bool = False,
+    runtime: str | None = None,
+    clean_packages: bool = False,
+) -> int:
     """Execute clean pass removing orphaned containers, images, and optionally build cache."""
     log_drv = get_log_driver()
     if log_drv is not None:
         with log_drv.stage(LogCategory.CLEANUP, "Cleaning orphaned containers & stale images"):
-            return _execute_clean_pass(purge_cache=purge_cache, runtime=runtime)
-    return _execute_clean_pass(purge_cache=purge_cache, runtime=runtime)
+            return _execute_clean_pass(purge_cache=purge_cache, runtime=runtime, clean_packages=clean_packages)
+    return _execute_clean_pass(purge_cache=purge_cache, runtime=runtime, clean_packages=clean_packages)
 
 
-def _execute_clean_pass(purge_cache: bool = False, runtime: str | None = None) -> int:
+def _execute_clean_pass(
+    purge_cache: bool = False,
+    runtime: str | None = None,
+    clean_packages: bool = False,
+) -> int:
     rt = runtime
     if rt is None:
         try:
@@ -432,7 +447,7 @@ def _execute_clean_pass(purge_cache: bool = False, runtime: str | None = None) -
             return 1
 
     from containers import cleanup_orphaned_agent_containers
-    from images import cleanup_orphaned_project_images, prune_dangling_images
+    from images import cleanup_orphaned_project_images, cleanup_package_images, prune_dangling_images
 
     removed_containers = cleanup_orphaned_agent_containers(rt)
     if removed_containers:
@@ -441,6 +456,11 @@ def _execute_clean_pass(purge_cache: bool = False, runtime: str | None = None) -
     orphaned_images = cleanup_orphaned_project_images(rt)
     if orphaned_images:
         logger.info(f"Removed {len(orphaned_images)} orphaned project image(s): {', '.join(orphaned_images)}")
+
+    ttl_days = getattr(global_config.build, "package_cache_ttl_days", 30)
+    removed_packages = cleanup_package_images(rt, ttl_days=ttl_days, force_all=clean_packages)
+    if removed_packages:
+        logger.info(f"Removed {len(removed_packages)} cached package image(s): {', '.join(removed_packages)}")
 
     prune_dangling_images(rt, purge_cache=purge_cache)
     logger.info("Clean pass completed.")

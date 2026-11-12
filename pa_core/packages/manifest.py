@@ -110,6 +110,7 @@ class FeatureConfig:
     name: str = ""
     description: str = ""
     default: bool = False
+    required: bool = False
     payload: PayloadConfig = field(default_factory=lambda: PayloadConfig(type="none"))
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
@@ -208,6 +209,7 @@ class PackageManifest:
     secrets: list[SecretMappingConfig] = field(default_factory=list)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     features: dict[str, FeatureConfig] = field(default_factory=dict)
+    features_required: bool = False
     extension: ExtensionConfig = field(default_factory=ExtensionConfig)
     hooks: LifecycleHooksConfig = field(default_factory=LifecycleHooksConfig)
     integration: IntegrationConfig = field(default_factory=IntegrationConfig)
@@ -388,14 +390,17 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
 
     # Features
     features_raw = data.get("features") or {}
+    features_required = False
     features: dict[str, FeatureConfig] = {}
     if isinstance(features_raw, dict):
+        features_required = bool(features_raw.pop("required", False))
         for feat_name, feat_dict in features_raw.items():
             if isinstance(feat_dict, dict):
                 features[feat_name] = FeatureConfig(
                     name=feat_name,
                     description=str(feat_dict.get("description", "")),
                     default=bool(feat_dict.get("default", False)),
+                    required=bool(feat_dict.get("required", False)),
                     payload=_parse_payload(feat_dict.get("payload") or {}),
                     runtime=_parse_runtime(feat_dict.get("runtime") or {}),
                     mcp=_parse_mcp(feat_dict.get("mcp") or {}, default_server_id=f"{name}-{feat_name}"),
@@ -491,6 +496,7 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         secrets=secrets,
         verification=verification,
         features=features,
+        features_required=features_required,
         extension=extension,
         hooks=hooks,
         integration=integration,

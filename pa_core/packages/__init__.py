@@ -20,6 +20,7 @@ from packages.discovery import (
     get_core_packages,
     get_package_dir,
     get_packages_dir,
+    package_to_content_tag,
     package_to_image_tag,
 )
 from packages.loader import (
@@ -72,6 +73,7 @@ __all__ = [
     "get_core_packages",
     "get_packages_dir",
     "get_package_dir",
+    "package_to_content_tag",
     "package_to_image_tag",
     "resolve_package_dependencies",
     "compute_package_hash",

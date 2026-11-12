@@ -125,6 +125,13 @@ def _validate_packages(data: dict[str, Any]) -> list[str]:
                             errors.append(
                                 f"  packages: {pkg_name}: unknown feature '{f}'. Available features: {', '.join(sorted(known_features))}"
                             )
+                # Check mandatory feature selection
+                if pkg_manifest.features_required and not feats:
+                    known = sorted(pkg_manifest.features.keys()) if pkg_manifest.features else []
+                    errors.append(
+                        f"  packages: {pkg_name}: this package requires at least one feature. "
+                        f"Available: {', '.join(known)}"
+                    )
 
         # 2. Validate config
         if "config" not in val:

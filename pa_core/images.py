@@ -528,6 +528,74 @@ def cleanup_orphaned_project_images(runtime: str) -> list[str]:
     return removed
 
 
+def enumerate_package_images(runtime: str) -> list[tuple[str, str]]:
+    """List all capability package images labelled ``pa-container.type=package``."""
+    images: list[tuple[str, str]] = []
+    seen_ids: set[str] = set()
+    rt = _get_runtime(runtime)
+    try:
+        result = subprocess.run(
+            [
+                rt,
+                "image",
+                "ls",
+                "--format",
+                "{{.ID}}\t{{.Repository}}:{{.Tag}}",
+                "--filter",
+                "label=pa-container.type=package",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning(f"Could not list package images: {e}")
+        return []
+
+    for line in result.stdout.strip().splitlines():
+        image_id, _, name = line.strip().partition("\t")
+        if not image_id or image_id in seen_ids:
+            continue
+        seen_ids.add(image_id)
+        images.append((image_id, name.strip()))
+    return images
+
+
+def cleanup_package_images(
+    runtime: str,
+    ttl_days: int | None = None,
+    force_all: bool = False,
+) -> list[str]:
+    """Clean cached package images, preserving hot packages unless exceeding TTL or force_all is True."""
+    removed: list[str] = []
+    listed = enumerate_package_images(runtime)
+    if not listed:
+        return removed
+
+    in_use = images_in_use(runtime)
+    now = datetime.now(UTC)
+
+    for image_id, name in listed:
+        if image_id in in_use:
+            logger.debug(f"Package image in use by container, skipping: {name}")
+            continue
+
+        should_remove = force_all
+        if not should_remove and ttl_days is not None and ttl_days > 0:
+            btime = get_image_build_time(image_id, runtime=runtime)
+            if btime is not None:
+                age_days = (now - btime).total_seconds() / 86400.0
+                if age_days > ttl_days:
+                    should_remove = True
+                    logger.info(f"Package image {name} expired (age: {age_days:.1f}d > {ttl_days}d)")
+
+        if should_remove and remove_image(runtime, image_id):
+            removed.append(name)
+
+    return removed
+
+
 def prune_dangling_images(runtime: str | None = None, purge_cache: bool = False) -> list[str]:
     """Prune unreferenced untagged (<none>:<none>) images and optionally build cache.
 

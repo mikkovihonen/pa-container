@@ -340,6 +340,7 @@ class TestBuildProjectImage:
     def _mock_prereqs(self):
         with (
             patch("build.build_agent_base", return_value="pa-container-agent-base:local"),
+            patch("packages.ensure_package_images"),
         ):
             yield
 
@@ -385,7 +386,31 @@ class TestBuildProjectImage:
             assert 'LABEL pa-container.hash="abc123"' in captured_cf[0]
 
     def test_build_project_image_with_packages(self):
-        """When packages are provided, they should be copied into the image via dynamic builder artifact stages."""
+        """When packages are provided, they should be composed from pre-built capability images."""
+        captured_cf = []
+
+        def capture_popen(cmd, *a, **kw):
+            cf_path = cmd[cmd.index("--file") + 1]
+            captured_cf.append(Path(cf_path).read_text())
+            return self._mock_popen()
+
+        with (
+            patch("packages.ensure_package_images") as mock_ensure,
+            patch("build.subprocess.Popen", side_effect=capture_popen),
+        ):
+            build_project_image(
+                "podman",
+                "/path/to/root/commands.sh",
+                "test.local",
+                "abc123",
+                packages=["go", "rust"],
+            )
+            mock_ensure.assert_called_once()
+            assert "COPY --from=pa-container-pkg-go" in captured_cf[0]
+            assert "COPY --from=pa-container-pkg-rust" in captured_cf[0]
+
+    def test_build_project_image_legacy_fallback(self):
+        """When use_prebuilt=False, fallback to inline multi-stage dynamic build."""
         captured_cf = []
 
         def capture_popen(cmd, *a, **kw):
@@ -402,6 +427,7 @@ class TestBuildProjectImage:
                 "test.local",
                 "abc123",
                 packages=["go", "rust"],
+                use_prebuilt=False,
             )
             assert "COPY --from=artifact-go /out/go/ /" in captured_cf[0]
             assert "COPY --from=artifact-rust /out/rust/ /" in captured_cf[0]
@@ -416,6 +442,7 @@ class TestBuildProjectImage:
             return self._mock_popen()
 
         with (
+            patch("packages.ensure_package_images"),
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_project_image(
@@ -428,7 +455,7 @@ class TestBuildProjectImage:
             cf = captured_cf[0]
             assert "python3" in cf
             assert "uv" in cf
-            assert "COPY --from=artifact-python /out/python/ /" in cf
+            assert "COPY --from=pa-container-pkg-python" in cf
 
     def test_build_project_image_without_distro_packages(self):
         """When no runtime distro packages are needed, runner stage omits distro install."""
@@ -441,6 +468,7 @@ class TestBuildProjectImage:
 
         with (
             patch("packages.builder.collect_distro_packages", return_value=[]),
+            patch("packages.ensure_package_images"),
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_project_image(
@@ -451,8 +479,7 @@ class TestBuildProjectImage:
             )
             # Runner stage should not contain runner microdnf install
             cf = captured_cf[0]
-            runner_section = cf.split("── Final Runner Stage")[-1]
-            assert "microdnf install" not in runner_section
+            assert "microdnf install" not in cf
 
     def test_build_project_image_automatically_includes_core_packages(self, tmp_path):
         """build_project_image should automatically include core packages (e.g. python) even when not requested."""
@@ -470,6 +497,7 @@ class TestBuildProjectImage:
             return self._mock_popen()
 
         with (
+            patch("packages.ensure_package_images"),
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_project_image(
@@ -481,8 +509,8 @@ class TestBuildProjectImage:
             )
 
             cf = captured_cf[0]
-            assert "COPY --from=artifact-go /out/go/ /" in cf
-            assert "COPY --from=artifact-python /out/python/ /" in cf
+            assert "COPY --from=pa-container-pkg-go" in cf
+            assert "COPY --from=pa-container-pkg-python" in cf
 
     def test_build_project_image_builds_base(self):
         """build_project_image ensures base image is built."""

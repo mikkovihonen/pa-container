@@ -120,6 +120,7 @@ class CleanOptions(GlobalCliOptions):
     all: bool = False
     logs: bool = False
     build_cache: bool = False
+    packages: bool = False
 
 
 @dataclass
@@ -341,6 +342,11 @@ def create_parser() -> argparse.ArgumentParser:
         "--build-cache",
         action="store_true",
         help="Purge container runtime layer build cache.",
+    )
+    clean_parser.add_argument(
+        "--packages",
+        action="store_true",
+        help="Purge cached Agent Capability Package (ACP) images.",
     )
 
     # ─── 'logs' subcommand ───────────────────────────────────────────────────
@@ -572,6 +578,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             all=getattr(args, "all", False),
             logs=getattr(args, "logs", False) or getattr(args, "all", False),
             build_cache=getattr(args, "build_cache", False) or getattr(args, "all", False),
+            packages=getattr(args, "packages", False),
         )
         return "clean", c_options
 
@@ -1031,7 +1038,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             # Forward to build.clean_pass
             from build import run_clean_pass
 
-            sys.exit(run_clean_pass(purge_cache=getattr(options, "build_cache", False)))
+            clean_pkgs = getattr(options, "packages", False)
+            if clean_pkgs:
+                sys.exit(
+                    run_clean_pass(
+                        purge_cache=getattr(options, "build_cache", False),
+                        clean_packages=True,
+                    )
+                )
+            else:
+                sys.exit(run_clean_pass(purge_cache=getattr(options, "build_cache", False)))
             return
 
         if cmd == "build":

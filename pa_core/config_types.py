@@ -307,6 +307,9 @@ class BuildGlobalConfig:
     fallback_memory_preflight_mib: int = 512
     prune_dangling: bool = True
     purge_build_cache: bool = False
+    package_cache_ttl_days: int = 30
+    package_cache_max_gb: int = 25
+    max_parallel_package_builds: int = 4
 
 
 @dataclass(frozen=True)

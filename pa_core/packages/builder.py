@@ -22,6 +22,7 @@ from packages.discovery import (
     compute_package_hash,
     discover_packages,
     get_package_dir,
+    package_to_content_tag,
     package_to_image_tag,
 )
 from packages.manifest import PlatformDownload, load_package_manifest
@@ -181,16 +182,51 @@ def generate_dynamic_builder_containerfile(
     export_package: str | None = None,
     root_commands_path: Path | str | None = None,
     image_labels: Mapping[str, str] | None = None,
+    use_prebuilt_packages: bool = False,
 ) -> str:
-    """Generate a multi-stage dynamic builder Containerfile.
+    """Generate a multi-stage dynamic builder or composition Containerfile.
 
-    Installs the union of all system build dependencies once in builder-base,
-    builds each artifact in an isolated user namespace (builder-<pkg>), and
-    dynamically wires inter-package build tool dependencies.
+    If use_prebuilt_packages is True, generates a fast composition Containerfile
+    layering pre-built OCI package images directly onto the base image.
+    Otherwise, compiles artifacts inside an isolated multi-stage build.
     """
     r_root = repo_root or REPO_ROOT
     if manifests is None:
         manifests = discover_packages(r_root)
+
+    # Fast composition from pre-built capability images
+    if target in ("agent", "smoke") and use_prebuilt_packages:
+        lines: list[str] = [
+            f"# Auto-generated composition recipe by pa-container ({target})",
+            f"FROM {base_tag or FEDORA_BASE_IMAGE}",
+        ]
+        distro_pkgs = collect_distro_packages(resolved_specs, manifests=manifests, repo_root=r_root)
+        if distro_pkgs:
+            lines.append(f"RUN microdnf install -y --nodocs {' '.join(distro_pkgs)} && microdnf clean all")
+
+        for pkg in resolved_specs:
+            clean_p = pkg.lower().replace("_", "-")
+            active_feats = sorted(resolved_specs[pkg] or [])
+            pkg_hash = compute_package_hash(pkg, repo_root=r_root, features=active_feats)
+            content_tag = package_to_content_tag(pkg, pkg_hash, features=active_feats)
+            lines.append(f"COPY --from={content_tag} / /")
+
+        if target == "agent":
+            if root_commands_path:
+                rc_path = Path(root_commands_path)
+                lines.extend(
+                    [
+                        f"COPY --from=root_commands_path {rc_path.name} /root/commands.sh",
+                        "RUN chmod +x /root/commands.sh && /root/commands.sh",
+                    ]
+                )
+            lines.append("WORKDIR /workspace")
+            if image_labels:
+                for k, v in sorted(image_labels.items()):
+                    lines.append(f'LABEL {k}="{v}"')
+            lines.append('ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]')
+
+        return "\n".join(lines) + "\n"
 
     # 1. Collect union of all system build dependencies and distro packages
     all_system_pkgs: set[str] = set(BASE_SYSTEM_BUILD_UTILS)
@@ -427,6 +463,8 @@ def build_package(
     temp_cf = temp_dir / "Containerfile"
     temp_cf.write_text(cf_content)
 
+    content_tag = package_to_content_tag(package_name, pkg_hash, features=active_feats)
+
     try:
         cmd = [
             runtime,
@@ -442,6 +480,8 @@ def build_package(
             f"pa-container.hash={pkg_hash}",
             "--tag",
             tag,
+            "--tag",
+            content_tag,
             "--file",
             str(temp_cf),
             str(r_root),
@@ -464,6 +504,19 @@ def package_image_is_current(
     """Check if the local image for package_name (with active features) matches current content hash."""
     rt = runtime or "podman"
     active_feats = sorted(features) if features else []
+    current_hash = compute_package_hash(package_name, repo_root, features=active_feats)
+    content_tag = package_to_content_tag(package_name, current_hash, features=active_feats)
+
+    # 1. Fast existence check on immutable content-addressed tag
+    try:
+        exists_cmd = [rt, "image", "exists", content_tag]
+        res = subprocess.run(exists_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if res.returncode == 0:
+            return True
+    except subprocess.SubprocessError, FileNotFoundError:
+        pass
+
+    # 2. Fallback check on semantic local tag via pa-container.hash label
     tag = package_to_image_tag(package_name, features=active_feats)
     inspect_cmd = [rt, "image", "inspect", tag, "--format", '{{index .Labels "pa-container.hash"}}']
     try:
@@ -471,7 +524,6 @@ def package_image_is_current(
     except subprocess.CalledProcessError, FileNotFoundError:
         return False
 
-    current_hash = compute_package_hash(package_name, repo_root, features=active_feats)
     return out == current_hash
 
 
@@ -479,12 +531,105 @@ def ensure_package_images(
     packages: list[str] | set[str] | dict[str, list[str]],
     runtime: str = "podman",
     repo_root: Path | None = None,
+    max_workers: int | None = None,
 ) -> None:
-    """Ensure that all requested packages have up-to-date OCI capability images."""
-    items = sorted(packages.items()) if isinstance(packages, dict) else [(pkg, []) for pkg in sorted(packages)]
+    """Ensure that all requested packages have up-to-date OCI capability images, building missing packages in parallel."""
+    import concurrent.futures
+    import os
 
-    for pkg, feats in items:
-        if not package_image_is_current(pkg, repo_root=repo_root, runtime=runtime, features=feats):
+    r_root = repo_root or REPO_ROOT
+    items_map: dict[str, list[str]] = (
+        {pkg: sorted(feats or []) for pkg, feats in packages.items()}
+        if isinstance(packages, dict)
+        else {pkg: [] for pkg in sorted(packages)}
+    )
+
+    # 1. Identify missing or stale packages
+    missing: dict[str, list[str]] = {}
+    for pkg, feats in sorted(items_map.items()):
+        if not package_image_is_current(pkg, repo_root=r_root, runtime=runtime, features=feats):
+            missing[pkg] = feats
+
+    if not missing:
+        return
+
+    # 2. Resolve dependency order across missing packages
+    from packages.dependencies import resolve_package_dependencies
+
+    resolved_missing = resolve_package_dependencies(missing, repo_root=r_root)
+    manifests = discover_packages(r_root)
+
+    # Check build memory preflight if enabled
+    try:
+        from build import check_build_memory
+
+        check_build_memory(runtime, packages=resolved_missing, fatal=True)
+    except Exception as e:
+        logger.debug(f"Preflight memory check skipped or failed: {e}")
+
+    # Track packages whose builds are completed/current
+    completed: set[str] = {
+        pkg
+        for pkg in manifests
+        if pkg not in resolved_missing
+        or package_image_is_current(pkg, repo_root=r_root, runtime=runtime, features=resolved_missing.get(pkg, []))
+    }
+
+    workers = max_workers or min(4, max(1, os.cpu_count() or 1))
+    if len(resolved_missing) <= 1 or workers <= 1:
+        # Sequential execution
+        for pkg, feats in resolved_missing.items():
             feat_desc = f" (features: {feats})" if feats else ""
             logger.info(f"Package '{pkg}'{feat_desc} image missing or stale. Compiling...")
-            build_package(pkg, runtime=runtime, repo_root=repo_root, features=feats)
+            build_package(pkg, runtime=runtime, repo_root=r_root, features=feats)
+        return
+
+    # Parallel DAG-aware execution
+    to_build = dict(resolved_missing)
+    in_flight: dict[concurrent.futures.Future[None], str] = {}
+    errors: list[tuple[str, Exception]] = []
+
+    def _can_build(pkg_name: str, active_feats: list[str]) -> bool:
+        mf = manifests.get(pkg_name)
+        if not mf:
+            return True
+        needed_build_pkgs: set[str] = set(mf.payload.build_packages)
+        for f in active_feats:
+            if f in mf.features:
+                needed_build_pkgs.update(mf.features[f].payload.build_packages)
+        return needed_build_pkgs.issubset(completed)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        while to_build or in_flight:
+            ready = [pkg for pkg, feats in list(to_build.items()) if _can_build(pkg, feats)]
+            for pkg in ready:
+                feats = to_build.pop(pkg)
+                feat_desc = f" (features: {feats})" if feats else ""
+                logger.info(f"Package '{pkg}'{feat_desc} image missing or stale. Compiling in parallel...")
+                fut = executor.submit(build_package, pkg, runtime=runtime, repo_root=r_root, features=feats)
+                in_flight[fut] = pkg
+
+            if not in_flight:
+                if to_build:
+                    # Circular or unsatisfied dependency fallback
+                    pkg, feats = to_build.popitem()
+                    build_package(pkg, runtime=runtime, repo_root=r_root, features=feats)
+                    completed.add(pkg)
+                    continue
+                break
+
+            done, _ = concurrent.futures.wait(in_flight.keys(), return_when=concurrent.futures.FIRST_COMPLETED)
+            for fut in done:
+                pkg_done = in_flight.pop(fut)
+                try:
+                    fut.result()
+                    completed.add(pkg_done)
+                except Exception as exc:
+                    logger.error(f"Failed to build package '{pkg_done}': {exc}")
+                    errors.append((pkg_done, exc))
+
+            if errors:
+                for f in in_flight:
+                    f.cancel()
+                first_pkg, first_err = errors[0]
+                raise RuntimeError(f"Package build failed for '{first_pkg}': {first_err}") from first_err

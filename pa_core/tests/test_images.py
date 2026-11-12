@@ -355,6 +355,12 @@ class TestPackageImageIsCurrent:
         monkeypatch.setattr("packages.builder.compute_package_hash", lambda *a, **kw: "matchhash123456")
         assert packages.package_image_is_current("mold") is True
 
+    def test_returns_true_when_content_tag_exists(self, monkeypatch):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        monkeypatch.setattr("packages.builder.subprocess.run", lambda *a, **kw: mock_res)
+        assert packages.package_image_is_current("mold") is True
+
 
 class TestEnsurePackageImages:
     def test_builds_missing_on_demand_packages(self, monkeypatch):
@@ -1201,3 +1207,66 @@ class TestPruneDanglingImages:
             pruned = images.prune_dangling_images("podman")
         assert pruned == []
         assert "Could not prune dangling images" in caplog.text
+
+
+class TestCleanupPackageImages:
+    def test_preserves_package_images_by_default(self, monkeypatch):
+        monkeypatch.setattr(
+            images,
+            "enumerate_package_images",
+            lambda rt: [("img1", "pa-container-pkg-rust:abc1"), ("img2", "pa-container-pkg-go:def2")],
+        )
+        monkeypatch.setattr(images, "images_in_use", lambda rt: set())
+        removed = images.cleanup_package_images("podman", ttl_days=None, force_all=False)
+        assert removed == []
+
+    def test_removes_expired_package_images_with_ttl(self, monkeypatch):
+        monkeypatch.setattr(
+            images,
+            "enumerate_package_images",
+            lambda rt: [("img1", "pa-container-pkg-rust:abc1"), ("img2", "pa-container-pkg-go:def2")],
+        )
+        monkeypatch.setattr(images, "images_in_use", lambda rt: set())
+        # img1 is 40 days old, img2 is 5 days old
+        from datetime import UTC, datetime, timedelta
+
+        now = datetime.now(UTC)
+        time_map = {
+            "img1": now - timedelta(days=40),
+            "img2": now - timedelta(days=5),
+        }
+        monkeypatch.setattr(images, "get_image_build_time", lambda img, **kw: time_map.get(img))
+        removed_calls = []
+        monkeypatch.setattr(images, "remove_image", lambda rt, img: removed_calls.append(img) or True)
+
+        removed = images.cleanup_package_images("podman", ttl_days=30, force_all=False)
+        assert removed == ["pa-container-pkg-rust:abc1"]
+        assert removed_calls == ["img1"]
+
+    def test_removes_all_package_images_when_force_all(self, monkeypatch):
+        monkeypatch.setattr(
+            images,
+            "enumerate_package_images",
+            lambda rt: [("img1", "pa-container-pkg-rust:abc1"), ("img2", "pa-container-pkg-go:def2")],
+        )
+        monkeypatch.setattr(images, "images_in_use", lambda rt: set())
+        removed_calls = []
+        monkeypatch.setattr(images, "remove_image", lambda rt, img: removed_calls.append(img) or True)
+
+        removed = images.cleanup_package_images("podman", force_all=True)
+        assert len(removed) == 2
+        assert removed_calls == ["img1", "img2"]
+
+    def test_skips_in_use_package_images(self, monkeypatch):
+        monkeypatch.setattr(
+            images,
+            "enumerate_package_images",
+            lambda rt: [("img1", "pa-container-pkg-rust:abc1")],
+        )
+        monkeypatch.setattr(images, "images_in_use", lambda rt: {"img1"})
+        removed_calls = []
+        monkeypatch.setattr(images, "remove_image", lambda rt, img: removed_calls.append(img) or True)
+
+        removed = images.cleanup_package_images("podman", force_all=True)
+        assert removed == []
+        assert removed_calls == []

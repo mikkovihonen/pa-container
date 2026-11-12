@@ -188,6 +188,16 @@ def test_package_image_tag_with_features():
     )
 
 
+def test_package_to_content_tag():
+    from packages.discovery import package_to_content_tag
+
+    assert package_to_content_tag("rust", "abc12345") == "pa-container-pkg-rust:abc12345"
+    assert (
+        package_to_content_tag("document-tools", "def67890", features=["docling"])
+        == "pa-container-pkg-document-tools--docling:def67890"
+    )
+
+
 def test_assemble_package_skill(tmp_path: Path):
     pkg_dir = tmp_path / "pkg"
     skill_dir = pkg_dir / "skill"
@@ -623,3 +633,68 @@ def test_generate_package_containerfile_entrypoint_staging(tmp_path: Path):
     cf = generate_package_containerfile(manifest, tmp_path)
     assert "entrypoint.d/root" in cf
     assert "entrypoint.d/agent" in cf
+
+
+def test_manifest_features_required():
+    # With required: true at package level
+    m = parse_package_manifest(
+        {
+            "name": "required-feats",
+            "version": "1.0.0",
+            "features": {
+                "required": True,
+                "alpha": {"description": "Alpha feature", "default": False},
+                "beta": {"description": "Beta feature", "default": False},
+            },
+        }
+    )
+    assert m.features_required is True
+    assert "alpha" in m.features
+    assert "beta" in m.features
+    assert m.features["alpha"].required is False  # per-feature not set
+    assert m.features["beta"].required is False
+
+    # Without required: defaults to False
+    m_no_required = parse_package_manifest(
+        {
+            "name": "optional-feats",
+            "version": "1.0.0",
+            "features": {
+                "alpha": {"description": "Alpha feature", "default": True},
+            },
+        }
+    )
+    assert m_no_required.features_required is False
+
+    # Empty features dict
+    m_empty = parse_package_manifest(
+        {
+            "name": "no-features",
+            "version": "1.0.0",
+        }
+    )
+    assert m_empty.features_required is False
+    assert m_empty.features == {}
+
+
+def test_manifest_required_feature_per_feature_flag():
+    m = parse_package_manifest(
+        {
+            "name": "per-required",
+            "version": "1.0.0",
+            "features": {
+                "core": {
+                    "description": "Core feature",
+                    "default": True,
+                    "required": True,
+                },
+                "extra": {
+                    "description": "Extra feature",
+                    "default": False,
+                },
+            },
+        }
+    )
+    assert m.features_required is False  # package-level not set
+    assert m.features["core"].required is True
+    assert m.features["extra"].required is False

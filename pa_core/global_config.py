@@ -138,6 +138,9 @@ def load_global_config(config_file: Path | None = None, repo_root: Path | None =
         fallback_memory_preflight_mib=int(raw_bld.get("fallback_memory_preflight_mib", 512)),
         prune_dangling=bool(raw_bld["prune_dangling"]),
         purge_build_cache=bool(raw_bld["purge_build_cache"]),
+        package_cache_ttl_days=int(raw_bld.get("package_cache_ttl_days", 30)),
+        package_cache_max_gb=int(raw_bld.get("package_cache_max_gb", 25)),
+        max_parallel_package_builds=int(raw_bld.get("max_parallel_package_builds", 4)),
     )
 
     # Logging section

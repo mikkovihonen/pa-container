@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import platform
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -40,6 +41,19 @@ def package_to_image_tag(package_name: str, features: list[str] | set[str] | Non
     return f"pa-container-pkg-{clean_name}--{feat_str}:local"
 
 
+def package_to_content_tag(
+    package_name: str,
+    hash_digest: str,
+    features: list[str] | set[str] | None = None,
+) -> str:
+    """Return the content-addressed immutable container image tag for an Agent Capability Package."""
+    clean_name = package_name.lower().replace("_", "-")
+    if not features:
+        return f"pa-container-pkg-{clean_name}:{hash_digest}"
+    feat_str = "--".join(sorted(features))
+    return f"pa-container-pkg-{clean_name}--{feat_str}:{hash_digest}"
+
+
 def discover_packages(repo_root: Path | None = None) -> dict[str, PackageManifest]:
     """Discover and parse all available package manifests under packages/*/package.yaml."""
     packages_dir = get_packages_dir(repo_root)
@@ -69,15 +83,32 @@ def compute_package_hash(
     package_name: str,
     repo_root: Path | None = None,
     features: list[str] | set[str] | None = None,
+    visited: set[str] | None = None,
 ) -> str:
     """Compute content hash for an Agent Capability Package based on its directory contents and active features."""
-    pkg_dir = get_package_dir(package_name, repo_root)
+    r_root = repo_root or Path(__file__).resolve().parent.parent.parent
+    pkg_dir = get_package_dir(package_name, r_root)
     if not pkg_dir.is_dir():
         # Package directory not found; return stable hash of package name
         return hashlib.sha256(f"missing:{package_name}".encode()).hexdigest()[:16]
 
+    if visited is None:
+        visited = set()
+    visited.add(package_name)
+
     hasher = hashlib.sha256()
     hasher.update(package_name.encode())
+    hasher.update(f"arch:{platform.machine()}".encode())
+
+    # Include shared harness common.sh if present
+    common_sh = r_root / "pa_packages" / "common.sh"
+    if common_sh.is_file():
+        try:
+            hasher.update(b"common.sh:")
+            hasher.update(common_sh.read_bytes())
+        except OSError:
+            pass
+
     if features:
         hasher.update(f"features:{','.join(sorted(features))}".encode())
 
@@ -92,9 +123,28 @@ def compute_package_hash(
             continue
         hasher.update(str(rel_path).encode())
         try:
+            st = file_path.stat()
+            hasher.update(f"exec:{(st.st_mode & 0o111) != 0}".encode())
             hasher.update(file_path.read_bytes())
         except OSError as e:
             logger.warning(f"Could not read package file {file_path} for hashing: {e}")
+
+    # Transitive dependencies for build tools
+    manifest_file = pkg_dir / "package.yaml"
+    if manifest_file.is_file():
+        try:
+            mf = load_package_manifest(manifest_file)
+            active_feats = set(features or [])
+            build_pkgs: set[str] = set(mf.payload.build_packages)
+            for f_name, f_obj in mf.features.items():
+                if f_name in active_feats or (not active_feats and f_obj.default):
+                    build_pkgs.update(f_obj.payload.build_packages)
+            for bp in sorted(build_pkgs):
+                if bp not in visited:
+                    bp_hash = compute_package_hash(bp, repo_root=r_root, visited=visited)
+                    hasher.update(f"build_pkg:{bp}:{bp_hash}".encode())
+        except Exception as e:
+            logger.debug(f"Could not include build_packages hash for {package_name}: {e}")
 
     return hasher.hexdigest()[:16]
 
@@ -103,6 +153,7 @@ def collect_distro_packages(
     packages_map: Mapping[str, Sequence[str] | None] | Sequence[tuple[str, Sequence[str] | None]],
     manifests: dict[str, PackageManifest] | None = None,
     repo_root: Path | None = None,
+    exclude_core: bool = False,
 ) -> list[str]:
     """Collect and deduplicate all distro packages required by the given packages and active features.
 
@@ -110,6 +161,7 @@ def collect_distro_packages(
         packages_map: Mapping of package names to features or list of (pkg, feats) tuples.
         manifests: Optional pre-loaded package manifests mapping.
         repo_root: Optional repository root path.
+        exclude_core: Whether to omit distro packages belonging to core packages pre-baked in base image.
 
     Returns:
         Sorted list of unique distro package names to install via system package manager.
@@ -133,6 +185,9 @@ def collect_distro_packages(
                 except Exception:
                     manifest = None
         if manifest is None:
+            continue
+
+        if exclude_core and manifest.core and not active_feats:
             continue
 
         if manifest.payload.packages:

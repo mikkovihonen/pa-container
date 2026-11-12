@@ -242,6 +242,9 @@ GLOBAL_CONFIG_SCHEMA: dict[str, Any] = {
             "node_source": {"type": str, "required": False},
             "prune_dangling": {"type": bool},
             "purge_build_cache": {"type": bool},
+            "package_cache_ttl_days": {"type": int, "required": False},
+            "package_cache_max_gb": {"type": (int, float), "required": False},
+            "max_parallel_package_builds": {"type": int, "required": False},
         },
     },
     "logging": {

@@ -65,6 +65,7 @@ extension:
     config_key: "source_control"
 
 features:
+    required: true
     github:
         description: "GitHub CLI (gh), pull request workflows, and GitHub MCP server"
         default: false

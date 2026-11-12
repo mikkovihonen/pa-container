@@ -19,6 +19,7 @@ extension:
     config_key: "agent"
 
 features:
+    required: true
     pi:
         description: "Native Pi coding agent (@earendil-works/pi-coding-agent)"
         default: true

@@ -763,7 +763,7 @@ class TestPackagesSchema:
                     {"name": "bitbucket", "account": "ACC"},
                     {"name": "gitcafe", "account": "ACC"},
                 ]
-            features = ["pi"] if name == "agents" else []
+            features = ["pi"] if name == "agents" else (["github"] if name == "source-control" else [])
             pkgs.append({name: {"features": features, "config": {}, "secrets": secrets}})
         data["packages"] = pkgs
         valid_config.write_text(yaml.dump(data))
@@ -953,6 +953,163 @@ class TestPackagesSchema:
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
         assert any("Legacy root-level configuration section 'source_control' is not allowed" in e for e in errors)
+
+    def test_required_feature_with_at_least_one_selected(self, tmp_path: Path):
+        from config_schema import validate_config
+        from packages import discover_packages
+        from packages.manifest import load_package_manifest
+
+        pkg_dir = tmp_path / "pa_packages" / "req-feats"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            """schema_version: "0.7.0"
+name: "req-feats"
+version: "1.0.0"
+category: "agents"
+payload:
+    type: distro_package
+    packages:
+        - "coreutils"
+features:
+    required: true
+    alpha:
+        description: "Alpha feature"
+        default: false
+    beta:
+        description: "Beta feature"
+        default: false
+"""
+        )
+        real_pkgs = discover_packages()
+        real_pkgs["req-feats"] = load_package_manifest(pkg_dir / "package.yaml")
+
+        with patch("config_schema.discover_packages", return_value=real_pkgs):
+            config_path = tmp_path / "config.yaml"
+            config_path.write_text(
+                yaml.dump(
+                    {
+                        "schema_version": "0.7.0",
+                        "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
+                        "llama": {"startup_timeout": 180, "startup_attempts": 2},
+                        "network": {"ipv6": False, "dns": "1.1.1.1"},
+                        "proxy": {"expose_ui": "localhost", "max_view_flows": 2000, "stream_large_bodies": "10m", "open_browser": False},
+                        "packages": [{"req-feats": {"features": ["alpha"], "config": {}, "secrets": []}}],
+                        "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
+                        "tmpfs": {"paths": []},
+                        "flow_export": {"enabled": False},
+                        "egress": {"allow": {}},
+                        "security": {"read_only_git_hooks": True, "blocked_mount_paths": [], "blocked_ip_ranges": [], "git_config_allowlist": []},
+                        "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
+                    }
+                )
+            )
+            is_valid, errors, _ = validate_config(config_path)
+        assert is_valid is True
+        assert errors == []
+
+    def test_required_feature_with_empty_features_fails(self, tmp_path: Path):
+        from config_schema import validate_config
+        from packages import discover_packages
+        from packages.manifest import load_package_manifest
+
+        pkg_dir = tmp_path / "pa_packages" / "req-feats-empty"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            """schema_version: "0.7.0"
+name: "req-feats-empty"
+version: "1.0.0"
+category: "agents"
+payload:
+    type: distro_package
+    packages:
+        - "coreutils"
+features:
+    required: true
+    alpha:
+        description: "Alpha feature"
+        default: false
+    beta:
+        description: "Beta feature"
+        default: false
+"""
+        )
+        real_pkgs = discover_packages()
+        real_pkgs["req-feats-empty"] = load_package_manifest(pkg_dir / "package.yaml")
+
+        with patch("config_schema.discover_packages", return_value=real_pkgs):
+            config_path = tmp_path / "config.yaml"
+            config_path.write_text(
+                yaml.dump(
+                    {
+                        "schema_version": "0.7.0",
+                        "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
+                        "llama": {"startup_timeout": 180, "startup_attempts": 2},
+                        "network": {"ipv6": False, "dns": "1.1.1.1"},
+                        "proxy": {"expose_ui": "localhost", "max_view_flows": 2000, "stream_large_bodies": "10m", "open_browser": False},
+                        "packages": [{"req-feats-empty": {"features": [], "config": {}, "secrets": []}}],
+                        "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
+                        "tmpfs": {"paths": []},
+                        "flow_export": {"enabled": False},
+                        "egress": {"allow": {}},
+                        "security": {"read_only_git_hooks": True, "blocked_mount_paths": [], "blocked_ip_ranges": [], "git_config_allowlist": []},
+                        "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
+                    }
+                )
+            )
+            is_valid, errors, _ = validate_config(config_path)
+        assert is_valid is False
+        assert any("this package requires at least one feature" in e for e in errors)
+        assert any("req-feats-empty" in e for e in errors)
+
+    def test_required_feature_with_unknown_feature_fails_first(self, tmp_path: Path):
+        from config_schema import validate_config
+        from packages import discover_packages
+        from packages.manifest import load_package_manifest
+
+        pkg_dir = tmp_path / "pa_packages" / "req-feats-unknown"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "package.yaml").write_text(
+            """schema_version: "0.7.0"
+name: "req-feats-unknown"
+version: "1.0.0"
+category: "agents"
+payload:
+    type: distro_package
+    packages:
+        - "coreutils"
+features:
+    required: true
+    alpha:
+        description: "Alpha feature"
+        default: false
+"""
+        )
+        real_pkgs = discover_packages()
+        real_pkgs["req-feats-unknown"] = load_package_manifest(pkg_dir / "package.yaml")
+
+        with patch("config_schema.discover_packages", return_value=real_pkgs):
+            config_path = tmp_path / "config.yaml"
+            config_path.write_text(
+                yaml.dump(
+                    {
+                        "schema_version": "0.7.0",
+                        "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
+                        "llama": {"startup_timeout": 180, "startup_attempts": 2},
+                        "network": {"ipv6": False, "dns": "1.1.1.1"},
+                        "proxy": {"expose_ui": "localhost", "max_view_flows": 2000, "stream_large_bodies": "10m", "open_browser": False},
+                        "packages": [{"req-feats-unknown": {"features": ["nonexistent"], "config": {}, "secrets": []}}],
+                        "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
+                        "tmpfs": {"paths": []},
+                        "flow_export": {"enabled": False},
+                        "egress": {"allow": {}},
+                        "security": {"read_only_git_hooks": True, "blocked_mount_paths": [], "blocked_ip_ranges": [], "git_config_allowlist": []},
+                        "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
+                    }
+                )
+            )
+            is_valid, errors, _ = validate_config(config_path)
+        assert is_valid is False
+        assert any("unknown feature 'nonexistent'" in e for e in errors)
 
 
 class TestAgentsSchema:
