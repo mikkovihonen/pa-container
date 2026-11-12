@@ -71,7 +71,7 @@ Use the following hardware to run this environment comfortably, especially with 
 - **Container runtime**: podman.
 - **Network**: The defaults apply automatically.
 - **LLaMA backend**: Runs natively using Apple's Metal GPU acceleration.
-- **podman on macOS**: containers run inside a Linux VM (no `podman0` bridge exists on the host). The system does not use `socat`. The proxy reaches host `llama-server` via `host.containers.internal` (gvproxy). The isolated network is created `--internal --disable-dns`. The proxy's interfaces are pinned (`interface_name=eth0` / `interface_name=eth1`) so the isolated network is deterministically `eth1`. See [`src/runtimes.py`](https://github.com/mikkovihonen/pa-container/blob/main/src/runtimes.py).
+- **podman on macOS**: containers run inside a Linux VM (no `podman0` bridge exists on the host). The system does not use `socat`. The proxy reaches host `llama-server` via `host.containers.internal` (gvproxy). The isolated network is created `--internal --disable-dns`. The proxy's interfaces are pinned (`interface_name=eth0` / `interface_name=eth1`) so the isolated network is deterministically `eth1`. See [`pa_core/runtimes.py`](https://github.com/mikkovihonen/pa-container/blob/main/pa_core/runtimes.py).
 - **Machine sizing**: **4 GB is the minimum** (`podman machine set --memory 4096`). The 2 GiB default cannot build the toolchain image. `resources.agent.memory` defaults to `16g`, which the VM can never actually provide. Raise the machine further before enabling [nested containers](configuration.md#nested-containers). Do this especially before `storage: tmpfs`.
 
 ## Build and Run
@@ -107,7 +107,7 @@ This builds the shared container images:
 1. `pa-container-agent-proxy:local` — the transparent proxy built from Fedora Minimal, which includes mitmproxy and shares the Python ACP package layer.
 2. `pa-container-agent:local` — the shared agent runner built from Fedora Minimal, dynamically composed with core ACP package layers (Python 3.15 with `uv`, Node.js 26, rootless Podman 6, Netavark/Aardvark-dns).
 
-Individual packages can be built or updated on demand with `pa build --packages <name>` (or `pa build --packages all`). Every package manifest in `packages/<name>/package.yaml` declares its own version, platform download hashes, skills, and configuration.
+Individual packages can be built or updated on demand with `pa build --packages <name>` (or `pa build --packages all`). Every package manifest in `pa_packages/<name>/package.yaml` declares its own version, platform download hashes, skills, and configuration.
 
 ### 3. Run the Agent
 

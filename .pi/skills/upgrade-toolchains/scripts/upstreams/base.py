@@ -11,7 +11,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-PACKAGES_DIR = REPO_ROOT / "packages"
+PACKAGES_DIR = REPO_ROOT / "pa_packages"
 CONTAINERFILE = PACKAGES_DIR
 
 # When False (default for --check audits), large binary archive downloads are skipped.

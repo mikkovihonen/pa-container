@@ -7,7 +7,7 @@ description: Audits and upgrades tools and runtimes in Agent Capability Packages
 
 ## When to Use
 
-Use this skill whenever the user asks to inspect, audit, or upgrade any of the tools or runtimes in `packages/`. Examples:
+Use this skill whenever the user asks to inspect, audit, or upgrade any of the tools or runtimes in `pa_packages/`. Examples:
 - "Check for toolchain updates"
 - "Are any of our packages outdated?"
 - "Upgrade ripgrep to the latest version"
@@ -48,8 +48,8 @@ uv run python3 .pi/skills/upgrade-toolchains/scripts/check_upgrades.py --upgrade
 
 The script will:
 - Query upstream git tags/manifests to resolve the latest version and peeled commit hash.
-- Update the corresponding version and checksums in `packages/<tool>/package.yaml`.
-- Execute `src/tests/test_packages.py` and `src/tests/test_build.py` to guarantee all package contracts are preserved.
+- Update the corresponding version and checksums in `pa_packages/<tool>/package.yaml`.
+- Execute `pa_core/tests/test_packages.py` and `pa_core/tests/test_build.py` to guarantee all package contracts are preserved.
 
 ### 3. Upgrading a Functional Group
 
@@ -70,7 +70,7 @@ uv run python3 .pi/skills/upgrade-toolchains/scripts/check_upgrades.py --upgrade
 After applying upgrades:
 1. Verify package validation tests pass:
     ```bash
-    uv run pytest src/tests/test_packages.py src/tests/test_build.py -k TestPackageManifestsAreValid
+    uv run pytest pa_core/tests/test_packages.py pa_core/tests/test_build.py -k TestPackageManifestsAreValid
     ```
 2. Verify package container build (e.g. for the upgraded tool):
     ```bash
@@ -82,8 +82,8 @@ After applying upgrades:
     ```
 4. Commit the changes:
     ```bash
-    git add packages/<tool>/package.yaml
-    git commit -m "chore(packages): upgrade <tool> to <new_version>"
+    git add pa_packages/<tool>/package.yaml
+    git commit -m "chore(pa_packages): upgrade <tool> to <new_version>"
     ```
 
 ## Error Handling & Safety
@@ -91,6 +91,6 @@ After applying upgrades:
 - **Manifest validation failure**: If `test_packages.py` fails after an upgrade, verify the `package.yaml` syntax matches schema.
 - **Rollback**: To discard changes before committing:
     ```bash
-    git checkout packages/<tool>/package.yaml
+    git checkout pa_packages/<tool>/package.yaml
     ```
 

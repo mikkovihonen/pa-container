@@ -75,7 +75,7 @@ pa build --llama-latest  # query remote repository and build the latest release 
 
 This build strips out irrelevant features (WebUI assets, libcurl, SSL, and example tools) to minimize build time and binary size while targeting hardware acceleration (Apple Silicon Metal, Linux CUDA/ROCm, or native CPU vectorization).
 
-The **component versions themselves** are defined declaratively in Agent Capability Package manifests (`packages/<pkg>/package.yaml`). Bumping podman, Node, CPython, Go, Rust, netavark, or any package is an edit in its respective manifest. Individual packages can be built or verified using `pa build --packages <pkg>`:
+The **component versions themselves** are defined declaratively in Agent Capability Package manifests (`pa_packages/<pkg>/package.yaml`). Bumping podman, Node, CPython, Go, Rust, netavark, or any package is an edit in its respective manifest. Individual packages can be built or verified using `pa build --packages <pkg>`:
 
 ```bash
 pa build --packages podman
@@ -1185,7 +1185,7 @@ This handles:
 
 **Build function parameters:**
 
-The `build_project_image()` function in `src/build.py` accepts the following parameters:
+The `build_project_image()` function in `pa_core/build.py` accepts the following parameters:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -1239,7 +1239,7 @@ To store secrets in the OS keyring without putting them in shell rc files:
 uv run keyring set pa-container OPPER_API_KEY
 ```
 
-`run.py` scans `token_replacer.yaml`, resolves each secret (first from `os.environ`, then from the keyring), and injects them securely into the proxy container as environment variables. Override `ContainerNetworkManager._pull_secrets_from_config()` (in [`src/network.py`](https://github.com/mikkovihonen/pa-container/blob/main/src/network.py)) to integrate with an enterprise secret store (Vault, AWS Secrets Manager, Azure Key Vault, etc.).
+`run.py` scans `token_replacer.yaml`, resolves each secret (first from `os.environ`, then from the keyring), and injects them securely into the proxy container as environment variables. Override `ContainerNetworkManager._pull_secrets_from_config()` (in [`pa_core/network.py`](https://github.com/mikkovihonen/pa-container/blob/main/pa_core/network.py)) to integrate with an enterprise secret store (Vault, AWS Secrets Manager, Azure Key Vault, etc.).
 
 ### Transient tmpfs Mounts
 

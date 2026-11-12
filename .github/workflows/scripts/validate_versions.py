@@ -10,7 +10,7 @@ Checks:
 
 This script runs in CI as a consistency gate before a release is published.
 It validates the *template* seed config, not a seeded .pa-container/config.yaml
-(which is checked at runtime by src/run.py).
+(which is checked at runtime by pa_core/run.py).
 
 Exit codes:
   0 - All checks pass
@@ -28,11 +28,11 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-# Inject the repo's src/ so we can import shared helpers.
+# Inject the repo's pa_core/ so we can import shared helpers.
 # This CI script lives three levels deep inside .github/workflows/scripts/,
-# so we walk up to the repo root and then into src/.
+# so we walk up to the repo root and then into pa_core/.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "pa_core"))
 
 import yaml  # noqa: E402  (must import after sys.path insertion)
 

@@ -1,0 +1,1721 @@
+"""
+Unit tests for pa_core/network.py
+
+Run with:
+    python -m pytest pa_core/tests/test_network.py -v
+"""
+
+import os
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from network import ContainerNetworkManager, scan_config_env_refs, scan_tmpfs_paths, scan_volume_paths
+
+# ---------------------------------------------------------------------------
+# ScanConfigEnvRefs
+# ---------------------------------------------------------------------------
+
+
+class TestScanConfigEnvRefs:
+    def test_finds_env_refs(self):
+        config = {"rules": [{"replace_with": {"value": "${ENV:API_KEY}"}}]}
+        result = scan_config_env_refs(config)
+        assert result == ["API_KEY"]
+
+    def test_finds_multiple_refs(self):
+        config = {
+            "rules": [
+                {"replace_with": {"value": "${ENV:KEY1}"}},
+                {"replace_with": {"value": "${ENV:KEY2}"}},
+            ]
+        }
+        result = scan_config_env_refs(config)
+        assert result == ["KEY1", "KEY2"]
+
+    def test_deduplicates_refs(self):
+        config = {
+            "rules": [
+                {"replace_with": {"value": "${ENV:KEY}"}},
+                {"replace_with": {"value": "${ENV:KEY}"}},
+            ]
+        }
+        result = scan_config_env_refs(config)
+        assert result == ["KEY"]
+
+    def test_no_refs(self):
+        config = {
+            "rules": [
+                {"replace_with": {"value": "literal_value"}},
+            ]
+        }
+        result = scan_config_env_refs(config)
+        assert result == []
+
+    def test_empty_rules(self):
+        assert scan_config_env_refs({}) == []
+        assert scan_config_env_refs({"rules": None}) == []
+        assert scan_config_env_refs({"rules": [None, "invalid", 123]}) == []
+        assert scan_config_env_refs({"rules": [{"replace_with": None}]}) == []
+
+    def test_no_rules_key(self):
+        assert scan_config_env_refs({"other_key": "value"}) == []
+
+    def test_no_replace_with(self):
+        config = {"rules": [{"name": "test"}]}
+        result = scan_config_env_refs(config)
+        assert result == []
+
+    def test_no_value_key(self):
+        config = {"rules": [{"replace_with": {}}]}
+        result = scan_config_env_refs(config)
+        assert result == []
+
+    def test_empty_value(self):
+        config = {"rules": [{"replace_with": {"value": ""}}]}
+        result = scan_config_env_refs(config)
+        assert result == []
+
+    def test_env_ref_with_comma_no_default(self):
+        """${ENV:VAR} with no comma is a required ref."""
+        config = {"rules": [{"replace_with": {"value": "${ENV:SOME_VAR}"}}]}
+        result = scan_config_env_refs(config)
+        assert result == ["SOME_VAR"]
+
+    def test_nested_in_non_replace_with(self):
+        """Refs outside replace_with.value should be ignored."""
+        config = {"rules": [{"name": "${ENV:IGNORED}", "replace_with": {"value": "safe"}}]}
+        result = scan_config_env_refs(config)
+        assert result == []
+
+    def test_partial_match_not_found(self):
+        """${ENV:VAR} with extra text should not match."""
+        config = {"rules": [{"replace_with": {"value": "prefix_${ENV:VAR}_suffix"}}]}
+        result = scan_config_env_refs(config)
+        assert result == []
+
+    def test_returns_sorted(self):
+        config = {
+            "rules": [
+                {"replace_with": {"value": "${ENV:CHARLIE}"}},
+                {"replace_with": {"value": "${ENV:ALPHA}"}},
+                {"replace_with": {"value": "${ENV:BETA}"}},
+            ]
+        }
+        result = scan_config_env_refs(config)
+        assert result == ["ALPHA", "BETA", "CHARLIE"]
+
+
+# ---------------------------------------------------------------------------
+# ContainerNetworkManagerPullSecrets
+# ---------------------------------------------------------------------------
+
+
+class TestContainerNetworkManagerPullSecrets:
+    def _make_manager(self, tmp_path):
+        return ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=tmp_path,
+        )
+
+    def test_no_config_file_returns_empty(self, tmp_path):
+        mgr = self._make_manager(tmp_path)
+        secrets = mgr._pull_secrets_from_config()
+        assert secrets == {}
+
+    def test_reads_env_refs_from_config(self, tmp_path):
+        config = {"rules": [{"replace_with": {"value": "${ENV:MY_SECRET}"}}]}
+        config_file = tmp_path / "token_replacer.yaml"
+        import yaml
+
+        config_file.write_text(yaml.dump(config))
+
+        with patch("secret_store.get_keyring_secret", return_value="s3cret"):
+            mgr = self._make_manager(tmp_path)
+            secrets = mgr._pull_secrets_from_config()
+
+        assert secrets == {"MY_SECRET": "s3cret"}
+
+    def test_skips_missing_env_vars(self, tmp_path):
+        config = {"rules": [{"replace_with": {"value": "${ENV:MISSING_VAR}"}}]}
+        config_file = tmp_path / "token_replacer.yaml"
+        import yaml
+
+        config_file.write_text(yaml.dump(config))
+
+        with patch.dict(os.environ, {}, clear=True):
+            mgr = self._make_manager(tmp_path)
+            secrets = mgr._pull_secrets_from_config()
+
+        assert secrets == {}
+
+    def test_resolves_secret_from_keyring_when_env_unset(self, tmp_path):
+        config = {"rules": [{"replace_with": {"value": "${ENV:KEYRING_SECRET}"}}]}
+        config_file = tmp_path / "token_replacer.yaml"
+        import yaml
+
+        config_file.write_text(yaml.dump(config))
+
+        with patch.dict(os.environ, {}, clear=True), patch("keyring.get_password", return_value="vault_pass_999"):
+            mgr = self._make_manager(tmp_path)
+            secrets = mgr._pull_secrets_from_config()
+            assert secrets == {"KEYRING_SECRET": "vault_pass_999"}
+            assert os.environ.get("KEYRING_SECRET") == "vault_pass_999"
+
+    def test_synthesizes_gateway_configs_and_pulls_secrets(self, tmp_path):
+        from registry import GatewayAuth, GatewayDef
+
+        gw_def = GatewayDef(
+            id="anthropic",
+            base_url="https://api.anthropic.com/v1",
+            auth=GatewayAuth(type="api-key"),
+            allowlist=[{"name": "anthropic-allow", "mode": "allow", "hostnames": ["api.anthropic.com"]}],
+            token_replacer=[
+                {
+                    "name": "Inject Anthropic Key",
+                    "hostnames": ["api.anthropic.com"],
+                    "content_patterns": [
+                        {"field": "headers", "header_name": "x-api-key", "regex": "ANTHROPIC_API_KEY_PLACEHOLDER"}
+                    ],
+                    "replace_with": {"strategy": "static", "value": "${ENV:containerEnvVar}"},
+                }
+            ],
+        )
+
+        gw_configs = [
+            {
+                "name": "anthropic",
+                "gatewayDef": gw_def,
+                "baseUrl": gw_def.base_url,
+                "containerEnvVar": "ANTHROPIC_API_KEY",
+                "keyringService": "pa-container",
+                "keyringAccount": "ANTHROPIC_API_KEY",
+            }
+        ]
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=tmp_path,
+            lock_dir=tmp_path / "locks",
+            gateway_configs=gw_configs,
+        )
+
+        eff_allow, eff_replacer = mgr._synthesize_proxy_configs()
+        assert eff_allow.exists()
+        assert eff_replacer.exists()
+
+        import yaml
+
+        replacer_data = yaml.safe_load(eff_replacer.read_text())
+        assert len(replacer_data["rules"]) == 1
+        rule = replacer_data["rules"][0]
+        assert rule["replace_with"]["value"] == "${ENV:ANTHROPIC_API_KEY}"
+        assert rule["content_patterns"][0]["regex"] == "ANTHROPIC_API_KEY_PLACEHOLDER"
+
+        allow_data = yaml.safe_load(eff_allow.read_text())
+        assert any("api.anthropic.com" in r.get("hostnames", []) for r in allow_data["global"]["rules"])
+
+        with patch("secret_store.get_keyring_secret", return_value="sk-ant-12345"):
+            secrets = mgr._pull_secrets_from_config()
+            assert secrets["ANTHROPIC_API_KEY"] == "sk-ant-12345"
+
+    def test_synthesizes_package_egress_and_token_replacers(self, tmp_path):
+        proj = tmp_path / "project"
+        proj.mkdir()
+        pa_dir = proj / ".pa-container"
+        pa_dir.mkdir()
+        (pa_dir / "config.yaml").write_text("packages:\n  - source-control:\n      - github\n")
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=pa_dir,
+            lock_dir=tmp_path / "locks",
+            project_dir=proj,
+        )
+
+        eff_allow, eff_replacer = mgr._synthesize_proxy_configs()
+        assert eff_allow.exists()
+        assert eff_replacer.exists()
+
+        import yaml
+
+        allow_data = yaml.safe_load(eff_allow.read_text())
+        pkg_rules = [r for r in allow_data["global"]["rules"] if r.get("name") == "Package Egress Allowlist"]
+        assert len(pkg_rules) == 1
+        assert "api.github.com" in pkg_rules[0]["hosts"]
+
+        replacer_data = yaml.safe_load(eff_replacer.read_text())
+        assert any(r.get("name") == "github-token" for r in replacer_data["rules"])
+
+
+# ---------------------------------------------------------------------------
+# ContainerNetworkManagerEnvFlags
+# ---------------------------------------------------------------------------
+
+
+class TestContainerNetworkManagerEnvFlags:
+    def test_env_flags_sorted(self):
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+        )
+        flags = mgr._env_flags({"ZEBRA": "z", "ALPHA": "a", "MID": "m"})
+        expected = ["--env", "ALPHA", "--env", "MID", "--env", "ZEBRA"]
+        assert flags == expected
+
+    def test_empty_secrets(self):
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+        )
+        flags = mgr._env_flags({})
+        assert flags == []
+
+
+# ---------------------------------------------------------------------------
+# ContainerNetworkManagerRefCount
+# ---------------------------------------------------------------------------
+
+
+class TestContainerNetworkManagerRefCount:
+    def _make_manager(self, tmp_path):
+        lock_dir = tmp_path / ".locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=tmp_path,
+        )
+        mgr.paths = {
+            "lock_dir": lock_dir,
+            "ref_count_lock": lock_dir / ".network_manager.lock",
+            "clients_file": lock_dir / ".network_manager.clients.json",
+        }
+        return mgr
+
+    def test_ref_count_zero_when_no_file(self, tmp_path):
+        mgr = self._make_manager(tmp_path)
+        assert mgr._get_ref_count() == 0
+
+    def test_ref_count_reads_clients_file(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        mgr = self._make_manager(tmp_path)
+        write_clients(mgr.paths["clients_file"], [{"pid": os.getpid(), "run_id": "r1"}])
+        assert mgr._get_ref_count() == 1
+
+    def test_start_increment_and_stop_decrement(self, tmp_path):
+        mgr = self._make_manager(tmp_path)
+        mgr.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
+
+        # Mock _actually_start and _actually_stop
+        mgr._actually_start = MagicMock()
+        mgr._actually_stop = MagicMock()
+        # First start: proxy not running yet (_is_existing_proxy_healthy=False)
+        mgr._is_existing_proxy_healthy = MagicMock(return_value=False)
+        with patch("fcntl.flock"):
+            mgr.start()
+        assert mgr._actually_start.called
+
+        # Second start with another live client: proxy is now running and healthy
+        mgr2 = self._make_manager(tmp_path)
+        mgr2._actually_start = MagicMock()
+        mgr2._actually_stop = MagicMock()
+        mgr2._is_existing_proxy_healthy = MagicMock(return_value=True)
+
+        with (
+            patch("fcntl.flock"),
+            patch("network.os.getpid", return_value=999988),
+            patch("util.os.getpid", return_value=999988),
+            patch("util.is_pid_alive", return_value=True),
+        ):
+            mgr2.start()
+        assert mgr2._actually_start.call_count == 0  # not called again
+
+        # First stop (one client exits)
+        with (
+            patch("fcntl.flock"),
+            patch("network.os.getpid", return_value=999988),
+            patch("util.os.getpid", return_value=999988),
+            patch("util.is_pid_alive", return_value=True),
+        ):
+            mgr2.stop()
+        assert mgr2._actually_stop.call_count == 0
+
+        # Second stop (last client exits -> cleanup)
+        with patch("fcntl.flock"):
+            mgr.stop()
+        assert mgr._actually_stop.call_count == 1
+
+    def test_cleanup_after_full_stop(self, tmp_path):
+        mgr = self._make_manager(tmp_path)
+        mgr._actually_start = MagicMock()
+        mgr._actually_stop = MagicMock()
+
+        with patch("fcntl.flock"):
+            mgr.start()
+        with patch("fcntl.flock"):
+            mgr.stop()
+
+        # Clients file should be removed
+        assert not mgr.paths["clients_file"].exists()
+
+    def test_start_recovers_from_stale_state(self, tmp_path):
+        """When clients exist but the proxy is unreachable, start must restart it."""
+        from util import write_clients
+
+        mgr = self._make_manager(tmp_path)
+        mgr.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
+        mgr._actually_start = MagicMock()
+        mgr._actually_stop = MagicMock()
+
+        # Pre-seed a stale clients file (container is gone).
+        write_clients(mgr.paths["clients_file"], [{"pid": 999999, "run_id": "dead"}])
+
+        # _is_existing_proxy_healthy returns False → stale detected.
+        mgr._is_existing_proxy_healthy = MagicMock(return_value=False)
+
+        with patch("fcntl.flock"):
+            mgr.start()
+
+        # _actually_stop must be called first (to remove any zombie container),
+        # then _actually_start to bring the proxy up fresh.
+        mgr._actually_stop.assert_called_once()
+        mgr._actually_start.assert_called_once()
+        assert mgr.paths["clients_file"].exists()
+
+
+class TestCleanupOrphanedProxies:
+    def test_cleans_proxies_with_dead_clients(self, tmp_path):
+        from util import write_clients
+
+        lock_dir = tmp_path / ".locks"
+        lock_dir.mkdir(parents=True)
+        proxy_name = "pa-container-proxy-abcdef1234"
+        (lock_dir / f".{proxy_name}.lock").touch()
+        write_clients(lock_dir / f".{proxy_name}.clients.json", [{"pid": 88888}])
+
+        with (
+            patch("util.is_pid_alive", return_value=False),
+            patch("network.run_quiet") as mock_run_quiet,
+        ):
+            cleaned = ContainerNetworkManager.cleanup_orphaned_proxies("podman", lock_dir)
+
+        assert cleaned == [proxy_name]
+        assert mock_run_quiet.call_count == 2
+        # First call: rm -f proxy_name
+        assert mock_run_quiet.call_args_list[0][0][0] == ["podman", "rm", "-f", proxy_name]
+        # Second call: network rm pa-container-isolated-net-abcdef1234
+        assert mock_run_quiet.call_args_list[1][0][0] == [
+            "podman",
+            "network",
+            "rm",
+            "pa-container-isolated-net-abcdef1234",
+        ]
+        assert not (lock_dir / f".{proxy_name}.clients.json").exists()
+        assert not (lock_dir / f".{proxy_name}.lock").exists()
+        assert not lock_dir.exists()
+
+    def test_cleans_stale_lock_without_clients_file(self, tmp_path):
+        lock_dir = tmp_path / ".locks"
+        lock_dir.mkdir(parents=True)
+        proxy_name = "pa-container-proxy-abcdef1234"
+        lock_file = lock_dir / f".{proxy_name}.lock"
+        lock_file.touch()
+
+        with patch("network.run_quiet") as mock_run_quiet:
+            cleaned = ContainerNetworkManager.cleanup_orphaned_proxies("podman", lock_dir)
+
+        assert cleaned == []
+        mock_run_quiet.assert_not_called()
+        assert not lock_file.exists()
+        assert not lock_dir.exists()
+
+    def test_keeps_proxies_with_live_clients(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        lock_dir = tmp_path / ".locks"
+        lock_dir.mkdir(parents=True)
+        proxy_name = "pa-container-proxy-abcdef1234"
+        (lock_dir / f".{proxy_name}.lock").touch()
+        write_clients(lock_dir / f".{proxy_name}.clients.json", [{"pid": os.getpid()}])
+
+        with (
+            patch("util.is_pid_alive", return_value=True),
+            patch("network.run_quiet") as mock_run_quiet,
+        ):
+            cleaned = ContainerNetworkManager.cleanup_orphaned_proxies("podman", lock_dir)
+
+        assert cleaned == []
+        mock_run_quiet.assert_not_called()
+
+    def test_skips_when_lock_held_by_other_process(self, tmp_path):
+        import fcntl
+
+        lock_dir = tmp_path / ".locks"
+        lock_dir.mkdir(parents=True)
+        proxy_name = "pa-container-proxy-abcdef1234"
+        (lock_dir / f".{proxy_name}.lock").touch()
+
+        def mock_flock(fd, op):
+            if op & fcntl.LOCK_NB:
+                raise BlockingIOError("Locked")
+
+        with patch("fcntl.flock", side_effect=mock_flock), patch("network.run_quiet") as mock_run_quiet:
+            cleaned = ContainerNetworkManager.cleanup_orphaned_proxies("podman", lock_dir)
+
+        assert cleaned == []
+        mock_run_quiet.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# ScanTmpfsPaths
+# ---------------------------------------------------------------------------
+
+
+class TestScanTmpfsPaths:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_empty_config(self, tmp_path):
+        self._write(tmp_path, "tmpfs:\n  paths: []\n")
+        assert scan_tmpfs_paths(tmp_path) == []
+
+    def test_single_path(self, tmp_path):
+        self._write(tmp_path, "tmpfs:\n  paths:\n    - /workspace/build\n")
+        assert scan_tmpfs_paths(tmp_path) == ["/workspace/build"]
+
+    def test_multiple_paths_sorted(self, tmp_path):
+        self._write(
+            tmp_path, "tmpfs:\n  paths:\n    - /workspace/cache\n    - /workspace/build\n    - /workspace/tmp\n"
+        )
+        assert scan_tmpfs_paths(tmp_path) == ["/workspace/build", "/workspace/cache", "/workspace/tmp"]
+
+    def test_deduplicates_paths(self, tmp_path):
+        self._write(tmp_path, "tmpfs:\n  paths:\n    - /workspace/build\n    - /workspace/build\n")
+        assert scan_tmpfs_paths(tmp_path) == ["/workspace/build"]
+
+    def test_missing_config(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            scan_tmpfs_paths(tmp_path)
+
+    def test_empty_tmpfs_section(self, tmp_path):
+        self._write(tmp_path, "tmpfs:\n")
+        assert scan_tmpfs_paths(tmp_path) == []
+
+    def test_nonexistent_dir(self):
+        with pytest.raises(FileNotFoundError):
+            scan_tmpfs_paths(Path("/nonexistent"))
+
+
+# ---------------------------------------------------------------------------
+# Per-project proxy identity + mitmweb port
+# ---------------------------------------------------------------------------
+
+
+class TestPerProjectProxy:
+    def _make_manager(self, proxy_name):
+        return ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="pa-container-isolated-net-abc",
+            proxy_image="proxy:latest",
+            proxy_name=proxy_name,
+        )
+
+    def test_client_and_lock_files_keyed_by_proxy_name(self):
+        """Two projects' managers must not share client or lock files."""
+        a = self._make_manager("pa-container-proxy-aaaaaaaaaa")
+        b = self._make_manager("pa-container-proxy-bbbbbbbbbb")
+        assert a.paths["clients_file"] != b.paths["clients_file"]
+        assert a.paths["ref_count_lock"] != b.paths["ref_count_lock"]
+        assert "pa-container-proxy-aaaaaaaaaa" in a.paths["clients_file"].name
+        # Lock dir itself is shared (kept out of user workspaces).
+        assert a.paths["lock_dir"] == b.paths["lock_dir"]
+
+    def test_custom_lock_dir(self, tmp_path):
+        custom_lock_dir = tmp_path / "custom_locks"
+        mgr = ContainerNetworkManager(
+            "podman",
+            "test-net",
+            "test-image",
+            lock_dir=custom_lock_dir,
+        )
+        assert mgr.paths["lock_dir"] == custom_lock_dir
+
+    def test_find_free_port_returns_valid_port(self):
+        from util import get_free_port
+
+        port = get_free_port()
+        assert isinstance(port, int)
+        assert 1024 <= port <= 65535
+
+    def test_mitmweb_url_uses_known_port(self):
+        mgr = self._make_manager("pa-container-proxy-aaaaaaaaaa")
+        mgr.mitmweb_port = 49732
+        assert mgr.mitmweb_url() == "http://127.0.0.1:49732"
+
+    def test_mitmweb_url_queries_when_port_unknown(self):
+        mgr = self._make_manager("pa-container-proxy-aaaaaaaaaa")
+        completed = MagicMock(returncode=0, stdout="127.0.0.1:55001\n")
+        with patch("subprocess.run", return_value=completed):
+            assert mgr.mitmweb_url() == "http://127.0.0.1:55001"
+        assert mgr.mitmweb_port == 55001
+
+    def test_mitmweb_url_none_when_unresolvable(self):
+        mgr = self._make_manager("pa-container-proxy-aaaaaaaaaa")
+        completed = MagicMock(returncode=1, stdout="")
+        with patch("subprocess.run", return_value=completed):
+            assert mgr.mitmweb_url() is None
+
+
+# ---------------------------------------------------------------------------
+# ReadFlowExportEnabled (config.yaml flow_export.enabled)
+# ---------------------------------------------------------------------------
+
+
+class TestReadFlowExportEnabled:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_flow_export_enabled
+
+        with pytest.raises(FileNotFoundError):
+            read_flow_export_enabled(tmp_path)
+
+    def test_missing_section_raises(self, tmp_path):
+        from network import read_flow_export_enabled
+
+        self._write(tmp_path, "schema_version: '0.6.6'\n")
+        with pytest.raises(ValueError, match="Missing required 'flow_export.enabled'"):
+            read_flow_export_enabled(tmp_path)
+
+    def test_enabled_true(self, tmp_path):
+        from network import read_flow_export_enabled
+
+        self._write(tmp_path, "flow_export:\n  enabled: true\n")
+        assert read_flow_export_enabled(tmp_path) is True
+
+    def test_enabled_false(self, tmp_path):
+        from network import read_flow_export_enabled
+
+        self._write(tmp_path, "flow_export:\n  enabled: false\n")
+        assert read_flow_export_enabled(tmp_path) is False
+
+    def test_malformed_yaml_raises(self, tmp_path):
+        from network import read_flow_export_enabled
+
+        self._write(tmp_path, "flow_export: [unclosed\n")
+        with pytest.raises(ValueError):
+            read_flow_export_enabled(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# ReadProxyForwardEnv (config.yaml egress.allow)
+# ---------------------------------------------------------------------------
+
+
+class TestReadProxyForwardEnv:
+    def _write(self, tmp_path, allow_body):
+        (tmp_path / "config.yaml").write_text("egress:\n" + allow_body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_proxy_forward_env
+
+        with pytest.raises(FileNotFoundError):
+            read_proxy_forward_env(tmp_path)
+
+    def test_flags_only_truthy_emitted(self, tmp_path):
+        from network import read_proxy_forward_env
+
+        self._write(tmp_path, "  allow:\n    ssh: true\n    smtp: false\n    git: true\n")
+        env = read_proxy_forward_env(tmp_path)
+        assert env == {"PROXY_ALLOW_SSH": "true", "PROXY_ALLOW_GIT": "true"}
+
+    def test_ports_list_joined(self, tmp_path):
+        from network import read_proxy_forward_env
+
+        self._write(tmp_path, "  allow:\n    tcp_ports: [2222, 8443]\n    udp_ports: [51820]\n")
+        env = read_proxy_forward_env(tmp_path)
+        assert env == {"PROXY_ALLOW_TCP_PORTS": "2222,8443", "PROXY_ALLOW_UDP_PORTS": "51820"}
+
+    def test_ports_accept_comma_string(self, tmp_path):
+        from network import read_proxy_forward_env
+
+        self._write(tmp_path, "  allow:\n    tcp_ports: '2222,8443'\n")
+        assert read_proxy_forward_env(tmp_path) == {"PROXY_ALLOW_TCP_PORTS": "2222,8443"}
+
+    def test_empty_ports_omitted(self, tmp_path):
+        from network import read_proxy_forward_env
+
+        self._write(tmp_path, "  allow:\n    ssh: true\n    tcp_ports: []\n")
+        assert read_proxy_forward_env(tmp_path) == {"PROXY_ALLOW_SSH": "true"}
+
+    def test_truthy_variants_ignored(self, tmp_path):
+        from network import read_proxy_forward_env
+
+        self._write(tmp_path, "  allow:\n    ssh: 'yes'\n    smtp: 'on'\n    git: 1\n    ntp: 'nope'\n")
+        env = read_proxy_forward_env(tmp_path)
+        assert env == {}
+
+    def test_malformed_yaml_raises(self, tmp_path):
+        from network import read_proxy_forward_env
+
+        (tmp_path / "config.yaml").write_text("egress: [unclosed\n")
+        with pytest.raises(ValueError):
+            read_proxy_forward_env(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# ReadResourceLimits (config.yaml resources.<agent|proxy>)
+# ---------------------------------------------------------------------------
+
+
+class TestReadResourceLimits:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_resource_limits
+
+        with pytest.raises(FileNotFoundError):
+            read_resource_limits(tmp_path, "agent")
+
+    def test_reads_configured_values(self, tmp_path):
+        from network import read_resource_limits
+
+        self._write(tmp_path, "resources:\n  agent:\n    memory: 32g\n    cpus: 12\n")
+        assert read_resource_limits(tmp_path, "agent") == {"memory": "32g", "cpus": 12}
+
+    def test_partial_overrides_raises(self, tmp_path):
+        from network import read_resource_limits
+
+        self._write(tmp_path, "resources:\n  proxy:\n    memory: 8g\n")
+        with pytest.raises(ValueError, match="Missing required 'memory' or 'cpus'"):
+            read_resource_limits(tmp_path, "proxy")
+
+    def test_resource_limit_args(self):
+        from network import resource_limit_args
+
+        assert resource_limit_args({"memory": "16g", "cpus": 8}) == ["--memory", "16g", "--cpus", "8"]
+
+    def test_resource_limit_args_omits_null(self):
+        from network import resource_limit_args
+
+        assert resource_limit_args({"memory": None, "cpus": 8}) == ["--cpus", "8"]
+        assert resource_limit_args({"memory": "2g", "cpus": None}) == ["--memory", "2g"]
+        assert resource_limit_args({"memory": None, "cpus": None}) == []
+
+
+# ---------------------------------------------------------------------------
+# New config.yaml readers: llama / network / proxy.expose_ui / agent extras
+# ---------------------------------------------------------------------------
+
+
+class TestReadLlamaConfig:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_llama_config
+
+        with pytest.raises(FileNotFoundError):
+            read_llama_config(tmp_path)
+
+    def test_configured(self, tmp_path):
+        from network import read_llama_config
+
+        self._write(tmp_path, "llama:\n  startup_timeout: 600\n  startup_attempts: 5\n")
+        assert read_llama_config(tmp_path) == {"startup_timeout": 600, "startup_attempts": 5}
+
+    def test_partial_raises(self, tmp_path):
+        from network import read_llama_config
+
+        self._write(tmp_path, "llama:\n  startup_timeout: 300\n")
+        with pytest.raises(ValueError, match="Missing required 'startup_timeout' or 'startup_attempts'"):
+            read_llama_config(tmp_path)
+
+
+class TestReadNetworkConfig:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_network_config
+
+        with pytest.raises(FileNotFoundError):
+            read_network_config(tmp_path)
+
+    def test_configured(self, tmp_path):
+        from network import read_network_config
+
+        self._write(tmp_path, "network:\n  ipv6: true\n  dns: 9.9.9.9\n")
+        assert read_network_config(tmp_path) == {"ipv6": True, "dns": "9.9.9.9"}
+
+    def test_ipv6_truthy_string_raises(self, tmp_path):
+        from network import read_network_config
+
+        self._write(tmp_path, "network:\n  ipv6: 'yes'\n  dns: 1.1.1.1\n")
+        with pytest.raises(ValueError, match="Invalid 'network.ipv6': expected bool"):
+            read_network_config(tmp_path)
+
+
+class TestReadProxyUiExpose:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_proxy_ui_expose
+
+        with pytest.raises(FileNotFoundError):
+            read_proxy_ui_expose(tmp_path)
+
+    def test_lan(self, tmp_path):
+        from network import read_proxy_ui_expose
+
+        self._write(
+            tmp_path,
+            "proxy:\n  expose_ui: lan\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: false\n",
+        )
+        assert read_proxy_ui_expose(tmp_path) == "lan"
+
+    def test_invalid_raises(self, tmp_path):
+        from network import read_proxy_ui_expose
+
+        self._write(
+            tmp_path,
+            "proxy:\n  expose_ui: everywhere\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: false\n",
+        )
+        with pytest.raises(ValueError, match="Invalid 'proxy.expose_ui'"):
+            read_proxy_ui_expose(tmp_path)
+
+    def test_publish_args_bind_scope(self, tmp_path):
+        (tmp_path / "config.yaml").write_text(
+            "proxy:\n  expose_ui: localhost\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: false\n"
+        )
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="net",
+            proxy_image="proxy:latest",
+            proxy_name="pa-container-proxy-x",
+            config_dir=tmp_path,
+        )
+        mgr.mitmweb_port = 49999
+        # localhost bind
+        assert mgr._mitmweb_publish_args() == ["-p", "127.0.0.1:49999:8081"]
+        (tmp_path / "config.yaml").write_text(
+            "proxy:\n  expose_ui: lan\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: false\n"
+        )
+        assert mgr._mitmweb_publish_args() == ["-p", "49999:8081"]
+
+
+class TestReadAgentExtras:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_defaults_empty(self, tmp_path):
+        from network import read_agent_extras
+
+        self._write(tmp_path, "agent: {}\n")
+        assert read_agent_extras(tmp_path) == {"env": {}, "mounts": [], "capabilities": [], "devices": []}
+
+    def test_env_and_mounts(self, tmp_path):
+        from network import read_agent_extras
+
+        self._write(tmp_path, "agent:\n  env:\n    FOO: bar\n    N: 3\n  mounts:\n    - /a:/b:ro\n")
+        extras = read_agent_extras(tmp_path)
+        assert extras["env"] == {"FOO": "bar", "N": "3"}
+        assert extras["mounts"] == ["/a:/b:ro"]
+        assert extras["capabilities"] == []
+        assert extras["devices"] == []
+
+    def test_capabilities_and_devices(self, tmp_path):
+        from network import read_agent_extras
+
+        self._write(
+            tmp_path,
+            "agent:\n  capabilities:\n    - SYS_PTRACE\n    - NET_RAW\n  devices:\n    - /dev/video0:/dev/video0\n    - /dev/bus/usb:/dev/bus/usb:rw\n",
+        )
+        extras = read_agent_extras(tmp_path)
+        assert extras["capabilities"] == ["SYS_PTRACE", "NET_RAW"]
+        assert extras["devices"] == ["/dev/video0:/dev/video0", "/dev/bus/usb:/dev/bus/usb:rw"]
+
+
+class TestReadReadOnlyPiContainer:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_read_only_pa_container
+
+        with pytest.raises(FileNotFoundError):
+            read_read_only_pa_container(tmp_path)
+
+    def test_explicit_true(self, tmp_path):
+        from network import read_read_only_pa_container
+
+        self._write(tmp_path, "agent:\n  read_only_pa_container: true\n")
+        assert read_read_only_pa_container(tmp_path) is True
+
+    def test_explicit_false(self, tmp_path):
+        from network import read_read_only_pa_container
+
+        self._write(tmp_path, "agent:\n  read_only_pa_container: false\n")
+        assert read_read_only_pa_container(tmp_path) is False
+
+    def test_truthy_strings_and_ints_raise(self, tmp_path):
+        from network import read_read_only_pa_container
+
+        self._write(tmp_path, "agent:\n  read_only_pa_container: 'yes'\n")
+        with pytest.raises(ValueError, match="Invalid 'agent.read_only_pa_container': expected bool"):
+            read_read_only_pa_container(tmp_path)
+
+        self._write(tmp_path, "agent:\n  read_only_pa_container: 0\n")
+        with pytest.raises(ValueError, match="Invalid 'agent.read_only_pa_container': expected bool"):
+            read_read_only_pa_container(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# ReadNestedContainersConfig (config.yaml nested_containers)
+# ---------------------------------------------------------------------------
+
+
+class TestReadNestedContainersConfig:
+    def _write(self, tmp_path, body):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_missing_file_raises(self, tmp_path):
+        from network import read_nested_containers_config
+
+        with pytest.raises(FileNotFoundError):
+            read_nested_containers_config(tmp_path)
+
+    def test_section_absent_raises(self, tmp_path):
+        from network import read_nested_containers_config
+
+        self._write(tmp_path, "something_else: 1\n")
+        with pytest.raises(ValueError, match="Missing required 'packages'"):
+            read_nested_containers_config(tmp_path)
+
+    def test_podman_package_absent_returns_disabled(self, tmp_path):
+        from network import read_nested_containers_config
+
+        self._write(tmp_path, "packages: []\n")
+        assert read_nested_containers_config(tmp_path)["enabled"] is False
+
+    def test_all_values_configured(self, tmp_path):
+        from network import read_nested_containers_config
+
+        self._write(
+            tmp_path,
+            "packages:\n"
+            "  - podman:\n"
+            "      features: []\n"
+            "      config:\n"
+            "        storage: tmpfs\n"
+            "        security: engine_t\n"
+            "        ports:\n"
+            "          expose: lan\n"
+            "          publish: [3000, '18080:8080']\n"
+            "      secrets: []\n",
+        )
+        assert read_nested_containers_config(tmp_path) == {
+            "enabled": True,
+            "storage": "tmpfs",
+            "security": "engine_t",
+            "ports": {"expose": "lan", "publish": [(3000, 3000), (18080, 8080)]},
+        }
+
+    def test_unknown_modes_raise(self, tmp_path):
+        from network import read_nested_containers_config
+
+        self._write(
+            tmp_path,
+            "packages:\n"
+            "  - podman:\n"
+            "      features: []\n"
+            "      config:\n"
+            "        storage: nfs\n"
+            "        security: yolo\n"
+            "        ports: {}\n"
+            "      secrets: []\n",
+        )
+        with pytest.raises(ValueError, match="Invalid 'nested_containers.storage'"):
+            read_nested_containers_config(tmp_path)
+
+    def test_malformed_yaml_raises(self, tmp_path):
+        from network import read_nested_containers_config
+
+        self._write(tmp_path, "packages: [unclosed\n")
+        with pytest.raises(ValueError):
+            read_nested_containers_config(tmp_path)
+
+
+class TestReadNestedPorts:
+    """``nested_containers.ports`` — the host ports a nested container's UI is on."""
+
+    def _ports(self, tmp_path, body):
+        from network import read_nested_containers_config
+
+        (tmp_path / "config.yaml").write_text(
+            "packages:\n"
+            "  - podman:\n"
+            "      features: []\n"
+            "      config:\n"
+            "        storage: volume\n"
+            "        security: disable\n"
+            f"{body}\n"
+            "      secrets: []\n"
+        )
+        return read_nested_containers_config(tmp_path)["ports"]
+
+    def test_absent_ports_section_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Missing required 'nested_containers.ports'"):
+            self._ports(tmp_path, "")
+
+    def test_bare_port_maps_to_itself(self, tmp_path):
+        assert self._ports(tmp_path, "        ports:\n          publish: [3000]\n")["publish"] == [(3000, 3000)]
+
+    def test_explicit_mapping_is_host_then_agent(self, tmp_path):
+        assert self._ports(tmp_path, "        ports:\n          publish: ['18080:8080']\n")["publish"] == [
+            (18080, 8080)
+        ]
+
+    def test_quoted_and_unquoted_forms_agree(self, tmp_path):
+        assert self._ports(tmp_path, "        ports:\n          publish: ['3000', 3001]\n")["publish"] == [
+            (3000, 3000),
+            (3001, 3001),
+        ]
+
+    def test_unknown_expose_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Invalid 'nested_containers.ports.expose'"):
+            self._ports(tmp_path, "        ports:\n          expose: everywhere\n")
+
+    def test_lan_is_honoured(self, tmp_path):
+        assert self._ports(tmp_path, "        ports:\n          expose: lan\n")["expose"] == "lan"
+
+    def test_unparseable_entry_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="contains non-integer port"):
+            self._ports(tmp_path, "        ports:\n          publish: ['nope', 3000]\n")
+
+    def test_out_of_range_entry_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="out of range"):
+            self._ports(tmp_path, "        ports:\n          publish: [0, 70000, 3000]\n")
+
+    def test_duplicate_host_port_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Duplicate host port"):
+            self._ports(tmp_path, "        ports:\n          publish: ['3000:80', '3000:90']\n")
+
+    def test_same_agent_port_on_two_host_ports_is_kept(self, tmp_path):
+        assert self._ports(tmp_path, "        ports:\n          publish: ['3000:80', '3001:80']\n")["publish"] == [
+            (3000, 80),
+            (3001, 80),
+        ]
+
+    def test_non_list_publish_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="must be a list"):
+            self._ports(tmp_path, "        ports:\n          publish: 3000\n")
+
+    def test_non_mapping_ports_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="must be a mapping"):
+            self._ports(tmp_path, "        ports: [3000]\n")
+
+
+class TestReadAgentPorts:
+    """``agent.ports`` — the host ports published directly from the agent container."""
+
+    def _ports(self, tmp_path, body):
+        from network import read_agent_ports
+
+        (tmp_path / "config.yaml").write_text(f"agent:\n{body}")
+        return read_agent_ports(tmp_path)
+
+    def test_absent_section_publishes_nothing(self, tmp_path):
+        assert self._ports(tmp_path, "") == {"expose": "localhost", "publish": []}
+
+    def test_bare_port_maps_to_itself(self, tmp_path):
+        assert self._ports(tmp_path, "  ports:\n    publish: [3773]\n")["publish"] == [(3773, 3773)]
+
+    def test_explicit_mapping(self, tmp_path):
+        assert self._ports(tmp_path, "  ports:\n    publish: ['13773:3773']\n")["publish"] == [(13773, 3773)]
+
+    def test_expose_lan(self, tmp_path):
+        assert self._ports(tmp_path, "  ports:\n    expose: lan\n    publish: [3773]\n") == {
+            "expose": "lan",
+            "publish": [(3773, 3773)],
+        }
+
+
+class TestResolveServicePort:
+    def test_default_available(self):
+        from unittest.mock import patch
+
+        from network import resolve_service_port
+
+        with patch("network.is_port_available", return_value=True):
+            port = resolve_service_port(default_port=3773)
+            assert port == 3773
+
+    def test_default_in_use_allocates_ephemeral(self):
+        from unittest.mock import patch
+
+        from network import resolve_service_port
+
+        with patch("network.is_port_available", return_value=False), patch("network.get_free_port", return_value=51234):
+            port = resolve_service_port(default_port=3773)
+            assert port == 51234
+
+    def test_cli_auto(self):
+        from unittest.mock import patch
+
+        from network import resolve_service_port
+
+        with patch("network.get_free_port", return_value=55000):
+            port = resolve_service_port(requested_port="auto")
+            assert port == 55000
+
+    def test_cli_explicit_available(self):
+        from unittest.mock import patch
+
+        from network import resolve_service_port
+
+        with patch("network.is_port_available", return_value=True):
+            port = resolve_service_port(requested_port=8080)
+            assert port == 8080
+
+    def test_cli_explicit_in_use_allocates_ephemeral(self):
+        from unittest.mock import patch
+
+        from network import resolve_service_port
+
+        with patch("network.is_port_available", return_value=False), patch("network.get_free_port", return_value=59999):
+            port = resolve_service_port(requested_port=8080)
+            assert port == 59999
+
+    def test_cli_explicit_in_use_without_fallback_raises(self):
+        from unittest.mock import patch
+
+        import pytest
+
+        from network import resolve_service_port
+
+        with (
+            patch("network.is_port_available", return_value=False),
+            pytest.raises(ValueError, match="already in use"),
+        ):
+            resolve_service_port(requested_port=8080, fallback_to_ephemeral=False)
+
+    def test_invalid_cli_port_raises(self):
+        import pytest
+
+        from network import resolve_service_port
+
+        with pytest.raises(ValueError, match="Invalid service port"):
+            resolve_service_port(requested_port="not-a-port")
+        with pytest.raises(ValueError, match="out of range"):
+            resolve_service_port(requested_port=70000)
+
+
+class TestTokenReplacerSecretsResolution:
+    def _make_mgr(self, tmp_path):
+        from network import ContainerNetworkManager
+
+        return ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            config_dir=tmp_path,
+        )
+
+    def test_missing_config_returns_empty(self, tmp_path):
+        mgr = self._make_mgr(tmp_path)
+        assert mgr._pull_secrets_from_config() == {}
+
+    def test_no_env_refs_returns_empty(self, tmp_path):
+        (tmp_path / "token_replacer.yaml").write_text("rules: []\n")
+        mgr = self._make_mgr(tmp_path)
+        assert mgr._pull_secrets_from_config() == {}
+
+    def test_resolves_and_sets_env(self, tmp_path, monkeypatch):
+        import os
+
+        (tmp_path / "token_replacer.yaml").write_text(
+            "rules:\n  - match: {header: 'X-Key'}\n    replace_with:\n      value: '${ENV:MY_SECRET}'\n"
+        )
+        monkeypatch.setattr("secret_store.get_keyring_secret", lambda var: "secret-val-99")
+        mgr = self._make_mgr(tmp_path)
+        secrets = mgr._pull_secrets_from_config()
+        assert secrets == {"MY_SECRET": "secret-val-99"}
+        assert os.environ.get("MY_SECRET") == "secret-val-99"
+        os.environ.pop("MY_SECRET", None)
+
+    def test_unresolved_secret_warns(self, tmp_path, monkeypatch):
+        (tmp_path / "token_replacer.yaml").write_text(
+            "rules:\n  - match: {header: 'X-Key'}\n    replace_with:\n      value: '${ENV:UNSET_SECRET}'\n"
+        )
+        monkeypatch.setattr("secret_store.get_keyring_secret", lambda var: None)
+        mgr = self._make_mgr(tmp_path)
+        secrets = mgr._pull_secrets_from_config()
+        assert secrets == {}
+
+    def test_env_flags_formatting(self, tmp_path):
+        mgr = self._make_mgr(tmp_path)
+        flags = mgr._env_flags({"B_VAR": "val2", "A_VAR": "val1"})
+        assert flags == ["--env", "A_VAR", "--env", "B_VAR"]
+
+
+# ---------------------------------------------------------------------------
+# ContainerNetworkManager._preflight_ipv6_egress + warn_if_proxy_lacks_ipv6_egress
+# ---------------------------------------------------------------------------
+
+
+# Module-level logger capture hooks for ContainerNetworkManager methods.
+class _LogCapture:
+    def __init__(self):
+        self.warnings: list[str] = []
+        self.infos: list[str] = []
+
+    def warning(self, msg, *args, **kwargs):
+        self.warnings.append(msg % args if args else msg)
+
+    def info(self, msg, *args, **kwargs):
+        self.infos.append(msg % args if args else msg)
+
+
+class TestPreflightIpv6Egress:
+    def _make_manager(self):
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            proxy_name="pa-container-proxy-test",
+        )
+        return mgr
+
+    def test_returns_early_when_runtime_lacks_ipv6_egress(self, monkeypatch):
+        """When runtime.ipv6_upstream_egress is False, preflight returns immediately."""
+        mgr = self._make_manager()
+        mgr.runtime.ipv6_upstream_egress = False
+        capture = _LogCapture()
+        monkeypatch.setattr("network.logger", capture)
+        mgr._preflight_ipv6_egress()
+        # The static-capability path returns early, upstream_network_has_ipv6
+        # should NOT have been called.
+        assert any("NATs IPv4 only" in w for w in capture.warnings)
+
+    def test_warns_when_upstream_network_lacks_ipv6(self, monkeypatch):
+        """When upstream network lacks IPv6, preflight logs a warning."""
+        mgr = self._make_manager()
+        mgr.runtime.ipv6_upstream_egress = True
+        monkeypatch.setattr(type(mgr.runtime), "upstream_network_has_ipv6", MagicMock(return_value=False))
+        capture = _LogCapture()
+        monkeypatch.setattr("network.logger", capture)
+        mgr._preflight_ipv6_egress()
+        assert any("not configured for IPv6" in w for w in capture.warnings)
+
+    def test_info_when_upstream_network_unknown(self, monkeypatch):
+        """When upstream network IPv6 status is None, preflight logs info."""
+        mgr = self._make_manager()
+        mgr.runtime.ipv6_upstream_egress = True
+        monkeypatch.setattr(type(mgr.runtime), "upstream_network_has_ipv6", MagicMock(return_value=None))
+        capture = _LogCapture()
+        monkeypatch.setattr("network.logger", capture)
+        mgr._preflight_ipv6_egress()
+        assert any("Could not determine IPv6 config" in m for m in capture.infos)
+
+
+class TestWarnIfProxyLacksIpv6Egress:
+    def _make_manager(self):
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="proxy:latest",
+            proxy_name="pa-container-proxy-test",
+        )
+        return mgr
+
+    def test_warns_when_no_global_v6_address(self, monkeypatch):
+        """When proxy has no global IPv6 address, warns."""
+        mgr = self._make_manager()
+        addr_output = """eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 172.18.0.2  netmask 255.255.0.0  broadcast 172.18.255.255
+        inet6 fe80::0000:0000:0000:0000  prefixlen 64  scopeid 0x20<link>
+        ether 02:42:ac:12:00:02  txqueuelen 0  (Ethernet)
+"""
+        route_output = ""
+
+        def mock_run(cmd, **kwargs):
+            m = MagicMock()
+            if "addr" in cmd:
+                m.stdout = addr_output
+            elif "route" in cmd:
+                m.stdout = route_output
+            else:
+                m.stdout = ""
+            return m
+
+        monkeypatch.setattr("subprocess.run", mock_run)
+        capture = _LogCapture()
+        monkeypatch.setattr("network.logger", capture)
+        mgr.warn_if_proxy_lacks_ipv6_egress()
+        assert any("no working IPv6 egress" in w for w in capture.warnings)
+
+    def test_info_when_ipv6_egress_works(self, monkeypatch):
+        """When proxy has both global IPv6 address and default route, logs info."""
+        mgr = self._make_manager()
+        addr_output = """eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 172.18.0.2  netmask 255.255.0.0  broadcast 172.18.255.255
+        inet6 2001:db8::1/64 scope global
+        ether 02:42:ac:12:00:02  txqueuelen 0  (Ethernet)
+"""
+        route_output = "default via fe80::1 dev eth0"
+
+        def mock_run(cmd, **kwargs):
+            m = MagicMock()
+            if "addr" in cmd:
+                m.stdout = addr_output
+            elif "route" in cmd:
+                m.stdout = route_output
+            else:
+                m.stdout = ""
+            return m
+
+        monkeypatch.setattr("subprocess.run", mock_run)
+        capture = _LogCapture()
+        monkeypatch.setattr("network.logger", capture)
+        mgr.warn_if_proxy_lacks_ipv6_egress()
+        assert any("Proxy has IPv6 egress" in m for m in capture.infos)
+
+    def test_handles_exception(self, monkeypatch):
+        """warn_if_proxy_lacks_ipv6_egress returns gracefully on exception."""
+        import subprocess
+
+        mgr = self._make_manager()
+
+        def mock_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 5)
+
+        monkeypatch.setattr("subprocess.run", mock_run)
+        # Should not raise
+        mgr.warn_if_proxy_lacks_ipv6_egress()
+
+
+class TestContainerNetworkManagerLlamaHostnames:
+    """Tests for LLAMA_HOSTNAMES in ContainerNetworkManager."""
+
+    def test_llama_hostnames_passed_to_proxy_run_cmd(self, tmp_path, monkeypatch):
+        """When llama_hostnames is provided, --env LLAMA_HOSTNAMES=... is passed in proxy run cmd."""
+        from network import ContainerNetworkManager
+
+        (tmp_path / "config.yaml").write_text(
+            "proxy:\n  expose_ui: localhost\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: false\n"
+            "resources:\n  proxy:\n    memory: 4g\n    cpus: 4\n"
+            "flow_export:\n  enabled: false\n"
+            "security:\n  read_only_git_hooks: true\n  blocked_mount_paths: []\n  blocked_ip_ranges: []\n  git_config_allowlist: []\n"
+            "network:\n  ipv6: false\n  dns: 1.1.1.1\n"
+            "egress:\n  allow: {}\n"
+        )
+
+        recorded_cmds = []
+
+        def mock_run_quiet(cmd, **kwargs):
+            recorded_cmds.append(cmd)
+
+        monkeypatch.setattr("network.run_quiet", mock_run_quiet)
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda cmd, **kwargs: MagicMock(return_value=MagicMock(returncode=0)),
+        )
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="test-proxy:latest",
+            proxy_name="test-proxy",
+            config_dir=tmp_path,
+            llama_ports='[{"cp": 9999, "hp": 50001}]',
+            llama_hostnames="llama local-gemma local-ornith",
+        )
+        mgr._wait_for_proxy_health = MagicMock()
+
+        mgr._actually_start()
+
+        proxy_run_cmds = [cmd for cmd in recorded_cmds if "run" in cmd and "test-proxy" in cmd]
+        assert len(proxy_run_cmds) == 1
+        cmd = proxy_run_cmds[0]
+        assert "--env" in cmd
+        assert "LLAMA_HOSTNAMES=llama local-gemma local-ornith" in cmd
+        assert 'LLAMA_PORTS=[{"cp": 9999, "hp": 50001}]' in cmd
+
+    def test_is_existing_proxy_healthy_checks_llama_ports_match(self, tmp_path, monkeypatch):
+        """When running proxy has different LLAMA_PORTS, _is_existing_proxy_healthy returns False."""
+        import json
+
+        from network import ContainerNetworkManager
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="test-proxy:latest",
+            proxy_name="test-proxy",
+            config_dir=tmp_path,
+            llama_ports='[{"cp": 9999, "hp": 50002}]',
+            llama_hostnames="llama",
+        )
+        mgr._query_published_port = MagicMock(return_value=8080)
+        monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=3: MagicMock())
+
+        # Mock inspect returning old ports (50001)
+        mock_env = json.dumps(['LLAMA_PORTS=[{"cp": 9999, "hp": 50001}]', "LLAMA_HOSTNAMES=llama"])
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda cmd, **kwargs: MagicMock(returncode=0, stdout=mock_env),
+        )
+
+        assert mgr._is_existing_proxy_healthy() is False
+
+    def test_is_existing_proxy_healthy_returns_true_when_matching(self, tmp_path, monkeypatch):
+        """When running proxy matches LLAMA_PORTS and LLAMA_HOSTNAMES, returns True."""
+        import json
+
+        from network import ContainerNetworkManager
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="test-proxy:latest",
+            proxy_name="test-proxy",
+            config_dir=tmp_path,
+            llama_ports='[{"cp": 9999, "hp": 50001}]',
+            llama_hostnames="llama",
+        )
+        mgr._query_published_port = MagicMock(return_value=8080)
+        monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=3: MagicMock())
+
+        mock_env = json.dumps(['LLAMA_PORTS=[{"cp": 9999, "hp": 50001}]', "LLAMA_HOSTNAMES=llama"])
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda cmd, **kwargs: MagicMock(returncode=0, stdout=mock_env),
+        )
+
+        assert mgr._is_existing_proxy_healthy() is True
+
+    def test_is_existing_proxy_healthy_checks_secrets_match(self, tmp_path, monkeypatch):
+        """When running proxy has stale secrets, _is_existing_proxy_healthy returns False."""
+        import json
+
+        from network import ContainerNetworkManager
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="test-proxy:latest",
+            proxy_name="test-proxy",
+            config_dir=tmp_path,
+        )
+        mgr._query_published_port = MagicMock(return_value=8080)
+        monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=3: MagicMock())
+
+        # Mock inspect returning old secret value
+        mock_env = json.dumps(["OPPER_API_KEY=old_secret"])
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda cmd, **kwargs: MagicMock(returncode=0, stdout=mock_env),
+        )
+
+        # Expected secret is new_secret
+        mgr._pull_secrets_from_config = MagicMock(return_value={"OPPER_API_KEY": "new_secret"})
+
+        assert mgr._is_existing_proxy_healthy() is False
+
+
+class TestReadProxyConfig:
+    def test_missing_config_raises(self, tmp_path):
+        from network import read_proxy_config
+
+        with pytest.raises(FileNotFoundError):
+            read_proxy_config(tmp_path)
+
+    def test_open_browser_custom_values(self, tmp_path):
+        import yaml
+
+        from network import read_proxy_config
+
+        base = {"expose_ui": "localhost", "max_view_flows": 2000, "stream_large_bodies": "10m"}
+        (tmp_path / "config.yaml").write_text(yaml.dump({"proxy": {**base, "open_browser": True}}))
+        assert read_proxy_config(tmp_path)["open_browser"] is True
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"proxy": {**base, "open_browser": "yes"}}))
+        with pytest.raises(ValueError, match="Invalid 'proxy.open_browser': expected bool"):
+            read_proxy_config(tmp_path)
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"proxy": {**base, "open_browser": False}}))
+        assert read_proxy_config(tmp_path)["open_browser"] is False
+
+    def test_custom_values_parsed(self, tmp_path):
+        import yaml
+
+        from network import read_proxy_config
+
+        (tmp_path / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "proxy": {
+                        "expose_ui": "lan",
+                        "max_view_flows": 5000,
+                        "stream_large_bodies": "50m",
+                        "open_browser": False,
+                    }
+                }
+            )
+        )
+        cfg = read_proxy_config(tmp_path)
+        assert cfg["expose_ui"] == "lan"
+        assert cfg["max_view_flows"] == 5000
+        assert cfg["stream_large_bodies"] == "50m"
+        assert cfg["open_browser"] is False
+
+    def test_disabled_stream_large_bodies(self, tmp_path):
+        import yaml
+
+        from network import read_proxy_config
+
+        (tmp_path / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "proxy": {
+                        "expose_ui": "localhost",
+                        "max_view_flows": 2000,
+                        "stream_large_bodies": "off",
+                        "open_browser": False,
+                    }
+                }
+            )
+        )
+        cfg = read_proxy_config(tmp_path)
+        assert cfg["stream_large_bodies"] is None
+
+
+class TestScanVolumePaths:
+    def test_missing_config_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            scan_volume_paths(tmp_path)
+
+    def test_parses_paths(self, tmp_path):
+        import yaml
+
+        (tmp_path / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "volumes": {
+                        "paths": [
+                            "/workspace/node_modules",
+                            "/workspace/.venv",
+                            "/workspace/target",
+                        ]
+                    }
+                }
+            )
+        )
+        paths = scan_volume_paths(tmp_path)
+        assert paths == ["/workspace/.venv", "/workspace/node_modules", "/workspace/target"]
+
+    def test_deduplicates_and_sorts(self, tmp_path):
+        import yaml
+
+        (tmp_path / "config.yaml").write_text(
+            yaml.dump(
+                {
+                    "volumes": {
+                        "paths": [
+                            "/workspace/b",
+                            "/workspace/a",
+                            "/workspace/b",
+                        ]
+                    }
+                }
+            )
+        )
+        paths = scan_volume_paths(tmp_path)
+        assert paths == ["/workspace/a", "/workspace/b"]
+
+
+class TestReadAgentsConfig:
+    def test_read_enabled_agents_missing_raises(self, tmp_path):
+        from network import read_enabled_agents
+
+        (tmp_path / "config.yaml").write_text("{}\n")
+        with pytest.raises(ValueError, match="Missing or invalid 'packages'"):
+            read_enabled_agents(tmp_path)
+
+    def test_read_enabled_agents_explicit(self, tmp_path):
+        import yaml
+
+        from network import read_enabled_agents
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["opencode", "claude"]}]}))
+        assert read_enabled_agents(tmp_path) == ["opencode", "claude"]
+
+    def test_read_default_agent_with_default(self, tmp_path):
+        import yaml
+
+        from network import read_default_agent
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["pi", "opencode"]}]}))
+        assert read_default_agent(tmp_path) == "pi"
+
+    def test_read_default_agent_missing_raises(self, tmp_path):
+        import yaml
+
+        from network import read_default_agent
+
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["source-control"]}))
+        with pytest.raises(ValueError, match="No agent package configured in 'packages'"):
+            read_default_agent(tmp_path)
+
+    def test_read_default_agent_empty_config_raises(self, tmp_path):
+        from network import read_default_agent
+
+        (tmp_path / "config.yaml").write_text("{}\n")
+        with pytest.raises(ValueError, match="Missing or invalid 'packages'"):
+            read_default_agent(tmp_path)
+
+
+class TestProxyDiscovery:
+    def test_query_container_port_success(self):
+        from network import query_container_port
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="127.0.0.1:49152\n")
+            port = query_container_port("podman", "test-proxy", 8081)
+            assert port == 49152
+
+    def test_query_container_port_failure(self):
+        from network import query_container_port
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            assert query_container_port("podman", "test-proxy", 8081) is None
+
+    def test_check_proxy_health_success(self):
+        from network import check_proxy_health
+
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_url.return_value = MagicMock()
+            assert check_proxy_health("http://127.0.0.1:8080") is True
+
+    def test_check_proxy_health_failure(self):
+        from network import check_proxy_health
+
+        with patch("urllib.request.urlopen", side_effect=Exception("Connection refused")):
+            assert check_proxy_health("http://127.0.0.1:8080") is False
+
+    def test_get_project_proxy_running(self, tmp_path):
+        from network import get_project_proxy
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("network.query_container_port", return_value=51234),
+            patch("network.check_proxy_health", return_value=True),
+            patch("network.read_live_clients", return_value=[{"pid": 123}]),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="true\n")
+            info = get_project_proxy(tmp_path, runtime="podman")
+            assert info is not None
+            assert info.project_name == tmp_path.name
+            assert info.mitmweb_port == 51234
+            assert info.mitmweb_url == "http://127.0.0.1:51234"
+            assert info.is_healthy is True
+
+    def test_get_project_proxy_not_running(self, tmp_path):
+        from network import get_project_proxy
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            assert get_project_proxy(tmp_path, runtime="podman") is None
+
+    def test_list_active_proxies_parses_json(self, tmp_path):
+        import json
+
+        from network import list_active_proxies
+
+        fake_ps = [
+            {
+                "Names": ["pa-container-proxy-abcdef1234"],
+                "Labels": {
+                    "pa-container.type": "proxy",
+                    "pa-container.project.hash": "abcdef1234",
+                    "pa-container.project.name": "my-project",
+                    "pa-container.project.path": "/tmp/my-project",
+                },
+                "Created": "2026-11-07T12:00:00Z",
+            }
+        ]
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("network.query_container_port", return_value=49999),
+            patch("network.check_proxy_health", return_value=True),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(fake_ps))
+            proxies = list_active_proxies(runtime="podman", lock_dir=tmp_path)
+            assert len(proxies) == 1
+            assert proxies[0].project_name == "my-project"
+            assert proxies[0].mitmweb_port == 49999
+            assert proxies[0].mitmweb_url == "http://127.0.0.1:49999"
+
+    def test_proxy_container_has_type_and_project_labels(self, tmp_path):
+        from network import ContainerNetworkManager
+
+        (tmp_path / "config.yaml").write_text(
+            "proxy:\n  expose_ui: localhost\n  max_view_flows: 2000\n  stream_large_bodies: 10m\n  open_browser: false\n"
+            "resources:\n  proxy:\n    memory: 4g\n    cpus: 4\n"
+            "flow_export:\n  enabled: false\n"
+            "security:\n  read_only_git_hooks: true\n  blocked_mount_paths: []\n  blocked_ip_ranges: []\n  git_config_allowlist: []\n"
+            "network:\n  ipv6: false\n  dns: 1.1.1.1\n"
+            "egress:\n  allow: {}\n"
+        )
+
+        recorded_cmds = []
+
+        def fake_run_quiet(cmd, *args, **kwargs):
+            recorded_cmds.append(cmd)
+
+        mgr = ContainerNetworkManager(
+            container_runtime="podman",
+            network_name="test-net",
+            proxy_image="test-proxy:latest",
+            proxy_name="pa-container-proxy-test1234",
+            config_dir=tmp_path,
+        )
+        mgr._wait_for_proxy_health = MagicMock()
+        mgr._pull_secrets_from_config = MagicMock(return_value={})
+
+        with (
+            patch("network.run_quiet", side_effect=fake_run_quiet),
+            patch("subprocess.run", return_value=MagicMock(returncode=0)),
+        ):
+            mgr._actually_start()
+
+        run_cmds = [cmd for cmd in recorded_cmds if "run" in cmd and "pa-container-proxy-test1234" in cmd]
+        assert len(run_cmds) == 1
+        cmd = run_cmds[0]
+        assert "--label" in cmd
+        assert "pa-container.type=proxy" in cmd
+        assert "pa-container.project.hash=test1234" in cmd

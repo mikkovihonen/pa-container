@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PACKAGES_DIR = REPO_ROOT / "packages"
+PACKAGES_DIR = REPO_ROOT / "pa_packages"
 
 
 def main() -> int:
@@ -21,7 +21,7 @@ def main() -> int:
         return 0
 
     env = dict(os.environ)
-    env["MYPYPATH"] = str(REPO_ROOT / "src")
+    env["MYPYPATH"] = str(REPO_ROOT / "pa_core")
 
     for host_dir in package_hosts:
         pkg_name = host_dir.parent.name

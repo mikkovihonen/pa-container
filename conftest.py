@@ -5,9 +5,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Make src/ importable
+# Make pa_core/ importable
 repo_root = Path(__file__).resolve().parent
-src_dir = repo_root / "src"
+src_dir = repo_root / "pa_core"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
@@ -25,7 +25,7 @@ if not _global_cfg_file.is_file():
 from packages.loader import load_acp_plugin
 from packages.manifest import load_package_manifest
 
-packages_dir = repo_root / "packages"
+packages_dir = repo_root / "pa_packages"
 if packages_dir.is_dir():
     for pkg_dir in packages_dir.iterdir():
         yaml_file = pkg_dir / "package.yaml"

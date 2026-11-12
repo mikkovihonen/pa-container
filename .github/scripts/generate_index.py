@@ -31,8 +31,9 @@ def fix_links(content: str) -> str:
     content = re.sub(r"\.\./README\.md", "index.md", content)
     content = re.sub(r"\.\./\.\./README\.md", "index.md", content)
 
-    # Convert ../src/... to GitHub URLs
-    content = re.sub(r"\.\./src/", f"{REPO_URL}/src/", content)
+    # Convert ../pa_core/... and ../pa_packages/... to GitHub URLs
+    content = re.sub(r"\.\./pa_core/", f"{REPO_URL}/pa_core/", content)
+    content = re.sub(r"\.\./pa_packages/", f"{REPO_URL}/pa_packages/", content)
 
     # Convert ../docs/assets/.gitignore.example to GitHub URL
     content = re.sub(

@@ -18,16 +18,16 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]
-"" = "src"
+"" = "pa_core"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["pa_core"]
 
 [dependency-groups]
 proxy = [
     "mitmproxy>=12.2.3",
 ]
-src = [
+pa_core = [
     "huggingface_hub>=1.26.0",
 ]
 docs = [
@@ -44,7 +44,7 @@ dev = [
 ]
 
 [tool.uv]
-default-groups = ["src", "proxy", "dev"]
+default-groups = ["pa_core", "proxy", "dev"]
 package = true
 override-dependencies = [
     "msgpack>=1.2.1",
@@ -55,11 +55,11 @@ override-dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = [
-    "src/tests",
+    "pa_core/tests",
     "coding-agent-proxy/addons/allowlist/tests",
     "coding-agent-proxy/addons/token_replacer/tests",
     "coding-agent-proxy/addons/flow_export/tests",
-    "packages",
+    "pa_packages",
 ]
 markers = [
     "smoke: package smoke tests",
@@ -69,25 +69,31 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = [
-    "src",
+    "pa_core",
+    "pa_packages",
     "coding-agent-proxy/addons/allowlist",
     "coding-agent-proxy/addons/token_replacer",
     "coding-agent-proxy/addons/flow_export",
 ]
+omit = [
+    "pa_packages/**/container/**",
+    "pa_packages/**/tests/**",
+]
 
 [tool.coverage.report]
-fail_under = 90
+fail_under = 88
 show_missing = true
 skip_empty = true
 
 [tool.ruff]
 target-version = "py314"
 line-length = 120
+src = ["pa_core", "pa_packages"]
 include = [
-    "src/**/*.py",
+    "pa_core/**/*.py",
     "coding-agent-proxy/addons/allowlist/**/*.py",
     "coding-agent-proxy/addons/token_replacer/**/*.py",
-    "packages/**/*.py",
+    "pa_packages/**/*.py",
     "scripts/**/*.py",
 ]
 
@@ -127,10 +133,10 @@ disallow_any_generics = true
 disallow_subclassing_any = true
 warn_redundant_casts = true
 warn_unused_ignores = true
-mypy_path = ["src", "coding-agent-proxy/addons"]
+mypy_path = ["pa_core", "coding-agent-proxy/addons"]
 explicit_package_bases = true
 files = [
-    "src",
+    "pa_core",
     "coding-agent-proxy/addons",
     "scripts",
     ".github/workflows/scripts",

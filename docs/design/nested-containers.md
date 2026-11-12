@@ -183,7 +183,7 @@ originally promised. It is the main reason nesting must stay opt-in.
 Added to `coding-agent/Containerfile`. Fedora Minimal supplies the base runtime
 packages (`catatonit`, `conmon`, `crun`, `fuse-overlayfs`, `libcap`, `shadow-utils-subid`,
 `nftables`, `passt`); `podman`, `netavark` and `aardvark-dns` are compiled in
-the `packages/podman` ACP package and layered dynamically:
+the `pa_packages/podman` ACP package and layered dynamically:
 
 ```dockerfile
 COPY --from=pa-container-pkg-podman:local / /
@@ -270,7 +270,7 @@ Persisting it across runs is a deliberate exception to the ephemeral-home rule: 
 it every session re-pulls every base image through mitmproxy. The volume carries the same
 labels as project images (`pa-container.type=nested-storage`,
 `pa-container.project.hash`, `pa-container.project.path`) so the orphan-cleanup pass in
-[`run.py`](../../src/run.py) can reclaim it with the same
+[`run.py`](../../pa_core/run.py) can reclaim it with the same
 path-no-longer-exists rule already used for images. A `storage: tmpfs` setting is offered
 for workspaces that want no persistence and have the RAM.
 
@@ -436,7 +436,7 @@ workload most likely to expose it.
 
 Since this design landed, **4 GB is the documented minimum** `podman machine` size. This is not for
 nesting. It is for building the images at all. The CPython and Podman compiles run as
-ACP packages (`packages/python/` and `packages/podman/`). `pa build` checks available memory
+ACP packages (`pa_packages/python/` and `pa_packages/podman/`). `pa build` checks available memory
 in the VM before starting a build. It refuses with the fix rather than OOM-killing the
 compiler minutes later. Enabling nesting warrants more again.
 
@@ -695,7 +695,7 @@ the same feature on both runtimes would mean shipping two materially different s
 guarantees under one config flag.
 
 **2. `DockerRuntime` is already unverified.** Its own docstring in
-[runtimes.py](../../src/runtimes.py) says "Untested here (no docker binary on this host)".
+[runtimes.py](../../pa_core/runtimes.py) says "Untested here (no docker binary on this host)".
 It relies on `--network` ordering to land the isolated network on `eth1` because Docker
 has no per-attachment interface naming. On this machine `docker` is a shell alias to
 `podman`. Adding a security-sensitive feature to a code path nobody exercises is how the
@@ -762,20 +762,20 @@ Each phase leaves the tree working. The security-relevant surface all lands in p
 
 | File | Change |
 |---|---|
-| `src/runtimes.py` | Delete `DockerRuntime` + registry entry + `proxy_secondary_connect_argv()`. Add `PodmanRuntime.nested_container_args(cfg, project_hash) -> list[str]` returning the device/security/volume/env flags. Update the module docstring (it currently documents two runtimes). |
-| `src/network.py` | Delete the `proxy_secondary_connect_argv()` call in `_actually_start()`. Add `read_nested_containers_config()`. |
-| `src/run.py` | Call `read_nested_containers_config()`; splice `nested_container_args()` into `PA_CONTAINER_cmd`. Add `_ensure_nested_volume()` (create + label) and `_cleanup_orphaned_nested_volumes()` mirroring `_cleanup_orphaned_project_images()`. |
-| `src/util.py` | `validate_environment()`: podman-only. |
-| `src/schema_common.py` | `SCHEMA` gains `nested_containers` (`enabled`, `storage`, `security`). |
+| `pa_core/runtimes.py` | Delete `DockerRuntime` + registry entry + `proxy_secondary_connect_argv()`. Add `PodmanRuntime.nested_container_args(cfg, project_hash) -> list[str]` returning the device/security/volume/env flags. Update the module docstring (it currently documents two runtimes). |
+| `pa_core/network.py` | Delete the `proxy_secondary_connect_argv()` call in `_actually_start()`. Add `read_nested_containers_config()`. |
+| `pa_core/run.py` | Call `read_nested_containers_config()`; splice `nested_container_args()` into `PA_CONTAINER_cmd`. Add `_ensure_nested_volume()` (create + label) and `_cleanup_orphaned_nested_volumes()` mirroring `_cleanup_orphaned_project_images()`. |
+| `pa_core/util.py` | `validate_environment()`: podman-only. |
+| `pa_core/schema_common.py` | `SCHEMA` gains `nested_containers` (`enabled`, `storage`, `security`). |
 | `coding-agent/Containerfile` | Nesting runtime packages; `COPY --from` the toolchain image; `/etc/subuid`/`/etc/subgid`; `setcap` on `newuidmap`/`newgidmap`; `docker` shim; `/etc/containers/{policy.json,registries.conf,containers.conf.d/50-pa-container.conf}`. |
-| `packages/podman/` | Compiles Podman 6 (explicit nested `BUILDTAGS`), netavark/aardvark-dns and container engine configurations under `/out`. Self-contained ACP package layered dynamically via `COPY --from=pa-container-pkg-podman:local / /`. |
+| `pa_packages/podman/` | Compiles Podman 6 (explicit nested `BUILDTAGS`), netavark/aardvark-dns and container engine configurations under `/out`. Self-contained ACP package layered dynamically via `COPY --from=pa-container-pkg-podman:local / /`. |
 | `coding-agent/entrypoint.sh` | `PA_CONTAINER_NESTED` block creating/chowning `/run/user/1000` and the store. |
 | `coding-agent/default/project/config.yaml` | New `nested_containers` section; bump `schema_version`. |
 | `coding-agent/default/project/allowlist.yaml` | Commented registry allow-rule block. |
 | `docs/configuration.md`, `docs/architecture.md`, `docs/getting-started.md` | Document the section, the trust model change, machine sizing; drop Docker references. |
-| `src/tests/test_runtimes.py` | Remove `DockerRuntime` tests; add `nested_container_args()` tests (flags present when enabled, absent when disabled, `engine_t` vs `disable`). |
-| `src/tests/test_network.py`, `src/tests/test_run.py` | `read_nested_containers_config()` defaults/parsing; nested-volume lifecycle + orphan cleanup. |
-| `src/tests/test_config_schema.py` | Schema entry + `schema_version` bump. |
+| `pa_core/tests/test_runtimes.py` | Remove `DockerRuntime` tests; add `nested_container_args()` tests (flags present when enabled, absent when disabled, `engine_t` vs `disable`). |
+| `pa_core/tests/test_network.py`, `pa_core/tests/test_run.py` | `read_nested_containers_config()` defaults/parsing; nested-volume lifecycle + orphan cleanup. |
+| `pa_core/tests/test_config_schema.py` | Schema entry + `schema_version` bump. |
 | `CHANGELOG.md` | Added (nesting), Changed/Removed (Docker support — a breaking change; warrants a minor version bump). |
 
 ---

@@ -16,7 +16,7 @@ sys.dont_write_bytecode = True
 # Add scripts directory to path to import upstreams
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[3]
-PACKAGES_DIR = REPO_ROOT / "packages"
+PACKAGES_DIR = REPO_ROOT / "pa_packages"
 CONTAINERFILE = PACKAGES_DIR
 
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -87,7 +87,7 @@ def read_containerfile_args(path: Path) -> dict[str, str]:
                             args[f"{name.replace('-', '_').upper()}_VERSION"] = v
         return args
     if not path.is_file():
-        target = path.parents[0] / "packages" if path.name == "Containerfile" else REPO_ROOT / "packages"
+        target = path.parents[0] / "pa_packages" if path.name == "Containerfile" else REPO_ROOT / "pa_packages"
         if target.is_dir():
             return read_containerfile_args(target)
         return {}
@@ -219,7 +219,7 @@ def run_verify(tool: str | None = None) -> bool:
             "uv",
             "run",
             "pytest",
-            "src/tests/test_build.py",
+            "pa_core/tests/test_build.py",
             "-k",
             "TestToolchainPinsAreDeclared",
         ],

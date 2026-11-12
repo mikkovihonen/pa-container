@@ -90,7 +90,7 @@ jobs:
           ./pa init
 
       - name: Run tests with coverage
-        run: uv run --group src --group proxy pytest --cov --cov-report=xml --cov-report=term-missing
+        run: uv run --group pa_core --group proxy pytest --cov --cov-report=xml --cov-report=term-missing
 
       - name: Generate coverage badge
         run: uv run python3 .github/workflows/scripts/generate_coverage_badge.py

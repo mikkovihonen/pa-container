@@ -1078,7 +1078,7 @@ wheels = [
 name = "pa-container"
 version = "0.7.0"
 source = { editable = "." }
-default-groups = ["dev", "proxy", "src"]
+default-groups = ["dev", "pa-core", "proxy"]
 dependencies = [
     { name = "keyring" },
     { name = "pyyaml" },
@@ -1098,11 +1098,11 @@ dev = [
 docs = [
     { name = "zensical" },
 ]
+pa-core = [
+    { name = "huggingface-hub" },
+]
 proxy = [
     { name = "mitmproxy" },
-]
-src = [
-    { name = "huggingface-hub" },
 ]
 
 [package.metadata]
@@ -1123,8 +1123,8 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12.20261103" },
 ]
 docs = [{ name = "zensical", specifier = ">=0.0.57" }]
+pa-core = [{ name = "huggingface-hub", specifier = ">=1.26.0" }]
 proxy = [{ name = "mitmproxy", specifier = ">=12.2.3" }]
-src = [{ name = "huggingface-hub", specifier = ">=1.26.0" }]
 
 [[package]]
 name = "packaging"

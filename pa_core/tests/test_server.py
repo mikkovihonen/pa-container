@@ -1,0 +1,732 @@
+"""
+Unit tests for pa_core/server.py
+
+Run with:
+    python -m pytest pa_core/tests/test_server.py -v
+"""
+
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from models import ModelConfig, ServerConfig
+from server import Server
+
+# ---------------------------------------------------------------------------
+# ServerGetBridgeIp
+# ---------------------------------------------------------------------------
+
+
+class TestServerGetServerFlags:
+    # ---------------------------------------------------------------------------
+    # ServerGetServerFlags
+    # ---------------------------------------------------------------------------
+    def _make_server(self, tmp_path):
+        mc = ModelConfig.from_dict(
+            {
+                "fileFlag": "--model",
+                "repo": "org/repo",
+                "file": "model.gguf",
+                "additionalServerFlags": ["--threads", "4"],
+                "sha256": None,
+            }
+        )
+        sc = ServerConfig(
+            hf_models={"main": mc},
+            flags=["--ctx-size", "4096"],
+        )
+        lock_dir = tmp_path / "locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=lock_dir,
+            repo_root=tmp_path,
+            server_id="test-server",
+        )
+        return s
+
+    def test_includes_main_model_flag(self, tmp_path):
+        s = self._make_server(tmp_path)
+        flags = s._get_server_flags()
+        assert "--model" in flags
+        # The path includes the full path to the model file
+        assert any("model.gguf" in f for f in flags)
+
+    def test_includes_additional_server_flags(self, tmp_path):
+        s = self._make_server(tmp_path)
+        flags = s._get_server_flags()
+        assert "--threads" in flags
+        assert "4" in flags
+
+    def test_includes_base_flags(self, tmp_path):
+        s = self._make_server(tmp_path)
+        flags = s._get_server_flags()
+        assert "--ctx-size" in flags
+        assert "4096" in flags
+
+    def test_includes_alias(self, tmp_path):
+        s = self._make_server(tmp_path)
+        flags = s._get_server_flags()
+        assert "--alias" in flags
+        assert "test-server" in flags
+
+    def test_raises_when_no_main_model(self, tmp_path):
+        sc = ServerConfig(hf_models={}, flags=[])
+        lock_dir = tmp_path / "locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=lock_dir,
+            repo_root=tmp_path,
+            server_id="test",
+        )
+        with pytest.raises(ValueError, match="No main model"):
+            s._get_server_flags()
+
+
+# ---------------------------------------------------------------------------
+# ServerRefCount & Client Manifest
+# ---------------------------------------------------------------------------
+
+
+class TestServerRefCount:
+    def _make_server(self, tmp_path):
+        sc = ServerConfig.from_dict({"hfModels": {}, "flags": []})
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test-server",
+        )
+        s.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
+        return s
+
+    def test_ref_count_zero_when_no_file(self, tmp_path):
+        s = self._make_server(tmp_path)
+        assert s._get_current_ref_count() == 0
+
+    def test_ref_count_reads_clients_file(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        s = self._make_server(tmp_path)
+        write_clients(s.paths["clients_file"], [{"pid": os.getpid(), "run_id": "r1"}])
+        assert s._get_current_ref_count() == 1
+
+
+# ---------------------------------------------------------------------------
+# ServerIsExistingServerHealthy
+# ---------------------------------------------------------------------------
+
+
+class TestServerIsExistingServerHealthy:
+    def _make_server(self, tmp_path):
+        sc = ServerConfig.from_dict({"hfModels": {}, "flags": []})
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            logs_dir=tmp_path / "logs",
+        )
+        s.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
+        return s
+
+    def test_no_pid_file(self, tmp_path):
+        s = self._make_server(tmp_path)
+        healthy, pid, port = s._is_existing_server_healthy()
+        assert healthy is False
+        assert pid is None
+        assert port is None
+
+    def test_pid_file_invalid_format(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.paths["pid_file"].write_text("not_a_pid\n")
+        healthy, pid, port = s._is_existing_server_healthy()
+        assert healthy is False
+
+    def test_pid_file_valid_but_process_dead(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.paths["pid_file"].write_text("99999\n8080\n")
+        with patch("os.kill", side_effect=OSError("No such process")):
+            healthy, pid, port = s._is_existing_server_healthy()
+        assert healthy is False
+        assert pid == 99999
+        assert port == 8080
+
+    def test_pid_file_valid_but_health_check_fails(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.paths["pid_file"].write_text("1234\n8080\n")
+        with patch("os.kill"), patch("urllib.request.urlopen", side_effect=Exception("fail")):
+            healthy, pid, port = s._is_existing_server_healthy()
+        assert healthy is False
+        assert pid == 1234
+        assert port == 8080
+
+    def test_pid_file_valid_and_healthy(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.paths["pid_file"].write_text("1234\n8080\n")
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_resp)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+
+        with patch("os.kill"), patch("urllib.request.urlopen", return_value=mock_ctx):
+            healthy, pid, port = s._is_existing_server_healthy()
+        assert healthy is True
+        assert pid == 1234
+        assert port == 8080
+
+
+# ---------------------------------------------------------------------------
+# ServerStartNewProcess
+# ---------------------------------------------------------------------------
+
+
+class TestServerStartNewProcess:
+    def _make_server(self, tmp_path):
+        mc = ModelConfig.from_dict(
+            {
+                "fileFlag": "--model",
+                "repo": "org/repo",
+                "file": "model.gguf",
+                "additionalServerFlags": [],
+                "sha256": None,
+            }
+        )
+        sc = ServerConfig(
+            hf_models={"main": mc},
+            flags=["--ctx-size", "4096"],
+        )
+        lock_dir = tmp_path / "locks" / "test"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = tmp_path / "logs" / "test"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            logs_dir=tmp_path / "logs",
+        )
+        return s
+
+    def test_starts_process(self, tmp_path):
+        s = self._make_server(tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.pid = 1234
+        mock_proc.poll.return_value = None
+
+        # Mock the health check response with proper context manager
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+
+        # Create a context manager that returns the mock response
+        mock_context = MagicMock()
+        mock_context.__enter__ = MagicMock(return_value=mock_resp)
+        mock_context.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("server.subprocess.Popen", return_value=mock_proc),
+            patch("server.get_free_port", return_value=18080),
+            patch("server.urllib.request.urlopen", return_value=mock_context),
+            patch("server.stop_process_group"),
+            patch("server.logger"),
+            patch("server.subprocess.check_output", return_value="inet 192.168.50.1/24"),
+            patch("server.os.kill"),
+        ):
+            s._start_new_server_process()
+
+        assert s.server_pid == 1234
+        assert s.port == 18080
+        assert s.port_ready_event.is_set()
+
+    def test_fails_when_process_dies_immediately(self, tmp_path):
+        s = self._make_server(tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.pid = 1234
+        mock_proc.poll.return_value = 1  # died immediately
+        mock_proc.returncode = 1
+
+        # Simulate llama-server writing CLI error to log file
+        s.paths["log_file"].parent.mkdir(parents=True, exist_ok=True)
+        s.paths["log_file"].write_text("error: invalid argument: --no-mmap\n")
+
+        with (
+            patch("server.subprocess.Popen", return_value=mock_proc),
+            patch("server.get_free_port", return_value=18080),
+            patch("server.stop_process_group"),
+            pytest.raises(Exception, match="error: invalid argument: --no-mmap"),
+        ):
+            s._start_new_server_process()
+
+    def test_read_recent_log_tail(self, tmp_path):
+        s = self._make_server(tmp_path)
+        assert s._read_recent_log_tail() == ""
+
+        s.paths["log_file"].parent.mkdir(parents=True, exist_ok=True)
+        s.paths["log_file"].write_text("line 1\nline 2\nline 3\n")
+        tail = s._read_recent_log_tail(max_lines=2)
+        assert tail == "  line 2\n  line 3"
+
+    def test_wait_for_server_logs_tail_when_process_dies(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.server_pid = 9999
+        s.port = 18080
+        s.paths["log_file"].parent.mkdir(parents=True, exist_ok=True)
+        s.paths["log_file"].write_text("Fatal error: model corrupted\n")
+
+        with (
+            patch("server.os.kill", side_effect=OSError),
+            patch("server.logger.error") as mock_log_error,
+        ):
+            result = s.wait_for_server(timeout=2)
+            assert result is False
+            assert any("Fatal error: model corrupted" in call.args[0] for call in mock_log_error.call_args_list)
+
+
+# ---------------------------------------------------------------------------
+# ServerStop
+# ---------------------------------------------------------------------------
+
+
+class TestServerStop:
+    def _make_server(self, tmp_path):
+        sc = ServerConfig.from_dict({"hfModels": {}, "flags": []})
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            logs_dir=tmp_path / "logs",
+        )
+        s.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
+        return s
+
+    def test_full_cleanup_on_refcount_zero(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        s = self._make_server(tmp_path)
+        write_clients(s.paths["clients_file"], [{"pid": os.getpid(), "run_id": "me"}])
+        s._stop_process = MagicMock()
+        s._cleanup_lock_dir = MagicMock()
+
+        with patch("fcntl.flock"):
+            s.stop()
+        s._stop_process.assert_called_once()
+        s._cleanup_lock_dir.assert_called_once()
+
+    def test_no_cleanup_on_refcount_above_one(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        s = self._make_server(tmp_path)
+        # Two live clients: current pid and another live pid
+        write_clients(
+            s.paths["clients_file"],
+            [{"pid": os.getpid(), "run_id": "me"}, {"pid": 987654, "run_id": "other"}],
+        )
+        s._stop_process = MagicMock()
+        s._cleanup_lock_dir = MagicMock()
+
+        with patch("fcntl.flock"), patch("util.is_pid_alive", return_value=True):
+            s.stop()
+        s._stop_process.assert_not_called()
+        s._cleanup_lock_dir.assert_not_called()
+
+    def test_no_cleanup_when_no_clients_file(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s._stop_process = MagicMock()
+        s._cleanup_lock_dir = MagicMock()
+
+        s.stop()  # should not raise
+        s._stop_process.assert_not_called()
+        s._cleanup_lock_dir.assert_not_called()
+
+    def test_stop_process_with_server_pid(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.server_pid = 4321
+        s.paths["pid_file"].write_text("4321\n18080\n")
+        s.paths["clients_file"].write_text("[]\n")
+
+        with patch("server.stop_process_group") as mock_stop:
+            s._stop_process()
+
+        assert mock_stop.call_count == 1
+        assert mock_stop.call_args[0] == (4321, "llama-server test")
+        assert s.server_pid is None
+        assert not s.paths["pid_file"].exists()
+        assert not s.paths["clients_file"].exists()
+
+    def test_stop_process_fallback_reads_pid_file_when_server_pid_is_none(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s.server_pid = None
+        s.paths["pid_file"].write_text("5678\n18080\n")
+
+        with patch("server.stop_process_group") as mock_stop:
+            s._stop_process()
+
+        assert mock_stop.call_count == 1
+        assert mock_stop.call_args[0] == (5678, "llama-server test")
+        assert s.server_pid is None
+        assert not s.paths["pid_file"].exists()
+
+
+class TestServerAdoptAndAttach:
+    def _make_server(self, tmp_path):
+        mc = ModelConfig.from_dict(
+            {
+                "fileFlag": "--model",
+                "repo": "org/repo",
+                "file": "model.gguf",
+                "additionalServerFlags": [],
+                "sha256": None,
+            }
+        )
+        sc = ServerConfig(
+            hf_models={"main": mc},
+            flags=["--ctx-size", "4096"],
+        )
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            logs_dir=tmp_path / "logs",
+        )
+        s.paths["lock_dir"].mkdir(parents=True, exist_ok=True)
+        return s
+
+    def test_start_adopts_healthy_server_sets_pid_and_port(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s._ensure_models_downloaded = MagicMock()
+        s.paths["pid_file"].write_text("7777\n19090\n")
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_resp)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("os.kill"),
+            patch("urllib.request.urlopen", return_value=mock_ctx),
+            patch("fcntl.flock"),
+        ):
+            port = s.start()
+
+        assert port == 19090
+        assert s.server_pid == 7777
+        assert s.port == 19090
+        assert s.port_ready_event.is_set()
+
+    def test_adopted_server_is_stopped_when_last_client_exits(self, tmp_path):
+        s = self._make_server(tmp_path)
+        s._ensure_models_downloaded = MagicMock()
+        s.paths["pid_file"].write_text("7777\n19090\n")
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_resp)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("os.kill"),
+            patch("urllib.request.urlopen", return_value=mock_ctx),
+            patch("fcntl.flock"),
+        ):
+            s.start()
+
+        assert s.server_pid == 7777
+
+        # Now stop as sole client
+        with (
+            patch("fcntl.flock"),
+            patch("server.stop_process_group") as mock_stop,
+        ):
+            s.stop()
+
+        assert mock_stop.call_count == 1
+        assert mock_stop.call_args[0] == (7777, "llama-server test")
+        assert not s.paths["pid_file"].exists()
+
+    def test_start_attaches_to_existing_server_sets_pid_and_port(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        s = self._make_server(tmp_path)
+        s._ensure_models_downloaded = MagicMock()
+        s.paths["pid_file"].write_text("8888\n19091\n")
+        # Put an existing live client in clients file
+        write_clients(s.paths["clients_file"], [{"pid": os.getpid(), "run_id": "other-run"}])
+
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status": "ok"}'
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_resp)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("os.kill"),
+            patch("urllib.request.urlopen", return_value=mock_ctx),
+            patch("fcntl.flock"),
+        ):
+            port = s.start()
+
+        assert port == 19091
+        assert s.server_pid == 8888
+        assert s.port == 19091
+        assert s.port_ready_event.is_set()
+
+
+# ---------------------------------------------------------------------------
+# CleanupOrphanedServers
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupOrphanedServers:
+    def test_cleans_instance_with_dead_clients(self, tmp_path):
+        from util import write_clients
+
+        lock_dir = tmp_path / "locks"
+        instance_dir = lock_dir / "instance-1"
+        instance_dir.mkdir(parents=True)
+        (instance_dir / ".llama_server_refcount.lock").touch()
+        (instance_dir / ".llama_server.pid").write_text("99999\n18080\n")
+        write_clients(instance_dir / ".llama_server_clients.json", [{"pid": 88888}])
+
+        with (
+            patch("util.is_pid_alive", return_value=False),
+            patch("server.is_pid_alive", return_value=True),
+            patch("server.stop_process_group") as mock_stop,
+        ):
+            cleaned = Server.cleanup_orphaned_servers(lock_dir)
+
+        assert cleaned == ["instance-1"]
+        mock_stop.assert_called_once()
+        assert mock_stop.call_args[0] == (99999, "orphaned llama-server instance-1")
+        assert not instance_dir.exists()
+        assert not lock_dir.exists()
+
+    def test_cleans_stale_lock_without_pid_or_clients(self, tmp_path):
+        lock_dir = tmp_path / "locks"
+        instance_dir = lock_dir / "instance-1"
+        instance_dir.mkdir(parents=True)
+        (instance_dir / ".llama_server_refcount.lock").touch()
+
+        with patch("server.stop_process_group") as mock_stop:
+            cleaned = Server.cleanup_orphaned_servers(lock_dir)
+
+        assert cleaned == []
+        mock_stop.assert_not_called()
+        assert not instance_dir.exists()
+        assert not lock_dir.exists()
+
+    def test_keeps_instance_with_live_clients(self, tmp_path):
+        import os
+
+        from util import write_clients
+
+        lock_dir = tmp_path / "locks"
+        instance_dir = lock_dir / "instance-1"
+        instance_dir.mkdir(parents=True)
+        (instance_dir / ".llama_server_refcount.lock").touch()
+        (instance_dir / ".llama_server.pid").write_text("99999\n18080\n")
+        write_clients(instance_dir / ".llama_server_clients.json", [{"pid": os.getpid()}])
+
+        with patch("server.stop_process_group") as mock_stop:
+            cleaned = Server.cleanup_orphaned_servers(lock_dir)
+
+        assert cleaned == []
+        mock_stop.assert_not_called()
+
+    def test_cleans_empty_instance_dir_without_files(self, tmp_path):
+        lock_dir = tmp_path / "locks"
+        empty_dir = lock_dir / "empty-instance"
+        empty_dir.mkdir(parents=True)
+
+        cleaned = Server.cleanup_orphaned_servers(lock_dir)
+        assert cleaned == []
+        assert not empty_dir.exists()
+        assert not lock_dir.exists()
+
+    def test_skips_instance_when_flock_raises_oserror(self, tmp_path):
+        lock_dir = tmp_path / "locks"
+        instance_dir = lock_dir / "instance-1"
+        instance_dir.mkdir(parents=True)
+        (instance_dir / ".llama_server_refcount.lock").touch()
+        (instance_dir / ".llama_server.pid").write_text("99999\n18080\n")
+
+        with patch("fcntl.flock", side_effect=OSError(35, "Resource temporarily unavailable")):
+            cleaned = Server.cleanup_orphaned_servers(lock_dir)
+
+        assert cleaned == []
+        assert instance_dir.exists()
+
+
+# ---------------------------------------------------------------------------
+# ConfigFingerprint (same-name / different-serverCustomParameters isolation)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigFingerprint:
+    def _server(self, tmp_path, sc, server_id="local-gemma"):
+        return Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id=server_id,
+        )
+
+    def test_same_name_same_config_shares_identity(self, tmp_path):
+        a = self._server(tmp_path, ServerConfig.from_dict({"hfModels": {}, "flags": ["--ctx-size", "4096"]}))
+        b = self._server(tmp_path, ServerConfig.from_dict({"hfModels": {}, "flags": ["--ctx-size", "4096"]}))
+        assert a.instance_key == b.instance_key
+        assert a.paths["lock_dir"] == b.paths["lock_dir"]
+
+    def test_same_name_different_config_separates(self, tmp_path):
+        a = self._server(tmp_path, ServerConfig.from_dict({"hfModels": {}, "flags": ["--ctx-size", "4096"]}))
+        b = self._server(tmp_path, ServerConfig.from_dict({"hfModels": {}, "flags": ["--ctx-size", "8192"]}))
+        assert a.instance_key != b.instance_key
+        assert a.paths["lock_dir"] != b.paths["lock_dir"]
+        assert a.paths["log_file"] != b.paths["log_file"]
+
+    def test_flag_order_is_significant(self, tmp_path):
+        a = self._server(tmp_path, ServerConfig.from_dict({"hfModels": {}, "flags": ["--a", "--b"]}))
+        b = self._server(tmp_path, ServerConfig.from_dict({"hfModels": {}, "flags": ["--b", "--a"]}))
+        assert a.instance_key != b.instance_key
+
+    def test_model_file_change_separates(self, tmp_path):
+        base = {"fileFlag": "--model", "repo": "o/r", "additionalServerFlags": [], "sha256": None}
+        a = self._server(
+            tmp_path, ServerConfig(hf_models={"main": ModelConfig.from_dict({**base, "file": "a.gguf"})}, flags=[])
+        )
+        b = self._server(
+            tmp_path, ServerConfig(hf_models={"main": ModelConfig.from_dict({**base, "file": "b.gguf"})}, flags=[])
+        )
+        assert a.instance_key != b.instance_key
+
+    def test_instance_key_starts_with_server_id(self, tmp_path):
+        a = self._server(tmp_path, ServerConfig.from_dict({"hfModels": {}, "flags": []}))
+        assert a.instance_key.startswith("local-gemma-")
+
+    def test_custom_logs_dir(self, tmp_path):
+        custom_logs = tmp_path / "custom_logs"
+        mc = ModelConfig.from_dict(
+            {
+                "fileFlag": "--model",
+                "repo": "o/r",
+                "file": "m.gguf",
+                "additionalServerFlags": [],
+                "sha256": None,
+            }
+        )
+        s = Server(
+            config=ServerConfig(hf_models={"main": mc}, flags=[]),
+            models_dir=tmp_path / "models",
+            llama_bin="/bin/true",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            logs_dir=custom_logs,
+        )
+        assert s.paths["log_file"].parent == custom_logs / s.instance_key
+
+    def test_default_logs_dir_uses_config_logs_dir(self, tmp_path):
+        from config import LOGS_DIR
+
+        mc = ModelConfig.from_dict(
+            {
+                "fileFlag": "--model",
+                "repo": "o/r",
+                "file": "m.gguf",
+                "additionalServerFlags": [],
+                "sha256": None,
+            }
+        )
+        s = Server(
+            config=ServerConfig(hf_models={"main": mc}, flags=[]),
+            models_dir=tmp_path / "models",
+            llama_bin="/bin/true",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+        )
+        assert s.logs_dir == LOGS_DIR
+        assert s.paths["log_file"].parent == LOGS_DIR / s.instance_key
+
+    def test_alias_uses_plain_server_id_not_instance_key(self, tmp_path):
+        mc = ModelConfig.from_dict(
+            {
+                "fileFlag": "--model",
+                "repo": "o/r",
+                "file": "m.gguf",
+                "additionalServerFlags": [],
+                "sha256": None,
+            }
+        )
+        s = self._server(tmp_path, ServerConfig(hf_models={"main": mc}, flags=[]))
+        flags = s._get_server_flags()
+        assert flags[flags.index("--alias") + 1] == "local-gemma"
+
+
+class TestServerStartupTuning:
+    def test_startup_params_stored(self, tmp_path):
+        sc = ServerConfig.from_dict({"hfModels": {}, "flags": []})
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            startup_timeout=42,
+            startup_attempts=7,
+        )
+        assert s.startup_timeout == 42
+        assert s.startup_attempts == 7
+
+    def test_startup_defaults(self, tmp_path):
+        sc = ServerConfig.from_dict({"hfModels": {}, "flags": []})
+        s = Server(
+            config=sc,
+            models_dir=tmp_path / "models",
+            llama_bin="/usr/bin/llama-server",
+            lock_dir=tmp_path / "locks",
+            repo_root=tmp_path,
+            server_id="test",
+            logs_dir=tmp_path / "logs",
+        )
+        assert (s.startup_timeout, s.startup_attempts) == (180, 2)

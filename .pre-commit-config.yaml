@@ -33,7 +33,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: uv run --project . --group src --group proxy pytest
+        entry: uv run --project . --group pa_core --group proxy pytest
         language: system
         types: [python]
         pass_filenames: false

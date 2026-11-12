@@ -387,12 +387,12 @@ This migration is **out of scope for v1**.
 
 | File | Change |
 |------|--------|
-| `src/run.py` | New `_cleanup_stale_project_images()`, `_cleanup_orphaned_project_images()`, `_list_project_images()`, `_remove_image()`, `now_iso()`. Updated `_resolve_agent_image()` to return new tag format. Updated `main()` flow to call both cleanup functions. |
-| `src/build.py` | `build_project_image()` gains `project_hash`, `project_path`, and `build_timestamp` params; passes them as build args + labels. |
+| `pa_core/run.py` | New `_cleanup_stale_project_images()`, `_cleanup_orphaned_project_images()`, `_list_project_images()`, `_remove_image()`, `now_iso()`. Updated `_resolve_agent_image()` to return new tag format. Updated `main()` flow to call both cleanup functions. |
+| `pa_core/build.py` | `build_project_image()` gains `project_hash`, `project_path`, and `build_timestamp` params; passes them as build args + labels. |
 | `coding-agent/Containerfile` | Add `ARG PROJECT_HASH`, `ARG PROJECT_PATH`, `ARG BUILD_TIMESTAMP`; add four new `LABEL` directives (including `pa-container.project.path`). |
 | `docs/configuration.md` | Document new labels (including `pa-container.project.path`), new tag format, cleanup behavior, and orphan detection. |
-| `src/tests/test_build.py` | Add tests for new `build_project_image()` args and labels. |
-| `src/tests/test_run.py` | Add tests for `_cleanup_stale_project_images()`, `_list_project_images()`, `_remove_image()`, new tag format. |
+| `pa_core/tests/test_build.py` | Add tests for new `build_project_image()` args and labels. |
+| `pa_core/tests/test_run.py` | Add tests for `_cleanup_stale_project_images()`, `_list_project_images()`, `_remove_image()`, new tag format. |
 
 ---
 

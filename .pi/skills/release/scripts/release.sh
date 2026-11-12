@@ -155,7 +155,7 @@ SKIP=pytest uv run pre-commit run --all-files --show-diff-on-failure || {
 # 7. Run tests
 echo ""
 echo "=== Running tests ==="
-uv run --group src --group proxy pytest --cov || {
+uv run --group pa_core --group proxy pytest --cov || {
     echo "✗ Tests failed. Fix before releasing."
     echo "$UNDO"
     exit 1

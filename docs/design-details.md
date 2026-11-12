@@ -91,7 +91,7 @@ design and its verification log.
 
 ## Agent Capability Packages (ACP) and build architecture
 
-The platform compiles components and runtimes in isolated package images (`packages/<name>/` tagged `pa-container-pkg-<name>:local`) and projects them into the agent image:
+The platform compiles components and runtimes in isolated package images (`pa_packages/<name>/` tagged `pa-container-pkg-<name>:local`) and projects them into the agent image:
 
 | Component | Upstream / Distro | Built here | Why |
 | --- | --- | --- | --- |
@@ -183,7 +183,7 @@ without it:
   build the mitmproxy venv on the interpreter that you copied in. Without them a
   managed CPython download quietly reintroduces the drift.
 
-Both images now carry the same CPython install. Every megabyte of it costs twice. The Python package build (`packages/python/package.yaml`) trims the staged tree of what neither image can
+Both images now carry the same CPython install. Every megabyte of it costs twice. The Python package build (`pa_packages/python/package.yaml`) trims the staged tree of what neither image can
 reach. It takes it from 474 MB to 175 MB:
 
 | Removed | Size | Why it is dead here |
@@ -224,7 +224,7 @@ expected **commit** (tags are mutable; the peeled commit sha is the real pin). T
 tarball (CPython, Node, Go, Rust, the Rust vendor trees) against a SHA-256.
 `pa build` builds this image. Nothing else does.
 
-**Every capability lives in `packages/<name>/package.yaml`** as an Agent Capability Package (ACP).
+**Every capability lives in `pa_packages/<name>/package.yaml`** as an Agent Capability Package (ACP).
 Manifests define versions, platform tarball URLs, SHA256 checksums, skill prompts, MCP servers, and egress policies.
 Packages build into discrete capability images `pa-container-pkg-<name>:local` and are dynamically composed into agent images.
 You can bump a package by editing its `package.yaml` or rebuild a specific package with:

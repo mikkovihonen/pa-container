@@ -119,14 +119,14 @@ allow:
 
 ---
 
-## Unified Agent Capability Package (`packages/agents`)
+## Unified Agent Capability Package (`pa_packages/agents`)
 
-All agent runtimes are consolidated into the unified `packages/agents` Agent Capability Package:
+All agent runtimes are consolidated into the unified `pa_packages/agents` Agent Capability Package:
 
-- `packages/agents/package.yaml`: Package manifest declaring optional features `pi`, `opencode`, `claude`, and `antigravity`.
-- `packages/agents/host/`: Lifted host runtime abstractions (`base.py`, `registry.py`, `synthesis.py`, `plugin.py`, and `drivers/`).
-- `packages/agents/features/`: Feature build scripts (`features/pi/build.sh`, `features/opencode/build.sh`, `features/claude/build.sh`, `features/antigravity/build.sh`).
-- `packages/agents/skill/`: Modular skill documentation with target-agent projections.
+- `pa_packages/agents/package.yaml`: Package manifest declaring optional features `pi`, `opencode`, `claude`, and `antigravity`.
+- `pa_packages/agents/host/`: Lifted host runtime abstractions (`base.py`, `registry.py`, `synthesis.py`, `plugin.py`, and `drivers/`).
+- `pa_packages/agents/features/`: Feature build scripts (`features/pi/build.sh`, `features/opencode/build.sh`, `features/claude/build.sh`, `features/antigravity/build.sh`).
+- `pa_packages/agents/skill/`: Modular skill documentation with target-agent projections.
 
 Each feature defines its binary payload, skill fragments, MCP server configurations, egress allowlists, and verification commands.
 
@@ -139,11 +139,11 @@ When agent features are configured:
 
 ## Adding Custom Agent Features
 
-New agent engines can be integrated into `pa-container` as modular features under `packages/agents/` or as separate ACP packages:
+New agent engines can be integrated into `pa-container` as modular features under `pa_packages/agents/` or as separate ACP packages:
 
-1. In `packages/agents/package.yaml`, declare the new feature under `features:`:
+1. In `pa_packages/agents/package.yaml`, declare the new feature under `features:`:
     - Define `payload`, `runtime`, `skill_fragment`, and `verification`.
-2. In `packages/agents/host/drivers/<engine>.py`, create a driver inheriting from `AgentDriver`:
+2. In `pa_packages/agents/host/drivers/<engine>.py`, create a driver inheriting from `AgentDriver`:
     - Implement `name`, `get_mounts()`, `get_command()`, `get_environment()`, and `synthesize_config()`.
-3. In `packages/agents/host/registry.py`, register the driver in `AVAILABLE_AGENTS` and `DRIVER_CLASSES`.
-4. Write host-side unit tests under `packages/agents/host/tests/`. The test suite and mypy will discover and verify them automatically.
+3. In `pa_packages/agents/host/registry.py`, register the driver in `AVAILABLE_AGENTS` and `DRIVER_CLASSES`.
+4. Write host-side unit tests under `pa_packages/agents/host/tests/`. The test suite and mypy will discover and verify them automatically.

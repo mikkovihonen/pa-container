@@ -1,24 +1,24 @@
 # Development
 
-The host-side Python (`src/`) is managed with [uv](https://docs.astral.sh/uv/). Dependencies are declared in `pyproject.toml` and pinned in `uv.lock`.
+The host-side Python (`pa_core/`) is managed with [uv](https://docs.astral.sh/uv/). Dependencies are declared in `pyproject.toml` and pinned in `uv.lock`.
 
 ```bash
 # Provision / update the environment (runtime deps + the default `dev` group)
 uv sync
 
-# Run the project's test suite (src/tests)
+# Run the project's test suite (pa_core/tests and pa_packages)
 uv run pytest
 
 # Lint / format / type check
-uv run ruff check src
-uv run ruff format src
+uv run ruff check pa_core pa_packages
+uv run ruff format pa_core pa_packages
 uv run mypy
 
 # Run the mitmproxy proxy-addon tests (heavy `mitmproxy` dep — opt-in group)
 uv run --group proxy pytest coding-agent-proxy/addons
 ```
 
-The Python sources run directly from `src/`. The `pa` executable in the repository
+The Python sources run directly from `pa_core/`. The `pa` executable in the repository
 root wraps `uv run --project <repo>`, preserving the caller's working directory
 as the project workspace. In addition, the package provides a standard entry point
 `pa = "cli:main"` in `pyproject.toml`.
@@ -49,5 +49,5 @@ against the pa-container version and the expected schema. The validation checks:
 Validation failure makes the launch exit with a clear error message. The message lists the
 issues and suggests the fix (delete `.pa-container` and re-run).
 
-The validation logic lives in `src/config_schema.py` and is tested in
-`src/tests/test_config_schema.py`.
+The validation logic lives in `pa_core/config_schema.py` and is tested in
+`pa_core/tests/test_config_schema.py`.
