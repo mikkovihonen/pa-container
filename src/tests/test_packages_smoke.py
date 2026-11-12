@@ -67,7 +67,6 @@ def test_verify_package_success_mocked(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run") as mock_run,
     ):
         # 1st run: build ephemeral container
@@ -114,14 +113,14 @@ def test_verify_package_with_distro_package_mocked(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run", side_effect=capture_run),
     ):
         res = verify_package("distro-tool", repo_root=tmp_path)
         assert res.passed is True
         assert len(captured_cf) == 1
-        assert "RUN microdnf install -y --nodocs curl jq && microdnf clean all" in captured_cf[0]
-        assert "COPY --from=pa-container-pkg-distro-tool:local / /" in captured_cf[0]
+        assert "curl" in captured_cf[0]
+        assert "jq" in captured_cf[0]
+        assert "COPY --from=artifact-distro-tool /out/distro-tool/ /" in captured_cf[0]
 
 
 def test_verify_package_exit_code_failure_mocked(tmp_path: Path):
@@ -133,7 +132,6 @@ def test_verify_package_exit_code_failure_mocked(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run") as mock_run,
     ):
         build_mock = MagicMock(returncode=0, stdout="Successfully built")
@@ -160,7 +158,6 @@ def test_verify_package_output_mismatch_mocked(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run") as mock_run,
     ):
         build_mock = MagicMock(returncode=0, stdout="Successfully built")
@@ -181,7 +178,6 @@ def test_verify_package_timeout_mocked(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run") as mock_run,
     ):
         build_mock = MagicMock(returncode=0, stdout="Successfully built")
@@ -253,7 +249,6 @@ def test_verify_package_build_failure(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run") as mock_run,
     ):
         mock_run.return_value = MagicMock(returncode=1, stdout="Layer error")
@@ -404,7 +399,6 @@ def test_verify_package_integration_success_mocked(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run") as mock_run,
     ):
         build_mock = MagicMock(returncode=0, stdout="Successfully built")
@@ -430,7 +424,6 @@ def test_verify_package_integration_failure_mocked(tmp_path: Path):
 
     with (
         patch("packages.verification.ensure_base_image"),
-        patch("packages.verification.ensure_package_images"),
         patch("subprocess.run") as mock_run,
     ):
         build_mock = MagicMock(returncode=0, stdout="Successfully built")

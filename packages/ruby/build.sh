@@ -10,9 +10,8 @@ require_env RUBY_VERSION RUBY_SHA256
 tarball="ruby-${RUBY_VERSION}.tar.xz"
 fetch_verified "https://cache.ruby-lang.org/pub/ruby/3.4/${tarball}" "${RUBY_SHA256}" "/tmp/${tarball}"
 
-src="/usr/src/ruby-${RUBY_VERSION}"
-mkdir -p "${src}"
-tar -C /usr/src -xJf "/tmp/${tarball}"
+src="$(mktemp -d)"
+tar -C "${src}" --strip-components=1 -xJf "/tmp/${tarball}"
 rm -f "/tmp/${tarball}"
 
 cd "${src}"

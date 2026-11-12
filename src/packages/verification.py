@@ -12,18 +12,18 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 from logging_driver import LogCategory, get_category_logger
-from packages.builder import ensure_package_images
+from packages.builder import generate_dynamic_builder_containerfile
+from packages.dependencies import resolve_package_dependencies
 from packages.discovery import (
-    collect_distro_packages,
     discover_packages,
     get_package_dir,
-    package_to_image_tag,
 )
 from packages.manifest import PackageManifest, load_package_manifest
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
 
 BASE_AGENT_IMAGE = "localhost/pa-container-agent-base:local"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 @dataclass(frozen=True)
@@ -115,23 +115,16 @@ def verify_package(
 
     try:
         ensure_base_image(runtime=runtime)
-        ensure_package_images(packages_to_ensure, runtime=runtime, repo_root=repo_root)
+        resolved_test_specs = resolve_package_dependencies(packages_to_ensure, repo_root=repo_root)
 
-        # Assemble ephemeral Containerfile layering base + runtime dependencies + target package
-        distro_pkgs = collect_distro_packages(packages_to_ensure, repo_root=repo_root)
-        cf_lines = [f"FROM {BASE_AGENT_IMAGE}"]
-        if distro_pkgs:
-            pkgs_str = " ".join(distro_pkgs)
-            cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
-        for dep in deps:
-            dep_tag = package_to_image_tag(dep)
-            cf_lines.append(f"COPY --from={dep_tag} / /")
-
-        target_tag = package_to_image_tag(package_name, features=active_feats)
-        cf_lines.append(f"COPY --from={target_tag} / /")
-
+        cf_content = generate_dynamic_builder_containerfile(
+            resolved_test_specs,
+            repo_root=repo_root,
+            target="smoke",
+            base_tag=BASE_AGENT_IMAGE,
+        )
         cf_path = temp_dir / "Containerfile"
-        cf_path.write_text("\n".join(cf_lines) + "\n")
+        cf_path.write_text(cf_content)
 
         # Build ephemeral test container
         build_cmd = [
@@ -142,7 +135,7 @@ def verify_package(
             test_tag,
             "-f",
             str(cf_path),
-            str(temp_dir),
+            str(repo_root or REPO_ROOT),
         ]
         build_proc = subprocess.run(
             build_cmd,
@@ -369,20 +362,15 @@ def verify_package_integration(
 
     try:
         ensure_base_image(runtime=runtime)
-        ensure_package_images(resolved_pkgs, runtime=runtime, repo_root=repo_root)
 
-        # Assemble ephemeral Containerfile layering base + runtime dependencies + packages
-        distro_pkgs = collect_distro_packages(resolved_pkgs, repo_root=repo_root)
-        cf_lines = [f"FROM {BASE_AGENT_IMAGE}"]
-        if distro_pkgs:
-            pkgs_str = " ".join(distro_pkgs)
-            cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
-        for p_name, p_feats in resolved_pkgs.items():
-            p_tag = package_to_image_tag(p_name, features=p_feats)
-            cf_lines.append(f"COPY --from={p_tag} / /")
-
+        cf_content = generate_dynamic_builder_containerfile(
+            resolved_pkgs,
+            repo_root=repo_root,
+            target="smoke",
+            base_tag=BASE_AGENT_IMAGE,
+        )
         cf_path = temp_dir / "Containerfile"
-        cf_path.write_text("\n".join(cf_lines) + "\n")
+        cf_path.write_text(cf_content)
 
         build_cmd = [
             runtime,
@@ -392,7 +380,7 @@ def verify_package_integration(
             test_tag,
             "-f",
             str(cf_path),
-            str(temp_dir),
+            str(repo_root or REPO_ROOT),
         ]
         build_proc = subprocess.run(
             build_cmd,

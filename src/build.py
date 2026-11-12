@@ -17,7 +17,7 @@ sys.dont_write_bytecode = True
 
 from global_config import load_global_config
 from logging_driver import LogCategory, fail_and_render, get_category_logger, get_log_driver
-from packages import collect_distro_packages, ensure_package_images, get_core_packages
+from packages import get_core_packages
 from util import EnvironmentError, validate_environment
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
@@ -139,7 +139,7 @@ def check_build_memory(
         from packages import discover_packages
 
         all_manifests = discover_packages(REPO_ROOT)
-        pkg_names = list(packages.keys()) if isinstance(packages, Mapping) else list(packages)
+        pkg_names = [p.split("+")[0].strip() for p in (packages.keys() if isinstance(packages, Mapping) else packages)]
         reqs = [
             all_manifests[p].build_memory_mib
             for p in pkg_names
@@ -193,11 +193,29 @@ def _build_dns_args() -> list[str]:
     return args
 
 
-def build_package(package_name: str, runtime: str = "podman", label: str | None = None) -> None:
+def build_package(
+    package_name: str,
+    runtime: str = "podman",
+    label: str | None = None,
+    features: list[str] | set[str] | None = None,
+) -> None:
     """Build a specific Agent Capability Package image."""
     from packages import build_package as pkg_build
 
-    pkg_build(package_name, runtime=runtime, repo_root=REPO_ROOT, label=label)
+    active_feats = set(features) if features else set()
+    clean_pkg = package_name
+    if "+" in package_name:
+        pname, *pfeats = package_name.split("+")
+        clean_pkg = pname.strip()
+        active_feats.update(f.strip() for f in pfeats if f.strip())
+
+    pkg_build(
+        clean_pkg,
+        runtime=runtime,
+        repo_root=REPO_ROOT,
+        label=label,
+        features=sorted(active_feats) if active_feats else None,
+    )
 
 
 def build_proxy(runtime: str, label: str | None = None) -> None:
@@ -205,10 +223,6 @@ def build_proxy(runtime: str, label: str | None = None) -> None:
     from datetime import UTC, datetime
 
     from images import compute_proxy_image_hash
-
-    # Proxy requires core packages (e.g. python)
-    core_pkgs = get_core_packages(REPO_ROOT)
-    ensure_package_images(core_pkgs, runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     proxy_hash = compute_proxy_image_hash(REPO_ROOT)
@@ -273,43 +287,37 @@ def build_agent(runtime: str, label: str | None = None) -> None:
     from datetime import UTC, datetime
 
     from packages import (
-        package_to_image_tag,
+        generate_dynamic_builder_containerfile,
         resolve_package_dependencies,
     )
 
     base_tag = build_agent_base(runtime)
     core_pkgs = get_core_packages(REPO_ROOT)
     resolved_specs = resolve_package_dependencies({p: [] for p in core_pkgs}, repo_root=REPO_ROOT)
-    ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
 
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     logger.info(f"Assembling shared agent image ({runtime}): {PA_IMAGE_TAG}")
 
-    distro_pkgs = collect_distro_packages(resolved_specs, repo_root=REPO_ROOT)
-
-    cf_lines = [
-        f"FROM {base_tag}",
-    ]
-    if distro_pkgs:
-        pkgs_str = " ".join(distro_pkgs)
-        cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
-    for pkg, feats in resolved_specs.items():
-        cf_lines.append(f"COPY --from={package_to_image_tag(pkg, features=feats)} / /")
-    cf_lines.extend(
-        [
-            "WORKDIR /workspace",
-            'ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]',
-        ]
+    cf_content = generate_dynamic_builder_containerfile(
+        resolved_specs,
+        repo_root=REPO_ROOT,
+        target="agent",
+        base_tag=base_tag,
+        image_labels={
+            "pa-container.build.time": build_ts,
+            "pa-container.type": "shared",
+        },
     )
 
     with tempfile.TemporaryDirectory(prefix="pa-agent-build-") as tmpdir:
         cf_path = Path(tmpdir) / "Containerfile"
-        cf_path.write_text("\n".join(cf_lines) + "\n")
+        cf_path.write_text(cf_content)
         _run_command_with_logging(
             [
                 runtime,
                 "build",
                 "--force-rm",
+                *_build_dns_args(),
                 "--label",
                 f"pa-container.build.time={build_ts}",
                 "--label",
@@ -340,7 +348,10 @@ def build_project_image(
     import tempfile
 
     from images import resolve_project_packages
-    from packages import package_to_image_tag
+    from packages import (
+        generate_dynamic_builder_containerfile,
+        resolve_package_dependencies,
+    )
 
     resolved_specs: dict[str, list[str]] = {}
     if project_path and Path(project_path).exists():
@@ -361,43 +372,31 @@ def build_project_image(
                     resolved_specs.setdefault(item.strip(), [])
         for cp in get_core_packages(REPO_ROOT):
             resolved_specs.setdefault(cp, [])
-        from packages import resolve_package_dependencies
-
         resolved_specs = resolve_package_dependencies(resolved_specs, repo_root=REPO_ROOT)
 
     base_tag = build_agent_base(runtime)
-    ensure_package_images(resolved_specs, runtime=runtime, repo_root=REPO_ROOT)
-
     root_cmd = Path(root_commands_path)
     logger.info(f"Assembling project-specific agent image ({runtime}): {image_tag}")
 
-    distro_pkgs = collect_distro_packages(resolved_specs, repo_root=REPO_ROOT)
+    image_labels = {
+        "pa-container.hash": label_hash,
+        "pa-container.project.hash": project_hash,
+        "pa-container.project.path": project_path,
+        "pa-container.build.time": build_timestamp,
+    }
 
-    cf_lines = [
-        f"FROM {base_tag}",
-    ]
-    if distro_pkgs:
-        pkgs_str = " ".join(distro_pkgs)
-        cf_lines.append(f"RUN microdnf install -y --nodocs {pkgs_str} && microdnf clean all")
-    for pkg, feats in resolved_specs.items():
-        cf_lines.append(f"COPY --from={package_to_image_tag(pkg, features=feats)} / /")
-
-    cf_lines.extend(
-        [
-            f"COPY --from=root_commands_path {root_cmd.name} /root/commands.sh",
-            "RUN chmod +x /root/commands.sh && /root/commands.sh",
-            "WORKDIR /workspace",
-            f'LABEL pa-container.hash="{label_hash}"',
-            f'LABEL pa-container.project.hash="{project_hash}"',
-            f'LABEL pa-container.project.path="{project_path}"',
-            f'LABEL pa-container.build.time="{build_timestamp}"',
-            'ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]',
-        ]
+    cf_content = generate_dynamic_builder_containerfile(
+        resolved_specs,
+        repo_root=REPO_ROOT,
+        target="agent",
+        base_tag=base_tag,
+        root_commands_path=root_cmd,
+        image_labels=image_labels,
     )
 
     with tempfile.TemporaryDirectory(prefix="pa-project-build-") as tmpdir:
         cf_path = Path(tmpdir) / "Containerfile"
-        cf_path.write_text("\n".join(cf_lines) + "\n")
+        cf_path.write_text(cf_content)
         cmd = [
             runtime,
             "build",
@@ -546,7 +545,8 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
             else:
                 requested = [p.strip() for p in options.packages.split(",") if p.strip()]
                 for p in requested:
-                    if p not in avail:
+                    base_pkg = p.split("+")[0].strip()
+                    if base_pkg not in avail:
                         msg = f"Unknown package '{p}'. Available packages: {', '.join(sorted(avail))}"
                         if log_drv is not None:
                             log_drv.fail_and_render(
@@ -569,11 +569,17 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
 
             total_stages = len(requested)
             for idx, p in enumerate(requested, start=1):
+                clean_p = p
+                feats: list[str] | None = None
+                if "+" in p:
+                    base_p, *pfeats = p.split("+")
+                    clean_p = base_p.strip()
+                    feats = [f.strip() for f in pfeats if f.strip()]
                 if log_drv is not None:
                     with log_drv.stage(LogCategory.BUILD, f"[{idx}/{total_stages}] Building package ({p})"):
-                        pkg_build(p, runtime=runtime)
+                        pkg_build(clean_p, runtime=runtime, features=feats)
                 else:
-                    pkg_build(p, runtime=runtime)
+                    pkg_build(clean_p, runtime=runtime, features=feats)
 
             logger.info("All requested packages built successfully.")
 

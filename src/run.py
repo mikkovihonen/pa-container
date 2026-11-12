@@ -72,7 +72,6 @@ from network import (
     scan_tmpfs_paths,
     scan_volume_paths,
 )
-from packages import ensure_package_images
 from packages.loader import load_project_plugins
 from packages.plugin import ContainerRunSpec, RunContext
 from runtimes import PodmanRuntime
@@ -649,7 +648,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                     project_packages = images.read_project_packages(
                         PROJECT_DIR, extra_packages=driver_packages, include_core=True
                     )
-                    ensure_package_images(project_packages, runtime=CONTAINER_RUNTIME, repo_root=REPO_ROOT)
                     build_project_image(
                         CONTAINER_RUNTIME,
                         root_commands_path,

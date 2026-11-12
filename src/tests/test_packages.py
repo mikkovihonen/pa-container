@@ -161,15 +161,20 @@ def test_generate_package_containerfile():
     pkgs = discover_packages()
     sc = pkgs["source-control"]
     cf_sc = generate_package_containerfile(sc, get_package_dir("source-control"), active_features=["github"])
-    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder" in cf_sc
-    assert "bash /build/features/github/build.sh" in cf_sc
+    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder-base" in cf_sc
+    assert "FROM builder-base AS artifact-source-control" in cf_sc
+    assert "USER builder-source-control" in cf_sc
+    assert "bash /home/builder-source-control/build/features/github/build.sh" in cf_sc
     assert "FROM scratch" in cf_sc
-    assert "COPY --from=builder /out/ /" in cf_sc
+    assert "COPY --from=artifact-source-control /out/source-control/ /" in cf_sc
 
     podman = pkgs["podman"]
     cf_podman = generate_package_containerfile(podman, get_package_dir("podman"))
-    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder" in cf_podman
-    assert "bash /build/build.sh" in cf_podman
+    assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder-base" in cf_podman
+    assert "FROM builder-base AS artifact-podman" in cf_podman
+    assert "USER builder-podman" in cf_podman
+    assert "bash /home/builder-podman/build/build.sh" in cf_podman
+    assert "COPY --from=artifact-podman /out/podman/ /" in cf_podman
 
 
 def test_package_image_tag_with_features():
@@ -374,9 +379,10 @@ def test_generate_package_containerfile_distro_package(tmp_path: Path):
         }
     )
     cf = generate_package_containerfile(manifest, tmp_path)
-    assert "AS assembler" in cf
+    assert "FROM builder-base AS artifact-distro-tool" in cf
+    assert "USER builder-distro-tool" in cf
     assert "FROM scratch" in cf
-    assert "COPY --from=assembler /out/ /" in cf
+    assert "COPY --from=artifact-distro-tool /out/distro-tool/ /" in cf
 
 
 def test_resolve_package_dependencies_mocked():
@@ -524,17 +530,19 @@ def test_generate_package_containerfile_mixed_payload(tmp_path: Path):
         }
     )
 
-    # Without features: pure distro package uses AS assembler
+    # Without features: pure distro package creates artifact stage without build script
     cf_no_feat = generate_package_containerfile(manifest, tmp_path, active_features=[])
-    assert "AS assembler" in cf_no_feat
-    assert "AS builder" not in cf_no_feat
+    assert "FROM builder-base AS artifact-mixed-pkg" in cf_no_feat
+    assert "USER builder-mixed-pkg" in cf_no_feat
+    assert "RUN bash /home" not in cf_no_feat
 
-    # With mcp feature: mixed payload uses AS builder
+    # With mcp feature: mixed payload compiles mcp feature script under builder-mixed-pkg
     cf_with_feat = generate_package_containerfile(manifest, tmp_path, active_features=["mcp"])
-    assert "AS builder" in cf_with_feat
+    assert "FROM builder-base AS artifact-mixed-pkg" in cf_with_feat
+    assert "USER builder-mixed-pkg" in cf_with_feat
     assert "python3-pip" in cf_with_feat
     assert "git" in cf_with_feat
-    assert "bash /build/features/mcp/build.sh" in cf_with_feat
+    assert "bash /home/builder-mixed-pkg/build/features/mcp/build.sh" in cf_with_feat
 
 
 def test_generate_package_containerfile_hybrid_payload(tmp_path: Path):
@@ -551,11 +559,12 @@ def test_generate_package_containerfile_hybrid_payload(tmp_path: Path):
         }
     )
     cf = generate_package_containerfile(manifest, tmp_path)
-    assert "AS builder" in cf
+    assert "FROM builder-base AS artifact-hybrid-pkg" in cf
+    assert "USER builder-hybrid-pkg" in cf
     assert "cargo" in cf
     assert "ripgrep" in cf
     assert "fd-find" in cf
-    assert "bash /build/build.sh" in cf
+    assert "bash /home/builder-hybrid-pkg/build/build.sh" in cf
 
 
 def test_collect_distro_packages_hybrid_and_feature_handling():

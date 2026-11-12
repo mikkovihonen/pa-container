@@ -24,10 +24,9 @@ mkdir -p "${PA_STAGE}/usr/local"
 tar -C "${PA_STAGE}/usr/local" -xzf "/tmp/go.tar.gz"
 rm -f "/tmp/go.tar.gz"
 
-# Link Go for build stage and set PATH
-mkdir -p /usr/local
-ln -sf "${PA_STAGE}/usr/local/go" /usr/local/go
-export PATH="/usr/local/go/bin:${PATH}"
+# Configure Go for build stage and set PATH
+export GOROOT="${PA_STAGE}/usr/local/go"
+export PATH="${GOROOT}/bin:${PATH}"
 
 # Staged symlinks for consumer containers
 mkdir -p "${PA_STAGE}/usr/local/bin"
@@ -35,14 +34,14 @@ ln -sf ../go/bin/go "${PA_STAGE}/usr/local/bin/go"
 ln -sf ../go/bin/gofmt "${PA_STAGE}/usr/local/bin/gofmt"
 
 echo "=== Building gopls ${GOPLS_VERSION} ==="
-src="/usr/src/tools"
+src="$(mktemp -d)"
 clone_verified "https://github.com/golang/tools.git" "${GOPLS_VERSION}" "${GOPLS_COMMIT}" "${src}"
 
 cd "${src}/gopls"
 go build -o "${PA_STAGE}/usr/local/bin/gopls"
 
 cd /
-rm -rf "${src}" /root/go /root/.cache
+rm -rf "${src}"
 
 # Verification
 "${PA_STAGE}/usr/local/bin/go" version

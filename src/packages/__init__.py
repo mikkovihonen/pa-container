@@ -8,6 +8,8 @@ from packages.builder import (
     assemble_package_skill,
     build_package,
     ensure_package_images,
+    generate_dynamic_builder_containerfile,
+    generate_package_containerfile,
     package_image_is_current,
 )
 from packages.dependencies import resolve_package_dependencies
@@ -77,6 +79,8 @@ __all__ = [
     "assemble_package_skill",
     "build_package",
     "ensure_package_images",
+    "generate_dynamic_builder_containerfile",
+    "generate_package_containerfile",
     "package_image_is_current",
     "get_mcp_servers_dict",
     "aggregate_egress_hosts",

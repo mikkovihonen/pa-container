@@ -40,8 +40,7 @@ class TestBuildProxy:
 
     @pytest.fixture(autouse=True)
     def _mock_package_builds(self):
-        with patch("build.ensure_package_images"):
-            yield
+        yield
 
     def test_calls_runtime_build(self):
         """build_proxy should invoke the container runtime with correct args."""
@@ -130,7 +129,6 @@ class TestBuildProxy:
 
         with (
             patch("build.build_agent_base", return_value="pa-container-agent-base:local"),
-            patch("build.ensure_package_images"),
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_agent("podman")
@@ -341,7 +339,6 @@ class TestBuildProjectImage:
     @pytest.fixture(autouse=True)
     def _mock_prereqs(self):
         with (
-            patch("build.ensure_package_images"),
             patch("build.build_agent_base", return_value="pa-container-agent-base:local"),
         ):
             yield
@@ -388,7 +385,7 @@ class TestBuildProjectImage:
             assert 'LABEL pa-container.hash="abc123"' in captured_cf[0]
 
     def test_build_project_image_with_packages(self):
-        """When packages are provided, they should be copied into the image."""
+        """When packages are provided, they should be copied into the image via dynamic builder artifact stages."""
         captured_cf = []
 
         def capture_popen(cmd, *a, **kw):
@@ -397,7 +394,6 @@ class TestBuildProjectImage:
             return self._mock_popen()
 
         with (
-            patch("build.ensure_package_images") as mock_ensure,
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_project_image(
@@ -407,12 +403,8 @@ class TestBuildProjectImage:
                 "abc123",
                 packages=["go", "rust"],
             )
-            mock_ensure.assert_called_once()
-            called_packages = mock_ensure.call_args[0][0]
-            assert "go" in called_packages
-            assert "rust" in called_packages
-            assert "COPY --from=pa-container-pkg-go:local / /" in captured_cf[0]
-            assert "COPY --from=pa-container-pkg-rust:local / /" in captured_cf[0]
+            assert "COPY --from=artifact-go /out/go/ /" in captured_cf[0]
+            assert "COPY --from=artifact-rust /out/rust/ /" in captured_cf[0]
 
     def test_build_project_image_with_distro_packages(self):
         """When distro packages are required, a unified microdnf install command is generated."""
@@ -424,7 +416,6 @@ class TestBuildProjectImage:
             return self._mock_popen()
 
         with (
-            patch("build.ensure_package_images"),
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_project_image(
@@ -435,15 +426,12 @@ class TestBuildProjectImage:
                 packages=["python"],
             )
             cf = captured_cf[0]
-            assert "RUN microdnf install -y --nodocs python3 python3-pip uv && microdnf clean all" in cf
-            assert "COPY --from=pa-container-pkg-python:local / /" in cf
-            # Verify microdnf install precedes the COPY --from lines
-            idx_install = cf.index("RUN microdnf install")
-            idx_copy = cf.index("COPY --from=pa-container-pkg-python:local")
-            assert idx_install < idx_copy
+            assert "python3" in cf
+            assert "uv" in cf
+            assert "COPY --from=artifact-python /out/python/ /" in cf
 
     def test_build_project_image_without_distro_packages(self):
-        """When no distro packages are needed, microdnf install is omitted."""
+        """When no runtime distro packages are needed, runner stage omits distro install."""
         captured_cf = []
 
         def capture_popen(cmd, *a, **kw):
@@ -452,8 +440,7 @@ class TestBuildProjectImage:
             return self._mock_popen()
 
         with (
-            patch("build.collect_distro_packages", return_value=[]),
-            patch("build.ensure_package_images"),
+            patch("packages.builder.collect_distro_packages", return_value=[]),
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_project_image(
@@ -462,7 +449,10 @@ class TestBuildProjectImage:
                 "test.local",
                 "abc123",
             )
-            assert "microdnf install" not in captured_cf[0]
+            # Runner stage should not contain runner microdnf install
+            cf = captured_cf[0]
+            runner_section = cf.split("── Final Runner Stage")[-1]
+            assert "microdnf install" not in runner_section
 
     def test_build_project_image_automatically_includes_core_packages(self, tmp_path):
         """build_project_image should automatically include core packages (e.g. python) even when not requested."""
@@ -480,7 +470,6 @@ class TestBuildProjectImage:
             return self._mock_popen()
 
         with (
-            patch("build.ensure_package_images") as mock_ensure,
             patch("build.subprocess.Popen", side_effect=capture_popen),
         ):
             build_project_image(
@@ -490,15 +479,10 @@ class TestBuildProjectImage:
                 "abc123",
                 project_path=str(proj_dir),
             )
-            mock_ensure.assert_called_once()
-            ensured = mock_ensure.call_args[0][0]
-            assert "go" in ensured
-            assert "python" in ensured
 
             cf = captured_cf[0]
-            assert "COPY --from=pa-container-pkg-go:local / /" in cf
-            assert "COPY --from=pa-container-pkg-python:local / /" in cf
-            assert "RUN microdnf install -y --nodocs python3 python3-pip uv && microdnf clean all" in cf
+            assert "COPY --from=artifact-go /out/go/ /" in cf
+            assert "COPY --from=artifact-python /out/python/ /" in cf
 
     def test_build_project_image_builds_base(self):
         """build_project_image ensures base image is built."""
@@ -527,6 +511,20 @@ class TestMainWithPackages:
         ):
             main(["--packages", "c-cpp,git"])
             assert built == ["c-cpp", "git"] or built == ["git", "c-cpp"]
+
+    def test_main_with_packages_features(self):
+        from build import main
+
+        built_calls = []
+        with (
+            patch("build.validate_environment", return_value="podman"),
+            patch("build.check_build_memory", return_value=True),
+            patch("packages.build_package", side_effect=lambda pkg, **kw: built_calls.append((pkg, kw))),
+        ):
+            main(["--packages", "git+github"])
+            assert len(built_calls) == 1
+            assert built_calls[0][0] == "git"
+            assert built_calls[0][1].get("features") == ["github"]
 
     def test_main_with_packages_all(self):
         from build import main

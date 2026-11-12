@@ -8,7 +8,7 @@ require_env SQLITE_VEC_VERSION SQLITE_VEC_COMMIT USEARCH_VERSION
 mkdir -p "${PA_STAGE}/usr/local/lib/sqlite" "${PA_STAGE}/usr/local/include" "${PA_STAGE}/usr/lib64"
 
 # 1. Build sqlite-vec
-src="/usr/src/sqlite-vec"
+src="$(mktemp -d)"
 clone_verified "https://github.com/asg017/sqlite-vec.git" "${SQLITE_VEC_VERSION}" "${SQLITE_VEC_COMMIT}" "${src}"
 
 cd "${src}"

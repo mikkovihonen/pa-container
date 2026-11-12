@@ -33,7 +33,7 @@ rm -rf /tmp/ast-grep.zip /tmp/ast-grep
 
 # 2. colgrep
 echo "=== Building colgrep ==="
-src="/usr/src/colgrep"
+src="$(mktemp -d)"
 git -c advice.detachedHead=false clone --quiet --depth 1 "https://github.com/lightonai/next-plaid.git" "${src}"
 head="$(git -C "${src}" rev-parse HEAD)"
 if [ "${head}" != "${COLGREP_COMMIT}" ]; then
@@ -42,7 +42,7 @@ if [ "${head}" != "${COLGREP_COMMIT}" ]; then
 fi
 cargo build --manifest-path "${src}/Cargo.toml" --release -p colgrep
 install -m 0755 "${src}/target/release/colgrep" "${PA_STAGE}/usr/local/bin/colgrep"
-rm -rf "${src}" /root/.cargo/registry /root/.cargo/git
+rm -rf "${src}"
 
 # 3. repomix (via npm)
 echo "=== Installing repomix ${REPOMIX_VERSION} ==="

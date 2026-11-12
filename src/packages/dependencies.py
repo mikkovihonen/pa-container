@@ -23,13 +23,15 @@ def resolve_package_dependencies(
     packages_map: Mapping[str, Sequence[str] | None],
     manifests: dict[str, PackageManifest] | None = None,
     repo_root: Path | None = None,
+    include_build_packages: bool = True,
 ) -> dict[str, list[str]]:
-    """Transitively resolve all package and feature runtime dependencies in topological order.
+    """Transitively resolve all package and feature runtime and build tool dependencies in topological order.
 
     Args:
         packages_map: Mapping of package names to active features (e.g. {"agents": ["pi"]}).
         manifests: Optional pre-loaded package manifests mapping.
         repo_root: Optional repository root path.
+        include_build_packages: Whether to include build-time tool dependencies (payload.build_packages).
 
     Returns:
         Topologically sorted dictionary of {package_name: [active_features]} where
@@ -64,14 +66,18 @@ def resolve_package_dependencies(
         current_deps: set[str] = set()
         manifest = manifests.get(current_pkg)
         if manifest is not None:
-            # Package-level runtime dependencies
+            # Package-level runtime and build-time tool dependencies
             current_deps.update(manifest.runtime.dependencies)
+            if include_build_packages:
+                current_deps.update(manifest.payload.build_packages)
 
-            # Feature-level runtime dependencies for active features
+            # Feature-level runtime and build-time tool dependencies for active features
             active_feats = resolved_features.get(current_pkg, set())
             for feat_name, feat in manifest.features.items():
                 if feat_name in active_feats or (not active_feats and feat.default):
                     current_deps.update(feat.runtime.dependencies)
+                    if include_build_packages:
+                        current_deps.update(feat.payload.build_packages)
 
         direct_deps_graph[current_pkg] = current_deps
 
