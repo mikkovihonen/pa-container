@@ -81,14 +81,24 @@ class AgentsPlugin(ACPAgentPlugin):
                 v = entry["agents"]
                 if isinstance(v, list):
                     for f in v:
-                        s = str(f).strip().lower()
-                        if s and s not in agents:
-                            agents.append(s)
+                        if isinstance(f, str) and f.strip():
+                            s = f.strip().lower()
+                            if s not in agents:
+                                agents.append(s)
+                        elif isinstance(f, dict) and len(f) == 1:
+                            s = str(next(iter(f.keys()))).strip().lower()
+                            if s and s not in agents:
+                                agents.append(s)
                 elif isinstance(v, dict) and isinstance(v.get("features"), list):
                     for f in v["features"]:
-                        s = str(f).strip().lower()
-                        if s and s not in agents:
-                            agents.append(s)
+                        if isinstance(f, str) and f.strip():
+                            s = f.strip().lower()
+                            if s not in agents:
+                                agents.append(s)
+                        elif isinstance(f, dict) and len(f) == 1:
+                            s = str(next(iter(f.keys()))).strip().lower()
+                            if s and s not in agents:
+                                agents.append(s)
 
         return agents if agents else ["pi"]
 
@@ -102,7 +112,14 @@ class AgentsPlugin(ACPAgentPlugin):
                 if isinstance(item, dict) and "agents" in item:
                     val = item["agents"]
                     if isinstance(val, dict):
-                        agents_secrets = val.get("secrets") or []
+                        agents_secrets = list(val.get("secrets") or [])
+                        feats = val.get("features") or []
+                        if isinstance(feats, list):
+                            for f in feats:
+                                if isinstance(f, dict) and len(f) == 1:
+                                    f_val = next(iter(f.values()))
+                                    if isinstance(f_val, dict):
+                                        agents_secrets.extend(f_val.get("secrets") or [])
                     break
 
         secret_defs: dict[str, tuple[str, str, tuple[str, ...], str, str]] = {

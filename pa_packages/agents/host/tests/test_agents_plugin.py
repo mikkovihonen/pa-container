@@ -168,3 +168,32 @@ def test_agents_plugin_lifecycle_and_configure(dummy_manifest: PackageManifest, 
     assert spec.env["PA_AGENT_SKILLS_DIRS"] == "/home/agent/.pi/agent/skills"
     assert any(m.destination == "/home/agent/.pi/agent" for m in spec.mounts)
     assert "/home/agent/.pi/agent/bin" in spec.chown_paths
+
+
+def test_agents_plugin_canonical_features(dummy_manifest: PackageManifest, tmp_path: Path):
+    plugin = AgentsPlugin(dummy_manifest, tmp_path / "agents", tmp_path)
+    config_canonical = {
+        "packages": [
+            {
+                "agents": {
+                    "features": [
+                        {"pi": {"config": {}, "secrets": []}},
+                        {
+                            "claude": {
+                                "config": {},
+                                "secrets": [{"name": "anthropic", "account": "ANTHROPIC_KEY"}],
+                            }
+                        },
+                    ],
+                    "config": {},
+                    "secrets": [],
+                }
+            }
+        ]
+    }
+    enabled = plugin._resolve_enabled_agents(config_canonical)
+    assert enabled == ["pi", "claude"]
+
+    mappings = plugin.get_secret_mappings(config_canonical)
+    assert len(mappings) == 1
+    assert mappings[0].keyring_account == "ANTHROPIC_KEY"
