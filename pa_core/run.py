@@ -380,10 +380,16 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
         try:
             from packages import aggregate_runtime_privileges, discover_packages
 
-            active_pkgs = images.read_project_packages(PROJECT_DIR, extra_packages=driver_packages, include_core=True)
+            # Resolve packages together with their active features. Without the
+            # feature map the aggregator also applies default-feature runtime
+            # env (e.g. it leaks WAYLAND_DISPLAY into x11-backend desktops,
+            # where it makes x11vnc abort with "Wayland display server detected").
+            active_feats = images.resolve_project_packages(
+                PROJECT_DIR, extra_packages=driver_packages, include_core=True
+            )
             all_manifests = discover_packages()
-            active_manifests = [all_manifests[p] for p in active_pkgs if p in all_manifests]
-            pkg_privileges = aggregate_runtime_privileges(active_manifests)
+            active_manifests = [all_manifests[p] for p in active_feats if p in all_manifests]
+            pkg_privileges = aggregate_runtime_privileges(active_manifests, active_features=active_feats)
             if pkg_privileges.get("devices"):
                 agent_extras["devices"] = sorted(set(agent_extras["devices"]) | set(pkg_privileges["devices"]))
             if pkg_privileges.get("cap_add"):

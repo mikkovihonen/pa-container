@@ -20,6 +20,11 @@ if [ ! -e /dev/dri ]; then
     export LIBGL_ALWAYS_SOFTWARE=1
 fi
 
+# The X11 backend never uses Wayland. x11vnc refuses to attach while
+# WAYLAND_DISPLAY is set ("Wayland display server detected"), so make sure a
+# stale wayland-feature variable cannot leak into the display stack.
+unset WAYLAND_DISPLAY
+
 export DISPLAY=:0
 export XDG_RUNTIME_DIR=/run/user/1000
 
