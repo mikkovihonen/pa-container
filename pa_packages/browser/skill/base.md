@@ -1,3 +1,8 @@
+---
+name: browser
+description: Browser automation, web page rendering, DOM inspection, full-page screenshots, and Playwright MCP control with interactive GUI support on the virtual desktop. Use whenever browsing web pages, capturing web screenshots, scraping web content, or running browser automation tests.
+---
+
 # Browser Automation (`browser`)
 
 Selectable browser capability features for web browser automation, page rendering, DOM inspection, and structured MCP-based browser control.
