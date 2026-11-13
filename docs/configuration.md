@@ -860,6 +860,11 @@ packages:
         - `chromium`: Chrome for Testing browser engine and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`) with interactive GUI use on the virtual desktop. Requires the `virtual-desktop` package.
     - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `USearch`). Optional feature: `qdrant` (Qdrant vector database server).
     - `ai-frameworks`: Modern Python agent architectures and state graphs (`langgraph`, `pydantic-ai`, `smolagents`).
+    - `reverse-engineering`: Binary analysis, reverse engineering, and CPU emulation suite (`file`, `binutils`, `patchelf`, `checksec`, `strace`, `ltrace`, `binwalk`). Optional features:
+        - `ghidra-headless` (default): Ghidra batch analysis engine (`analyzeHeadless`, `ghidra-decompile`) with OpenJDK 21 headless runtime.
+        - `ghidra`: Full interactive Ghidra GUI application with desktop launcher. Requires the `virtual-desktop` package.
+        - `emulation` (default): Capstone disassembly, Unicorn CPU emulation, and Keystone assembly frameworks with Python bindings.
+        - `mcp`: Reverse engineering Model Context Protocol (MCP) server (`re-mcp-server`) exposing structured triage, disassembly, decompilation, and emulation tools.
 - **Version Control & Source Control:**
     - `git`: High-performance Git engine with Git MCP server (`git`, `mcp-server-git`).
     - `source-control`: Multi-provider forge authentication and Git credentials. Optional features:

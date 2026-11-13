@@ -1,3 +1,4 @@
+# ruff: noqa: F821, UP031
 # Ghidra headless post-script to decompile a single function
 # @category Decompiler
 # @author pa-container
@@ -29,16 +30,16 @@ def run():
             pass
 
     if not target_func:
-        print("ERROR: Function '%s' not found." % target)
+        print(f"ERROR: Function '{target}' not found.")
         return
 
-    print("=== Decompiled Function: %s at %s ===" % (target_func.getName(), target_func.getEntryPoint()))
+    print(f"=== Decompiled Function: {target_func.getName()} at {target_func.getEntryPoint()} ===")
     results = decompiler.decompileFunction(target_func, 60, monitor)
     decomp_code = results.getDecompiledFunction()
     if decomp_code:
         print(decomp_code.getC())
     else:
-        print("ERROR: Failed to decompile function: %s" % results.getErrorMessage())
+        print(f"ERROR: Failed to decompile function: {results.getErrorMessage()}")
 
 
 run()
