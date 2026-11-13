@@ -27,7 +27,7 @@ def _make_project_with_deps(tmp_path: Path) -> Path:
     root_cmd.write_text("#!/bin/bash\necho install\n")
     pa_agent = project_dir / "coding-agent"
     pa_agent.mkdir(parents=True, exist_ok=True)
-    (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+    (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
     (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
     return project_dir
 
@@ -437,7 +437,7 @@ class TestResolveAgentImage:
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
         pa_agent = repo / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
-        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
         (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         tag, _ = images.resolve_agent_image(repo)
         assert re.fullmatch(r"pa-container-project-[0-9a-f]{10}-[0-9a-f]{16}\.local", tag)
@@ -453,7 +453,7 @@ class TestResolveAgentImage:
             (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
             pa_agent = d / "coding-agent"
             pa_agent.mkdir(parents=True, exist_ok=True)
-            (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+            (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
             (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         tag_a, _ = images.resolve_agent_image(a)
         tag_b, _ = images.resolve_agent_image(b)
@@ -467,7 +467,7 @@ class TestResolveAgentImage:
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
         pa_agent = tmp_path / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
-        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
         (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         tag1, _ = images.resolve_agent_image(tmp_path)
         tag2, _ = images.resolve_agent_image(tmp_path)
@@ -479,7 +479,7 @@ class TestResolveAgentImage:
         (cfg_dir / "config.yaml").write_text("packages: ['virtual-desktop']\n")
         pa_agent = tmp_path / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
-        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
         tag, is_project_specific = images.resolve_agent_image(tmp_path, repo_root=tmp_path)
         assert is_project_specific is True
         assert "pa-container-project-" in tag
@@ -489,7 +489,7 @@ class TestResolveAgentImage:
         cfg_dir.mkdir(parents=True, exist_ok=True)
         pa_agent = tmp_path / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
-        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
         (cfg_dir / "dependencies" / "root").mkdir(parents=True, exist_ok=True)
         (cfg_dir / "dependencies" / "root" / "commands.sh").write_text("echo test")
 
@@ -546,7 +546,7 @@ class TestImageIsCurrent:
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
         pa_agent = tmp_path / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
-        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
         (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         result = images.image_is_current(project_dir=tmp_path, image_tag="test:latest", current_hash="abc123")
         assert result is True
@@ -560,7 +560,7 @@ class TestImageIsCurrent:
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
         pa_agent = tmp_path / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
-        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
         (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         result = images.image_is_current(project_dir=tmp_path, image_tag="test:latest", current_hash="abc123")
         assert result is False
@@ -574,7 +574,7 @@ class TestImageIsCurrent:
         (deps / "root" / "commands.sh").write_text("#!/bin/bash\necho install\n")
         pa_agent = tmp_path / "coding-agent"
         pa_agent.mkdir(parents=True, exist_ok=True)
-        (pa_agent / "Containerfile").write_text("FROM ubuntu:22.04\n")
+        (pa_agent / "Containerfile").write_text("FROM registry.fedoraproject.org/fedora-minimal:45\n")
         (pa_agent / "entrypoint.sh").write_text("#!/bin/bash\necho hello\n")
         result = images.image_is_current(project_dir=tmp_path, image_tag="test:latest", current_hash="abc123")
         assert result is False

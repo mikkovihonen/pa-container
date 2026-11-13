@@ -53,7 +53,11 @@ def check_build_prerequisites() -> tuple[bool, str | None]:
         return False, "git not found. Please install git."
 
     if shutil.which("cmake") is None:
-        install_hint = "brew install cmake" if sys.platform == "darwin" else "sudo apt install cmake"
+        install_hint = (
+            "brew install cmake"
+            if sys.platform == "darwin"
+            else "sudo dnf install cmake (Fedora/RHEL) or sudo apt install cmake (Debian/Ubuntu)"
+        )
         return False, f"cmake not found. Please install CMake ({install_hint})."
 
     # Check for C++ compiler
@@ -64,7 +68,12 @@ def check_build_prerequisites() -> tuple[bool, str | None]:
     else:
         has_compiler = shutil.which("g++") or shutil.which("clang++") or shutil.which("c++")
         if not has_compiler:
-            return False, "C++ compiler not found. Please install build tools (sudo apt install build-essential)."
+            return (
+                False,
+                "C++ compiler not found. Please install build tools: "
+                "'sudo dnf install gcc-c++' / 'sudo dnf groupinstall \"C Development Tools and Libraries\"' (Fedora/RHEL) "
+                "or 'sudo apt install build-essential' (Debian/Ubuntu).",
+            )
 
     return True, None
 

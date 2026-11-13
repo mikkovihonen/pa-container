@@ -57,6 +57,12 @@ global:
         - "fedoraproject.org"
         - "*.fedoraproject.org"
         - "mirrors.fedoraproject.org"
+        - "download.fedoraproject.org"
+        - "dl.fedoraproject.org"
+        - "archives.fedoraproject.org"
+        - "fedorahosted.org"
+        - "*.fedorahosted.org"
+        - "d2lzkl7pfhq30w.cloudfront.net"
       ip_ranges: []
 
     # Uncomment when nested_containers.enabled = true. Registry pulls are HTTPS and

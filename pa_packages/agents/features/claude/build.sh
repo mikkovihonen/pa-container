@@ -7,11 +7,11 @@ CLAUDE_VERSION="${CLAUDE_CODE_VERSION:-${CLAUDE_VERSION:-}}"
 export CLAUDE_VERSION
 require_env CLAUDE_VERSION CLAUDE_SHA256_AMD64 CLAUDE_SHA256_ARM64
 
-case "$(deb_arch)" in
+case "$(standard_arch)" in
     amd64) claude_sha="${CLAUDE_SHA256_AMD64}"; claude_arch="linux-x64" ;;
     arm64) claude_sha="${CLAUDE_SHA256_ARM64}"; claude_arch="linux-arm64" ;;
     *)
-        echo "ERROR: no pinned Claude Code binary for '$(deb_arch)'" >&2
+        echo "ERROR: no pinned Claude Code binary for '$(standard_arch)'" >&2
         exit 1
         ;;
 esac

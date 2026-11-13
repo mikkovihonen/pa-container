@@ -11,7 +11,7 @@ Install the following tools on your host machine before running:
 
 - **[podman](https://podman.io)**: the only supported container runtime.
     - On macOS: `brew install podman`, then **`podman machine init --memory 4096`** and `podman machine start`
-    - On Linux (Debian/Ubuntu): `sudo apt install podman`, or your distro's package manager
+    - On Linux: `sudo dnf install podman` (Fedora/RHEL) or `sudo apt install podman` (Debian/Ubuntu), or your distro's package manager
 
   **The podman machine needs at least 4 GB of memory** (macOS/Windows, where podman
   runs in a VM). The default is 2 GiB, which is not enough. `pa build` compiles CPython,
@@ -35,9 +35,9 @@ Install the following tools on your host machine before running:
 - **llama.cpp**: Specifically `llama-server`.
     - Build with pa-container (recommended): `pa build --llama` (or `pa build --llama-latest` to build latest release)
     - On macOS: `brew install llama.cpp`
-    - On Linux (Debian/Ubuntu): `sudo apt install llama.cpp`
+    - On Linux: `sudo dnf install llama.cpp` (Fedora/RHEL) or `sudo apt install llama.cpp` (Debian/Ubuntu)
     - On Linux (other): [build from source](https://github.com/ggml-org/llama.cpp)
-    - On WSL2: `sudo apt install llama.cpp`
+    - On WSL2: `sudo dnf install llama.cpp` (Fedora/WSL) or `sudo apt install llama.cpp` (Ubuntu/Debian WSL)
 
 You declare Python dependencies (`huggingface_hub[cli]`, `pyyaml`) in
 `pyproject.toml`. `uv` installs them. You do not install them manually.

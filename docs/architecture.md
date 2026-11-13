@@ -189,7 +189,7 @@ For in-depth explanations of proxy egress forwarding rules, nested container arc
 │           │       └── .pi_ignore
 │           ├── models.yaml           # Allowed models allowlist for the workspace
 │           ├── config.yaml           # Orchestration: resources, tmpfs, flow_export, egress, nested_containers
-│           ├── allowlist.yaml        # Generic hostname allowlist (pypi/npm/github/apt)
+│           ├── allowlist.yaml        # Generic hostname allowlist (pypi/npm/github/fedora-dnf)
 │           ├── token_replacer.yaml   # Token substitution rules (redaction and placeholder injection)
 │           └── dependencies/         # Dependency command templates
 │               ├── agent/commands.sh

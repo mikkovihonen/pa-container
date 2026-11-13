@@ -62,7 +62,7 @@ The unified `pa` CLI manages the full environment lifecycle:
 | [Architecture](docs/architecture.md) | Components, network topology, parallel startup orchestration, project structure |
 | [Design Details](docs/design-details.md) | Proxy egress policy, nested containers, toolchain builder image |
 | [Sandboxing Technologies](docs/sandboxing.md) | Cloud vs. local sandbox paradigms, microVMs, host kernel isolation, and container tradeoffs |
-| [Configuration](docs/configuration.md) | Global and per-workspace configuration (allowlist, token replacer, temporary file system, apt dependencies, virtual desktop, logging) |
+| [Configuration](docs/configuration.md) | Global and per-workspace configuration (allowlist, token replacer, temporary file system, system dependencies, virtual desktop, logging) |
 | [Multi-Agent Support](docs/agents.md) | Pluggable agent architecture (Pi, OpenCode, Antigravity, Claude Code), model synthesis, provider token injection |
 | [T3 Code Integration](docs/t3-code.md) | Web UI, remote tunnel access (Tailscale, Cloudflare), and external IP advertising |
 | [Development](docs/development.md) | Local dev setup, tests, lint, coverage |

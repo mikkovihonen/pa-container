@@ -7,11 +7,11 @@ PA_STAGE="${PA_STAGE:-/out}"
 
 require_env GLAB_VERSION GLAB_SHA256_AMD64 GLAB_SHA256_ARM64
 
-case "$(deb_arch)" in
+case "$(standard_arch)" in
     amd64) glab_sha="${GLAB_SHA256_AMD64}"; glab_arch="amd64" ;;
     arm64) glab_sha="${GLAB_SHA256_ARM64}"; glab_arch="arm64" ;;
     *)
-        echo "ERROR: no pinned GitLab CLI archive for '$(deb_arch)'" >&2
+        echo "ERROR: no pinned GitLab CLI archive for '$(standard_arch)'" >&2
         exit 1
         ;;
 esac

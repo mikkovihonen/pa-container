@@ -7,11 +7,11 @@ PA_STAGE="${PA_STAGE:-/out}"
 
 require_env TEA_VERSION TEA_SHA256_AMD64 TEA_SHA256_ARM64
 
-case "$(deb_arch)" in
+case "$(standard_arch)" in
     amd64) tea_sha="${TEA_SHA256_AMD64}"; tea_arch="amd64" ;;
     arm64) tea_sha="${TEA_SHA256_ARM64}"; tea_arch="arm64" ;;
     *)
-        echo "ERROR: no pinned Gitea/Forgejo CLI binary for '$(deb_arch)'" >&2
+        echo "ERROR: no pinned Gitea/Forgejo CLI binary for '$(standard_arch)'" >&2
         exit 1
         ;;
 esac

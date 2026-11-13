@@ -5,18 +5,10 @@ set -euo pipefail
 
 PA_STAGE="${PA_STAGE:-/out}"
 
-deb_arch() {
+standard_arch() {
     case "$(uname -m)" in
         x86_64) echo "amd64" ;;
         aarch64|arm64) echo "arm64" ;;
-        *) uname -m ;;
-    esac
-}
-
-gnu_arch() {
-    case "$(deb_arch)" in
-        amd64) echo "x86_64" ;;
-        arm64) echo "aarch64" ;;
         *) uname -m ;;
     esac
 }

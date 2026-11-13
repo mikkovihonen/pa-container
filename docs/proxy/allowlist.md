@@ -133,8 +133,13 @@ global:
       hostnames:
         - "fedoraproject.org"
         - "*.fedoraproject.org"
+        - "mirrors.fedoraproject.org"
+        - "download.fedoraproject.org"
+        - "dl.fedoraproject.org"
+        - "archives.fedoraproject.org"
         - "fedorahosted.org"
         - "*.fedorahosted.org"
+        - "d2lzkl7pfhq30w.cloudfront.net"
       ip_ranges: []
 ```
 
@@ -299,8 +304,13 @@ global:
     # Fedora dnf
     - "fedoraproject.org"
     - "*.fedoraproject.org"
+    - "mirrors.fedoraproject.org"
+    - "download.fedoraproject.org"
+    - "dl.fedoraproject.org"
+    - "archives.fedoraproject.org"
     - "fedorahosted.org"
     - "*.fedorahosted.org"
+    - "d2lzkl7pfhq30w.cloudfront.net"
     # GitHub
     - "github.com"
     - "api.github.com"

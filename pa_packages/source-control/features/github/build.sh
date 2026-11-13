@@ -7,11 +7,11 @@ PA_STAGE="${PA_STAGE:-/out}"
 
 require_env GH_VERSION GH_SHA256_AMD64 GH_SHA256_ARM64
 
-case "$(deb_arch)" in
+case "$(standard_arch)" in
     amd64) gh_sha="${GH_SHA256_AMD64}"; gh_arch="amd64" ;;
     arm64) gh_sha="${GH_SHA256_ARM64}"; gh_arch="arm64" ;;
     *)
-        echo "ERROR: no pinned GitHub CLI archive for '$(deb_arch)'" >&2
+        echo "ERROR: no pinned GitHub CLI archive for '$(standard_arch)'" >&2
         exit 1
         ;;
 esac

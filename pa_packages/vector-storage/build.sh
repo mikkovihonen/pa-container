@@ -31,7 +31,7 @@ out = (
 open('sqlite-vec.h', 'w').write(out)
 "
 
-arch="$(gnu_arch)"
+arch="$(uname -m)"
 simd_flags=""
 if [ "${arch}" = "x86_64" ]; then
     simd_flags="-mavx -DSQLITE_VEC_ENABLE_AVX"

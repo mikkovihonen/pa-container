@@ -7,11 +7,11 @@ PA_STAGE="${PA_STAGE:-/out}"
 
 require_env CAFE_VERSION CAFE_SHA256 BUN_VERSION BUN_SHA256_AMD64 BUN_SHA256_ARM64
 
-case "$(deb_arch)" in
+case "$(standard_arch)" in
     amd64) bun_sha="${BUN_SHA256_AMD64}"; bun_arch="x64" ;;
     arm64) bun_sha="${BUN_SHA256_ARM64}"; bun_arch="aarch64" ;;
     *)
-        echo "ERROR: no pinned Bun archive for '$(deb_arch)'" >&2
+        echo "ERROR: no pinned Bun archive for '$(standard_arch)'" >&2
         exit 1
         ;;
 esac

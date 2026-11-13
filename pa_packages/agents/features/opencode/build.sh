@@ -5,11 +5,11 @@ PA_STAGE="${PA_STAGE:-/out}"
 
 require_env OPENCODE_VERSION OPENCODE_SHA256_AMD64 OPENCODE_SHA256_ARM64
 
-case "$(deb_arch)" in
+case "$(standard_arch)" in
     amd64) oc_sha="${OPENCODE_SHA256_AMD64}"; oc_arch="linux-x64" ;;
     arm64) oc_sha="${OPENCODE_SHA256_ARM64}"; oc_arch="linux-arm64" ;;
     *)
-        echo "ERROR: no pinned OpenCode binary for '$(deb_arch)'" >&2
+        echo "ERROR: no pinned OpenCode binary for '$(standard_arch)'" >&2
         exit 1
         ;;
 esac

@@ -1109,7 +1109,7 @@ For the full design (including the rejected alternatives: host socket, privilege
 
 ### Dependency definition files
 
-Project-specific setup is defined in two files under `.pa-container/dependencies/`. These are **baked into the project-specific image at build time**, not installed at runtime. This eliminates redundant `apt-get update` and `apt-get install` calls at container startup.
+Project-specific setup is defined in two files under `.pa-container/dependencies/`. These are **baked into the project-specific image at build time**, not installed at runtime. This eliminates redundant package installation calls at container startup.
 
 | File | Privilege | Runs | Purpose |
 |------|-----------|------|---------|
@@ -1144,7 +1144,7 @@ git clone https://github.com/example/repo.git
 
 1. On first run, pa-container seeds both files from templates in `coding-agent/default/project/dependencies/`.
 2. When definition files exist and are non-empty, pa-container computes a content hash and builds a **project-specific image** with the scripts baked in. The image is tagged `pa-container-project-<project-hash>-<image-hash>.local` and carries labels (`pa-container.hash`, `pa-container.project.hash`, `pa-container.build.time`, `pa-container.type`) for cache invalidation and discovery.
-3. At **build time**, `root/commands.sh` executes (system-wide setup: apt, npm globals). At **runtime**, `agent/commands.sh` executes via the entrypoint (workspace-local setup: venvs, cloned repos).
+3. At **build time**, `root/commands.sh` executes (system-wide setup: microdnf, npm globals). At **runtime**, `agent/commands.sh` executes via the entrypoint (workspace-local setup: venvs, cloned repos).
 4. If definition files are empty or absent, the workspace uses the shared base image (no project-specific build).
 
 **Why two execution times?**
@@ -1232,7 +1232,7 @@ The `build_project_image()` function in `pa_core/build.py` accepts the following
 
 ### Allowlist
 
-The `allowlist.yaml` config in the project's `.pa-container/` defines hostname rules for the [allowlist addon](proxy/allowlist.md) running on that project's mitmproxy transparent proxy. It is **per-project**. Each workspace's proxy mounts its own allowlist (seeded from a generic pypi/npm/github/apt template on first run). Edit it per project. Traffic from the agent container to non-allowlisted hosts is **blocked with HTTP 403**. If the file is missing entirely, the image's fail-closed default blocks all hosts.
+The `allowlist.yaml` config in the project's `.pa-container/` defines hostname rules for the [allowlist addon](proxy/allowlist.md) running on that project's mitmproxy transparent proxy. It is **per-project**. Each workspace's proxy mounts its own allowlist (seeded from a generic pypi/npm/github/fedora-dnf template on first run). Edit it per project. Traffic from the agent container to non-allowlisted hosts is **blocked with HTTP 403**. If the file is missing entirely, the image's fail-closed default blocks all hosts.
 
 Each rule has a `name`, `mode` (`allow`), a list of `hostnames` (supporting `*` wildcards), and optional `ip_ranges`. Traffic matching any rule is permitted. All other traffic is denied. The default mode is `allow` with a `block` default action.
 
@@ -1241,7 +1241,7 @@ Current default rules allow:
 - **npm**: `registry.npmjs.org`, `*.npmjs.org`
 - **GitHub**: `github.com`, `api.github.com`, `codeload.github.com`, `objects.githubusercontent.com`, and related subdomains
 - **Yarn**: `registry.yarnpkg.com`
-- **Fedora dnf**: `fedoraproject.org`, `*.fedoraproject.org`, `fedorahosted.org`, `*.fedorahosted.org`
+- **Fedora dnf**: `fedoraproject.org`, `*.fedoraproject.org`, `mirrors.fedoraproject.org`, `download.fedoraproject.org`, `dl.fedoraproject.org`, `archives.fedoraproject.org`, `fedorahosted.org`, `*.fedorahosted.org`, and official CloudFront mirrors
 
 Add new rules for any additional hostnames the agent needs to reach (e.g. internal APIs, private package registries).
 

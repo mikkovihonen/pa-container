@@ -3,7 +3,7 @@
 set -euo pipefail
 PA_STAGE="${PA_STAGE:-/out}"
 
-case "$(deb_arch)" in
+case "$(standard_arch)" in
     amd64)
         go_arch="linux-amd64"
         go_sha="${GO_SHA256_AMD64}"
@@ -13,7 +13,7 @@ case "$(deb_arch)" in
         go_sha="${GO_SHA256_ARM64}"
         ;;
     *)
-        echo "ERROR: Unsupported architecture $(deb_arch)" >&2
+        echo "ERROR: Unsupported architecture $(standard_arch)" >&2
         exit 1
         ;;
 esac

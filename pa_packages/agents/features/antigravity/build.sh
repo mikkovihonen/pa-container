@@ -12,7 +12,7 @@ case "${ARCH}" in
         acp_zip="agy-acp-server-${ANTIGRAVITY_ACP_VERSION}-linux-x86_64.zip"
         acp_url="https://dl.google.com/agy-extensions/releases/linux/${acp_zip}"
         acp_platform_arch="linux-x64"
-        deb_arch="amd64"
+        standard_arch="amd64"
         ;;
     aarch64)
         antigravity_sha="${ANTIGRAVITY_SHA256_ARM64}"
@@ -21,7 +21,7 @@ case "${ARCH}" in
         acp_zip="agy-acp-server-${ANTIGRAVITY_ACP_VERSION}-linux-arm64.zip"
         acp_url="https://dl.google.com/agy-extensions/releases/linux/${acp_zip}"
         acp_platform_arch="linux-arm64"
-        deb_arch="arm64"
+        standard_arch="arm64"
         ;;
     *)
         echo "ERROR: Unsupported architecture ${ARCH}" >&2
@@ -30,7 +30,7 @@ case "${ARCH}" in
 esac
 
 # 1. Antigravity CLI
-antigravity_tarball="antigravity-${ANTIGRAVITY_VERSION}-${deb_arch}.tar.gz"
+antigravity_tarball="antigravity-${ANTIGRAVITY_VERSION}-${standard_arch}.tar.gz"
 antigravity_url="https://storage.googleapis.com/antigravity-public/antigravity-cli/${ANTIGRAVITY_VERSION}-${ANTIGRAVITY_BUILD_ID}/${antigravity_path}"
 
 fetch_verified "${antigravity_url}" "${antigravity_sha}" "/tmp/${antigravity_tarball}"
