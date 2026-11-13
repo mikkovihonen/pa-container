@@ -97,28 +97,38 @@ class TestAgentLaunchSourceControlFlags:
         flag = f"SETUP_GIT_CREDENTIALS={'true' if sc_cfg['setup_git_credentials'] else 'false'}"
         assert flag == "SETUP_GIT_CREDENTIALS=true"
 
-    def test_env_flags_are_name_only_and_export_values(self, monkeypatch):
+    def test_env_flags_produces_direct_key_value_pairs(self):
+        flags = run._env_flags(
+            {
+                "GH_TOKEN": "GH_TOKEN_PLACEHOLDER",
+                "XDG_RUNTIME_DIR": "/run/user/1000",
+                "OTHER_VAR": "val",
+            }
+        )
+        assert flags == [
+            "--env",
+            "GH_TOKEN=GH_TOKEN_PLACEHOLDER",
+            "--env",
+            "XDG_RUNTIME_DIR=/run/user/1000",
+            "--env",
+            "OTHER_VAR=val",
+        ]
+
+    def test_env_flags_does_not_mutate_host_environ(self, monkeypatch):
         import os
 
         monkeypatch.delenv("GH_TOKEN", raising=False)
-        monkeypatch.delenv("OTHER_VAR", raising=False)
+        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
 
-        flags = run._env_flags({"GH_TOKEN": "GH_TOKEN_PLACEHOLDER", "OTHER_VAR": "val"})
+        run._env_flags(
+            {
+                "GH_TOKEN": "GH_TOKEN_PLACEHOLDER",
+                "XDG_RUNTIME_DIR": "/run/user/1000",
+            }
+        )
 
-        # Values must not appear in the flags — only name-only --env KEY pairs.
-        assert flags == ["--env", "GH_TOKEN", "--env", "OTHER_VAR"]
-        assert "GH_TOKEN_PLACEHOLDER" not in " ".join(flags)
-        # The process environment carries the values for the runtime to resolve.
-        assert os.environ["GH_TOKEN"] == "GH_TOKEN_PLACEHOLDER"
-        assert os.environ["OTHER_VAR"] == "val"
-
-    def test_env_flags_later_groups_win(self, monkeypatch):
-        import os
-
-        monkeypatch.delenv("GH_TOKEN", raising=False)
-        run._env_flags({"GH_TOKEN": "placeholder_from_plugin"})
-        run._env_flags({"GH_TOKEN": "value_from_agent_env"})
-        assert os.environ["GH_TOKEN"] == "value_from_agent_env"
+        assert "GH_TOKEN" not in os.environ
+        assert "XDG_RUNTIME_DIR" not in os.environ
 
 
 class TestScanEnvForRealTokens:

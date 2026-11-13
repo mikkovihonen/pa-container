@@ -1,39 +1,22 @@
 #!/bin/bash
-# Staging recipe for the virtual-desktop wayland display backend feature:
-# labwc compositor, Xwayland, wayvnc VNC server, and wlr-randr/grim/slurp tooling.
+# Staging recipe for the virtual-desktop wayland display backend feature.
+#
+# The display stack (labwc compositor with Xwayland compatibility, wayvnc VNC
+# server, wlr-randr/grim/slurp/xdotool/wtype automation tooling, Mesa GL, and
+# the xkbcomp + xkeyboard-config keymap data Xwayland requires) is declared as
+# distro packages in package.yaml and installed into the TARGET image by the
+# package builder. This script stages only the compositor configuration and
+# the backend entrypoint hooks; it must not hand-stage binaries,
+# shared-library closures, or XKB data from the build stage.
 set -euo pipefail
 
 PA_STAGE="${PA_STAGE:-/out}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p \
-    "${PA_STAGE}/usr/bin" \
-    "${PA_STAGE}/usr/lib64" \
     "${PA_STAGE}/etc/xdg/labwc" \
     "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/root" \
     "${PA_STAGE}/usr/local/share/pa-container/entrypoint.d/agent"
-
-# Stage display stack binaries with their shared library closures.
-# xdotool/wtype provide synthetic input for Xwayland and native Wayland clients.
-for bin in labwc wayvnc Xwayland wlr-randr grim slurp xdotool wtype; do
-    bin_path="$(command -v "${bin}" || true)"
-    if [ -z "${bin_path}" ]; then
-        echo "ERROR: wayland feature requires '${bin}', which was not found in the build stage" >&2
-        exit 1
-    fi
-    install -m 0755 "${bin_path}" "${PA_STAGE}/usr/bin/${bin}"
-    for lib in $(ldd "${bin_path}" | awk '{print $3}' | grep -E '^/lib|^/usr/lib' || true); do
-        case "$(basename "${lib}")" in
-            libc.so*|ld-linux*|libdl.so*|libpthread.so*|librt.so*)
-                ;;
-            *)
-                real_lib="$(realpath "${lib}")"
-                cp -a "${lib}"* "${PA_STAGE}/usr/lib64/" 2>/dev/null || true
-                cp -a "${real_lib}"* "${PA_STAGE}/usr/lib64/" 2>/dev/null || true
-                ;;
-        esac
-    done
-done
 
 # Stage labwc compositor configuration (exit-preventing keybinds and menus)
 if [ -d "${SCRIPT_DIR}/config/labwc" ]; then

@@ -130,20 +130,16 @@ def _init_runtime() -> None:
 
 
 def _env_flags(env: dict[str, str]) -> list[str]:
-    """Convert an env dict into name-only ``--env KEY`` flag pairs.
+    """Convert an env dict into container runtime ``--env KEY=VALUE`` flag pairs.
 
-    Values are exported into this process's environment instead of being
-    embedded in the CLI argv, so credential material never shows up in host
-    process listings (``ps``). The container runtime resolves each name-only
-    flag from the parent process environment at launch time.
-
-    Call order matters: groups converted later win, mirroring the previous
-    ``--env KEY=VALUE`` flag ordering semantics.
+    Fail-closed preflight scanning guarantees that real credentials never
+    reach the container environment (only dummy placeholders like
+    GH_TOKEN_PLACEHOLDER exist), so flags are passed directly as KEY=VALUE pairs
+    without modifying or polluting the host process environment.
     """
     flags: list[str] = []
     for key, value in env.items():
-        os.environ[key] = str(value)
-        flags.extend(["--env", key])
+        flags.extend(["--env", f"{key}={value}"])
     return flags
 
 
@@ -807,9 +803,6 @@ def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
                 )
                 return 1
 
-            # Name-only env flags: values live in the process environment,
-            # never in the CLI argv. Conversion order mirrors the flag order
-            # so later groups still override earlier ones.
             driver_env_flags = _env_flags(merged_driver_env)
             plugin_env_flags = _env_flags(plugin_spec.env)
             agent_env_flags = _env_flags(agent_extras["env"])

@@ -411,6 +411,44 @@ def test_virtual_desktop_manifest_features():
     assert feats["wayland"]["skill_fragment"] == "features/wayland/skill/SKILL.md"
     assert feats["x11"]["skill_fragment"] == "features/x11/skill/SKILL.md"
 
+    # Runtime display stacks are distro packages installed into the TARGET
+    # image by the package builder; they must not be builder-only build_deps
+    # (build_deps stay in the build container and never reach the target).
+    core_payload = manifest["payload"]
+    for dep in ("novnc", "python3-websockify", "mesa-dri-drivers", "dejavu-sans-fonts", "liberation-sans-fonts"):
+        assert dep in core_payload["packages"]
+    assert not core_payload.get("build_deps")
+    wayland_payload = feats["wayland"]["payload"]
+    for dep in (
+        "labwc",
+        "xorg-x11-server-Xwayland",
+        "wayvnc",
+        "wlr-randr",
+        "grim",
+        "slurp",
+        "xdotool",
+        "wtype",
+        "xkeyboard-config",
+        "xkbcomp",
+    ):
+        assert dep in wayland_payload["packages"]
+    assert not wayland_payload.get("build_deps")
+    x11_payload = feats["x11"]["payload"]
+    for dep in (
+        "xorg-x11-server-Xvfb",
+        "x11vnc",
+        "openbox",
+        "xdotool",
+        "wmctrl",
+        "ImageMagick",
+        "xkeyboard-config",
+        "xkbcomp",
+    ):
+        assert dep in x11_payload["packages"]
+    assert not x11_payload.get("build_deps")
+    # Xvfb aborts without keymap data; the x11 verification must launch it for real
+    assert "Xvfb :9" in feats["x11"]["verification"]["command"]
+
     pkg_dir = REPO_ROOT / "pa_packages" / "virtual-desktop"
     assert (pkg_dir / "features" / "wayland" / "build.sh").is_file()
     assert (pkg_dir / "features" / "x11" / "build.sh").is_file()
@@ -451,17 +489,22 @@ def test_desktop_exit_prevention_and_supervisor():
     assert 'key="C-A-BackSpace"' in rc_content
     assert '<action name="None"' in rc_content
 
-    # 4. Shared package build deploys noVNC reconnect settings; feature builds deploy their backends
+    # 4. Shared package build deploys noVNC reconnect settings; feature builds
+    #    stage only backend config and hooks. Runtime display stacks come from
+    #    the distro packages declared in package.yaml, so the feature build
+    #    scripts must not hand-stage binaries, shared-library closures, or XKB
+    #    data from the build container.
     shared_build = (pkg_vd / "container" / "build.sh").read_text()
     assert "mandatory.json" in shared_build
     assert '"reconnect": true' in shared_build
-    wayland_build = (pkg_vd / "features" / "wayland" / "build.sh").read_text()
-    assert "labwc" in wayland_build
-    assert "wayvnc" in wayland_build
-    x11_build = (pkg_vd / "features" / "x11" / "build.sh").read_text()
-    assert "Xvfb" in x11_build
-    assert "x11vnc" in x11_build
-    assert "openbox" in x11_build
+    assert "ldd" not in shared_build
+    for feat in ("wayland", "x11"):
+        feat_build = (pkg_vd / "features" / feat / "build.sh").read_text()
+        assert "ldd" not in feat_build
+        assert "${PA_STAGE}/usr/bin" not in feat_build
+        assert "${PA_STAGE}/usr/lib64" not in feat_build
+        assert "entrypoint.d/root/61-desktop.sh" in feat_build
+        assert "entrypoint.d/agent/61-desktop.sh" in feat_build
 
     # 5. Wayland agent hook seeds compositor config and runs the auto-recovery supervisor loop
     wayland_agent_hook = (pkg_vd / "features" / "wayland" / "entrypoint.d" / "agent" / "61-desktop.sh").read_text()

@@ -23,7 +23,9 @@ config:
 payload:
     type: build_script
     script: "build.sh"
-    build_deps:
+    # Distro packages installed into the TARGET image by the package builder
+    # (collect_distro_packages). Never hand-stage these from the build stage.
+    packages:
         - "novnc"
         - "python3-websockify"
         - "mesa-dri-drivers"
@@ -38,7 +40,10 @@ features:
         payload:
             type: build_script
             script: "features/wayland/build.sh"
-            build_deps:
+            # Runtime display stack installed into the TARGET image as distro
+            # packages. xkbcomp + xkeyboard-config are required by Xwayland
+            # (and libxkbcommon) for keymap compilation at runtime.
+            packages:
                 - "labwc"
                 - "xorg-x11-server-Xwayland"
                 - "wlr-randr"
@@ -50,13 +55,15 @@ features:
                 - "mesa-libEGL"
                 - "mesa-libGLES"
                 - "mesa-libgbm"
+                - "xkeyboard-config"
+                - "xkbcomp"
         runtime:
             env:
                 DISPLAY: ":0"
                 WAYLAND_DISPLAY: "wayland-0"
         skill_fragment: "features/wayland/skill/SKILL.md"
         verification:
-            command: "command -v labwc && command -v wayvnc && command -v Xwayland"
+            command: "command -v labwc && command -v wayvnc && command -v Xwayland && command -v wlr-randr && command -v grim && command -v slurp && command -v wtype && command -v xdotool && command -v xkbcomp && test -e /usr/share/X11/xkb && echo labwc-wayvnc-Xwayland-xkb-ready"
             expected_output_contains: "labwc"
     x11:
         description: "Headless X11 display stack: Xvfb display server, x11vnc VNC server, openbox window manager, and xdotool/wmctrl automation tooling"
@@ -64,19 +71,27 @@ features:
         payload:
             type: build_script
             script: "features/x11/build.sh"
-            build_deps:
+            # Runtime display stack installed into the TARGET image as distro
+            # packages. xkbcomp + xkeyboard-config are required by Xvfb for
+            # keymap compilation; without them Xvfb aborts with
+            # "Failed to activate virtual core keyboard".
+            packages:
                 - "xorg-x11-server-Xvfb"
                 - "x11vnc"
+                - "openbox"
                 - "xdotool"
                 - "wmctrl"
-                - "openbox"
                 - "ImageMagick"
+                - "xkeyboard-config"
+                - "xkbcomp"
         runtime:
             env:
                 DISPLAY: ":0"
         skill_fragment: "features/x11/skill/SKILL.md"
         verification:
-            command: "command -v Xvfb && command -v x11vnc && command -v xdotool"
+            # Binary presence plus a real Xvfb launch: Xvfb aborts without
+            # xkeyboard-config keymap data, so this catches missing runtime deps.
+            command: "command -v Xvfb && command -v x11vnc && command -v openbox && command -v xdotool && command -v wmctrl && command -v import && command -v xkbcomp && (Xvfb :9 -ac -nolisten tcp -screen 0 320x240x16 >/dev/null 2>&1 &); _ok=0; for _i in 1 2 3 4 5 6 7 8 9 10; do [ -S /tmp/.X11-unix/X9 ] && { _ok=1; break; }; sleep 0.2; done; [ $_ok = 1 ] && echo Xvfb-display-server-ready"
             expected_output_contains: "Xvfb"
 
 skill:
