@@ -23,11 +23,6 @@ payload:
         MOLD_SHA256_X86_64: "6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189"
         MOLD_SHA256_AARCH64: "52c759d3689babaea4c42af2f31062a74ab83e17ffb5a8090232534c67b70577"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 verification:
     command: "clangd --version && mold --version && cmake --version && ninja --version"
     expected_output_contains: "clangd"

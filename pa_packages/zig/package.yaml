@@ -20,11 +20,6 @@ payload:
         ZLS_SHA256_X86_64: "dfa4514e1868803fdf2ae56832c88b9d400094d70ea6bb136b57bcc91af10258"
         ZLS_SHA256_AARCH64: "0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 verification:
     command: "zig version && zls --version"
     expected_output_contains: "0.17"

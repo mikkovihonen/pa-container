@@ -37,7 +37,7 @@ features:
 
 skill:
     enabled: true
-    source: "skill/SKILL.md"
+    source: "features/docling/skill/SKILL.md"
     target_agents: ["all"]
 
 verification:

@@ -11,7 +11,7 @@ payload:
 
 skill:
     enabled: true
-    source: "skill/SKILL.md"
+    source: "skill/base.md"
     target_agents: ["all"]
 
 verification:
@@ -32,7 +32,6 @@ features:
                 RUST_ANALYZER_VERSION: "2025-02-17"
                 RUST_ANALYZER_SHA256_X86_64: "89fd1698f3e5281a0176ba097aa7acf94f30b63a3370845cf04defd63166b56d"
                 RUST_ANALYZER_SHA256_AARCH64: "fc5bd7e19068b4500093edb5705f2340cf145d77ad0886d13f904196cfa99361"
-        skill_fragment: "features/rust-analyzer/skill/SKILL.md"
         verification:
             command: "rust-analyzer --version"
             expected_output_contains: "rust-analyzer"
@@ -51,7 +50,6 @@ features:
                 ZLS_VERSION: "0.17.0"
                 ZLS_SHA256_X86_64: "dfa4514e1868803fdf2ae56832c88b9d400094d70ea6bb136b57bcc91af10258"
                 ZLS_SHA256_AARCH64: "0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873"
-        skill_fragment: "features/zls/skill/SKILL.md"
         verification:
             command: "zls --version"
             expected_output_contains: "0.17"
@@ -64,7 +62,6 @@ features:
             script: "features/clangd/build.sh"
             build_deps:
                 - "clang-tools-extra"
-        skill_fragment: "features/clangd/skill/SKILL.md"
         verification:
             command: "clangd --version"
             expected_output_contains: "clangd"
@@ -80,7 +77,6 @@ features:
         runtime:
             dependencies:
                 - "node"
-        skill_fragment: "features/pyright/skill/SKILL.md"
         verification:
             command: "pyright --version"
             expected_output_contains: "pyright"
@@ -96,7 +92,6 @@ features:
         runtime:
             dependencies:
                 - "node"
-        skill_fragment: "features/typescript/skill/SKILL.md"
         verification:
             command: "typescript-language-server --version"
             expected_output_contains: "typescript-language-server"

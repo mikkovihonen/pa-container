@@ -48,7 +48,7 @@ payload:
 
 skill:
     enabled: true
-    source: "skill/SKILL.md"
+    source: "container/skill/SKILL.md"
     target_agents: ["all"]
 
 mcp:

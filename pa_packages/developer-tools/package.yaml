@@ -17,11 +17,6 @@ payload:
         JUST_SHA256_X86_64: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
         JUST_SHA256_AARCH64: "23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 verification:
     command: "just --version"
     expected_output_contains: "just 1.59"

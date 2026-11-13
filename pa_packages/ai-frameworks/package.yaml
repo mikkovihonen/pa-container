@@ -20,11 +20,6 @@ payload:
     build_packages:
         - "python"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 runtime:
     dependencies:
         - "python"

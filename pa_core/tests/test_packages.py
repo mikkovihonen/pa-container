@@ -237,14 +237,13 @@ def test_assemble_package_skill(tmp_path: Path):
 
 
 def test_git_package_skill_assembly():
+    """The git package carries no skill: git usage is common knowledge and the MCP tools self-register."""
     git_dir = get_package_dir("git")
     s_base = assemble_package_skill(git_dir, active_features=[])
-    assert "Git Version Control" in s_base
-    assert "Git MCP Server" not in s_base
+    assert s_base == ""
 
     s_mcp = assemble_package_skill(git_dir, active_features=["mcp"])
-    assert "Git Version Control" in s_mcp
-    assert "Git MCP Server" in s_mcp
+    assert s_mcp == ""
 
 
 def test_manifest_features_and_extensions():

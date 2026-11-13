@@ -28,10 +28,5 @@ payload:
         - "nss"
         - "pango"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 verification:
     command: "test -f /usr/lib64/libcairo.so.2 && test -f /usr/lib64/libpango-1.0.so.0"

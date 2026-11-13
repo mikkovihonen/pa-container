@@ -21,11 +21,6 @@ payload:
         RUST_ANALYZER_SHA256_X86_64: "8c039b25cb338b3970c731646677a4c9d4e9dd7a92c9ab9ae459c71467fbf4a9"
         RUST_ANALYZER_SHA256_AARCH64: "813ca3cec78ac6dab99c7bc9d51e63578f6d401b994ecf29cc0dcad86f9b2cd4"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 verification:
     command: "cargo --version && rustc --version && rust-analyzer --version"
     expected_output_contains: "cargo 1.99"

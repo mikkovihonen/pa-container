@@ -12,11 +12,6 @@ payload:
         - "yq"
         - "miller"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 verification:
     command: "jq --version && yq --version && mlr --version"
     expected_output_contains: "jq"

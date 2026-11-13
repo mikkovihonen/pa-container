@@ -16,7 +16,7 @@ payload:
 
 skill:
     enabled: true
-    source: "skill/SKILL.md"
+    source: "skill/base.md"
     target_agents: ["all"]
 
 extension:

@@ -20,11 +20,6 @@ payload:
         AZURE_DEVOPS_VERSION: "1.0.10"
         AZURE_DEVOPS_SHA256: "cb38021f76cf93905f759c9d1b4b441bdeecfc98d4141ce26dd7b299af1aa56e"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 runtime:
     dependencies:
         - "python"

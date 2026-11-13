@@ -20,11 +20,6 @@ payload:
         GOPLS_VERSION: "gopls/v0.24.0"
         GOPLS_COMMIT: "1f9922d1dcc5836d5c5bcb552c8fed230f885372"
 
-skill:
-    enabled: true
-    source: "skill/SKILL.md"
-    target_agents: ["all"]
-
 verification:
     command: "go version && gopls version"
     expected_output_contains: "go1.27"
