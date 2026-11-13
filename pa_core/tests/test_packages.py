@@ -516,6 +516,22 @@ def test_resolve_package_dependencies_real():
     assert keys_t3.index("node") < keys_t3.index("t3")
     assert keys_t3.index("source-control") < keys_t3.index("t3")
 
+    # browser chromium feature depends on node and virtual-desktop
+    resolved_browser_chromium = resolve_package_dependencies({"browser": ["chromium"]})
+    keys_browser_chromium = list(resolved_browser_chromium.keys())
+    assert "node" in keys_browser_chromium
+    assert "virtual-desktop" in keys_browser_chromium
+    assert keys_browser_chromium.index("node") < keys_browser_chromium.index("browser")
+    assert keys_browser_chromium.index("virtual-desktop") < keys_browser_chromium.index("browser")
+    assert resolved_browser_chromium["browser"] == ["chromium"]
+    assert resolved_browser_chromium["virtual-desktop"] == ["wayland"]
+
+    # browser chromium-headless feature pulls no virtual desktop
+    resolved_browser_headless = resolve_package_dependencies({"browser": ["chromium-headless"]})
+    assert "virtual-desktop" not in resolved_browser_headless
+    assert "node" not in resolved_browser_headless
+    assert resolved_browser_headless["browser"] == ["chromium-headless"]
+
 
 def test_manifest_build_memory_mib():
     m1 = parse_package_manifest(

@@ -815,6 +815,8 @@ class TestPackagesSchema:
                 features = [{"github": {"config": {}, "secrets": [{"name": "github", "account": "ACC"}]}}]
             elif name == "virtual-desktop":
                 features = [{"wayland": {"config": {}, "secrets": []}}]
+            elif name == "browser":
+                features = [{"chromium-headless": {"config": {}, "secrets": []}}]
             else:
                 features = []
             pkgs.append({name: {"features": features, "config": {}, "secrets": secrets}})

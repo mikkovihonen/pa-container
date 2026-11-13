@@ -26,6 +26,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Toolchain version upgrade audit and verification (`tools/check_upgrades.py`).** Added 100% audit and test coverage for all 39 version `ARG`s in `coding-agent-builder/Containerfile` with upstream version checkers for Node, Rust, Golang, Bun, ripgrep, fzf, jq, yq, uv, starship, zellij, zsh, tmux, podman, and others, accompanied by unit test coverage.
 
 ### Changed
+- **Unified browser capability package (`browser` v2.0.0).** Merged `browser` and `browser-runtime` into a single feature-based package:
+    - `chromium-headless` (default feature): shared headless runtime libraries for Chromium, Playwright, and Puppeteer, now installed into the target image as Fedora distro packages instead of hand-staged `.so` copies from the build stage.
+    - `chromium`: Chrome for Testing browser engine, `google-chrome` symlink, and the Playwright MCP server (`playwright-mcp`); now declares a runtime dependency on the `virtual-desktop` package for interactive GUI use, and carries the same shared runtime library list so it works without `chromium-headless`.
+    - The Playwright MCP server moved from package level into the `chromium` feature, so `browser: [chromium-headless]` alone no longer projects an MCP server with no browser behind it.
+    - Migration: replace `- browser` and `- browser-runtime` config entries with `- browser: { features: [...], config: {}, secrets: [] }`; the package now requires at least one feature (`chromium`, `chromium-headless`, or both).
 - **Feature skill fragments moved under each feature directory.** Feature skill fragments now live at `pa_packages/<package>/features/<feature>/skill/SKILL.md` instead of `pa_packages/<package>/skill/features/<feature>.md`, co-locating each fragment with its feature's build assets:
     - Updated all `skill_fragment:` declarations across the seven affected packages (`agents`, `git`, `document-tools`, `language-servers`, `source-control`, `vector-storage`, and `virtual-desktop`); the `virtual-desktop` fragments moved out of `container/skill/features/` to sit beside their `build.sh` files.
     - `assemble_package_skill` now falls back to `features/<feature>/skill/SKILL.md` at the package root when a feature declares no explicit `skill_fragment`.

@@ -748,7 +748,8 @@ packages:
   - document-tools:
       - docling
   - developer-tools
-  - browser
+  - browser:
+      - chromium-headless
   - vector-storage:
       - qdrant
   - ai-frameworks
@@ -835,7 +836,6 @@ packages:
     - `python`: CPython 3.15 runtime with `uv` and `pip`.
     - `node`: Node.js 26 runtime with `npm` and `npx`.
     - `podman`: Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, and `podman-compose`. Required when `nested_containers.enabled: true`.
-    - `browser-runtime`: Shared headless browser libraries for Chromium and Playwright.
     - `virtual-desktop`: Headless virtual desktop with selectable display backends (Wayland via `labwc` + `wayvnc`, or X11 via `Xvfb` + `x11vnc`) and noVNC web streaming. Required for `pa desktop`.
 - **Language Toolchains:**
     - `go`: Official Go compiler toolchain and `gopls` language server (provides `/usr/local/bin/go`, `gofmt`, `gopls`).
@@ -855,7 +855,9 @@ packages:
     - `data-tools`: Multi-format structured data querying and transformation (`jq`, `yq`, `mlr`).
     - `document-tools`: Universal markup conversion and PDF parsing (`pandoc`, `pdftotext`, `pdfinfo`, `pdftoppm`). Optional feature: `docling` (Docling neural document parsing).
     - `developer-tools`: Task automation and command execution (`just`).
-    - `browser`: Headless web browsing and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`).
+    - `browser`: Web browser automation and MCP-based browser control. Optional features:
+        - `chromium-headless` (default): Shared headless runtime libraries for Chromium, Playwright, and Puppeteer.
+        - `chromium`: Chrome for Testing browser engine and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`) with interactive GUI use on the virtual desktop. Requires the `virtual-desktop` package.
     - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `USearch`). Optional feature: `qdrant` (Qdrant vector database server).
     - `ai-frameworks`: Modern Python agent architectures and state graphs (`langgraph`, `pydantic-ai`, `smolagents`).
 - **Version Control & Source Control:**

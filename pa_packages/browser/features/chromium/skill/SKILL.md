@@ -1,6 +1,4 @@
-# Browser Automation & MCP (`browser`)
-
-Provides web browser automation, page rendering, DOM inspection, and structured MCP-based browser control using Chrome for Testing and `@playwright/mcp`.
+# Chromium Browser & Playwright MCP (`chromium`)
 
 ## Constituent Tools
 - `chromium`: Chrome for Testing browser engine (also symlinked as `google-chrome`).
