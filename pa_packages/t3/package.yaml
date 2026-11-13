@@ -17,11 +17,6 @@ payload:
         T3_SHA256_AMD64: "c089892bf7922e2e73c6f44a5d1ea125c99f70e378c18361cbbed2fba1920e6c"
         T3_SHA256_ARM64: "5a528e23af394cc6f359036d3cb8441fda14129d477630fc6c53e4f4a1025bc8"
 
-skill:
-    enabled: true
-    source: "container/skill/SKILL.md"
-    target_agents: ["all"]
-
 runtime:
     dependencies:
         - "node"
