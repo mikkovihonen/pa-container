@@ -1,0 +1,285 @@
+schema_version: "0.7.0"
+name: "ocr-tools"
+version: "1.0.0"
+description: "OCR capability: tesseract text extraction from images and scanned pages, English baseline data with per-language feature packs, and optional ocrmypdf searchable-PDF layering"
+category: "media"
+license: "Apache-2.0 AND MPL-2.0 AND AGPL-3.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "tesseract"
+        - "tesseract-langpack-eng"
+        - "tesseract-osd"
+
+skill:
+    enabled: true
+    source: "skill/base.md"
+    target_agents: ["all"]
+
+features:
+    ocrmypdf:
+        description: "Adds searchable text layers to scanned PDFs: ocrmypdf with its ghostscript and pikepdf stack"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "ocrmypdf"
+        skill_fragment: "features/ocrmypdf/skill/SKILL.md"
+        verification:
+            command: "ocrmypdf --version"
+            expected_output_contains: "ocrmypdf"
+    lang-ara:
+        description: "Arabic OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-ara"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "ara"
+    lang-ces:
+        description: "Czech OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-ces"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "ces"
+    lang-chi-sim:
+        description: "Chinese (Simplified) OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-chi_sim"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "chi_sim"
+    lang-chi-tra:
+        description: "Chinese (Traditional) OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-chi_tra"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "chi_tra"
+    lang-dan:
+        description: "Danish OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-dan"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "dan"
+    lang-deu:
+        description: "German OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-deu"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "deu"
+    lang-ell:
+        description: "Greek OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-ell"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "ell"
+    lang-fin:
+        description: "Finnish OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-fin"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "fin"
+    lang-fra:
+        description: "French OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-fra"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "fra"
+    lang-heb:
+        description: "Hebrew OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-heb"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "heb"
+    lang-hin:
+        description: "Hindi OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-hin"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "hin"
+    lang-hun:
+        description: "Hungarian OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-hun"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "hun"
+    lang-ita:
+        description: "Italian OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-ita"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "ita"
+    lang-jpn:
+        description: "Japanese OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-jpn"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "jpn"
+    lang-kor:
+        description: "Korean OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-kor"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "kor"
+    lang-nld:
+        description: "Dutch OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-nld"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "nld"
+    lang-nor:
+        description: "Norwegian OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-nor"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "nor"
+    lang-pol:
+        description: "Polish OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-pol"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "pol"
+    lang-por:
+        description: "Portuguese OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-por"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "por"
+    lang-rus:
+        description: "Russian OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-rus"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "rus"
+    lang-spa:
+        description: "Spanish OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-spa"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "spa"
+    lang-swe:
+        description: "Swedish OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-swe"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "swe"
+    lang-tur:
+        description: "Turkish OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-tur"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "tur"
+    lang-ukr:
+        description: "Ukrainian OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-ukr"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "ukr"
+    lang-vie:
+        description: "Vietnamese OCR language data"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "tesseract-langpack-vie"
+        verification:
+            command: "tesseract --list-langs"
+            expected_output_contains: "vie"
+
+verification:
+    command: "tesseract --version && tesseract --list-langs"
+    expected_output_contains: "eng"

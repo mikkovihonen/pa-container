@@ -722,3 +722,80 @@ def test_manifest_required_feature_per_feature_flag():
     assert m.features_required is False  # package-level not set
     assert m.features["core"].required is True
     assert m.features["extra"].required is False
+
+
+def test_media_packages_discovery_and_assembly():
+    pkgs = discover_packages()
+
+    media_pkgs = ["image-tools", "video-tools", "sound-tools", "3d-tools", "ocr-tools"]
+    for pkg_name in media_pkgs:
+        assert pkg_name in pkgs, f"Missing package: {pkg_name}"
+        manifest = pkgs[pkg_name]
+        assert manifest.category == "media"
+        assert manifest.payload.type == "distro_package"
+        assert manifest.skill.enabled is True
+        assert manifest.verification.command != ""
+
+    # 1. image-tools
+    img_mf = pkgs["image-tools"]
+    assert "ImageMagick" in img_mf.payload.packages
+    assert "potrace" in img_mf.payload.packages
+    assert set(img_mf.features.keys()) == {"vips", "jxl-heif", "gmic"}
+    s_img = assemble_package_skill(get_package_dir("image-tools"), active_features=["vips", "jxl-heif", "gmic"])
+    assert "magick" in s_img
+    assert "vips" in s_img
+    assert "cjxl" in s_img
+    assert "gmic" in s_img
+
+    # 2. video-tools
+    vid_mf = pkgs["video-tools"]
+    assert "ffmpeg-free" in vid_mf.payload.packages
+    assert "mediainfo" in vid_mf.payload.packages
+    assert "mkvtoolnix" in vid_mf.payload.packages
+    s_vid = assemble_package_skill(get_package_dir("video-tools"), active_features=[])
+    assert "ffmpeg-free" in s_vid
+    assert "libopenh264" in s_vid
+
+    # 3. sound-tools
+    snd_mf = pkgs["sound-tools"]
+    assert "sox" in snd_mf.payload.packages
+    assert "faad2" in snd_mf.payload.packages
+    assert "whisper" in snd_mf.features
+    whisper_feat = snd_mf.features["whisper"]
+    assert whisper_feat.payload.type == "build_script"
+    assert whisper_feat.payload.script == "features/whisper/build.sh"
+    assert "whisper-cpp" in whisper_feat.payload.packages
+    assert "libsndfile" in whisper_feat.payload.packages
+    s_snd = assemble_package_skill(get_package_dir("sound-tools"), active_features=["whisper"])
+    assert "sox" in s_snd
+    assert "whisper-cli" in s_snd
+
+    # 4. 3d-tools
+    td_mf = pkgs["3d-tools"]
+    assert "assimp" in td_mf.payload.packages
+    assert "admesh" in td_mf.payload.packages
+    assert td_mf.features["trimesh"].default is True
+    assert td_mf.features["blender"].default is False
+    assert td_mf.features["meshlab"].default is False
+    assert td_mf.features["openscad"].default is False
+    s_3d = assemble_package_skill(
+        get_package_dir("3d-tools"),
+        active_features=["trimesh", "blender", "meshlab", "openscad"],
+    )
+    assert "assimp" in s_3d
+    assert "trimesh" in s_3d
+    assert "blender" in s_3d
+    assert "meshlab" in s_3d
+    assert "openscad" in s_3d
+
+    # 5. ocr-tools
+    ocr_mf = pkgs["ocr-tools"]
+    assert "tesseract" in ocr_mf.payload.packages
+    assert "tesseract-langpack-eng" in ocr_mf.payload.packages
+    assert "tesseract-osd" in ocr_mf.payload.packages
+    assert "ocrmypdf" in ocr_mf.features
+    assert "lang-fin" in ocr_mf.features
+    assert len([f for f in ocr_mf.features if f.startswith("lang-")]) == 25
+    s_ocr = assemble_package_skill(get_package_dir("ocr-tools"), active_features=["ocrmypdf"])
+    assert "tesseract" in s_ocr
+    assert "ocrmypdf" in s_ocr

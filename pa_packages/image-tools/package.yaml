@@ -1,0 +1,68 @@
+schema_version: "0.7.0"
+name: "image-tools"
+version: "1.0.0"
+description: "Image processing capability: ImageMagick conversion and effects, ExifTool/exiv2 metadata, WebP/JPEG/TIFF/PNG codec utilities, optimizers, rsvg-convert SVG rasterization, and potrace vectorization"
+category: "media"
+license: "GPL-2.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "ImageMagick"
+        - "perl-Image-ExifTool"
+        - "exiv2"
+        - "librsvg2-tools"
+        - "libwebp-tools"
+        - "libjpeg-turbo-utils"
+        - "libtiff-tools"
+        - "optipng"
+        - "pngquant"
+        - "pngcheck"
+        - "potrace"
+
+skill:
+    enabled: true
+    source: "skill/base.md"
+    target_agents: ["all"]
+
+features:
+    vips:
+        description: "libvips streaming image processing (vips CLI) with HEIF support, efficient for very large images"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "vips"
+                - "vips-heif"
+        skill_fragment: "features/vips/skill/SKILL.md"
+        verification:
+            command: "vips --version"
+            expected_output_contains: "vips"
+    jxl-heif:
+        description: "Modern still-image codecs: JPEG XL (cjxl/djxl) and HEIF/AVIF encode and decode (heif-enc/heif-convert, ImageMagick HEIC delegate)"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "libjxl-utils"
+                - "libheif-tools"
+                - "ImageMagick-heic"
+        skill_fragment: "features/jxl-heif/skill/SKILL.md"
+        verification:
+            command: "cjxl --version && heif-enc --version"
+            expected_output_contains: "cjxl"
+    gmic:
+        description: "G'MIC image processing framework CLI with hundreds of filters and batch pipelines"
+        default: false
+        payload:
+            type: distro_package
+            packages:
+                - "gmic"
+        skill_fragment: "features/gmic/skill/SKILL.md"
+        verification:
+            command: "gmic -version"
+            expected_output_contains: "gmic"
+
+verification:
+    command: "magick -version && exiftool -ver && rsvg-convert --version && cwebp -version && optipng -v"
+    expected_output_contains: "ImageMagick"

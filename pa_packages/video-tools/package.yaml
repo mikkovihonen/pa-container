@@ -1,0 +1,23 @@
+schema_version: "0.7.0"
+name: "video-tools"
+version: "1.0.0"
+description: "Video processing capability: Fedora dynamically linked ffmpeg-free (OpenH264, SVT-AV1, VP9, fdk-aac-free, and Whisper audio filter), MediaInfo metadata, and MKVToolNix muxing and track extraction"
+category: "media"
+license: "GPL-2.0-or-later AND LGPL-2.1-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "ffmpeg-free"
+        - "libavcodec-free"
+        - "mediainfo"
+        - "mkvtoolnix"
+
+skill:
+    enabled: true
+    source: "skill/base.md"
+    target_agents: ["all"]
+
+verification:
+    command: "ffmpeg -version && ffprobe -version && mediainfo --Version && mkvmerge --version"
+    expected_output_contains: "ffmpeg"

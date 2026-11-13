@@ -753,6 +753,21 @@ packages:
   - vector-storage:
       - qdrant
   - ai-frameworks
+  - image-tools:
+      - vips
+      - jxl-heif
+      - gmic
+  - video-tools
+  - sound-tools:
+      - whisper
+  - 3d-tools:
+      - trimesh
+      - blender
+      - meshlab
+      - openscad
+  - ocr-tools:
+      - ocrmypdf
+      - lang-fin
   # Container virtualization & desktop GUI
   - podman
   - virtual-desktop:
@@ -860,6 +875,21 @@ packages:
         - `chromium`: Chrome for Testing browser engine and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`) with interactive GUI use on the virtual desktop. Requires the `virtual-desktop` package.
     - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `USearch`). Optional feature: `qdrant` (Qdrant vector database server).
     - `ai-frameworks`: Modern Python agent architectures and state graphs (`langgraph`, `pydantic-ai`, `smolagents`).
+    - `image-tools`: Image processing, conversion, effects, metadata, SVG rasterization, and vectorization (`magick`, `exiftool`, `exiv2`, `rsvg-convert`, `cwebp`, `dwebp`, `optipng`, `pngquant`, `pngcheck`, `potrace`). Optional features:
+        - `vips`: libvips streaming image processing (`vips`, `vipsheader`).
+        - `jxl-heif`: Modern still-image codecs: JPEG XL (`cjxl`, `djxl`) and HEIF/AVIF (`heif-enc`, `heif-convert`, ImageMagick HEIC delegate).
+        - `gmic`: G'MIC image processing framework CLI (`gmic`).
+    - `video-tools`: Video processing and container manipulation (`ffmpeg`, `ffprobe`, `mediainfo`, `mkvmerge`, `mkvextract`, `mkvpropedit`).
+    - `sound-tools`: Audio processing, effects, spectrograms, codecs, and normalization (`sox`, `soxi`, `faad`, `flac`, `metaflac`, `opusenc`, `opusdec`, `oggenc`, `oggdec`, `lame`, `twolame`, `shnsplit`, `normalize-audio`, `vorbisgain`, `mp3gain`). Optional feature:
+        - `whisper`: Offline in-container speech-to-text dynamically linked against Fedora `whisper-cpp` and `libsndfile` (`whisper-cli`) with pre-staged quantized model.
+    - `3d-tools`: 3D format conversion, STL repair, Draco compression, and OpenVDB inspection (`assimp`, `admesh`, `draco_encoder`, `draco_decoder`, `vdb_print`). Optional features:
+        - `trimesh` (default): Trimesh Python mesh toolkit with SciPy, NetworkX, and lxml for programmatic mesh analysis and repair.
+        - `blender`: Headless Blender scripting and CPU Cycles rendering (`blender`).
+        - `meshlab`: Headless MeshLab mesh processing and cleaning CLI (`meshlab`).
+        - `openscad`: OpenSCAD parametric CAD solid modeling with headless export (`openscad`).
+    - `ocr-tools`: Optical character recognition text extraction and orientation detection (`tesseract` with English and OSD data). Optional features:
+        - `ocrmypdf`: Searchable PDF layering with Ghostscript and pikepdf (`ocrmypdf`).
+        - 25 `lang-*` language packs (`lang-ara`, `lang-ces`, `lang-chi-sim`, `lang-chi-tra`, `lang-dan`, `lang-deu`, `lang-ell`, `lang-fin`, `lang-fra`, `lang-heb`, `lang-hin`, `lang-hun`, `lang-ita`, `lang-jpn`, `lang-kor`, `lang-nld`, `lang-nor`, `lang-pol`, `lang-por`, `lang-rus`, `lang-spa`, `lang-swe`, `lang-tur`, `lang-ukr`, `lang-vie`).
     - `reverse-engineering`: Binary analysis, reverse engineering, and CPU emulation suite (`file`, `binutils`, `patchelf`, `checksec`, `strace`, `ltrace`, `binwalk`). Optional features:
         - `ghidra-headless` (default): Ghidra batch analysis engine (`analyzeHeadless`, `ghidra-decompile`) with OpenJDK 21 headless runtime.
         - `ghidra`: Full interactive Ghidra GUI application with desktop launcher. Requires the `virtual-desktop` package.
