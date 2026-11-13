@@ -36,7 +36,7 @@ features:
         runtime:
             dependencies:
                 - "node"
-        skill_fragment: "skill/features/pi.md"
+        skill_fragment: "features/pi/skill/SKILL.md"
         verification:
             command: "pi --version"
             expected_output_contains: "1.5"
@@ -54,7 +54,7 @@ features:
                 OPENCODE_VERSION: "2.2.5"
                 OPENCODE_SHA256_AMD64: "92690eee07a680d3cb760ca02ba43878de9eab1b4e5d5dfae8795518c53628f4"
                 OPENCODE_SHA256_ARM64: "f8c5a82075fede9b5b044ed6c8a6d13ad807a7e62caea1cd0a878adef49eb053"
-        skill_fragment: "skill/features/opencode.md"
+        skill_fragment: "features/opencode/skill/SKILL.md"
         verification:
             command: "opencode --version"
             expected_output_contains: "2.2.5"
@@ -87,7 +87,7 @@ features:
               replace_with:
                   strategy: "static"
                   value: "ANTHROPIC_API_KEY_PLACEHOLDER"
-        skill_fragment: "skill/features/claude.md"
+        skill_fragment: "features/claude/skill/SKILL.md"
         verification:
             command: "claude --version"
             expected_output_contains: "2.1.319"
@@ -126,7 +126,7 @@ features:
               replace_with:
                   strategy: "static"
                   value: "GEMINI_API_KEY_PLACEHOLDER"
-        skill_fragment: "skill/features/antigravity.md"
+        skill_fragment: "features/antigravity/skill/SKILL.md"
         verification:
             command: "agy --version"
 

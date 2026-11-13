@@ -408,16 +408,16 @@ def test_virtual_desktop_manifest_features():
     assert feats["x11"]["payload"]["script"] == "features/x11/build.sh"
     assert "wayland-0" in feats["wayland"]["runtime"]["env"]["WAYLAND_DISPLAY"]
     assert "WAYLAND_DISPLAY" not in feats["x11"]["runtime"]["env"]
-    assert feats["wayland"]["skill_fragment"] == "skill/features/wayland.md"
-    assert feats["x11"]["skill_fragment"] == "skill/features/x11.md"
+    assert feats["wayland"]["skill_fragment"] == "features/wayland/skill/SKILL.md"
+    assert feats["x11"]["skill_fragment"] == "features/x11/skill/SKILL.md"
 
     pkg_dir = REPO_ROOT / "pa_packages" / "virtual-desktop"
     assert (pkg_dir / "features" / "wayland" / "build.sh").is_file()
     assert (pkg_dir / "features" / "x11" / "build.sh").is_file()
 
     # Feature skill fragments exist and describe their backends
-    wayland_frag = (pkg_dir / "container" / "skill" / "features" / "wayland.md").read_text()
-    x11_frag = (pkg_dir / "container" / "skill" / "features" / "x11.md").read_text()
+    wayland_frag = (pkg_dir / "features" / "wayland" / "skill" / "SKILL.md").read_text()
+    x11_frag = (pkg_dir / "features" / "x11" / "skill" / "SKILL.md").read_text()
     assert "wayland-0" in wayland_frag and "labwc" in wayland_frag
     assert "Xvfb" in x11_frag and "xdotool" in x11_frag
     # Fragments are appended below the base skill; they must not carry frontmatter

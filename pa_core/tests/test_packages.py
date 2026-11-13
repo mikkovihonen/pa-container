@@ -207,12 +207,15 @@ def test_package_to_content_tag():
 def test_assemble_package_skill(tmp_path: Path):
     pkg_dir = tmp_path / "pkg"
     skill_dir = pkg_dir / "skill"
-    features_dir = skill_dir / "features"
-    features_dir.mkdir(parents=True)
+    skill_dir.mkdir(parents=True)
+    feat_a_skill = pkg_dir / "features" / "featA" / "skill"
+    feat_b_skill = pkg_dir / "features" / "featB" / "skill"
+    feat_a_skill.mkdir(parents=True)
+    feat_b_skill.mkdir(parents=True)
 
     (skill_dir / "base.md").write_text("# Core Capability\nBase instructions.")
-    (features_dir / "featA.md").write_text("## Feature A\nFeature A instructions.")
-    (features_dir / "featB.md").write_text("## Feature B\nFeature B instructions.")
+    (feat_a_skill / "SKILL.md").write_text("## Feature A\nFeature A instructions.")
+    (feat_b_skill / "SKILL.md").write_text("## Feature B\nFeature B instructions.")
 
     # Without features: only base
     s0 = assemble_package_skill(pkg_dir)
@@ -257,7 +260,7 @@ def test_manifest_features_and_extensions():
                     "type": "build_script",
                     "script": "subtool/build.sh",
                 },
-                "skill_fragment": "skill/features/subtool.md",
+                "skill_fragment": "features/subtool/skill/SKILL.md",
                 "verification": {
                     "command": "subtool --version",
                     "expected_output_contains": "1.0",
@@ -292,7 +295,7 @@ def test_manifest_features_and_extensions():
     m = parse_package_manifest(data)
     assert "subtool" in m.features
     assert m.features["subtool"].description == "Subtool feature"
-    assert m.features["subtool"].skill_fragment == "skill/features/subtool.md"
+    assert m.features["subtool"].skill_fragment == "features/subtool/skill/SKILL.md"
     assert len(m.extension.commands) == 1
     assert m.extension.commands[0].name == "subcmd"
     assert len(m.extension.flags) == 1

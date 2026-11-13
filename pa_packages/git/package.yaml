@@ -34,7 +34,7 @@ features:
         runtime:
             dependencies:
                 - "python"
-        skill_fragment: "skill/features/mcp.md"
+        skill_fragment: "features/mcp/skill/SKILL.md"
         verification:
             command: "mcp-server-git --help"
             expected_output_contains: "mcp-server-git"

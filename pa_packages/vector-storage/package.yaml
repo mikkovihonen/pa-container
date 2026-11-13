@@ -42,7 +42,7 @@ features:
                 QDRANT_VERSION: "1.20.0"
                 QDRANT_SHA256_AMD64: "b03a64616a1f41ddab78b480a318466541765f19835318113b1821cbea8df52c"
                 QDRANT_SHA256_ARM64: "bd8a458b8ef8006ce2c603c5bd6d1d973e39d787f794008dd959112e747c3bb7"
-        skill_fragment: "skill/features/qdrant.md"
+        skill_fragment: "features/qdrant/skill/SKILL.md"
         verification:
             command: "qdrant --version"
             expected_output_contains: "1.20"

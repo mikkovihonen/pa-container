@@ -30,7 +30,7 @@ features:
         runtime:
             dependencies:
                 - "python"
-        skill_fragment: "skill/features/docling.md"
+        skill_fragment: "features/docling/skill/SKILL.md"
         verification:
             command: "docling --version"
             expected_output_contains: "docling"

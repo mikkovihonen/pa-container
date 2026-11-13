@@ -44,7 +44,7 @@ features:
                 GH_VERSION: "2.103.3"
                 GH_SHA256_AMD64: "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d"
                 GH_SHA256_ARM64: "ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63"
-        skill_fragment: "skill/features/github.md"
+        skill_fragment: "features/github/skill/SKILL.md"
         mcp:
             enabled: true
             server_id: "github"
@@ -101,7 +101,7 @@ features:
                 GLAB_VERSION: "1.128.0"
                 GLAB_SHA256_AMD64: "bc024819e7598b19429a199cd87f640d98b2b67416d8ad796f19e4260b57a7c7"
                 GLAB_SHA256_ARM64: "60d0512085a8c1be7c5ef51aa7e4ee28213444cea0376b3260707d90489199ea"
-        skill_fragment: "skill/features/gitlab.md"
+        skill_fragment: "features/gitlab/skill/SKILL.md"
         egress:
             allow_hosts:
                 - "gitlab.com"
@@ -147,7 +147,7 @@ features:
                 TEA_VERSION: "0.16.0"
                 TEA_SHA256_AMD64: "9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636"
                 TEA_SHA256_ARM64: "0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879"
-        skill_fragment: "skill/features/gitea.md"
+        skill_fragment: "features/gitea/skill/SKILL.md"
         token_replacer:
             - name: "gitea-token-inject"
               hostnames:
@@ -194,7 +194,7 @@ features:
                 BUN_VERSION: "1.4.4"
                 BUN_SHA256_AMD64: "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"
                 BUN_SHA256_ARM64: "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"
-        skill_fragment: "skill/features/cafe.md"
+        skill_fragment: "features/cafe/skill/SKILL.md"
         token_replacer:
             - name: "gitcafe-token-inject"
               hostnames:
@@ -247,7 +247,7 @@ features:
               replace_with:
                   strategy: "static"
                   value: "${ENV:AZURE_DEVOPS_EXT_PAT}"
-        skill_fragment: "skill/features/azure-devops.md"
+        skill_fragment: "features/azure-devops/skill/SKILL.md"
 
     bitbucket:
         description: "Bitbucket credentials and repository workflows"
@@ -278,7 +278,7 @@ features:
               replace_with:
                   strategy: "static"
                   value: "${ENV:BITBUCKET_TOKEN}"
-        skill_fragment: "skill/features/bitbucket.md"
+        skill_fragment: "features/bitbucket/skill/SKILL.md"
 
 verification:
     command: "test -d /usr/local/share/pa-container/entrypoint.d/agent"

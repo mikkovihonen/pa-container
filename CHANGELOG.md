@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Toolchain version upgrade audit and verification (`tools/check_upgrades.py`).** Added 100% audit and test coverage for all 39 version `ARG`s in `coding-agent-builder/Containerfile` with upstream version checkers for Node, Rust, Golang, Bun, ripgrep, fzf, jq, yq, uv, starship, zellij, zsh, tmux, podman, and others, accompanied by unit test coverage.
 
 ### Changed
+- **Feature skill fragments moved under each feature directory.** Feature skill fragments now live at `pa_packages/<package>/features/<feature>/skill/SKILL.md` instead of `pa_packages/<package>/skill/features/<feature>.md`, co-locating each fragment with its feature's build assets:
+    - Updated all `skill_fragment:` declarations across the seven affected packages (`agents`, `git`, `document-tools`, `language-servers`, `source-control`, `vector-storage`, and `virtual-desktop`); the `virtual-desktop` fragments moved out of `container/skill/features/` to sit beside their `build.sh` files.
+    - `assemble_package_skill` now falls back to `features/<feature>/skill/SKILL.md` at the package root when a feature declares no explicit `skill_fragment`.
+    - Package image content hashes change, so affected package images rebuild automatically on the next launch.
 - **Selectable display backends for `virtual-desktop` (Wayland / X11).** The `virtual-desktop` package (v2.1.0) restructured its previously baked-in Wayland stack into selectable package features and added an X11 backend:
     - The `wayland` feature (default) stages `labwc`, `Xwayland`, `wayvnc`, `wlr-randr`, `grim`, and `slurp` with a supervised auto-recovery compositor loop and compositor config seeding (exit keybinds remain disabled).
     - The new `x11` feature stages `Xvfb`, `openbox`, `x11vnc`, `xdotool`, `wmctrl`, and ImageMagick `import`, supervised the same way.

@@ -91,7 +91,7 @@ def assemble_package_skill(
                 if custom_frag.is_file():
                     frag_path = custom_frag
         if frag_path is None:
-            default_frag = skill_dir / "features" / f"{feat}.md"
+            default_frag = package_dir / "features" / feat / "skill" / "SKILL.md"
             if default_frag.is_file():
                 frag_path = default_frag
 
