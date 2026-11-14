@@ -1,278 +1,92 @@
-# Releases
+# Releases & Versioning
 
-This project is installed by cloning. Releases are **git tags** on `main`. The system builds container
-images locally with `pa build`. The system does not publish images to a registry.
-The latest git tag determines the authoritative version, not `pyproject.toml`.
+Releases for PA-Container 2.0 are published as signed Git tags (`v*`) on the `main` branch. GitHub Actions automatically validates versions, runs the Rust workspace test suite, and creates GitHub releases with release notes extracted directly from [CHANGELOG.md](https://github.com/mikkovihonen/pa-container/blob/main/CHANGELOG.md).
 
-## Development model: trunk-based
+---
 
-Work on short-lived branches off `main`. Land changes via pull requests.
+## 1. Development Model: Trunk-Based Development
 
-```
-git checkout -b feat/entrypoint-seed main
-# ... commit, push ...
-# Open PR. CI runs lint + test.
+Development proceeds on short-lived branches off `main`. Changes land via pull requests.
+
+```bash
+git checkout -b feat/agent-cgroup-limits main
+# ... edit, commit ...
+git push origin feat/agent-cgroup-limits
+# Open PR. CI runs Rust formatting, Clippy, cargo test, and proxy suites.
 # Squash-merge to main.
 ```
 
-### Branch naming
+### Branch Naming Conventions
 
-| Prefix | Use for |
-|--------|---------|
-| `feat/` | New features |
-| `fix/` | Bug fixes |
-| `chore/` | Maintenance (deps, CI, docs) |
+| Prefix | Usage | Example |
+| :--- | :--- | :--- |
+| `feat/` | New features or capabilities | `feat/seatbelt-profiles` |
+| `fix/` | Bug fixes and security patches | `fix/proxy-port-attribution` |
+| `chore/` | Tooling, dependencies, and docs | `chore/bump-landlock` |
 
-No `develop`, `release`, or `hotfix` branches — `main` is the only integration
-branch. Hotfixes follow the same PR flow from `main`.
+---
 
-### Commit messages
+## 2. Semantic Versioning
 
-Use the conventional-commit prefix pattern for clarity. A hook does not enforce it:
+PA-Container adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html):
 
-```
-feat: seed entrypoint.sh into .pa-container/agent
-fix: handle missing proxy IPv6 address gracefully
-chore: bump pyyaml to 6.0.2
-```
+$$\text{v}\textit{MAJOR}.\textit{MINOR}.\textit{PATCH}$$
 
-## Versioning: Semantic Versioning
+- **MAJOR:** Breaking changes in CLI arguments, `factory.toml` schemas, or sandbox boundaries.
+- **MINOR:** New backward-compatible features, capability packs, or hypervisor backends.
+- **PATCH:** Backward-compatible bug fixes and performance improvements.
 
-```
-vMAJOR.MINOR.PATCH
- ^      ^     ^
- |      |     └─ Bug fix (no new features, no breaking changes)
- |      └─────── New feature (backwards-compatible)
- └────────────── Breaking change
-```
+### Authoritative Version Sources
 
-- **0.x.y** — Pre-release. Breaking changes are possible without a major bump.
-  The team tries to avoid them.
-- **1.x.y** — Stable. `MAJOR` bumps only for breaking changes.
+The release version must stay synchronized across three locations:
 
-The latest git tag (e.g., `git tag -l | head -1`) determines the authoritative version.
-`pyproject.toml` is informational only. The launch reads the version from git.
+| Source | File Path | Field / Notation |
+| :--- | :--- | :--- |
+| **Cargo Workspace** | `Cargo.toml` | `[workspace.package] version = "2.0.0"` |
+| **Python Metadata** | `pyproject.toml` | `[project] version = "2.0.0"` |
+| **Git Tag** | Git reference | `v2.0.0` |
 
-## Schema version: config compatibility
-
-Every pa-container release ships templates for global and per-project configurations
-under `coding-agent/default/` (`global/` and `project/`). The system seeds these templates into
-`~/.config/pa-container/` and each workspace's `.pa-container/` on first run.
-
-The template `config.yaml` files include a `schema_version` field that matches the
-pa-container version (e.g., `"0.1.0"`). At launch, the system checks the schema version in the
-seeded config against the app version (from the latest git tag). A mismatch makes
-the launch fail with a clear error message.
-
-### When to bump the schema version
-
-Bump the `schema_version` in `coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml` whenever you:
-
-- Add a new required field to the template
-- Change the type of an existing field
-- Remove a field that users might still have in their configs
-- Add a new file to `coding-agent/default/project/` or `coding-agent/default/global/` (e.g., a new addon config)
-
-The schema version is separate from the pa-container version. Keep them
-in sync. The schema version triggers the compatibility check.
-
-### User-facing behavior
-
-When a user has an outdated config:
-
-1. The launch fails with: "Configuration incompatible with this version of pa-container"
-2. The error message lists the specific issues (missing fields, type mismatches, version mismatch)
-3. The error message gives the remedy **for that specific failure**. The two kinds
-   are not interchangeable
-
-**Stale version, valid shape.** Only the `schema_version` string is behind. Every
-field the new template requires is already present. Editing the string is
-sufficient *and* lossless. It keeps whatever the user configured. Re-seeding here
-would discard their settings to fix a string.
-
-**A missing or mistyped field.** The template changed shape. No edit to
-`schema_version` produces a key that is not in the file. Bumping the version alone
-sends the user in a circle. They clear the version check and fail the field check
-immediately after, one line further down. The file has to be re-seeded.
-
-Re-seeding is **one file, not the directory**:
-
-```
-rm .pa-container/config.yaml && <re-run>
-```
-
-`_ensure_project_config()` only writes files that are absent. Deleting the one
-file whose shape changed leaves `allowlist.yaml`, `token_replacer.yaml`,
-`models.yaml`, and `dependencies/` exactly as they were. Reach
-for `rm -rf .pa-container` only when several of those are out of date at once.
-it takes every hand-edited file in the workspace with it.
-
-The user's own edits to `config.yaml` are not merged. The error tells them to
-note their settings before deleting it.
-
-> **During development, the version gate does not fire.** `schema_version` is
-> bumped at release time. On an unreleased `main` the template still carries the
-> *shipped* version. A workspace seeded at that same version therefore **passes**
-> the version check and fails only on the field. This is why the remedy must
-> never assume a version mismatch is what went wrong. This is the ordinary case for
-> anyone developing pa-container in a workspace seeded before the field was added.
-
-### Example: adding a new field
-
-```yaml
-# coding-agent/default/project/config.yaml
-schema_version: "0.2.0"  # Bumped from "0.1.0"
-
-# ... existing fields ...
-
-# New field in this release
-custom:
-  enabled: false
-```
-
-Users with `schema_version: "0.1.0"` in their local config see an error on
-next launch. A *field* was added, so bumping their version string is not
-enough. They must `rm .pa-container/config.yaml` and re-run to get the new field.
-Everything else in `.pa-container/` is preserved.
-
-## Release skill
-
-The [release skill](https://github.com/mikkovihonen/pa-container/blob/main/.pi/skills/release/SKILL.md)
-automates the version bump, changelog update, validation, and git tag steps
-described in the next section. It is designed for use by pi, the coding agent:
-
-```
-pi> Release 0.2.0
-```
-
-### How it works
-
-1. **Determine the version**. It asks the user for the version number, or
-   suggests patch/minor/major based on the changes since the last tag.
-2. **Run `release.sh`**. It checks the release preconditions (semver format, on
-   `main`, clean tree, tag still free), bumps `pyproject.toml` and both
-   `schema_version` fields, regenerates `uv.lock`, commits the bumps, then runs
-   `validate_versions.py` + lint + tests.
-3. **Update `CHANGELOG.md`**. It moves `Unreleased` entries into a new version
-   block with today's date, then confirms the ordering with
-   `release.sh --check-changelog`.
-4. **Amend the release commit**. It adds the changelog update to the existing
-   commit created by the script (never re-run the script, or versions get
-   double-bumped).
-5. **Tag and push**. It creates `v<version>` and pushes to `origin`.
-
-CI triggers on the tag push and creates the GitHub Release automatically.
-
-### When to use the skill vs. manual steps
-
-| Scenario | Use |
-|----------|-----|
-| You're chatting with pi | Release skill |
-| You need to do a release from a different machine | Manual steps in the next section |
-| You need to inspect or customise each step | Manual steps |
-
-The skill performs the same operations as the manual steps. It is a
-convenience wrapper.
-
-## Creating a release
-
-The version is authoritative from the latest git tag. Three places must always
-stay in sync:
-
-| Source | Location |
-|--------|----------|
-| Git tag | `v<version>` (e.g. `v0.2.0`) |
-| Python package version | `pyproject.toml` → `[project].version` |
-| Config schema versions | `coding-agent/default/{project,global}/config.yaml` → `schema_version` |
-
-The `validate_versions.py` script runs in CI (not pre-commit). git has
-no `pre-tag` hook. The version cross-check can only pass once the tag exists.
-That happens after the commit.
-
-### Steps
-
-1. **Make sure `main` is green**. CI must pass on the commit you want to
-   release (`check` and `test` jobs).
-2. **Update `CHANGELOG.md`**. Move the `[Unreleased]` entries into a new
-   version block with the release date, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-3. **Bump the version** in `pyproject.toml` (`[project] version`).
-4. **Regenerate `uv.lock`** with `uv lock` (the lockfile embeds the project
-   version).
-5. **Bump `schema_version` in the seed templates** (`coding-agent/default/project/config.yaml` and `coding-agent/default/global/config.yaml`). This is what new workspaces get on
-   first run.
-6. **Validate locally** before pushing:
-
-   ```bash
-   uv run python3 .github/workflows/scripts/validate_versions.py
-   pre-commit run --all-files --show-diff-on-failure
-   uv run pytest --cov
-   ```
-7. **Commit, tag, and push**:
-
-   ```bash
-   git add CHANGELOG.md pyproject.toml \
-       uv.lock \
-       coding-agent/default/project/config.yaml \
-       coding-agent/default/global/config.yaml
-   git commit -m "chore: release v0.2.0"
-   git push origin main
-   git tag -a v0.2.0 -m "Release v0.2.0"
-   git push origin v0.2.0
-   ```
-
-### What CI does
-
-The `ci.yml` workflow triggers on `push` to `refs/tags/v*`:
-
-- **`check`** — runs lint, tests, and `validate_versions.py`.
-- **`test`** — runs the full test suite with coverage, updates the coverage
-  badge on `main`.
-- **`release`** — if both jobs pass, creates a GitHub Release via
-  `softprops/action-gh-release` with auto-generated release notes from merged
-  commits since the last tag.
-
-### Example
+Version consistency is verified locally and in CI using the version gate script:
 
 ```bash
-# 1. Update CHANGELOG.md: move [Unreleased] → [0.2.0] - 2026-07-04
-# 2. Bump pyproject.toml version to "0.2.0"
-# 3. Bump schema_version in coding-agent/default/project/config.yaml and global/config.yaml to "0.2.0"
-# 4. Regenerate uv.lock: uv lock
-# 5. Validate and commit:
-git add CHANGELOG.md pyproject.toml \
-    uv.lock \
-    coding-agent/default/project/config.yaml \
-    coding-agent/default/global/config.yaml
-git commit -m "chore: release v0.2.0"
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin main
-git push origin v0.2.0
+uv run python3 .github/workflows/scripts/validate_versions.py
 ```
 
-### After the release
+---
 
-Users clone the repo, check out the tag, and run `pa build` to build the container
-images for their local runtime (`podman`).
+## 3. Creating a Release
 
-If a workspace's `.pa-container/config.yaml` is outdated (e.g. a user skipped
-step 5 above), the launch fails with:
+To cut a new release:
 
-> schema_version mismatch: config has '0.1.1', the latest pa-container
-> version is '0.2.0'.
+1. **Verify Clean CI on `main`:**
+    - Ensure all jobs in `.github/workflows/ci.yml` pass on `main`.
+2. **Update `CHANGELOG.md`:**
+    - Move `[Unreleased]` changes into a new version section: `## [2.0.0] - YYYY-MM-DD`.
+3. **Bump Workspace Versions:**
+    - Update `version` in `Cargo.toml` (`[workspace.package]`).
+    - Update `version` in `pyproject.toml` (`[project]`).
+    - Run `cargo check` and `uv lock` to update lockfiles.
+4. **Run Pre-Flight Validation:**
+    ```bash
+    uv run python3 .github/workflows/scripts/validate_versions.py --new-version 2.0.0
+    uv run pre-commit run --all-files
+    ```
+5. **Commit, Tag, and Push:**
+    ```bash
+    git add Cargo.toml Cargo.lock pyproject.toml uv.lock CHANGELOG.md
+    git commit -m "chore: prepare release v2.0.0"
+    git push origin main
 
-If that is the **only** error, the shape still validates. Editing
-`schema_version` fixes it without losing any settings. If the release also added
-or changed a field, the error list says so. The fix is
-`rm .pa-container/config.yaml` plus a re-run (see
-[User-facing behavior](#user-facing-behavior) for why the two are not
-interchangeable).
+    git tag -a v2.0.0 -m "Release v2.0.0"
+    git push origin v2.0.0
+    ```
 
-## Rolling back
+---
 
-To revert a release, revert the commit on `main` and create a new patch release
-(e.g., `v1.0.1`). Do not delete tags. They are historical record.
+## 4. Automated CI Release Job
 
-## Environment variables for the release job
+When a tag matching `refs/tags/v*` is pushed:
 
-The CI release job needs no extra secrets beyond what CI already provides.
-`GITHUB_TOKEN` is used automatically by the GitHub Release action.
+- **`rust-check`**: Validates `cargo fmt`, `cargo clippy`, and runs `cargo test --workspace`.
+- **`proxy-and-docs`**: Runs proxy addon tests, typechecks, markdown checks, and builds the documentation site.
+- **`release`**: Extracts the matching version section from `CHANGELOG.md` and creates the official GitHub Release with artifacts.

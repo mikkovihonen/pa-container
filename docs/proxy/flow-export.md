@@ -1,186 +1,68 @@
-# Flow Export Proxy Addon
+# Flow Export Addon
 
-## Design Document
+The `flow_export` addon records an audit trail of every HTTP, HTTPS, and DNS flow that passes through the proxy during an agent session. Each flow is recorded to a [JSON Lines](https://jsonlines.org/) file as it completes (`flows-agent-<agent_id>.jsonl`).
 
-### Overview
+---
 
-This mitmproxy addon records every HTTP/HTTPS flow that passes through the transparent proxy during a pi coding agent session. The addon appends **each flow to a [JSON Lines](https://jsonlines.org/) file as it completes** (one flow per line). The addon partitions them **by client IP** into `flows-<client-ip>.jsonl`. This approach provides an **audit trail** of all network traffic the agent generated (including traffic the [allowlist](allowlist.md) blocked). The addon attributes each flow to the agent container it came from.
+## 1. Incremental Append Architecture
 
-The files are written to a shared volume mount so `run.py` can read them on the host after the session ends.
-
-### Why append per-flow instead of writing on shutdown
-
-Incremental writes mean the audit trail **survives an unclean exit**. mitmproxy's `done` shutdown hook only runs on a *clean* stop (SIGTERM/SIGINT). If the proxy container is `SIGKILL`'d, crashes, or its process tree never forwards the signal, a write-on-shutdown design loses the entire session. Appending on each flow's terminal hook guarantees that every flow seen up to the moment of death is already on disk.
-
-JSON Lines is the natural format for this task. Each line is a self-contained JSON object. No array needs an open or close state. A truncated final line (from a hard kill mid-write) costs at most one flow. The reader skips it.
-
-### Architecture
+Audit trails are appended incrementally as terminal hooks trigger (`response` or `error`), ensuring that audit records survive unexpected process aborts, container stops, or VM crashes.
 
 ```mermaid
-flowchart TB
-    subgraph mitmproxy["<b>mitmproxy Container</b>"]
-        direction TB
-        FE["FlowExporter Addon"]
-
-        subgraph hooks["Terminal Hooks (one per flow)"]
-            R["response(flow)\nallowed + synth 403"]
-            E["error(flow)\nerrored + killed 444"]
-        end
-
-        APPEND["_append(flow)\n• dedupe by flow.id\n• ip = client_conn.peername[0]\n• path = flows-<ip>.jsonl\n• truncate on first sight of ip\n• append JSON line thereafter"]
-
-        D["done()\nlog summary only\n(not required for export)"]
-
-        R --> APPEND
-        E --> APPEND
+flowchart TD
+    subgraph mitmproxy["mitmproxy Event Loop"]
+        R["response(flow)\n(Allowed flows + 403 blocks)"]
+        E["error(flow)\n(Errored + 444 drops)"]
     end
 
-    subgraph host["<b>Host (run.py)</b>"]
-        DISCOVER["Discover agent\ncontainer IPs\n(isolated-net)"]
-        READ["Read flows-<ip>.jsonl\nfiles from bind mount"]
-        MERGE["Concatenate\n(date-bucketed)\n→ .pa-container/exports/flows/"]
-        CLEANUP["Remove raw\nflows-<ip>.jsonl\nfiles"]
+    APPEND["FlowExportAddon._append(flow)\n- Attributed by client proxy port\n- Formatted as JSON Lines\n- Atomic append to disk"]
 
-        subgraph export_dir["<b>.pa-container/exports/</b>\n(bind-mounted from\n/home/mitmproxy/exports)"]
-            RAW["flows-<ip>.jsonl\n(raw per-IP JSON Lines)"]
-            SNAPSHOT["flows/<YYYY-MM-DD>/\n<timestamp>_<session-id>.jsonl\n(date-bucketed snapshot)"]
-        end
+    subgraph LogStorage["Audit Storage (.cache/pa-container/)"]
+        F1["flows-agent-agent1.jsonl"]
+        F2["flows-agent-agent2.jsonl"]
     end
 
-    mitmproxy -->|FLOW_EXPORT_DIR bind mount| export_dir
-    DISCOVER --> READ
-    READ --> RAW
-    RAW --> MERGE
-    MERGE --> SNAPSHOT
-    MERGE --> CLEANUP
-    CLEANUP -.->|remove raw| RAW
+    R --> APPEND
+    E --> APPEND
+    APPEND --> F1
+    APPEND --> F2
 ```
 
-The addon writes each flow incrementally to a bind-mounted directory. The host-side `run.py` reads and merges the raw per-IP JSON Lines files into a date-bucketed snapshot after the agent session ends. It then deletes the raw files to avoid double-storage.
+---
 
-### Components
+## 2. Forensic JSONL Schema
 
-| Component | File | Description |
-|-----------|------|-------------|
-| Addon | `flow_export.py` | Per-flow JSON serialization, client-IP partitioning, append |
+Each line in the log file represents a complete transaction:
 
-There is no config file. The addon is driven entirely by one environment variable (below).
-
-### Which hooks, and what they capture
-
-The addon appends on the two **terminal** hooks: `response` and `error`. Every flow reaches exactly one of them. Each flow is written once (a `_seen` id set guards against the rare double). Verified against a live mitmproxy run:
-
-| Flow outcome | Terminal hook | Appears in export as |
-|--------------|--------------|----------------------|
-| Allowed, completed | `response` | `response.status_code` set |
-| Blocked (allowlist 403) | `response` | `response.status_code: 403` |
-| Killed (allowlist 444 / `NO_RESPONSE`) | `error` | `error: "Connection killed."` |
-
-A synthetic response set by the allowlist during its `request` hook **does** fire the `response` hook. This is why blocked-403 traffic still lands in the audit trail. A flow that is still in flight when the proxy dies (no response or error yet) is the only thing not captured. It is inherently incomplete.
-
-### Configuration
-
-The addon reads environment variables at initialization time:
-
-| Variable | Default | Behavior |
-|----------|---------|----------|
-| `FLOW_EXPORT_DIR` | `/home/mitmproxy/exports` | Directory inside the container where per-client-IP files (`flows-<ip>.jsonl`) are written. Created if missing. Each per-IP file is truncated the first time that IP is seen in the session. |
-| `PROXY_MAX_VIEW_FLOWS` | `2000` | Maximum number of allowed flows retained in `mitmweb`'s in-memory view to prevent proxy memory exhaustion during high-volume sessions. **Denied/blocked flows are always preserved** in memory so operators can inspect rejections in the UI. Set to `0` or negative for unlimited in-memory retention. |
-
-IPv6 client IPs have their `:` replaced with `-` in the filename (e.g. `flows-fd00--2.jsonl`). `run.py` mirrors this transform to locate the file. Each line is written as compact JSON (no inter-token whitespace). The line-per-flow structure makes it readable without indentation. It also keeps the file small.
-
-### Export Format
-
-The export is a JSON Lines file — one JSON object per line, **not** a JSON array. Example (two flows, formatted here for readability; on disk each is a single line):
-
-```jsonc
-{"id":"e4f1...","type":"http","timestamp_start":1719900000.123,"timestamp_end":1719900000.456,"request":{"method":"GET","url":"https://api.example.com/v1/models","headers":{"host":"api.example.com","authorization":"Bearer ..."},"content":"","content_type":""},"response":{"status_code":200,"headers":{"content-type":"application/json"},"content":"{\"ok\":true}","content_type":"application/json"}}
-{"id":"a19c...","type":"http","timestamp_start":1719900001.0,"timestamp_end":null,"request":{"method":"POST","url":"https://blocked.example.com/","headers":{},"content":"","content_type":""},"error":"Connection killed."}
+```json
+{
+  "timestamp": "2026-11-14T15:22:10.123Z",
+  "agent_id": "agent1",
+  "client_port": 8081,
+  "method": "POST",
+  "url": "https://api.openai.com/v1/chat/completions",
+  "status_code": 200,
+  "request_bytes": 1420,
+  "response_bytes": 4890,
+  "duration_ms": 645,
+  "tokens_substituted": ["OPENAI_API_KEY"],
+  "blocked": false
+}
 ```
 
-To read it back:
+---
 
-```python
-import json
-with open("flows-<ip>.jsonl") as f:
-    flows = [json.loads(line) for line in f if line.strip()]
-```
+## 3. Reading Flow Logs
 
-Notes on serialization:
-
-- **`request` / `response` are omitted** when the flow has no request or no response respectively (e.g. a killed flow has no `response`).
-- **`error`** is present only when the flow errored or was killed.
-- **`headers`** are serialized with mitmproxy's `Headers.items()` (iterating a `Headers` object yields keys only, not pairs). Duplicate header names collapse to the last value.
-- **`content`** is decoded as UTF-8 with `errors="replace"`; non-decodable bytes become the Unicode replacement character rather than failing the write. There is no size cap — large bodies are written in full.
-- Appending is **best-effort**: any failure in `_append` is caught and logged as a warning so a serialization or I/O problem never disrupts the proxied request.
-
-> **Security note:** the export contains full request and response bodies and headers. The [token_replacer](token-replacer.md) runs first and substitutes placeholders with real credentials in outgoing requests, so captured request headers and bodies may hold real tokens. Treat `flows-<ip>.jsonl` as sensitive.
-
-### How It Works
-
-1. **`__init__`** — resolves `FLOW_EXPORT_DIR` and creates it.
-2. **`response(flow)`** — appends flows that received a response (including the allowlist's synthetic 403) to `flows-<client-ip>.jsonl`.
-3. **`error(flow)`** — appends flows that errored or were killed.
-4. Each per-IP file is **truncated the first time its IP is seen** this session (so a reused IP starts fresh), then appended to.
-5. **`done()`** — logs a one-line summary on clean shutdown. Flows are already on disk, so this hook running is **not** required for a complete export.
-
-### Integration with the Proxy Container
-
-> **In this project the flow_export addon is already wired in and active.** The
-> [Containerfile](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/Containerfile) bakes the script and creates a
-> `mitmproxy`-owned `/home/mitmproxy/exports` directory. The
-> [entrypoint](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/entrypoint.sh) loads it with `-s`. `run.py` mounts the host
-> export directory over `/home/mitmproxy/exports`. It names each run's agent
-> container `pa-container-agent-<run-id>`. It looks up that container's isolated-net
-> IPs (IPv4 **and** IPv6). After the agent exits it reads and merges the
-> matching `flows-<ip>.jsonl` file(s) into a snapshot bucketed by UTC date under
-> `.pa-container/exports/flows/<YYYY-MM-DD>/<HH-MM-SS-mmm>_<session-id>.json`. It then **deletes
-> the raw file(s)** it consumed so the same flows are not stored twice (only after
-> the snapshot is written successfully). The steps below describe that wiring for
-> reference or other proxies.
->
-> **Note:** because the proxy is shared across runs, each agent's traffic is
-> separated at capture time by client IP (rather than by a per-run filename that
-> only the first run could set). A dual-stack agent produces one file per
-> address family. `run.py` merges them (ordered by capture time). If `run.py`
-> cannot determine the agent's IPs but exactly one `flows-*.jsonl` file exists, it
-> falls back to that file.
-
-The addon loads as a mitmproxy script via `-s`. The script exposes a module-level `addons = [addon]` list. mitmproxy discovers and registers it this way (a bare `addon = ...` variable would load but never register its hooks).
-
-#### Step 1: Copy the script into the mitmproxy container
-
-```dockerfile
-COPY coding-agent-proxy/addons/flow_export/flow_export.py \
-     /home/mitmproxy/scripts/flow_export.py
-```
-
-#### Step 2: Provide a writable export directory
-
-```dockerfile
-RUN mkdir -p /home/mitmproxy/exports && chown mitmproxy:mitmproxy /home/mitmproxy/exports
-```
-
-Mount this directory from the host if you want to read the export after the session.
-
-#### Step 3: Load the script via `-s`
+Inspect the audit logs directly using the unified `pa logs` CLI command:
 
 ```bash
-mitmweb --mode transparent@8080 \
-        -s /home/mitmproxy/scripts/flow_export.py \
-        ...
+# Print recent flows for agent1
+./pa logs --agent agent1
+
+# Limit to the last 20 entries
+./pa logs --agent agent1 -n 20
+
+# Stream live flow updates
+./pa logs --agent agent1 --follow
 ```
-
-Optionally override the default directory via the environment:
-
-```bash
-FLOW_EXPORT_DIR=/home/mitmproxy/exports mitmweb ...
-```
-
-#### Troubleshooting
-
-- **No `flows-*.jsonl` files** — none of the traffic reached a terminal hook, or nothing connected. Check the mitmproxy logs for `[flow-export] Failed to append flow ...` or `[flow-export] Could not create export dir ...`; failures are logged as warnings, never raised.
-- **`run.py` exports an empty snapshot** — it could not determine the agent container's IP (and either zero or >1 flow files were present, so it could not guess). Confirm the agent container came up with an isolated-net address.
-- **Permission denied** — the `mitmproxy` user must own (or be able to write to) `FLOW_EXPORT_DIR`.
-- **A truncated last line** — expected if the proxy was killed mid-write. Consumers should skip unparseable lines (`run.py`'s reader does).
-- **No hooks fire / no `addons` list** — the script must define `addons = [addon]` at module level. Without it the module imports but its hooks are never registered. See the [addon guide](addon-development.md#required-module-level-addons-list).

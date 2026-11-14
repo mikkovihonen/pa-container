@@ -1,99 +1,101 @@
-# Pi Coding Agent Proxy container
+# PA-Container Egress Proxy
 
-- A Fedora Minimal-based router container that transparently intercepts the agent's HTTP/HTTPS/DNS traffic through mitmproxy.
-- mitmproxy generates a self-signed certificate with its certificate authority on first run.
-- mitmweb provides a web UI (port 8081) for monitoring traffic, accessible only from the host (isolated from the agent container).
-- It runs [`allowlist`](allowlist.md), [`token_replacer`](token-replacer.md), and [`flow_export`](flow-export.md) addons on the intercepted traffic (host filtering + secret substitution + session flow export).
-- It forwards the isolated network's traffic to the Internet. Non-HTTP protocols are denied by default (fail-closed, opt-in via `PROXY_ALLOW_*`).
+The PA-Container egress proxy (`coding-agent-proxy`) is a high-performance auditing, allowlisting, and credential-injection gateway built on [`mitmproxy`](https://mitmproxy.org). It inspects and polices all HTTP, HTTPS, and DNS traffic emitted by coding agents inside the Factory VM.
 
-## Building the proxy container image
+---
 
-The system builds the proxy container by running `pa build` in the project root. The build runs before other containers because other containers refer to it in their own build files.
+## 1. Multi-Agent Port Architecture
 
-The transparent proxy container's Containerfile definition at `coding-agent-proxy/Containerfile` runs mitmproxy. mitmproxy generates the keys for its certificate authority (CA) in the config directory (~/.mitmproxy by default).
+```mermaid
+flowchart TB
+    subgraph VM["Factory MicroVM"]
+        Agent1["Agent 1 (UID 2001)"]
+        Agent2["Agent 2 (UID 2002)"]
+    end
 
-``` Containerfile
-USER mitmproxy
-WORKDIR /home/mitmproxy
-RUN timeout 3s mitmweb || [ $? -eq 124 ]
+    subgraph Proxy["coding-agent-proxy (Host / Bridge)"]
+        subgraph Ports["Dedicated Ingress Listeners"]
+            P1["Port 8081: Agent 1 Proxy"]
+            P2["Port 8082: Agent 2 Proxy"]
+            DNS["Port 5353: DNS Resolver"]
+        end
+
+        subgraph Pipeline["Proxy Pipeline Addons"]
+            MAC["MultiAgentContextAddon\n(Port Identity Resolution)"]
+            AL["AllowlistAddon\n(Host Allowlist Filtering)"]
+            TR["TokenReplacerAddon\n(Zero-Knowledge HMAC Secret Injection)"]
+            FE["FlowExportAddon\n(Per-Agent JSONL Flow Logging)"]
+        end
+
+        P1 --> MAC
+        P2 --> MAC
+        DNS --> MAC
+        MAC --> AL
+        AL --> TR
+        TR --> FE
+    end
+
+    Agent1 -->|Egress via 8081| P1
+    Agent2 -->|Egress via 8082| P2
+    FE --> WAN["External APIs (Anthropic, OpenAI, GitHub)"]
+    FE -.->|Local Inference :11434| Llama["Host llama-server"]
 ```
 
-## Running the container
+### Core Features
 
-The container uses additional capabilities to manage network interfaces and routing tables:
-- `CAP_NET_ADMIN`
+- **Port-Based Multi-Agent Isolation:**
+    - Each agent is allocated an independent proxy listener port (`8081`, `8082`, etc.) and transparent DNAT port (`8091`, `8092`, etc.).
+    - Traffic from one agent cannot be read, intercepted, or spoofed by another agent running on the same VM.
+- **Strict Host Allowlisting:**
+    - Only destinations declared in `factory.toml` and attached capability manifests (`capability.toml`) are reachable.
+    - All other destinations fail closed with HTTP `403 Forbidden` (or TCP reset via status `444`).
+- **Zero-Knowledge Secret Injection:**
+    - Agent environments hold only session-scoped HMAC placeholder tokens (`pa-tok-<agent_id>-<hash>`).
+    - The `token_replacer` addon verifies the placeholder against the agent's identity and substitutes real credentials from the host OS keyring before egress.
+- **Forensic Flow Auditing:**
+    - Outbound requests and responses are recorded incrementally in per-agent JSON Lines logs (`flows-agent-<id>.jsonl`).
+    - Audit logs survive unexpected process crashes or ungraceful VM termination.
 
-The [entrypoint](https://github.com/mikkovihonen/pa-container/blob/main/coding-agent-proxy/entrypoint.sh) uses `iptables` on the isolated-net interface
-(`eth1`) to transparently intercept the agent's traffic. HTTP, HTTPS, and DNS are
-redirected into mitmproxy (running transparent + DNS modes). The local
-`llama-server` API is DNAT'd out to the host. A `POSTROUTING -j MASQUERADE`
-rule handles NAT on `eth0` for the egress interface. Everything else is denied
-by default on the `FORWARD` chain. Operators can opt in extra protocols via
-`PROXY_ALLOW_*` env vars (see [Egress policy](#egress-policy-default-deny)).
+---
+
+## 2. Proxy Addons Pipeline
+
+The proxy runs four core addons loaded into `mitmproxy`:
+
+| Addon | Role | Key Configuration |
+| :--- | :--- | :--- |
+| **`multi_agent_context`** | Resolves connecting client port to agent identity, UID, and policies. | Maps ingress port (e.g. `8081`) to `AgentPolicy`. |
+| **`allowlist`** | Enforces host allowlists declared in `factory.toml` and `capability.toml`. | Returns `403 Forbidden` for unapproved hostnames. |
+| **`token_replacer`** | Swaps HMAC placeholders with real API secrets for approved endpoints. | Scoped to matching destination hostnames. |
+| **`flow_export`** | Records JSONL audit trails for each agent flow. | Writes to `.cache/pa-container/flows-agent-<id>.jsonl`. |
+
+---
+
+## 3. Inspecting Proxy State & Logs
+
+### Viewing Live Routing Tables
+
+Use the `pa proxy` command to inspect active ports, UIDs, and assigned allowlists:
 
 ```bash
-# Redirect HTTP/HTTPS into mitmproxy (transparent proxy on 8080)
-iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 80  -j REDIRECT --to-port 8080
-iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 443 -j REDIRECT --to-port 8080
+# Print formatted proxy routing table
+./pa proxy
 
-# Redirect DNS into mitmproxy's DNS mode (5353); the proxy resolves "llama" to
-# itself and forwards other lookups upstream
-iptables -t nat -A PREROUTING -i eth1 -p udp --dport 53 -j REDIRECT --to-port 5353
-iptables -t nat -A PREROUTING -i eth1 -p tcp --dport 53 -j REDIRECT --to-port 5353
+# Output routing table as JSON
+./pa proxy --json
 
-# Protect mitmweb UI (port 8081) from the agent container:
-# mitmweb binds to 0.0.0.0 so host port-forwarding on eth0 can reach it,
-# while traffic from eth1 (isolated-net) is rejected with TCP reset.
-iptables -A INPUT -i eth1 -p tcp --dport 8081 -j REJECT --reject-with tcp-reset
-iptables -A INPUT -i eth1 -p udp --dport 8081 -j DROP
+# Open the mitmweb auditing UI in your browser
+./pa proxy --open
 ```
 
-### Egress policy (default-deny)
+### Reading Agent Flow Logs
 
-mitmproxy intercepts and inspects only HTTP/HTTPS/DNS. Any other
-protocol the agent emits goes straight to the internet
-**uninspected** otherwise. The `FORWARD` chain defaults to `DROP`. The model API
-(DNAT'd to the host) is explicitly permitted. Operators can opt specific
-extra protocols in via `PROXY_ALLOW_*` env vars (`PROXY_ALLOW_SSH`,
-`PROXY_ALLOW_SMTP`, `PROXY_ALLOW_GIT`, `PROXY_ALLOW_NTP`, `PROXY_ALLOW_TCP_PORTS`,
-`PROXY_ALLOW_UDP_PORTS`). See [Architecture](../architecture.md#layer-6-multi-port-egress-proxy-coding-agent-proxy). **Traffic
-allowed this way is plain NAT and is NOT seen by mitmproxy or the allowlist.**
+Inspect the traffic generated by a specific agent:
 
-## Addons
+```bash
+# Display the last 50 network flows for agent1
+./pa logs --agent agent1 -n 50
 
-mitmproxy loads three addons (baked into the image, loaded via `-s` in the
-entrypoint). The addons operate on the intercepted HTTP/HTTPS traffic:
-
-| Addon | Purpose | Config (host → container) |
-|-------|---------|---------------------------|
-| [`allowlist`](allowlist.md) | Blocks requests to non-allowlisted hosts/IPs (default action `block`). | `.pa-container/allowlist.yaml` → `/home/mitmproxy/config/allowlist.yaml` |
-| [`token_replacer`](token-replacer.md) | Redacts secrets (API keys, Bearer tokens, cookies, JWTs) from requests/responses. | `.pa-container/token_replacer.yaml` → `/home/mitmproxy/config/token_replacer.yaml` |
-| [`flow_export`](flow-export.md) | Exports completed flows (JSON Lines) to per-client-IP files for post-session inspection. | N/A (baked in, writes to `/home/mitmproxy/exports/`) |
-
-The image bakes fail-closed default configs. `run.py` mounts the host configs
-from `.pa-container/` over them at runtime (and injects any `${ENV:VAR}` secrets
-the token_replacer config references). Edit the host files to change policy. See
-[addon development guide](addon-development.md) for how mitmproxy addons work.
-
-## Installing the mitmproxy CA certificate to Pi Coding Agent
-
-The mitmproxy CA cert is located in `/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem` in a local container image tagged with the proxy image setting (default: `pa-container-agent-proxy:local`).
-
-Copy `mitmproxy-ca-cert.crt` from the transparent proxy container to install it into the pa-container-agent container during build:
-
-In `coding-agent/Containerfile`, `mitmproxy-ca-cert.pem` is copied from the transparent proxy container image, converted to .cer format, and installed:
-
-``` Containerfile
-COPY --from=pa-container-agent-proxy:local /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem
+# Follow live flow stream
+./pa logs --agent agent1 --follow
 ```
-
-Then:
-
-- A directory for extra CA certificates is created
-    - `RUN mkdir /usr/local/share/ca-certificates/extra`
-- PEM format `mitmproxy-ca.pem` is converted into CRT format `mitmproxy-ca.crt`
-    - `RUN openssl x509 -in /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.pem -inform PEM -out /usr/local/share/ca-certificates/extra/mitmproxy-ca-cert.crt`
-- System CA certificates are updated
-    - `RUN update-ca-certificates`
-
-After this, the pa-container-agent image has the mitmproxy CA installed.

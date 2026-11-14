@@ -205,7 +205,7 @@ To maintain security, operators should treat the sandbox as one layer in a defen
 3. **Guard Host Mounts & Git Config**: Rely on `security.blocked_mount_paths` to prevent sensitive credentials (`~/.ssh`, `~/.aws`, Docker sockets) from being mounted, and `security.git_config_allowlist` to ensure only safe Git identity keys are shared into the container without execution hooks (`core.sshCommand`, `core.fsmonitor`).
 4. **Scrutinize Allowlist Additions & SSRF Protections**: Never add broad domain wildcards (`*`) to `allowlist.yaml`. `security.blocked_ip_ranges` strictly blocks connections to internal RFC 1918 subnets, loopback interfaces, and cloud metadata services (`169.254.169.254`).
 5. **Register All Secrets in `token_replacer.yaml`**: Ensure any sensitive API tokens, database passwords, or private keys used in the workspace are explicitly defined so the proxy applies the configured substitution before traffic leaves the container.
-6. **Audit Flow Exports**: Use the `mitmweb` UI or inspect export flow logs (`.pa-container/exports/flows-*.jsonl`) to periodically verify the volume and destination of outbound agent traffic.
+6. **Audit Flow Exports**: Use the `mitmweb` UI or inspect export flow logs via `pa logs --agent <agent_id>` to periodically verify the volume and destination of outbound agent traffic.
 7. **Privilege Hardening**: `pa-container` automatically enforces `--security-opt no-new-privileges` and mounts persistent shadow volumes and `tmpfs` RAM disks with `nodev,nosuid` to prevent setuid privilege escalation.
 
 ---

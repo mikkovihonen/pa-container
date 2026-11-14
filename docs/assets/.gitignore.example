@@ -1,19 +1,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# pa-container — .gitignore entries for a workspace that runs coding agents
-#
-# Copy the lines below into your project's .gitignore.
-# .pa-container/ holds workspace configuration, credentials, models, and
-# runtime state and should not be committed into the repository.
+# PA-Container 2.0 — .gitignore entries for a project workspace
 # ─────────────────────────────────────────────────────────────────────────────
 
-# REQUIRED — workspace configuration and runtime state. Never commit.
-.pa-container/
+# Local factory cache, runtime state, and logs
+.factory/
+.cache/pa-container/
 
-# OPTIONAL — scratch directories you mount as tmpfs via config.yaml (tmpfs.paths).
-# Their contents live in RAM and never persist across runs, but the (empty)
-# mount points can appear in your workspace. Adjust to match the tmpfs.paths you
-# configure and your project's toolchain.
+# Python virtual environment and caches (if using Python tooling)
 .venv/
 .pytest_cache/
 .ruff_cache/
 __pycache__/
+
+# Rust build artifacts
+target/
