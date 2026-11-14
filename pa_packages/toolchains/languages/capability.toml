@@ -10,6 +10,18 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/languages"
 bin_dirs = ["bin"]
+fedora_packages = ["python3", "python3-pip", "nodejs", "rust", "cargo", "golang"]
+macos_brew_packages = ["python@3.14", "node", "rustup-init", "go"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/languages"]
+write_paths = ["/tmp/pa-toolchains"]
+allow_gpu = true
+
+[env]
+CARGO_HOME = "/opt/pa/toolchains/cargo"
+RUSTUP_HOME = "/opt/pa/toolchains/rustup"
 
 [proxy]
 allowlist = ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "static.rust-lang.org", "crates.io"]
+tokens = []

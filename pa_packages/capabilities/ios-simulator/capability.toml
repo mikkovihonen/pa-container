@@ -10,6 +10,13 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/ios-simulator"
 bin_dirs = ["bin"]
+fedora_packages = []
+macos_brew_packages = []
+
+[entitlements]
+read_paths = ["/Applications/Xcode.app", "/Library/Developer"]
+write_paths = ["/tmp/pa-ios", "/private/var/folders"]
+allow_gpu = true
 
 [proxy]
 allowlist = []

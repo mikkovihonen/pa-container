@@ -10,6 +10,14 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/agents"
 bin_dirs = ["bin"]
+fedora_packages = ["tmux", "zellij", "git"]
+macos_brew_packages = ["tmux", "zellij", "git"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/agents"]
+write_paths = ["/tmp/pa-agents"]
+allow_gpu = true
 
 [proxy]
 allowlist = ["api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com"]
+tokens = []

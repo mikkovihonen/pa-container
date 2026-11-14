@@ -210,7 +210,33 @@ impl FactoryBackend for TartMacOSBackend {
         Ok(String::from_utf8_lossy(&rev_out.stdout).trim().to_string())
     }
 
-    fn launch_agent(&self, agent: &AgentSpec, task_prompt: Option<&str>) -> Result<i32> {
+    fn provision_packages(&self, packages: &[String]) -> Result<()> {
+        if packages.is_empty() {
+            return Ok(());
+        }
+        let res = self.execute_ssh_rpc(
+            "provision_packages",
+            json!({
+                "packages": packages,
+            }),
+        )?;
+        if res.get("result").is_some() {
+            Ok(())
+        } else {
+            anyhow::bail!("Package provisioning failed on macOS Tart guest: {:?}", res);
+        }
+    }
+
+    fn provision_capabilities(&self, caps: &crate::manifest::ResolvedCapabilities) -> Result<()> {
+        self.provision_packages(&caps.macos_brew_packages)
+    }
+
+    fn launch_agent(
+        &self,
+        agent: &AgentSpec,
+        task_prompt: Option<&str>,
+        capabilities: Option<&crate::manifest::ResolvedCapabilities>,
+    ) -> Result<i32> {
         self.execute_ssh_rpc(
             "provision_user",
             json!({
@@ -255,17 +281,24 @@ impl FactoryBackend for TartMacOSBackend {
             cmd.push(prompt.to_string());
         }
 
-        let res = self.execute_ssh_rpc(
-            "launch_agent",
-            json!({
-                "agent_id": agent.id,
-                "command": cmd,
-                "user": agent.id,
-                "uid": agent.uid,
-                "proxy_ip": self.proxy_host_ip,
-                "proxy_port": agent.proxy_port.unwrap_or(8081),
-            }),
-        )?;
+        let mut payload = json!({
+            "agent_id": agent.id,
+            "command": cmd,
+            "user": agent.id,
+            "uid": agent.uid,
+            "proxy_ip": self.proxy_host_ip,
+            "proxy_port": agent.proxy_port.unwrap_or(8081),
+        });
+
+        if let Some(caps) = capabilities {
+            payload["extra_env"] = json!(caps.env);
+            payload["bin_dirs"] = json!(caps.bin_dirs);
+            payload["read_paths"] = json!(caps.read_paths);
+            payload["write_paths"] = json!(caps.write_paths);
+            payload["allow_gpu"] = json!(caps.allow_gpu);
+        }
+
+        let res = self.execute_ssh_rpc("launch_agent", payload)?;
 
         if res.get("result").is_some() {
             Ok(0)

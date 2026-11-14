@@ -10,6 +10,16 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/git"
 bin_dirs = ["bin"]
+fedora_packages = ["git", "git-lfs", "gh"]
+macos_brew_packages = ["git", "git-lfs", "gh"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/git"]
+write_paths = ["/tmp/pa-git"]
+allow_gpu = false
+
+[env]
+GIT_TERMINAL_PROMPT = "0"
 
 [proxy]
 allowlist = ["github.com", "*.github.com", "*.githubusercontent.com", "gitlab.com"]

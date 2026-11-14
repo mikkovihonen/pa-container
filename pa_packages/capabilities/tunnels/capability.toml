@@ -10,6 +10,15 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/tunnels"
 bin_dirs = ["bin"]
+fedora_packages = ["cloudflared", "tailscale"]
+macos_brew_packages = ["cloudflared", "tailscale"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/tunnels"]
+write_paths = ["/tmp/pa-tunnels"]
+allow_gpu = false
+allow_network_bind = [8080, 8443]
 
 [proxy]
 allowlist = ["api.cloudflare.com", "controlplane.tailscale.com", "login.tailscale.com"]
+tokens = []

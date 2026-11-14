@@ -10,6 +10,13 @@ requires = ["git"]
 [staging]
 install_prefix = "/opt/pa/packs/source-control"
 bin_dirs = ["bin"]
+fedora_packages = ["git", "git-lfs", "gh"]
+macos_brew_packages = ["git", "git-lfs", "gh"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/source-control"]
+write_paths = ["/tmp/pa-git"]
+allow_gpu = false
 
 [proxy]
 allowlist = ["github.com", "api.github.com", "*.githubusercontent.com"]

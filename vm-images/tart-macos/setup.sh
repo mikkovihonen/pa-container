@@ -22,9 +22,7 @@ cat << 'EOF' > /Library/LaunchDaemons/com.pa.agentd.plist
     <string>com.pa.agentd</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/python3</string>
-        <string>-m</string>
-        <string>guest_daemon.daemon</string>
+        <string>/opt/pa/bin/pa-agentd</string>
         <string>--socket</string>
         <string>/var/run/pa-agentd.sock</string>
     </array>

@@ -10,6 +10,14 @@ requires = ["languages"]
 [staging]
 install_prefix = "/opt/pa/packs/language-servers"
 bin_dirs = ["bin"]
+fedora_packages = ["rust-analyzer", "gopls"]
+macos_brew_packages = ["rust-analyzer", "gopls"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/language-servers"]
+write_paths = ["/tmp/pa-lsp"]
+allow_gpu = false
 
 [proxy]
 allowlist = []
+tokens = []

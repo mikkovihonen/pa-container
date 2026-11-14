@@ -10,6 +10,16 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/image-tools"
 bin_dirs = ["bin"]
+fedora_packages = ["ImageMagick", "libwebp-tools", "oxipng", "perl-Image-ExifTool", "potrace"]
+macos_brew_packages = ["imagemagick", "webp", "oxipng", "exiftool", "potrace"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/image-tools"]
+write_paths = ["/tmp/pa-media"]
+allow_gpu = false
+
+[env]
+MAGICK_TEMPORARY_PATH = "/tmp/pa-media"
 
 [proxy]
 allowlist = ["api.openai.com", "generativelanguage.googleapis.com", "api.stability.ai"]

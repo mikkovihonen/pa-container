@@ -10,6 +10,14 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/3d-tools"
 bin_dirs = ["bin"]
+fedora_packages = ["assimp", "admesh"]
+macos_brew_packages = ["assimp", "admesh"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/3d-tools"]
+write_paths = ["/tmp/pa-3d"]
+allow_gpu = true
 
 [proxy]
 allowlist = []
+tokens = []

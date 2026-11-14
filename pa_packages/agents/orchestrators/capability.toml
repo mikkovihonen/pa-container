@@ -10,6 +10,15 @@ requires = ["agents", "git"]
 [staging]
 install_prefix = "/opt/pa/packs/agent-orchestrators"
 bin_dirs = ["bin"]
+fedora_packages = ["tmux", "zellij"]
+macos_brew_packages = ["tmux", "zellij"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/agent-orchestrators"]
+write_paths = ["/tmp/pa-orchestrators"]
+allow_gpu = false
+allow_network_bind = [3000, 4000, 7000]
 
 [proxy]
 allowlist = []
+tokens = []

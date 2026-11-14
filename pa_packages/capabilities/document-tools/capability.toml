@@ -10,6 +10,14 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/document-tools"
 bin_dirs = ["bin"]
+fedora_packages = ["pandoc", "poppler-utils"]
+macos_brew_packages = ["pandoc", "poppler"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/document-tools"]
+write_paths = ["/tmp/pa-docs"]
+allow_gpu = false
 
 [proxy]
 allowlist = []
+tokens = []

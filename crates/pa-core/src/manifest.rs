@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::schema::AgentSpec;
+
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn derive_placeholder_token(session_nonce: &[u8], agent_id: &str, env_var: &str) -> String {
@@ -37,11 +39,27 @@ fn default_version() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct EntitlementsSpec {
+    #[serde(default)]
+    pub read_paths: Vec<String>,
+    #[serde(default)]
+    pub write_paths: Vec<String>,
+    #[serde(default)]
+    pub allow_gpu: bool,
+    #[serde(default)]
+    pub allow_network_bind: Vec<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct StagingSpec {
     #[serde(default)]
     pub install_prefix: String,
     #[serde(default)]
     pub bin_dirs: Vec<String>,
+    #[serde(default)]
+    pub fedora_packages: Vec<String>,
+    #[serde(default)]
+    pub macos_brew_packages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -67,6 +85,8 @@ pub struct CapabilityManifest {
     #[serde(default)]
     pub staging: StagingSpec,
     #[serde(default)]
+    pub entitlements: EntitlementsSpec,
+    #[serde(default)]
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub proxy: ProxySpec,
@@ -74,10 +94,24 @@ pub struct CapabilityManifest {
     pub package_dir: PathBuf,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ResolvedCapabilities {
+    pub fedora_packages: Vec<String>,
+    pub macos_brew_packages: Vec<String>,
+    pub env: HashMap<String, String>,
+    pub bin_dirs: Vec<PathBuf>,
+    pub read_paths: Vec<String>,
+    pub write_paths: Vec<String>,
+    pub allow_gpu: bool,
+    pub allowlist: Vec<String>,
+    pub tokens: Vec<TokenRuleSpec>,
+}
+
 fn default_schema_version() -> String {
     "1.0".to_string()
 }
 
+#[derive(Default, Debug)]
 pub struct CapabilityRegistry {
     by_name: HashMap<String, CapabilityManifest>,
 }
@@ -120,6 +154,14 @@ impl CapabilityRegistry {
 
     pub fn get(&self, name: &str) -> Option<&CapabilityManifest> {
         self.by_name.get(name)
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_name.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_name.is_empty()
     }
 
     pub fn resolve_dependency_closure(
@@ -167,6 +209,83 @@ impl CapabilityRegistry {
 
         Ok(ordered)
     }
+
+    pub fn resolve_for_agent(&self, requested: &[String]) -> Result<ResolvedCapabilities> {
+        let manifests = self.resolve_dependency_closure(requested)?;
+        let mut resolved = ResolvedCapabilities::default();
+        let mut seen_fedora = std::collections::HashSet::new();
+        let mut seen_brew = std::collections::HashSet::new();
+        let mut seen_allowlist = std::collections::HashSet::new();
+
+        for m in manifests {
+            for pkg in &m.staging.fedora_packages {
+                if seen_fedora.insert(pkg.clone()) {
+                    resolved.fedora_packages.push(pkg.clone());
+                }
+            }
+            for pkg in &m.staging.macos_brew_packages {
+                if seen_brew.insert(pkg.clone()) {
+                    resolved.macos_brew_packages.push(pkg.clone());
+                }
+            }
+            for (k, v) in &m.env {
+                resolved.env.insert(k.clone(), v.clone());
+            }
+            for b in &m.staging.bin_dirs {
+                let full_bin = if !m.staging.install_prefix.is_empty() {
+                    PathBuf::from(&m.staging.install_prefix).join(b)
+                } else {
+                    m.package_dir.join(b)
+                };
+                resolved.bin_dirs.push(full_bin);
+            }
+            for p in &m.entitlements.read_paths {
+                if !resolved.read_paths.contains(p) {
+                    resolved.read_paths.push(p.clone());
+                }
+            }
+            for p in &m.entitlements.write_paths {
+                if !resolved.write_paths.contains(p) {
+                    resolved.write_paths.push(p.clone());
+                }
+            }
+            if m.entitlements.allow_gpu {
+                resolved.allow_gpu = true;
+            }
+            for host in &m.proxy.allowlist {
+                if seen_allowlist.insert(host.clone()) {
+                    resolved.allowlist.push(host.clone());
+                }
+            }
+            for tok in &m.proxy.tokens {
+                resolved.tokens.push(tok.clone());
+            }
+        }
+
+        Ok(resolved)
+    }
+}
+
+pub fn merge_agent_capabilities(
+    agents: &mut [AgentSpec],
+    registry: &CapabilityRegistry,
+) -> Result<()> {
+    for agent in agents {
+        if !agent.capabilities.is_empty() {
+            let caps = registry.resolve_for_agent(&agent.capabilities)?;
+            for host in caps.allowlist {
+                if !agent.allowlist.contains(&host) {
+                    agent.allowlist.push(host);
+                }
+            }
+            for tok in caps.tokens {
+                if !agent.tokens.contains(&tok.env_var) {
+                    agent.tokens.push(tok.env_var);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -190,6 +309,7 @@ mod tests {
             .join("../..")
             .join("pa_packages");
         let reg = CapabilityRegistry::discover(&packages_dir).unwrap();
+        assert_eq!(reg.len(), 23);
         assert!(reg.get("git").is_some());
         assert!(reg.get("source-control").is_some());
 
@@ -199,5 +319,27 @@ mod tests {
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].capability.name, "git");
         assert_eq!(resolved[1].capability.name, "source-control");
+
+        let agent_caps = reg
+            .resolve_for_agent(&["source-control".to_string()])
+            .unwrap();
+        assert!(!agent_caps.allowlist.is_empty());
+
+        let mut agents = vec![AgentSpec {
+            id: "agent1".into(),
+            uid: 2001,
+            driver: "pi".into(),
+            capabilities: vec!["source-control".into()],
+            allowlist: vec!["custom.domain".into()],
+            tokens: vec!["CUSTOM_TOKEN".into()],
+            proxy_port: None,
+            transparent_port: None,
+            branch_prefix: "pa/agent1".into(),
+        }];
+        merge_agent_capabilities(&mut agents, &reg).unwrap();
+        assert!(agents[0].allowlist.contains(&"custom.domain".to_string()));
+        assert!(agents[0].allowlist.contains(&"github.com".to_string()));
+        assert!(agents[0].tokens.contains(&"CUSTOM_TOKEN".to_string()));
+        assert!(agents[0].tokens.contains(&"GITHUB_TOKEN".to_string()));
     }
 }

@@ -4,12 +4,23 @@ schema_version = "1.0"
 name = "browser"
 category = "browser"
 version = "1.0.0"
-description = "Web browser automation: Chromium on virtual desktop, shared headless runtime libraries, and Playwright MCP"
+description = "Web browser automation: Chromium on virtual desktop, shared headless runtime libraries, and Playwright"
 requires = ["virtual-desktop"]
 
 [staging]
 install_prefix = "/opt/pa/packs/browser"
 bin_dirs = ["bin"]
+fedora_packages = ["chromium", "nss", "atk", "cups-libs", "gtk3", "libXcomposite"]
+macos_brew_packages = ["chromium"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/browser"]
+write_paths = ["/tmp/pa-browser", "/tmp/.X11-unix"]
+allow_gpu = true
+
+[env]
+PLAYWRIGHT_BROWSERS_PATH = "/opt/pa/browsers"
 
 [proxy]
 allowlist = []
+tokens = []

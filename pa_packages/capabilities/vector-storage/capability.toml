@@ -10,6 +10,14 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/vector-storage"
 bin_dirs = ["bin"]
+fedora_packages = ["sqlite", "sqlite-devel"]
+macos_brew_packages = ["sqlite"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/vector-storage"]
+write_paths = ["/tmp/pa-vector"]
+allow_gpu = true
 
 [proxy]
 allowlist = []
+tokens = []

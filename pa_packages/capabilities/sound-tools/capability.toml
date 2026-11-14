@@ -10,6 +10,13 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/sound-tools"
 bin_dirs = ["bin"]
+fedora_packages = ["sox", "faad2", "flac", "opus-tools"]
+macos_brew_packages = ["sox", "faad2", "flac", "opus-tools"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/sound-tools"]
+write_paths = ["/tmp/pa-media"]
+allow_gpu = false
 
 [proxy]
 allowlist = ["api.openai.com"]

@@ -4,12 +4,20 @@ schema_version = "1.0"
 name = "code-intelligence"
 category = "search"
 version = "1.0.0"
-description = "Codebase search, syntactic parsing, and context packing (ripgrep, fd, ast-grep, tree-sitter, colgrep, repomix, tokencount)"
+description = "Codebase search, syntactic parsing, and context packing (ripgrep, fd, tree-sitter)"
 requires = []
 
 [staging]
 install_prefix = "/opt/pa/packs/code-intelligence"
 bin_dirs = ["bin"]
+fedora_packages = ["ripgrep", "fd-find", "tree-sitter-cli"]
+macos_brew_packages = ["ripgrep", "fd", "tree-sitter"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/code-intelligence"]
+write_paths = ["/tmp/pa-search"]
+allow_gpu = false
 
 [proxy]
 allowlist = []
+tokens = []

@@ -10,6 +10,17 @@ requires = ["image-tools"]
 [staging]
 install_prefix = "/opt/pa/packs/ocr-tools"
 bin_dirs = ["bin"]
+fedora_packages = ["tesseract", "tesseract-osd", "tesseract-langpack-eng"]
+macos_brew_packages = ["tesseract", "tesseract-lang"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/ocr-tools", "/usr/share/tesseract", "/opt/homebrew/share/tessdata"]
+write_paths = ["/tmp/pa-media"]
+allow_gpu = false
+
+[env]
+TESSDATA_PREFIX = "/usr/share/tesseract/tessdata"
 
 [proxy]
 allowlist = []
+tokens = []

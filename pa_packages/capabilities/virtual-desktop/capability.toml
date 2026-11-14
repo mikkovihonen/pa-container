@@ -4,12 +4,25 @@ schema_version = "1.0"
 name = "virtual-desktop"
 category = "desktop"
 version = "1.0.0"
-description = "Headless virtual desktop with agent-desktop automation CLI; selectable Wayland (labwc, wayvnc) and X11 (Xvfb, x11vnc) display backends with noVNC streaming"
+description = "Headless virtual desktop with selectable Wayland (labwc, wayvnc) and X11 (Xvfb, x11vnc) display backends"
 requires = []
 
 [staging]
 install_prefix = "/opt/pa/packs/virtual-desktop"
 bin_dirs = ["bin"]
+fedora_packages = ["labwc", "wayvnc", "xorg-x11-server-Xvfb", "x11vnc"]
+macos_brew_packages = []
+
+[entitlements]
+read_paths = ["/opt/pa/packs/virtual-desktop"]
+write_paths = ["/tmp/pa-desktop", "/tmp/.X11-unix"]
+allow_gpu = true
+allow_network_bind = [5900, 6080]
+
+[env]
+DISPLAY = ":0"
+WAYLAND_DISPLAY = "wayland-0"
 
 [proxy]
 allowlist = []
+tokens = []

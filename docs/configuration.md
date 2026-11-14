@@ -114,6 +114,13 @@ allowed_hosts = ["api.stability.ai"]
 - **`[staging]`**:
     - **`install_prefix`**: Filesystem destination inside the VM.
     - **`bin_dirs`**: Subdirectories appended to the agent's `$PATH`.
+    - **`fedora_packages`**: Native Fedora packages provisioned dynamically in guest Linux VMs via `dnf install -y`.
+    - **`macos_brew_packages`**: Native Homebrew packages provisioned dynamically in guest macOS VMs via `brew install`.
+- **`[entitlements]`**:
+    - **`read_paths`**: Additional filesystem read paths granted in Seatbelt profiles or Bubblewrap mounts.
+    - **`write_paths`**: Additional filesystem write paths granted in Seatbelt profiles or Bubblewrap mounts.
+    - **`allow_gpu`**: Enables hardware compute access (Metal/CoreML IOKit on macOS, `/dev/dri` and compute nodes on Linux).
+    - **`allow_network_bind`**: Local TCP ports the agent sandbox is permitted to bind.
 - **`[env]`**:
     - Environment variables injected into the agent's sandboxed execution environment.
 - **`[proxy]`**:

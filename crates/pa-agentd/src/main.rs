@@ -67,6 +67,7 @@ impl GuestDaemonService {
         let result = match method {
             "ping" => self.rpc_ping(),
             "provision_user" => self.rpc_provision_user(&params),
+            "provision_packages" => self.rpc_provision_packages(&params),
             "update_firewall" => self.rpc_update_firewall(&params),
             "init_vault" => self.rpc_init_vault(&params),
             "cow_clone" => self.rpc_cow_clone(&params),
@@ -120,6 +121,82 @@ impl GuestDaemonService {
             "user": username,
             "uid": uid,
             "home": home.to_str().unwrap_or(""),
+        }))
+    }
+
+    fn rpc_provision_packages(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let packages: Vec<String> = match params.get("packages").and_then(|p| p.as_array()) {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            None => Vec::new(),
+        };
+
+        if packages.is_empty() {
+            return Ok(json!({
+                "status": "ok",
+                "installed": [],
+            }));
+        }
+
+        if cfg!(target_os = "macos") {
+            let brew_path = if Path::new("/opt/homebrew/bin/brew").exists() {
+                "/opt/homebrew/bin/brew"
+            } else if Path::new("/usr/local/bin/brew").exists() {
+                "/usr/local/bin/brew"
+            } else {
+                "brew"
+            };
+
+            let mut cmd = if nix::unistd::geteuid().is_root() {
+                let mut c = Command::new("sudo");
+                c.args(["-u", "admin", "-i", brew_path, "install"]);
+                c
+            } else {
+                let mut c = Command::new(brew_path);
+                c.arg("install");
+                c
+            };
+            cmd.args(&packages);
+
+            let out = cmd.output().with_context(|| {
+                format!(
+                    "Failed to execute Homebrew package installation for {:?}",
+                    packages
+                )
+            })?;
+
+            if !out.status.success() {
+                anyhow::bail!(
+                    "brew install failed (code {:?}): {}",
+                    out.status.code(),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        } else {
+            let mut cmd = Command::new("dnf");
+            cmd.args(["install", "-y"]).args(&packages);
+
+            let out = cmd.output().with_context(|| {
+                format!(
+                    "Failed to execute dnf package installation for {:?}",
+                    packages
+                )
+            })?;
+
+            if !out.status.success() {
+                anyhow::bail!(
+                    "dnf install failed (code {:?}): {}",
+                    out.status.code(),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
+
+        Ok(json!({
+            "status": "ok",
+            "installed": packages,
         }))
     }
 
@@ -268,12 +345,51 @@ impl GuestDaemonService {
             base.join(user)
         };
 
+        let extra_write_paths: Vec<String> =
+            match params.get("write_paths").and_then(|w| w.as_array()) {
+                Some(arr) => arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect(),
+                None => Vec::new(),
+            };
+        let extra_read_paths: Vec<String> =
+            match params.get("read_paths").and_then(|r| r.as_array()) {
+                Some(arr) => arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect(),
+                None => Vec::new(),
+            };
+        let allow_gpu = params
+            .get("allow_gpu")
+            .and_then(|g| g.as_bool())
+            .unwrap_or(false);
+        let bin_dirs: Vec<String> = match params.get("bin_dirs").and_then(|b| b.as_array()) {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            None => Vec::new(),
+        };
+
         let wrapped_cmd = if cfg!(target_os = "macos") {
             let profile_dir = PathBuf::from("/etc/pa/profiles");
             let _ = fs::create_dir_all(&profile_dir);
             let pfile = profile_dir.join(format!("{}.sb", user));
             let content = pa_core::guest::generate_seatbelt_profile(
-                user, proxy_ip, proxy_port, 5353, None, None,
+                user,
+                proxy_ip,
+                proxy_port,
+                5353,
+                None,
+                None,
+                if extra_write_paths.is_empty() {
+                    None
+                } else {
+                    Some(&extra_write_paths)
+                },
+                allow_gpu,
             );
             let _ = fs::write(&pfile, content);
             build_sandbox_exec_command(&pfile, &command)
@@ -295,6 +411,17 @@ impl GuestDaemonService {
                 None,
                 Some(&env_map),
                 None,
+                if extra_read_paths.is_empty() {
+                    None
+                } else {
+                    Some(&extra_read_paths)
+                },
+                if extra_write_paths.is_empty() {
+                    None
+                } else {
+                    Some(&extra_write_paths)
+                },
+                allow_gpu,
             )
         };
 
@@ -306,6 +433,21 @@ impl GuestDaemonService {
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        if let Some(obj) = params.get("extra_env").and_then(|e| e.as_object()) {
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    cmd.env(k, s);
+                }
+            }
+        }
+        if !bin_dirs.is_empty() {
+            let current_path = std::env::var("PATH").unwrap_or_else(|_| {
+                "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin".into()
+            });
+            let new_path = format!("{}:{}", bin_dirs.join(":"), current_path);
+            cmd.env("PATH", new_path);
+        }
 
         #[cfg(unix)]
         unsafe {
@@ -578,5 +720,22 @@ mod tests {
         let res = service.dispatch(&req);
         assert_eq!(res["id"], 42);
         assert_eq!(res["result"]["status"], "ok");
+    }
+
+    #[test]
+    fn test_guest_daemon_provision_packages_empty() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 43,
+            "method": "provision_packages",
+            "params": {
+                "packages": []
+            }
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 43);
+        assert_eq!(res["result"]["status"], "ok");
+        assert_eq!(res["result"]["installed"], json!([]));
     }
 }

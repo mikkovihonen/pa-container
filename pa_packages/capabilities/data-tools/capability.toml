@@ -10,6 +10,14 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/data-tools"
 bin_dirs = ["bin"]
+fedora_packages = ["jq", "yq", "miller"]
+macos_brew_packages = ["jq", "yq", "miller"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/data-tools"]
+write_paths = ["/tmp/pa-data"]
+allow_gpu = false
 
 [proxy]
 allowlist = []
+tokens = []

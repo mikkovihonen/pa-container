@@ -4,12 +4,20 @@ schema_version = "1.0"
 name = "developer-tools"
 category = "devtools"
 version = "1.0.0"
-description = "General developer workflow utilities, task runners, and scripting helpers (just)"
+description = "General developer workflow utilities, task runners, and scripting helpers (just, ripgrep, fd, fzf, jq)"
 requires = []
 
 [staging]
 install_prefix = "/opt/pa/packs/developer-tools"
 bin_dirs = ["bin"]
+fedora_packages = ["just", "fzf", "ripgrep", "fd-find", "jq", "curl", "wget"]
+macos_brew_packages = ["just", "fzf", "ripgrep", "fd", "jq", "curl", "wget"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/developer-tools"]
+write_paths = ["/tmp/pa-devtools"]
+allow_gpu = false
 
 [proxy]
 allowlist = []
+tokens = []

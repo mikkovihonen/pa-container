@@ -5,7 +5,7 @@ set -euo pipefail
 echo "=== Provisioning Fedora Factory VM ==="
 
 # Install required system packages
-dnf install -y bubblewrap nftables git python3 python3-pip
+dnf install -y bubblewrap nftables git
 
 # Prepare directories
 mkdir -p /opt/pa/bin /opt/pa/certs /opt/pa/packages /var/pa-vault
@@ -20,7 +20,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -m guest_daemon.daemon --socket /var/run/pa-agentd.sock
+ExecStart=/opt/pa/bin/pa-agentd --socket /var/run/pa-agentd.sock
 Restart=always
 RestartSec=3
 

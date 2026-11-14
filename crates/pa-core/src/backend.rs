@@ -1,13 +1,21 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
+use crate::manifest::ResolvedCapabilities;
 use crate::schema::{AgentSpec, FactoryConfig};
 
 pub trait FactoryBackend: Send + Sync {
     fn start_proxy(&self, config: &FactoryConfig) -> Result<String>;
     fn ensure_factory_vm(&self, config: &FactoryConfig, proxy_ip: &str) -> Result<()>;
     fn sync_git_to_vault(&self, host_repo: &Path, branch: &str) -> Result<String>;
-    fn launch_agent(&self, agent: &AgentSpec, task_prompt: Option<&str>) -> Result<i32>;
+    fn provision_packages(&self, packages: &[String]) -> Result<()>;
+    fn provision_capabilities(&self, caps: &ResolvedCapabilities) -> Result<()>;
+    fn launch_agent(
+        &self,
+        agent: &AgentSpec,
+        task_prompt: Option<&str>,
+        capabilities: Option<&ResolvedCapabilities>,
+    ) -> Result<i32>;
     fn fetch_agent_branch(&self, agent_id: &str, host_repo: &Path) -> Result<PathBuf>;
     fn stop_factory(&self) -> Result<()>;
     fn get_status(&self) -> Result<serde_json::Value>;

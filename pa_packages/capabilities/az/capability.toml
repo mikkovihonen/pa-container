@@ -10,6 +10,14 @@ requires = ["languages"]
 [staging]
 install_prefix = "/opt/pa/packs/az"
 bin_dirs = ["bin"]
+fedora_packages = ["azure-cli"]
+macos_brew_packages = ["azure-cli"]
+
+[entitlements]
+read_paths = ["/opt/pa/packs/az"]
+write_paths = ["/tmp/pa-az"]
+allow_gpu = false
 
 [proxy]
 allowlist = ["management.azure.com", "login.microsoftonline.com", "dev.azure.com"]
+tokens = []

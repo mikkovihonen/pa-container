@@ -11,6 +11,9 @@ pub fn build_bwrap_args(
     ca_cert_path: Option<&Path>,
     extra_env: Option<&BTreeMap<String, String>>,
     shared_packages_dir: Option<&Path>,
+    extra_ro_paths: Option<&[String]>,
+    extra_rw_paths: Option<&[String]>,
+    allow_gpu: bool,
 ) -> Vec<String> {
     let default_cert = PathBuf::from("/opt/pa/certs/mitmproxy-ca-cert.pem");
     let cert_path = ca_cert_path.unwrap_or(&default_cert);
@@ -59,21 +62,45 @@ pub fn build_bwrap_args(
         "/proc".into(),
         "--dev".into(),
         "/dev".into(),
-        "--dev-bind-try".into(),
-        "/dev/dri".into(),
-        "/dev/dri".into(),
-        "--dev-bind-try".into(),
-        "/dev/kfd".into(),
-        "/dev/kfd".into(),
-        "--dev-bind-try".into(),
-        "/dev/nvidia0".into(),
-        "/dev/nvidia0".into(),
-        "--dev-bind-try".into(),
-        "/dev/nvidiactl".into(),
-        "/dev/nvidiactl".into(),
-        "--dev-bind-try".into(),
-        "/dev/nvidia-uvm".into(),
-        "/dev/nvidia-uvm".into(),
+    ];
+
+    if allow_gpu {
+        args.extend([
+            "--dev-bind-try".into(),
+            "/dev/dri".into(),
+            "/dev/dri".into(),
+            "--dev-bind-try".into(),
+            "/dev/kfd".into(),
+            "/dev/kfd".into(),
+            "--dev-bind-try".into(),
+            "/dev/nvidia0".into(),
+            "/dev/nvidia0".into(),
+            "--dev-bind-try".into(),
+            "/dev/nvidiactl".into(),
+            "/dev/nvidiactl".into(),
+            "--dev-bind-try".into(),
+            "/dev/nvidia-uvm".into(),
+            "/dev/nvidia-uvm".into(),
+        ]);
+    }
+
+    if let Some(ro) = extra_ro_paths {
+        for p in ro {
+            args.push("--ro-bind-try".into());
+            args.push(p.clone());
+            args.push(p.clone());
+        }
+    }
+
+    if let Some(rw) = extra_rw_paths {
+        for p in rw {
+            args.push("--bind-try".into());
+            args.push(p.clone());
+            args.push(p.clone());
+        }
+    }
+
+    args.extend([
         "--tmpfs".into(),
         "/tmp".into(),
         "--tmpfs".into(),
@@ -112,7 +139,7 @@ pub fn build_bwrap_args(
         "--setenv".into(),
         "REQUESTS_CA_BUNDLE".into(),
         cert_path.to_str().unwrap_or("").into(),
-    ];
+    ]);
 
     if let Some(env_map) = extra_env {
         for (k, v) in env_map {
@@ -165,6 +192,7 @@ pub fn build_landlock_command(
     args
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn generate_seatbelt_profile(
     user: &str,
     proxy_ip: &str,
@@ -172,6 +200,8 @@ pub fn generate_seatbelt_profile(
     dns_port: u16,
     other_users: Option<&[&str]>,
     vault_path: Option<&str>,
+    extra_write_paths: Option<&[String]>,
+    allow_gpu: bool,
 ) -> String {
     let mut denied_reads = Vec::new();
     let users = other_users.unwrap_or(&["admin"]);
@@ -182,6 +212,34 @@ pub fn generate_seatbelt_profile(
     denied_reads.push(format!("    (subpath \"{}\")", vault));
     denied_reads.push("    (subpath \"/etc/pa/profiles\")".into());
     let denied_clause = denied_reads.join("\n");
+
+    let mut allowed_writes = vec![
+        format!("    (subpath \"/Users/{}\")", user),
+        format!("    (subpath \"/private/tmp/pa-{}\")", user),
+        "    (subpath \"/private/var/folders\")".into(),
+        "    (literal \"/dev/null\")".into(),
+        "    (literal \"/dev/zero\")".into(),
+        "    (literal \"/dev/random\")".into(),
+        "    (literal \"/dev/urandom\")".into(),
+        "    (literal \"/dev/dtracehelper\")".into(),
+    ];
+    if let Some(extras) = extra_write_paths {
+        for p in extras {
+            allowed_writes.push(format!("    (subpath \"{}\")", p));
+        }
+    }
+    let allowed_writes_clause = allowed_writes.join("\n");
+
+    let gpu_clause = if allow_gpu {
+        r#";; 4. Allow Paravirtualized Metal GPU, CoreML, and IOKit Compute Access
+(allow iokit-open
+    (iokit-user-client-class "AGXDeviceUserClient")
+    (iokit-user-client-class "AGXSharedUserClient")
+    (iokit-user-client-class "IOSurfaceRootUserClient")
+    (iokit-user-client-class "AppleKeyStoreUserClient"))"#
+    } else {
+        ";; 4. GPU Access Disabled"
+    };
 
     format!(
         r#";; PA-Container 2.0 Agent Seatbelt Profile: {user}
@@ -204,21 +262,9 @@ pub fn generate_seatbelt_profile(
 ;; 3. Filesystem Write Jail
 (deny file-write*)
 (allow file-write*
-    (subpath "/Users/{user}")
-    (subpath "/private/tmp/pa-{user}")
-    (subpath "/private/var/folders")
-    (literal "/dev/null")
-    (literal "/dev/zero")
-    (literal "/dev/random")
-    (literal "/dev/urandom")
-    (literal "/dev/dtracehelper"))
+{allowed_writes_clause})
 
-;; 4. Allow Paravirtualized Metal GPU, CoreML, and IOKit Compute Access
-(allow iokit-open
-    (iokit-user-client-class "AGXDeviceUserClient")
-    (iokit-user-client-class "AGXSharedUserClient")
-    (iokit-user-client-class "IOSurfaceRootUserClient")
-    (iokit-user-client-class "AppleKeyStoreUserClient"))
+{gpu_clause}
 "#
     )
 }
@@ -241,21 +287,50 @@ mod tests {
     fn test_build_bwrap_args() {
         let home = PathBuf::from("/home/agent1");
         let cmd = vec!["pi".into(), "-p".into(), "hello".into()];
-        let args = build_bwrap_args("agent1", &home, "10.0.0.1", 8081, &cmd, None, None, None);
+        let ro = vec!["/opt/ro".to_string()];
+        let rw = vec!["/opt/rw".to_string()];
+        let args = build_bwrap_args(
+            "agent1",
+            &home,
+            "10.0.0.1",
+            8081,
+            &cmd,
+            None,
+            None,
+            None,
+            Some(&ro),
+            Some(&rw),
+            true,
+        );
         assert_eq!(args[0], "bwrap");
         assert!(args.contains(&"HTTP_PROXY".to_string()));
         assert!(args.contains(&"http://10.0.0.1:8081".to_string()));
         assert!(args.contains(&"hello".to_string()));
+        assert!(args.contains(&"/opt/ro".to_string()));
+        assert!(args.contains(&"/opt/rw".to_string()));
+        assert!(args.contains(&"/dev/dri".to_string()));
     }
 
     #[test]
     fn test_generate_seatbelt_profile() {
-        let profile = generate_seatbelt_profile("agent1", "192.168.64.1", 8081, 5353, None, None);
+        let extras = vec!["/opt/pa/extra".to_string()];
+        let profile = generate_seatbelt_profile(
+            "agent1",
+            "192.168.64.1",
+            8081,
+            5353,
+            None,
+            None,
+            Some(&extras),
+            true,
+        );
         assert!(profile.contains("Agent Seatbelt Profile: agent1"));
         assert!(profile.contains(r#"remote tcp "192.168.64.1:8081""#));
         assert!(profile.contains(r#"(subpath "/Users/admin")"#));
         assert!(profile.contains(r#"(subpath "/private/var/pa-vault")"#));
         assert!(profile.contains(r#"(subpath "/Users/agent1")"#));
+        assert!(profile.contains(r#"(subpath "/opt/pa/extra")"#));
+        assert!(profile.contains("AGXDeviceUserClient"));
     }
 
     #[test]

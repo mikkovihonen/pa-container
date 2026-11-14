@@ -114,7 +114,16 @@ pub struct LogsArgs {
 }
 
 fn handle_run(args: &RunArgs) -> Result<()> {
-    let config = load_factory_config(args.config.as_deref())?;
+    let mut config = load_factory_config(args.config.as_deref())?;
+
+    let packages_dir = std::env::current_dir()?.join("pa_packages");
+    let registry = if packages_dir.is_dir() {
+        pa_core::manifest::CapabilityRegistry::discover(&packages_dir)?
+    } else {
+        pa_core::manifest::CapabilityRegistry::default()
+    };
+    pa_core::manifest::merge_agent_capabilities(&mut config.agents, &registry)?;
+
     let resolved_agents = resolve_agent_ports(&config.agents, false);
 
     let target_agent_id = args.agent.as_deref().unwrap_or_else(|| {
@@ -135,6 +144,12 @@ fn handle_run(args: &RunArgs) -> Result<()> {
         target_agent.id, target_agent.driver
     );
 
+    let target_caps = if !target_agent.capabilities.is_empty() {
+        Some(registry.resolve_for_agent(&target_agent.capabilities)?)
+    } else {
+        None
+    };
+
     let backend = get_backend(&config)?;
     let proxy_ip = backend.start_proxy(&config)?;
     println!("==> Proxy listening at gateway {}", proxy_ip);
@@ -142,11 +157,16 @@ fn handle_run(args: &RunArgs) -> Result<()> {
     backend.ensure_factory_vm(&config, &proxy_ip)?;
     println!("==> Factory VM is ready.");
 
+    if let Some(ref caps) = target_caps {
+        backend.provision_capabilities(caps)?;
+    }
+
     let cwd = std::env::current_dir()?;
     let commit = backend.sync_git_to_vault(&cwd, "HEAD")?;
     println!("==> Synced repository to Vault at commit {}.", commit);
 
-    let exit_code = backend.launch_agent(&target_agent, args.prompt.as_deref())?;
+    let exit_code =
+        backend.launch_agent(&target_agent, args.prompt.as_deref(), target_caps.as_ref())?;
     println!(
         "==> Agent '{}' started (exit code: {}).",
         target_agent.id, exit_code
@@ -156,12 +176,20 @@ fn handle_run(args: &RunArgs) -> Result<()> {
 }
 
 fn handle_factory(args: &FactoryArgs) -> Result<()> {
-    let config = load_factory_config(args.config.as_deref())?;
+    let mut config = load_factory_config(args.config.as_deref())?;
     let backend = get_backend(&config)?;
 
     match args.action.to_lowercase().as_str() {
         "up" => {
             println!("==> Bringing up Software Factory VM and proxy...");
+            let packages_dir = std::env::current_dir()?.join("pa_packages");
+            let registry = if packages_dir.is_dir() {
+                pa_core::manifest::CapabilityRegistry::discover(&packages_dir)?
+            } else {
+                pa_core::manifest::CapabilityRegistry::default()
+            };
+            pa_core::manifest::merge_agent_capabilities(&mut config.agents, &registry)?;
+
             let proxy_ip = backend.start_proxy(&config)?;
             backend.ensure_factory_vm(&config, &proxy_ip)?;
             println!("==> Software Factory is UP (Proxy gateway: {}).", proxy_ip);
@@ -198,7 +226,16 @@ fn handle_review(args: &ReviewArgs) -> Result<()> {
 }
 
 fn handle_proxy(args: &ProxyArgs) -> Result<()> {
-    let config = load_factory_config(args.config.as_deref())?;
+    let mut config = load_factory_config(args.config.as_deref())?;
+
+    let packages_dir = std::env::current_dir()?.join("pa_packages");
+    let registry = if packages_dir.is_dir() {
+        pa_core::manifest::CapabilityRegistry::discover(&packages_dir)?
+    } else {
+        pa_core::manifest::CapabilityRegistry::default()
+    };
+    pa_core::manifest::merge_agent_capabilities(&mut config.agents, &registry)?;
+
     let agents = resolve_agent_ports(&config.agents, false);
 
     if args.url {
