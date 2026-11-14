@@ -17,6 +17,7 @@ pub struct IncusLinuxBackend {
     pub bridge_ip: String,
     pub ssh_user: String,
     pub ssh_port: u16,
+    pub project_name: std::sync::Mutex<String>,
 }
 
 impl IncusLinuxBackend {
@@ -33,6 +34,7 @@ impl IncusLinuxBackend {
             bridge_ip: bridge_ip.unwrap_or_else(|| DEFAULT_BRIDGE_IP.to_string()),
             ssh_user: ssh_user.unwrap_or_else(|| "admin".to_string()),
             ssh_port: ssh_port.unwrap_or(2222),
+            project_name: std::sync::Mutex::new("project".to_string()),
         }
     }
 
@@ -140,9 +142,27 @@ impl IncusLinuxBackend {
 impl FactoryBackend for IncusLinuxBackend {
     fn start_proxy(&self, config: &FactoryConfig) -> Result<String> {
         let agents = resolve_agent_ports(&config.agents, false);
+        let nonce = crate::manifest::generate_session_nonce();
         let mut proxy_rules = Vec::new();
 
         for a in &agents {
+            let mut placeholders = serde_json::Map::new();
+            for tok_name in &a.tokens {
+                let rule = crate::manifest::TokenRuleSpec {
+                    env_var: tok_name.clone(),
+                    keyring_service: None,
+                    keyring_key: None,
+                    allowed_hosts: a.allowlist.clone(),
+                };
+                let placeholder =
+                    crate::manifest::derive_placeholder_token(&nonce, &a.id, tok_name);
+                if let Some(secret) = rule.resolve_secret() {
+                    placeholders.insert(placeholder, json!(&*secret));
+                } else {
+                    placeholders.insert(placeholder, json!(""));
+                }
+            }
+
             proxy_rules.push(json!({
                 "id": a.id,
                 "agent_id": a.id,
@@ -151,6 +171,7 @@ impl FactoryBackend for IncusLinuxBackend {
                 "proxy_port": a.proxy_port,
                 "transparent_port": a.transparent_port,
                 "allowed_hosts": a.allowlist,
+                "token_placeholders": placeholders,
                 "flow_log_path": format!("/exports/flows-agent-{}.jsonl", a.id),
             }));
         }
@@ -162,6 +183,14 @@ impl FactoryBackend for IncusLinuxBackend {
             &proxy_config_path,
             serde_json::to_string_pretty(&json!({ "agents": proxy_rules }))?,
         )?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&proxy_config_path, fs::Permissions::from_mode(0o600));
+        }
+
+        let _ = crate::backend::ensure_proxy_server(&self.bridge_ip, &proxy_config_path, &agents);
 
         Ok(self.bridge_ip.clone())
     }
@@ -204,6 +233,8 @@ impl FactoryBackend for IncusLinuxBackend {
             .and_then(|s| s.to_str())
             .unwrap_or("project");
 
+        *self.project_name.lock().unwrap() = project_name.to_string();
+
         let vm_ip = self.get_vm_ip()?;
         self.execute_ssh_rpc("init_vault", json!({ "project_name": project_name }))?;
 
@@ -212,11 +243,32 @@ impl FactoryBackend for IncusLinuxBackend {
             self.ssh_user, vm_ip, self.ssh_port, project_name
         );
 
+        let stash_out = Command::new("git")
+            .args(["stash", "create"])
+            .current_dir(host_repo)
+            .output();
+
+        let commit_to_push = if let Ok(out) = stash_out {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !s.is_empty() {
+                    s
+                } else {
+                    branch.to_string()
+                }
+            } else {
+                branch.to_string()
+            }
+        } else {
+            branch.to_string()
+        };
+
         let out = Command::new("git")
             .args([
                 "push",
+                "-f",
                 &vault_git_url,
-                &format!("{}:refs/heads/main", branch),
+                &format!("{}:refs/heads/main", commit_to_push),
             ])
             .current_dir(host_repo)
             .output()
@@ -294,7 +346,7 @@ impl FactoryBackend for IncusLinuxBackend {
             }),
         )?;
 
-        let project_name = "default";
+        let project_name = self.project_name.lock().unwrap().clone();
         self.execute_ssh_rpc(
             "cow_clone",
             json!({
@@ -323,13 +375,24 @@ impl FactoryBackend for IncusLinuxBackend {
             "proxy_port": agent.proxy_port.unwrap_or(8081),
         });
 
+        let nonce = crate::manifest::generate_session_nonce();
+        let mut env_map = serde_json::Map::new();
+
         if let Some(caps) = capabilities {
-            payload["extra_env"] = json!(caps.env);
+            for (k, v) in &caps.env {
+                env_map.insert(k.clone(), json!(v));
+            }
             payload["bin_dirs"] = json!(caps.bin_dirs);
             payload["read_paths"] = json!(caps.read_paths);
             payload["write_paths"] = json!(caps.write_paths);
             payload["allow_gpu"] = json!(caps.allow_gpu);
         }
+
+        for tok in &agent.tokens {
+            let ph = crate::manifest::derive_placeholder_token(&nonce, &agent.id, tok);
+            env_map.insert(tok.clone(), json!(ph));
+        }
+        payload["extra_env"] = json!(env_map);
 
         let res = self.execute_ssh_rpc("launch_agent", payload)?;
 
@@ -341,10 +404,7 @@ impl FactoryBackend for IncusLinuxBackend {
     }
 
     fn fetch_agent_branch(&self, agent_id: &str, host_repo: &Path) -> Result<PathBuf> {
-        let project_name = host_repo
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("project");
+        let project_name = self.project_name.lock().unwrap().clone();
 
         let vm_ip = self.get_vm_ip()?;
         let vault_git_url = format!(
@@ -394,6 +454,7 @@ impl FactoryBackend for IncusLinuxBackend {
     }
 
     fn stop_factory(&self) -> Result<()> {
+        let _ = crate::backend::stop_proxy_server();
         let status = Command::new("incus")
             .args(["stop", &self.vm_name])
             .status()

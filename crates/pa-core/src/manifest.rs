@@ -10,6 +10,22 @@ use crate::schema::AgentSpec;
 
 type HmacSha256 = Hmac<Sha256>;
 
+pub fn generate_session_nonce() -> [u8; 32] {
+    use sha2::Digest;
+    let mut hasher = Sha256::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id();
+    hasher.update(now.to_le_bytes());
+    hasher.update(pid.to_le_bytes());
+    let res = hasher.finalize();
+    let mut nonce = [0u8; 32];
+    nonce.copy_from_slice(&res[..32]);
+    nonce
+}
+
 pub fn derive_placeholder_token(session_nonce: &[u8], agent_id: &str, env_var: &str) -> String {
     let mut mac = HmacSha256::new_from_slice(session_nonce).expect("HMAC accepts keys of any size");
     mac.update(agent_id.as_bytes());
@@ -66,7 +82,34 @@ pub struct StagingSpec {
 pub struct TokenRuleSpec {
     pub env_var: String,
     #[serde(default)]
+    pub keyring_service: Option<String>,
+    #[serde(default)]
+    pub keyring_key: Option<String>,
+    #[serde(default)]
     pub allowed_hosts: Vec<String>,
+}
+
+impl TokenRuleSpec {
+    pub fn resolve_secret(&self) -> Option<zeroize::Zeroizing<String>> {
+        let service = self.keyring_service.as_deref().unwrap_or("pa-container");
+        let key = self.keyring_key.as_deref().unwrap_or(&self.env_var);
+
+        if let Ok(entry) = keyring::Entry::new(service, key) {
+            if let Ok(pwd) = entry.get_password() {
+                if !pwd.is_empty() {
+                    return Some(zeroize::Zeroizing::new(pwd));
+                }
+            }
+        }
+
+        if let Ok(val) = std::env::var(key) {
+            if !val.is_empty() {
+                return Some(zeroize::Zeroizing::new(val));
+            }
+        }
+
+        None
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

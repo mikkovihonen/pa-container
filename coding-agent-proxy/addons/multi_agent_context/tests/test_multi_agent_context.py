@@ -15,6 +15,7 @@ sys.path.insert(0, str(ADDONS_DIR / "token_replacer"))
 
 from allowlist import AllowlistAddon
 from multi_agent_context import AgentPolicy, MultiAgentContextAddon
+from token_replacer import TokenReplacerAddon
 
 _fe_spec = importlib.util.spec_from_file_location("proxy_flow_exporter", ADDONS_DIR / "flow_export" / "flow_export.py")
 _fe_mod = importlib.util.module_from_spec(_fe_spec)
@@ -128,3 +129,39 @@ class TestMultiAgentContext:
         content = agent_file.read_text()
         data = json.loads(content.strip())
         assert data.get("pa_agent_id") == "agent1"
+
+    def test_token_placeholder_replacement_authorized(self):
+        policy = AgentPolicy(
+            agent_id="agent1",
+            allowed_hosts=["api.openai.com"],
+            token_placeholders={"pa-tok-agent1-12345678": "sk-real-openai-secret"},
+        )
+        ctx_addon = MultiAgentContextAddon(port_map={8081: policy})
+        replacer_addon = TokenReplacerAddon(config_path="")
+
+        flow = _make_flow_with_port("api.openai.com", 8081)
+        flow.request.headers["authorization"] = "Bearer pa-tok-agent1-12345678"
+        ctx_addon.requestheaders(flow)
+        replacer_addon.request(flow)
+
+        assert flow.response is None
+        assert flow.request.headers["authorization"] == "Bearer sk-real-openai-secret"
+
+    def test_token_placeholder_blocked_unauthorized_host(self):
+        policy = AgentPolicy(
+            agent_id="agent1",
+            allowed_hosts=["api.openai.com"],
+            token_placeholders={"pa-tok-agent1-12345678": "sk-real-openai-secret"},
+        )
+        ctx_addon = MultiAgentContextAddon(port_map={8081: policy})
+        replacer_addon = TokenReplacerAddon(config_path="")
+
+        flow = _make_flow_with_port("evil-attacker.com", 8081)
+        flow.request.headers["authorization"] = "Bearer pa-tok-agent1-12345678"
+        ctx_addon.requestheaders(flow)
+        replacer_addon.request(flow)
+
+        assert flow.response is not None
+        assert flow.response.status_code == 403
+        assert b"Token cannot be sent" in flow.response.content
+        assert flow.request.headers["authorization"] == "Bearer pa-tok-agent1-12345678"

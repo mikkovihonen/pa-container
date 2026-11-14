@@ -41,7 +41,7 @@ In `pa-container`, **ACP** was introduced as an abbreviation for **Agent Capabil
 
 1. **Ecosystem Acronym Collision:** In the coding-agent ecosystem (including OpenCode, Pi, Zed, and JetBrains), **ACP** is the standard acronym for the *Agent Client Protocol* / *Agent Communication Protocol* (alongside *MCP* for Model Context Protocol). Using "ACP" for *Agent Capability Packages* creates ambiguity in documentation and agent logs.
 2. **Direct Alignment with `pa_packages`:** Calling each modular unit in `pa_packages/` a **Capability Pack** (or simply a **Capability**) directly connects the user's workflow (*"selecting what capabilities a software factory has"*) with the repository layout (`pa_packages/`).
-3. **Backward Compatibility:** During the transition, `pa-cli` will continue to accept `acps` in configuration files and CLI flags (`--acps`) as a deprecated alias for `capabilities` (`--capabilities`).
+3. **Clean Departure from Legacy:** Backwards compatibility is explicitly forbidden. The legacy ACP naming and single-directory Podman wrapper are deprecated in favor of clean, declarative Capability Packs (`capabilities`) and the 3-tier VM architecture.
 
 ### 2.3. Architectural Bottlenecks Blocking the "Software Factory" Goal
 
@@ -262,7 +262,7 @@ In `pa-container` v0.7.x (including `feat: media acps` and the `pa_packages/` hi
 3. **Agent Skill Definitions (`SKILL.md`):** Structured markdown instructions and tool usage guides staged into `.pi/skills/<name>/SKILL.md` and synthesized/adapted for all supported agents (`pi`, `opencode`, `antigravity`, `claude`).
 4. **Workspace Configuration & Proxy Wiring:** Default `allowlist` domains, `keyring` token placeholders for `token_replacer`, and environment variables synthesized by `pa-cli` when the package is enabled.
 
-To support both the existing Podman container builder (`podman-legacy`) and the new multi-user Factory VM (`macos-tart`, `linux-incus`, `linux-cloud`) without duplicating package definitions, each directory under `pa_packages/` follows a unified layout backed by `capability.toml`:
+To support declarative in-guest package provisioning across Factory VMs (`macos-tart` and `linux-incus`), each package under `pa_packages/` follows a unified layout backed by `capability.toml`:
 
 ```
 pa_packages/
@@ -310,86 +310,45 @@ pa_packages/
 #### Refined `capability.toml` Schema Specification
 
 ```toml
-# pa_packages/capabilities/media_image/capability.toml
+# pa_packages/capabilities/image-tools/capability.toml
 schema_version = "1.0"
 
 [capability]
-name = "media-image"
-aliases = ["acp-media-image", "image"] # Backward-compatible ACP names
-category = "media"                     # "media" | "toolchain" | "desktop" | "mobile" | "compute"
-version = "0.7.0"
-description = "Image generation, editing, inspection, and format conversion for coding agents"
-supported_agents = ["pi", "opencode", "antigravity", "claude"]
-supported_backends = ["podman-legacy", "macos-tart", "linux-incus", "linux-cloud"]
-requires = ["python-uv"]               # Composes with other packages in pa_packages
+name = "image-tools"
+category = "media"
+version = "1.0.0"
+description = "Image processing capability: ImageMagick, WebP, ExifTool, potrace"
+requires = []
 
 [staging]
-# Target read-only installation prefix inside the container or Factory VM
-install_prefix = "/opt/pa/packs/media-image"
+install_prefix = "/opt/pa/packs/image-tools"
+bin_dirs = ["bin"]
+fedora_packages = ["ImageMagick", "libwebp-tools", "oxipng", "perl-Image-ExifTool", "potrace"]
+macos_brew_packages = ["imagemagick", "webp", "oxipng", "exiftool", "potrace"]
 
-# OS-level dependencies installed during `pa build` (Podman/Fedora VM or macOS Tart VM)
-fedora_packages = ["ImageMagick", "libwebp-tools", "oxipng", "exiftool"]
-macos_brew_packages = ["imagemagick", "webp", "oxipng", "exiftool"]
-
-# Isolated uv virtual environment built from this package's pyproject.toml
-uv_project = "."
-bin_dirs = ["bin"]                     # Appended to agent's PATH when capability is enabled
+[entitlements]
+read_paths = ["/opt/pa/packs/image-tools"]
+write_paths = ["/tmp/pa-media"]
+allow_gpu = false
+allow_network_bind = []
 
 [env]
-# Environment variables injected into the agent's session when this capability is enabled
-PA_MEDIA_IMAGE_PROVIDER = "${config:capabilities.media-image.provider|openai}"
-PA_MEDIA_OUTPUT_DIR = "${workspace}/.pa/media/images"
+MAGICK_TEMPORARY_PATH = "/tmp/pa-media"
 
-[skills]
-source_dir = "skills/media-image"
-skill_name = "media-image"
-entrypoint_hint = "pa-media-image"
-
-[proxy.allowlist]
-domains = [
+[proxy]
+allowlist = [
     "api.openai.com",
     "generativelanguage.googleapis.com",
-    "api.stability.ai",
-    "api.replicate.com",
-    "api.bfl.ml"
+    "api.stability.ai"
 ]
-
-[proxy.allowlist.by_provider]
-openai = ["api.openai.com"]
-gemini = ["generativelanguage.googleapis.com"]
-stability = ["api.stability.ai"]
-replicate = ["api.replicate.com", "*.replicate.delivery"]
-local = ["media-local.pa.internal"]
 
 [[proxy.tokens]]
 env_var = "OPENAI_API_KEY"
-keyring_service = "pa-container"
-keyring_key = "OPENAI_API_KEY"
 allowed_hosts = ["api.openai.com"]
 
 [[proxy.tokens]]
-env_var = "GEMINI_API_KEY"
-keyring_service = "pa-container"
-keyring_key = "GEMINI_API_KEY"
-allowed_hosts = ["generativelanguage.googleapis.com"]
-
-[[proxy.tokens]]
 env_var = "STABILITY_API_KEY"
-keyring_service = "pa-container"
-keyring_key = "STABILITY_API_KEY"
 allowed_hosts = ["api.stability.ai"]
-
-[[proxy.tokens]]
-env_var = "REPLICATE_API_TOKEN"
-keyring_service = "pa-container"
-keyring_key = "REPLICATE_API_TOKEN"
-allowed_hosts = ["api.replicate.com"]
-
-[sandbox]
-gpu = "optional"                       # "none" | "optional" | "required"
-display = false                        # true for web-desktop
-writable_workspace_subdirs = [".pa/media/images"]
-ro_binds = ["/opt/pa/packs/media-image"]
 ```
 
 ---
@@ -423,7 +382,7 @@ name = "multimodal-mobile-factory"
 description = "Multi-agent software factory with GPU compute, Media Capability Packs, and mobile runners"
 
 [compute]
-backend = "auto" # "auto" | "macos-tart" | "linux-incus" | "linux-cloud" | "podman-legacy"
+backend = "auto" # "auto" | "macos-tart" | "linux-incus"
 cpus = 8
 memory_mb = 16384
 gpu = "required"
@@ -493,13 +452,13 @@ extra_tokens = ["OPENAI_API_KEY"]
 
 ## 8. Detailed Engineering Design: Phase 1 (Rust Cargo Workspace, Capability Engine & Multi-Port Proxy)
 
-**Phase 1 Scope:** Bootstrap the 4-crate Rust Cargo workspace (`pa-protocol`, `pa-sandbox`, `pa-agentd`, `pa-cli`), implement `capability.toml` and `factory.toml` `serde` parsers and dependency graph resolution, implement `zeroize`-backed HMAC token placeholder synthesis and multi-agent skill staging, port `PodmanLegacyBackend` to `crates/pa-cli`, and upgrade `coding-agent-proxy` to multi-port per-agent enforcement.
+**Phase 1 Scope:** Bootstrap the 4-crate Rust Cargo workspace (`pa-core`, `pa-cli`, `pa-agentd`, `pa-landlock`), implement `capability.toml` and `factory.toml` `serde` parsers and topological dependency graph resolution, implement `zeroize`-backed HMAC token placeholder synthesis with OS keyring resolution, and wire `coding-agent-proxy` for multi-port per-agent enforcement.
 
 **Phase 1 Exit Criteria:**
-1. `cargo build --workspace --release` produces the `pa` host CLI binary and `pa-agentd` guest daemon binary.
-2. All `pa_packages` (including `feat: media acps`) are backed by validated `capability.toml` manifests parsed by `pa-protocol`.
-3. `coding-agent-proxy` supports $N$ concurrent agent ports (`8081..8099`) and transparent ports (`8091..8099`) from a single proxy instance, enforcing per-port allowlists and host-scoped token replacement while binding `mitmweb` strictly to `127.0.0.1`.
-4. Single-directory `pa run` workflows execute via `PodmanLegacyBackend` in Rust with full backward compatibility.
+1. `cargo build --workspace --release` produces the `pa` host CLI binary, `pa-agentd` guest daemon binary, and `pa-landlock-run` sandbox helper.
+2. All `pa_packages` are backed by validated `capability.toml` manifests with declarative `[entitlements]` and `[staging]`.
+3. `coding-agent-proxy` supports concurrent per-agent ports (`8081..8099`) and transparent ports (`8091..8099`), enforcing per-port allowlists, authorized secret substitution, and host-scoped token replacement.
+4. Single-directory Podman legacy fallbacks are fully deprecated and eliminated in favor of clean Factory VM orchestration.
 
 ### 8.1. Cargo Workspace Layout (`Cargo.toml`)
 
@@ -508,10 +467,10 @@ extra_tokens = ["OPENAI_API_KEY"]
 [workspace]
 resolver = "2"
 members = [
-    "crates/pa-protocol",
-    "crates/pa-sandbox",
-    "crates/pa-agentd",
+    "crates/pa-core",
     "crates/pa-cli",
+    "crates/pa-agentd",
+    "crates/pa-landlock",
 ]
 
 [workspace.package]
@@ -1029,9 +988,9 @@ pub enum RpcResponse {
 }
 ```
 
-### 9.2. Crate Design: `crates/pa-sandbox/src/linux_landlock.rs` (Native Rust Landlock ABI v4+ Enforcer)
+### 9.2. Crate Design: `crates/pa-landlock` & In-Guest Sandboxing
 
-Using the official `landlock` crate and `std::os::unix::process::CommandExt::pre_exec`, `pa-sandbox` applies `PR_SET_NO_NEW_PRIVS` and Landlock TCP connect/bind port filters directly inside the child process right before `execvp`, completely eliminating `landlock_helper.c`:
+Because Landlock revokes unprivileged process capabilities immediately upon `landlock_restrict_self` (which would deny Bubblewrap the mount and namespace syscalls it requires if applied prior to `bwrap`), Landlock is enforced via an in-guest runner binary `crates/pa-landlock` (`pa-landlock-run`). Bubblewrap launches `pa-landlock-run` *inside* the container, which applies Landlock ABI v4+ filesystem and TCP connect restrictions right before calling `execvp` on the target agent process:
 
 ```rust
 // crates/pa-sandbox/src/linux_landlock.rs
@@ -1441,60 +1400,40 @@ impl IosSimulatorManager {
 
 ```
 pa-container/
-├── Cargo.toml                        # Rust Workspace root (pa-protocol, pa-sandbox, pa-agentd, pa-cli)
+├── Cargo.toml                        # Rust Workspace root (pa-core, pa-cli, pa-agentd, pa-landlock)
 ├── crates/
-│   ├── pa-protocol/                  # Shared serde schemas (capability.toml, factory.toml) & JSON-RPC
+│   ├── pa-core/                      # Shared schemas, manifests, backends, and guest sandbox engines
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── manifest.rs           # CapabilityManifest & topological dependency closure
-│   │       ├── factory.rs            # FactoryConfig schema_version = "2.0" parser
-│   │       └── rpc.rs                # RpcRequest & RpcResponse enums for host <-> VM stdio
-│   ├── pa-sandbox/                   # Native OS sandboxing & firewall rule compilers
+│   │       ├── manifest.rs           # CapabilityManifest & topological dependency resolution
+│   │       ├── schema.rs             # FactoryConfig schema_version = "2.0" parser & port resolution
+│   │       ├── backend.rs            # FactoryBackend trait & proxy lifecycle supervisor
+│   │       ├── review.rs             # Git worktree review manager
+│   │       ├── backends/             # VM backends (tart_macos.rs, incus_linux.rs)
+│   │       └── guest/                # In-guest sandbox generators (sandboxes, firewall, git_vault, ios_runner)
+│   ├── pa-landlock/                  # In-guest Linux Landlock ABI v4+ sandbox runner
 │   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── linux_landlock.rs     # Native Rust Landlock ABI v4+ & bwrap Command builder
-│   │       ├── macos_seatbelt.rs     # Dynamic Seatbelt (.sb) profile compiler (Metal/ANE IOKit)
-│   │       └── firewall.rs           # Atomic /etc/pf.conf & /etc/nftables.conf compilers
+│   │   └── src/main.rs               # pa-landlock-run binary executed inside bwrap
 │   ├── pa-agentd/                    # Static single-binary Guest VM Daemon & iOS Simulator Bridge
 │   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── main.rs               # `pa-agentd rpc-stdio` & `pa-agentd ios-runnerd` entrypoints
-│   │       ├── users.rs              # POSIX user creation (useradd / dscl, UID >= 2001) & cgroups
-│   │       ├── git_vault.rs          # /var/pa-vault bare repos, CoW clones, pre-receive ACL hook
-│   │       └── ios_runner.rs         # Aqua UID 501 iOS Simulator manager & per-agent proxy bridge
-│   └── pa-cli/                       # Host CLI binary (`pa`) replacing Python `pa_core`
+│   │   └── src/main.rs               # In-guest JSON-RPC daemon (stdio & unix socket)
+│   └── pa-cli/                       # Host CLI binary (`pa`) replacing legacy Python orchestration
 │       ├── Cargo.toml
-│       └── src/
-│           ├── main.rs               # Clap CLI (`run`, `factory`, `review`, `build`, `proxy`, `desktop`)
-│           ├── composer.rs           # Keyring + Zeroizing secrets + HMAC placeholder synthesis
-│           ├── skill_synthesizer.rs  # Stages SKILL.md across pi, claude, opencode, antigravity
-│           ├── llama_server.rs       # Flock-based reference-counted host llama-server manager
-│           └── backends/
-│               ├── mod.rs            # Async FactoryBackend trait + dirty git stash ingest
-│               ├── podman_legacy.rs  # Rootless Podman backend (100% compatible with v0.7.x)
-│               ├── tart_macos.rs     # Tart + Softnet orchestration for macOS Desktop
-│               ├── incus_linux.rs    # Incus VM / Cloud Hypervisor orchestration for Linux
-│               └── cloud_remote.rs   # Remote SSH / Cloud VM orchestration
-├── coding-agent-proxy/               # Retained on mitmproxy (Python addons + localhost mitmweb)
-│   ├── addons/
-│   │   └── pipeline.py               # Unified multi-port identity, allowlist, token & flow addon
-├── coding-agent/                     # Base Fedora image (used for Podman & Incus VM rootfs)
-├── vm-images/                        # Packer / Tart / mkosi templates for Factory VMs
+│       └── src/main.rs               # Clap CLI (`run`, `factory`, `review`, `proxy`, `logs`)
+├── coding-agent-proxy/               # Multi-agent mitmproxy egress & auditing boundary
+│   ├── Containerfile
+│   ├── entrypoint.sh
+│   └── addons/                       # Modular Python proxy addons
+│       ├── multi_agent_context/      # Maps client ports (sockname) to per-agent policies
+│       ├── allowlist/                # Hostname allowlist filtering per agent
+│       ├── token_replacer/           # Secret substitution & unauthorized token egress blocking
+│       └── flow_export/              # Per-agent JSON Lines audit trail exporter
+├── vm-images/                        # Factory VM image templates and setup scripts
+│   ├── pa-agent-entrypoint           # Universal guest agent entrypoint dispatcher
 │   ├── tart-macos/                   # Tart macOS guest provisioning scripts (pf, Seatbelt, Xcode)
 │   └── fedora-vm/                    # Fedora KVM/Incus image definition (nftables, bwrap, Landlock)
-└── pa_packages/                      # Unified package repository for drivers, toolchains & capabilities
-    ├── agents/                       # Pluggable agent drivers (pi, opencode, antigravity, claude)
-    ├── toolchains/                   # Language toolchains (python_uv, nodejs, rust) + capability.toml
-    └── capabilities/                 # Composable Capability Packs (formerly ACPs)
-        ├── media_image/              # Image Capability Pack (capability.toml + bin/ + skills/)
-        ├── media_audio/              # Audio Capability Pack (capability.toml + bin/ + skills/)
-        ├── media_video/              # Video Capability Pack (capability.toml + bin/ + skills/)
-        ├── web_desktop/              # Headless Wayland/X11 + agent-desktop + Chrome for Testing
-        ├── gpu_compute/              # Metal / CUDA / ROCm / Vulkan compute entitlement pack
-        ├── mobile_ios/               # macOS iOS Simulator bridge CLI + skills + capability.toml
-        └── mobile_android/           # Android SDK/Emulator pack + skills + capability.toml
+└── pa_packages/                      # Declarative Capability Packs (image-tools, 3d-tools, browser, etc.)
 ```
 
 ### 11.2. Security & Functional Verification Matrix (Phases 1–3)

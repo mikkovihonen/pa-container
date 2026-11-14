@@ -12,6 +12,11 @@ mkdir -p /opt/pa/bin /opt/pa/certs /opt/pa/packages /var/pa-vault
 chmod 755 /opt/pa
 chmod 700 /var/pa-vault
 
+if [ -f "$(dirname "$0")/../pa-agent-entrypoint" ]; then
+    cp "$(dirname "$0")/../pa-agent-entrypoint" /opt/pa/bin/pa-agent-entrypoint
+    chmod 755 /opt/pa/bin/pa-agent-entrypoint
+fi
+
 # Enable and start pa-agentd systemd service
 cat << 'EOF' > /etc/systemd/system/pa-agentd.service
 [Unit]

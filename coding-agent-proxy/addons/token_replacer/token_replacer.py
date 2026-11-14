@@ -29,9 +29,9 @@ from typing import TYPE_CHECKING, Any
 from urllib import parse as urlparse
 
 import yaml
+from mitmproxy import http
 
 if TYPE_CHECKING:
-    from mitmproxy import http
     from mitmproxy.http import Headers, Request, Response
 
 type TokenReplacerTarget = Request | Response
@@ -829,8 +829,45 @@ class TokenReplacerAddon:
         # destination IP in transparent mode, so match hostnames on pretty_host.
         hostname = _strip_port(flow.request.pretty_host or "")
 
-        applicable_rules = self._should_replace(hostname)
         pa_policy = flow.metadata.get("pa_policy") if isinstance(getattr(flow, "metadata", None), dict) else None
+        if pa_policy is not None and isinstance(getattr(pa_policy, "token_placeholders", None), dict):
+            placeholders = getattr(pa_policy, "token_placeholders", {})
+            if placeholders:
+                allowed_hosts = getattr(pa_policy, "allowed_hosts", [])
+                host_allowed = not allowed_hosts or any(
+                    hostname == h.lower()
+                    or (h.startswith("*.") and (hostname == h[2:].lower() or hostname.endswith("." + h[2:].lower())))
+                    for h in allowed_hosts
+                )
+                for ph, secret in placeholders.items():
+                    if not ph or not secret:
+                        continue
+                    ph_bytes = ph.encode("utf-8")
+                    found_in_headers = any(ph in flow.request.headers[k] for k in flow.request.headers)
+                    found_in_path = ph in flow.request.path
+                    found_in_body = bool(flow.request.raw_content and ph_bytes in flow.request.raw_content)
+
+                    if found_in_headers or found_in_path or found_in_body:
+                        if not host_allowed:
+                            log.warning(f"[token-replacer] BLOCKED token security violation for {ph} to {hostname}")
+                            flow.response = http.Response.make(
+                                403,
+                                f"PA-Proxy Security Violation: Token cannot be sent to {hostname}.\n".encode(),
+                            )
+                            return
+                        for k in list(flow.request.headers):
+                            v = flow.request.headers[k]
+                            if ph in v:
+                                flow.request.headers[k] = v.replace(ph, secret)
+                        if found_in_path:
+                            flow.request.path = flow.request.path.replace(ph, secret)
+                        if found_in_body and flow.request.raw_content:
+                            flow.request.raw_content = flow.request.raw_content.replace(
+                                ph_bytes, secret.encode("utf-8")
+                            )
+                        log.info(f"[token-replacer] Replaced placeholder {ph} for {hostname}")
+
+        applicable_rules = self._should_replace(hostname)
         if pa_policy is not None and isinstance(getattr(pa_policy, "token_placeholders", None), dict):
             allowed_tokens = set(pa_policy.token_placeholders.keys()) | set(pa_policy.token_placeholders.values())
             scoped_rules = []
@@ -900,8 +937,45 @@ class TokenReplacerAddon:
         # destination IP in transparent mode, so match hostnames on pretty_host.
         hostname = _strip_port(flow.request.pretty_host or "")
 
-        applicable_rules = self._should_replace(hostname)
         pa_policy = flow.metadata.get("pa_policy") if isinstance(getattr(flow, "metadata", None), dict) else None
+        if pa_policy is not None and isinstance(getattr(pa_policy, "token_placeholders", None), dict):
+            placeholders = getattr(pa_policy, "token_placeholders", {})
+            if placeholders:
+                allowed_hosts = getattr(pa_policy, "allowed_hosts", [])
+                host_allowed = not allowed_hosts or any(
+                    hostname == h.lower()
+                    or (h.startswith("*.") and (hostname == h[2:].lower() or hostname.endswith("." + h[2:].lower())))
+                    for h in allowed_hosts
+                )
+                for ph, secret in placeholders.items():
+                    if not ph or not secret:
+                        continue
+                    ph_bytes = ph.encode("utf-8")
+                    found_in_headers = any(ph in flow.request.headers[k] for k in flow.request.headers)
+                    found_in_path = ph in flow.request.path
+                    found_in_body = bool(flow.request.raw_content and ph_bytes in flow.request.raw_content)
+
+                    if found_in_headers or found_in_path or found_in_body:
+                        if not host_allowed:
+                            log.warning(f"[token-replacer] BLOCKED token security violation for {ph} to {hostname}")
+                            flow.response = http.Response.make(
+                                403,
+                                f"PA-Proxy Security Violation: Token cannot be sent to {hostname}.\n".encode(),
+                            )
+                            return
+                        for k in list(flow.request.headers):
+                            v = flow.request.headers[k]
+                            if ph in v:
+                                flow.request.headers[k] = v.replace(ph, secret)
+                        if found_in_path:
+                            flow.request.path = flow.request.path.replace(ph, secret)
+                        if found_in_body and flow.request.raw_content:
+                            flow.request.raw_content = flow.request.raw_content.replace(
+                                ph_bytes, secret.encode("utf-8")
+                            )
+                        log.info(f"[token-replacer] Replaced placeholder {ph} for {hostname}")
+
+        applicable_rules = self._should_replace(hostname)
         if pa_policy is not None and isinstance(getattr(pa_policy, "token_placeholders", None), dict):
             allowed_tokens = set(pa_policy.token_placeholders.keys()) | set(pa_policy.token_placeholders.values())
             scoped_rules = []

@@ -46,6 +46,7 @@ USER root
 COPY coding-agent-proxy/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+COPY coding-agent-proxy/addons/multi_agent_context/multi_agent_context.py /home/mitmproxy/scripts/multi_agent_context.py
 COPY coding-agent-proxy/addons/allowlist/allowlist.py /home/mitmproxy/scripts/allowlist.py
 COPY coding-agent-proxy/addons/token_replacer/token_replacer.py /home/mitmproxy/scripts/token_replacer.py
 COPY coding-agent-proxy/addons/flow_export/flow_export.py /home/mitmproxy/scripts/flow_export.py
@@ -56,7 +57,8 @@ RUN mkdir -p /home/mitmproxy/exports && chown mitmproxy:mitmproxy /home/mitmprox
 
 ENV ALLOWLIST_CONFIG_PATH=/home/mitmproxy/config/allowlist.yaml
 ENV TOKEN_REPLACER_CONFIG_PATH=/home/mitmproxy/config/token_replacer.yaml
+ENV PA_MULTI_AGENT_CONFIG=/home/mitmproxy/config/multi_agent_proxy.json
 
-EXPOSE 8080 8081
+EXPOSE 8080 8081 8082 8083 8084 8091 8092 8093 8094 5353/udp
 
 ENTRYPOINT ["/entrypoint.sh"]

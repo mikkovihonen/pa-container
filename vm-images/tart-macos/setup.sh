@@ -12,6 +12,11 @@ mkdir -p /opt/pa/bin /opt/pa/certs /opt/pa/packages /etc/pa/profiles /private/va
 chmod 755 /opt/pa
 chmod 700 /private/var/pa-vault
 
+if [ -f "$(dirname "$0")/../pa-agent-entrypoint" ]; then
+    cp "$(dirname "$0")/../pa-agent-entrypoint" /opt/pa/bin/pa-agent-entrypoint
+    chmod 755 /opt/pa/bin/pa-agent-entrypoint
+fi
+
 # Install pa-agentd and pa-ios-runnerd launch daemons
 cat << 'EOF' > /Library/LaunchDaemons/com.pa.agentd.plist
 <?xml version="1.0" encoding="UTF-8"?>

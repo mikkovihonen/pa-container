@@ -68,3 +68,151 @@ pub fn get_backend(config: &FactoryConfig) -> Result<Box<dyn FactoryBackend>> {
         other => anyhow::bail!("Unsupported compute backend: {}", other),
     }
 }
+
+static PROXY_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub fn ensure_proxy_server(proxy_ip: &str, config_path: &Path, agents: &[AgentSpec]) -> Result<()> {
+    let _lock = PROXY_MUTEX.lock().unwrap();
+
+    let test_addr = format!("{}:8081", proxy_ip);
+    if let Ok(_stream) = std::net::TcpStream::connect_timeout(
+        &test_addr
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:8081".parse().unwrap()),
+        std::time::Duration::from_millis(150),
+    ) {
+        return Ok(());
+    }
+
+    let podman_check = std::process::Command::new("podman")
+        .args(["ps", "-q", "-f", "name=pa-proxy"])
+        .output();
+    if let Ok(out) = podman_check {
+        if out.status.success() {
+            let container_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !container_id.is_empty() {
+                return Ok(());
+            }
+        }
+    }
+
+    // Clean up any stale or stopped pa-proxy container before starting anew
+    let _ = std::process::Command::new("podman")
+        .args(["rm", "-f", "pa-proxy"])
+        .output();
+
+    let mut podman_cmd = std::process::Command::new("podman");
+    podman_cmd.args([
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        "pa-proxy",
+        "-v",
+        &format!(
+            "{}:/home/mitmproxy/config/multi_agent_proxy.json:ro",
+            config_path.display()
+        ),
+        "-p",
+        "8080:8080",
+        "-p",
+        "8081:8081",
+        "-p",
+        "8082:8082",
+        "-p",
+        "8083:8083",
+        "-p",
+        "8084:8084",
+        "-p",
+        "5353:5353/udp",
+        "-e",
+        "ADMIN_PASSWORD=CHANGEME",
+        "localhost/pa-container-agent-proxy:local",
+    ]);
+
+    if let Ok(status) = podman_cmd.status() {
+        if status.success() {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            return Ok(());
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let proxy_dir = cwd.join("coding-agent-proxy");
+        if proxy_dir.join("addons").exists() {
+            let mut modes = vec![
+                "--mode".to_string(),
+                "regular@8081".to_string(),
+                "--mode".to_string(),
+                "dns@5353".to_string(),
+            ];
+            for a in agents {
+                if let Some(p) = a.proxy_port {
+                    if p != 8081 {
+                        modes.push("--mode".to_string());
+                        modes.push(format!("regular@{}", p));
+                    }
+                }
+                if let Some(t) = a.transparent_port {
+                    modes.push("--mode".to_string());
+                    modes.push(format!("transparent@{}", t));
+                }
+            }
+
+            let mut uv_cmd = std::process::Command::new("uv");
+            uv_cmd.args([
+                "run",
+                "--group",
+                "proxy",
+                "mitmweb",
+                "--web-host",
+                "127.0.0.1",
+                "--set",
+                &format!("multi_agent_config={}", config_path.display()),
+                "--set",
+                "web_password=CHANGEME",
+                "-s",
+                proxy_dir
+                    .join("addons/multi_agent_context/multi_agent_context.py")
+                    .to_str()
+                    .unwrap_or(""),
+                "-s",
+                proxy_dir
+                    .join("addons/allowlist/allowlist.py")
+                    .to_str()
+                    .unwrap_or(""),
+                "-s",
+                proxy_dir
+                    .join("addons/token_replacer/token_replacer.py")
+                    .to_str()
+                    .unwrap_or(""),
+                "-s",
+                proxy_dir
+                    .join("addons/flow_export/flow_export.py")
+                    .to_str()
+                    .unwrap_or(""),
+            ]);
+            uv_cmd.args(&modes);
+            uv_cmd.stdin(std::process::Stdio::null());
+            uv_cmd.stdout(std::process::Stdio::null());
+            uv_cmd.stderr(std::process::Stdio::null());
+
+            if let Ok(_child) = uv_cmd.spawn() {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                return Ok(());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn stop_proxy_server() -> Result<()> {
+    let _ = std::process::Command::new("podman")
+        .args(["stop", "-t", "1", "pa-proxy"])
+        .status();
+    let _ = std::process::Command::new("pkill")
+        .args(["-f", "mitmweb.*multi_agent_config"])
+        .status();
+    Ok(())
+}

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# pa-agent-entrypoint: Dispatches agent execution to the specified driver
+set -euo pipefail
+
+DRIVER="pi"
+PROMPT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --driver)
+            DRIVER="$2"
+            shift 2
+            ;;
+        --prompt)
+            PROMPT="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if ! command -v "$DRIVER" >/dev/null 2>&1; then
+    for p in /opt/pa/bin /usr/local/bin "$HOME/.local/bin"; do
+        if [ -x "$p/$DRIVER" ]; then
+            export PATH="$p:$PATH"
+            break
+        fi
+    done
+fi
+
+if [ -n "$PROMPT" ]; then
+    exec "$DRIVER" --prompt "$PROMPT" "$@"
+else
+    exec "$DRIVER" "$@"
+fi

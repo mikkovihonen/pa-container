@@ -73,6 +73,7 @@ impl GuestDaemonService {
             "cow_clone" => self.rpc_cow_clone(&params),
             "launch_agent" => self.rpc_launch_agent(&params),
             "get_status" => self.rpc_get_status(),
+            "stop_agent" => self.rpc_stop_agent(&params),
             "ios_create_sim" => self.rpc_ios_create_sim(&params),
             "ios_launch_app" => self.rpc_ios_launch_app(&params),
             "ios_screenshot" => self.rpc_ios_screenshot(&params),
@@ -326,13 +327,46 @@ impl GuestDaemonService {
             .and_then(|p| p.as_u64())
             .unwrap_or(8081) as u16;
 
-        let command: Vec<String> = match params.get("command").and_then(|c| c.as_array()) {
+        let mut command: Vec<String> = match params.get("command").and_then(|c| c.as_array()) {
             Some(arr) => arr
                 .iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect(),
             None => vec!["pa-agent-entrypoint".to_string()],
         };
+
+        if !command.is_empty() && command[0] == "pa-agent-entrypoint" {
+            let entrypoint_exists = Path::new("/opt/pa/bin/pa-agent-entrypoint").is_file()
+                || Path::new("/usr/local/bin/pa-agent-entrypoint").is_file()
+                || Command::new("which")
+                    .arg("pa-agent-entrypoint")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+
+            if !entrypoint_exists {
+                let mut driver = "pi".to_string();
+                let mut prompt = None;
+                let mut idx = 1;
+                while idx < command.len() {
+                    if command[idx] == "--driver" && idx + 1 < command.len() {
+                        driver = command[idx + 1].clone();
+                        idx += 2;
+                    } else if command[idx] == "--prompt" && idx + 1 < command.len() {
+                        prompt = Some(command[idx + 1].clone());
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                let mut direct_cmd = vec![driver];
+                if let Some(p) = prompt {
+                    direct_cmd.push("--prompt".to_string());
+                    direct_cmd.push(p);
+                }
+                command = direct_cmd;
+            }
+        }
 
         let home_dir = if let Some(h) = params.get("home_dir").and_then(|s| s.as_str()) {
             PathBuf::from(h)
@@ -402,12 +436,38 @@ impl GuestDaemonService {
                     }
                 }
             }
+
+            let mut rw_paths = vec![home_dir.join("workspace"), PathBuf::from("/tmp")];
+            for p in &extra_write_paths {
+                rw_paths.push(PathBuf::from(p));
+            }
+
+            let mut ro_paths = vec![
+                PathBuf::from("/usr"),
+                PathBuf::from("/lib"),
+                PathBuf::from("/lib64"),
+                PathBuf::from("/bin"),
+                PathBuf::from("/etc"),
+                PathBuf::from("/opt/pa"),
+            ];
+            for p in &extra_read_paths {
+                ro_paths.push(PathBuf::from(p));
+            }
+
+            let landlock_cmd = pa_core::guest::build_landlock_command(
+                &command,
+                &rw_paths,
+                Some(&ro_paths),
+                Some(&[format!("{}:{}", proxy_ip, proxy_port)]),
+                None,
+            );
+
             build_bwrap_args(
                 user,
                 &home_dir,
                 proxy_ip,
                 proxy_port,
-                &command,
+                &landlock_cmd,
                 None,
                 Some(&env_map),
                 None,
@@ -428,11 +488,26 @@ impl GuestDaemonService {
         let workdir = home_dir.join("workspace");
         let cwd = if workdir.exists() { workdir } else { home_dir };
 
+        let log_dir = cwd.join(".pa");
+        let _ = fs::create_dir_all(&log_dir);
+        let log_file_path = log_dir.join("agent.log");
+        let out_file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file_path)
+            .unwrap_or_else(|_| {
+                fs::File::create(format!("/tmp/pa-{}.log", user))
+                    .unwrap_or_else(|_| fs::File::open("/dev/null").unwrap())
+            });
+        let err_file = out_file
+            .try_clone()
+            .unwrap_or_else(|_| fs::File::open("/dev/null").unwrap());
+
         let mut cmd = Command::new(&wrapped_cmd[0]);
         cmd.args(&wrapped_cmd[1..])
             .current_dir(&cwd)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::from(out_file))
+            .stderr(Stdio::from(err_file));
 
         if let Some(obj) = params.get("extra_env").and_then(|e| e.as_object()) {
             for (k, v) in obj {
@@ -494,12 +569,17 @@ impl GuestDaemonService {
         let mut procs = self.active_processes.lock().unwrap();
 
         for (id, child) in procs.iter_mut() {
-            let running = matches!(child.try_wait(), Ok(None));
+            let (running, exit_code) = match child.try_wait() {
+                Ok(None) => (true, None),
+                Ok(Some(status)) => (false, status.code()),
+                Err(_) => (false, None),
+            };
             map.insert(
                 id.clone(),
                 json!({
                     "pid": child.id(),
                     "running": running,
+                    "exit_code": exit_code,
                 }),
             );
         }
@@ -508,6 +588,29 @@ impl GuestDaemonService {
             "platform": std::env::consts::OS,
             "agents": map,
         }))
+    }
+
+    fn rpc_stop_agent(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let agent_id = params
+            .get("agent_id")
+            .and_then(|a| a.as_str())
+            .context("Missing agent_id")?;
+        let mut procs = self.active_processes.lock().unwrap();
+        if let Some(mut child) = procs.remove(agent_id) {
+            let _ = child.kill();
+            let status = child.wait()?;
+            Ok(json!({
+                "agent_id": agent_id,
+                "stopped": true,
+                "exit_code": status.code(),
+            }))
+        } else {
+            Ok(json!({
+                "agent_id": agent_id,
+                "stopped": false,
+                "message": "Process not found",
+            }))
+        }
     }
 
     fn rpc_ios_create_sim(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
@@ -737,5 +840,35 @@ mod tests {
         assert_eq!(res["id"], 43);
         assert_eq!(res["result"]["status"], "ok");
         assert_eq!(res["result"]["installed"], json!([]));
+    }
+
+    #[test]
+    fn test_guest_daemon_stop_agent_not_found() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 44,
+            "method": "stop_agent",
+            "params": {
+                "agent_id": "nonexistent"
+            }
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 44);
+        assert_eq!(res["result"]["stopped"], false);
+    }
+
+    #[test]
+    fn test_guest_daemon_get_status() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 45,
+            "method": "get_status",
+            "params": {}
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 45);
+        assert!(res["result"]["agents"].is_object());
     }
 }

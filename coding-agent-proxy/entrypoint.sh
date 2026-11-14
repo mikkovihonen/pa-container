@@ -148,13 +148,11 @@ _truthy "$PROXY_ALLOW_NTP"  && _allow_fwd udp 123        "NTP"
 # (baked defaults, overridden by the host configs run.py mounts here).
 export ALLOWLIST_CONFIG_PATH="${ALLOWLIST_CONFIG_PATH:-/home/mitmproxy/config/allowlist.yaml}"
 export TOKEN_REPLACER_CONFIG_PATH="${TOKEN_REPLACER_CONFIG_PATH:-/home/mitmproxy/config/token_replacer.yaml}"
+export PA_MULTI_AGENT_CONFIG="${PA_MULTI_AGENT_CONFIG:-/home/mitmproxy/config/multi_agent_proxy.json}"
 
-# Launch mitmweb as the mitmproxy user. Load the allowlist (host/IP filtering),
-# token_replacer (secret substitution: redaction and placeholder injection), and
-# flow_export (session flow history)
-# addons. The flow_export addon appends each captured flow (JSON Lines) to a
-# per-client-IP file /home/mitmproxy/exports/flows-<ip>.jsonl as it completes,
-# which is mounted from the host so run.py can read it after the session ends.
+# Launch mitmweb as the mitmproxy user. Load multi_agent_context (per-agent port mapping),
+# allowlist (host/IP filtering), token_replacer (secret substitution: redaction and placeholder
+# injection), and flow_export (session flow history) addons.
 #
 # WHY THE VENV BINARY AND NOT `uv run mitmweb`
 # `uv run` reconciles .venv against the project's DEFAULT dependency groups
@@ -177,9 +175,15 @@ if [ -n "$PROXY_STREAM_LARGE_BODIES" ] && [ "$PROXY_STREAM_LARGE_BODIES" != "0" 
     echo "[mitmweb] stream_large_bodies=$PROXY_STREAM_LARGE_BODIES"
 fi
 
+MULTI_AGENT_SCRIPT=""
+if [ -f /home/mitmproxy/scripts/multi_agent_context.py ]; then
+    MULTI_AGENT_SCRIPT="-s /home/mitmproxy/scripts/multi_agent_context.py --set multi_agent_config=${PA_MULTI_AGENT_CONFIG}"
+fi
+
 exec gosu mitmproxy /home/mitmproxy/.venv/bin/mitmweb \
     --mode transparent@8080 --mode dns@5353 --web-host 0.0.0.0 \
     "${STREAM_FLAGS[@]}" \
+    ${MULTI_AGENT_SCRIPT} \
     -s /home/mitmproxy/scripts/allowlist.py \
     -s /home/mitmproxy/scripts/token_replacer.py \
     -s /home/mitmproxy/scripts/flow_export.py \
