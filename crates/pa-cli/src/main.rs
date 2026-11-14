@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use pa_core::backend::get_backend;
 use pa_core::review::review_agent_workspace;
-use pa_core::schema::{load_factory_config, resolve_agent_ports, AgentSpec};
+use pa_core::schema::{load_factory_config, resolve_agent_sockets, AgentSpec};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -124,7 +124,9 @@ fn handle_run(args: &RunArgs) -> Result<()> {
     };
     pa_core::manifest::merge_agent_capabilities(&mut config.agents, &registry)?;
 
-    let resolved_agents = resolve_agent_ports(&config.agents, false);
+    let cache_dir = dirs_fallback_cache();
+    let sockets_dir = cache_dir.join("sockets");
+    let resolved_agents = resolve_agent_sockets(&config.agents, &sockets_dir);
 
     let target_agent_id = args.agent.as_deref().unwrap_or_else(|| {
         resolved_agents
@@ -236,7 +238,9 @@ fn handle_proxy(args: &ProxyArgs) -> Result<()> {
     };
     pa_core::manifest::merge_agent_capabilities(&mut config.agents, &registry)?;
 
-    let agents = resolve_agent_ports(&config.agents, false);
+    let cache_dir = dirs_fallback_cache();
+    let sockets_dir = cache_dir.join("sockets");
+    let agents = resolve_agent_sockets(&config.agents, &sockets_dir);
 
     if args.url {
         println!("http://127.0.0.1:8081");
@@ -284,18 +288,15 @@ fn handle_proxy(args: &ProxyArgs) -> Result<()> {
     }
 
     println!(
-        "{:<15} {:<8} {:<10} {:<12} {:<18} {:<15}",
-        "AGENT ID", "UID", "DRIVER", "PROXY PORT", "TRANSPARENT PORT", "ALLOWLIST"
+        "{:<15} {:<8} {:<10} {:<45} {:<15}",
+        "AGENT ID", "UID", "DRIVER", "SOCKET PATH", "ALLOWLIST"
     );
-    println!("{}", "-".repeat(82));
+    println!("{}", "-".repeat(95));
     for a in &agents {
-        let p_port = a
-            .proxy_port
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "-".into());
-        let t_port = a
-            .transparent_port
-            .map(|p| p.to_string())
+        let sock = a
+            .socket_path
+            .as_ref()
+            .map(|s| s.display().to_string())
             .unwrap_or_else(|| "-".into());
         let allowed = if a.allowlist.is_empty() {
             "*".to_string()
@@ -303,8 +304,8 @@ fn handle_proxy(args: &ProxyArgs) -> Result<()> {
             a.allowlist.join(",")
         };
         println!(
-            "{:<15} {:<8} {:<10} {:<12} {:<18} {:<15}",
-            a.id, a.uid, a.driver, p_port, t_port, allowed
+            "{:<15} {:<8} {:<10} {:<45} {:<15}",
+            a.id, a.uid, a.driver, sock, allowed
         );
     }
 
