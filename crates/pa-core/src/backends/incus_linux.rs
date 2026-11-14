@@ -474,13 +474,15 @@ impl FactoryBackend for IncusLinuxBackend {
 
     fn stop_factory(&self) -> Result<()> {
         let _ = crate::backend::stop_proxy_server();
-        let status = Command::new("incus")
-            .args(["stop", &self.vm_name])
-            .status()
-            .with_context(|| format!("Failed to stop Incus VM '{}'", self.vm_name))?;
+        if self.get_vm_ip().is_ok() {
+            let status = Command::new("incus")
+                .args(["stop", &self.vm_name])
+                .status()
+                .with_context(|| format!("Failed to stop Incus VM '{}'", self.vm_name))?;
 
-        if !status.success() {
-            anyhow::bail!("incus stop failed for VM '{}'", self.vm_name);
+            if !status.success() {
+                anyhow::bail!("incus stop failed for VM '{}'", self.vm_name);
+            }
         }
         Ok(())
     }

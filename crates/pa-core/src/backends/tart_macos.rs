@@ -442,13 +442,15 @@ impl FactoryBackend for TartMacOSBackend {
 
     fn stop_factory(&self) -> Result<()> {
         let _ = crate::backend::stop_proxy_server();
-        let status = Command::new("tart")
-            .args(["stop", &self.vm_name])
-            .status()
-            .with_context(|| format!("Failed to stop Tart VM '{}'", self.vm_name))?;
+        if self.get_vm_ip().is_ok() {
+            let status = Command::new("tart")
+                .args(["stop", &self.vm_name])
+                .status()
+                .with_context(|| format!("Failed to stop Tart VM '{}'", self.vm_name))?;
 
-        if !status.success() {
-            anyhow::bail!("tart stop failed for VM '{}'", self.vm_name);
+            if !status.success() {
+                anyhow::bail!("tart stop failed for VM '{}'", self.vm_name);
+            }
         }
         Ok(())
     }
