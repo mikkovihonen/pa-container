@@ -16,7 +16,6 @@ import asyncio
 import contextlib
 import logging
 import os
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -30,15 +29,45 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-@dataclass
 class AgentPolicy:
-    agent_id: str
-    user: str = "agent"
-    driver: str = "pi"
-    allowed_hosts: list[str] = field(default_factory=list)
-    token_placeholders: dict[str, str] = field(default_factory=dict)
-    flow_log_path: str = ""
-    socket_path: str = ""
+    def __init__(
+        self,
+        agent_id: str,
+        user: str = "agent",
+        driver: str = "pi",
+        allowed_hosts: list[str] | None = None,
+        token_placeholders: dict[str, str] | None = None,
+        flow_log_path: str = "",
+        socket_path: str = "",
+    ) -> None:
+        self.agent_id = agent_id
+        self.user = user
+        self.driver = driver
+        self.allowed_hosts = allowed_hosts if allowed_hosts is not None else []
+        self.token_placeholders = token_placeholders if token_placeholders is not None else {}
+        self.flow_log_path = flow_log_path
+        self.socket_path = socket_path
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AgentPolicy):
+            return False
+        return (
+            self.agent_id == other.agent_id
+            and self.user == other.user
+            and self.driver == other.driver
+            and self.allowed_hosts == other.allowed_hosts
+            and self.token_placeholders == other.token_placeholders
+            and self.flow_log_path == other.flow_log_path
+            and self.socket_path == other.socket_path
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"AgentPolicy(agent_id={self.agent_id!r}, user={self.user!r}, "
+            f"driver={self.driver!r}, allowed_hosts={self.allowed_hosts!r}, "
+            f"token_placeholders={self.token_placeholders!r}, "
+            f"flow_log_path={self.flow_log_path!r}, socket_path={self.socket_path!r})"
+        )
 
 
 class MultiAgentContextAddon:
@@ -122,10 +151,12 @@ class MultiAgentContextAddon:
         targets: dict[str, AgentPolicy] = {}
         for sock_path, policy in list(self.socket_map.items()):
             if sock_path.endswith(".sock") and os.path.isabs(sock_path):
+                if sock_path.startswith("/home/mitmproxy/") and not os.path.exists("/home/mitmproxy"):
+                    continue
                 targets[sock_path] = policy
 
         # Ensure admin.sock is always included for health checks
-        sockets_dir = "/home/mitmproxy/sockets"
+        sockets_dir = os.environ.get("PA_SOCKETS_DIR", "/home/mitmproxy/sockets")
         if targets:
             first_path = next(iter(targets.keys()))
             sockets_dir = os.path.dirname(first_path)
@@ -171,7 +202,14 @@ class MultiAgentContextAddon:
                 port = a.get("proxy_port")
                 t_port = a.get("transparent_port")
                 sock_path = a.get("socket_path")
-                if not sock_path and agent_id != "unknown":
+                host_sock = a.get("host_socket_path")
+                sockets_dir = os.environ.get("PA_SOCKETS_DIR")
+
+                if sockets_dir:
+                    sock_path = os.path.join(sockets_dir, f"{agent_id}.sock")
+                elif host_sock and not os.path.exists("/home/mitmproxy"):
+                    sock_path = host_sock
+                elif not sock_path and agent_id != "unknown":
                     sock_path = f"/home/mitmproxy/sockets/{agent_id}.sock"
 
                 policy = AgentPolicy(
@@ -188,6 +226,10 @@ class MultiAgentContextAddon:
                     new_socket_map[sock_path] = policy
                     base_name = os.path.basename(sock_path)
                     new_socket_map[base_name] = policy
+                if host_sock:
+                    new_socket_map[host_sock] = policy
+                if a.get("socket_path"):
+                    new_socket_map[a.get("socket_path")] = policy
 
                 if port is not None and port > 0:
                     new_port_map[int(port)] = policy

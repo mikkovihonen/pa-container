@@ -106,23 +106,6 @@ pub fn ensure_proxy_server(
         return Ok(());
     }
 
-    let podman_check = std::process::Command::new("podman")
-        .args(["ps", "-q", "-f", "name=pa-proxy"])
-        .output();
-    if let Ok(out) = podman_check {
-        if out.status.success() {
-            let container_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !container_id.is_empty() {
-                return Ok(());
-            }
-        }
-    }
-
-    // Clean up any stale or stopped pa-proxy container before starting anew
-    let _ = std::process::Command::new("podman")
-        .args(["rm", "-f", "pa-proxy"])
-        .output();
-
     let admin_password = crate::manifest::TokenRuleSpec {
         env_var: "ADMIN_PASSWORD".to_string(),
         keyring_service: Some("pa-container".to_string()),
@@ -133,30 +116,66 @@ pub fn ensure_proxy_server(
     .map(|s| (*s).clone())
     .unwrap_or_else(|| "pa-factory-session-admin-pass-2026".to_string());
 
-    let mut podman_cmd = std::process::Command::new("podman");
-    podman_cmd.args([
-        "run",
-        "-d",
-        "--rm",
-        "--cap-add=NET_ADMIN",
-        "--name",
-        "pa-proxy",
-        "-v",
-        &format!(
-            "{}:/home/mitmproxy/config/multi_agent_proxy.json:ro",
-            config_path.display()
-        ),
-        "-v",
-        &format!("{}:/home/mitmproxy/sockets:rw", sockets_dir.display()),
-        "-e",
-        &format!("ADMIN_PASSWORD={}", admin_password),
-        "localhost/pa-container-agent-proxy:local",
-    ]);
+    #[cfg(target_os = "linux")]
+    {
+        let podman_check = std::process::Command::new("podman")
+            .args(["ps", "-q", "-f", "name=pa-proxy"])
+            .output();
+        if let Ok(out) = podman_check {
+            if out.status.success() {
+                let container_id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !container_id.is_empty() {
+                    return Ok(());
+                }
+            }
+        }
 
-    if let Ok(status) = podman_cmd.status() {
-        if status.success() {
-            std::thread::sleep(std::time::Duration::from_millis(400));
-            return Ok(());
+        // Clean up any stale or stopped pa-proxy container before starting anew
+        let _ = std::process::Command::new("podman")
+            .args(["rm", "-f", "pa-proxy"])
+            .output();
+
+        let mut podman_cmd = std::process::Command::new("podman");
+        podman_cmd.args([
+            "run",
+            "-d",
+            "--rm",
+            "--cap-add=NET_ADMIN",
+            "--name",
+            "pa-proxy",
+            "-v",
+            &format!(
+                "{}:/home/mitmproxy/config/multi_agent_proxy.json:ro",
+                config_path.display()
+            ),
+            "-v",
+            &format!("{}:/home/mitmproxy/sockets:rw", sockets_dir.display()),
+            "-e",
+            &format!("ADMIN_PASSWORD={}", admin_password),
+            "localhost/pa-container-agent-proxy:local",
+        ]);
+
+        if let Ok(status) = podman_cmd.status() {
+            if status.success() {
+                let start = std::time::Instant::now();
+                while start.elapsed() < std::time::Duration::from_secs(5) {
+                    #[cfg(unix)]
+                    {
+                        let admin_sock = sockets_dir.join("admin.sock");
+                        if admin_sock.exists() {
+                            if let Ok(mut stream) =
+                                std::os::unix::net::UnixStream::connect(&admin_sock)
+                            {
+                                use std::io::Write;
+                                let _ =
+                                    stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+                                return Ok(());
+                            }
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
         }
     }
 
@@ -203,12 +222,39 @@ pub fn ensure_proxy_server(
                     .unwrap_or(""),
             ]);
             uv_cmd.args(&modes);
+            uv_cmd.env("PA_SOCKETS_DIR", &sockets_dir);
+            uv_cmd.env(
+                "ALLOWLIST_CONFIG_PATH",
+                proxy_dir.join("addons/allowlist/allowlist_config.yaml"),
+            );
+            uv_cmd.env(
+                "TOKEN_REPLACER_CONFIG_PATH",
+                proxy_dir.join("addons/token_replacer/token_replacer.yaml"),
+            );
+            uv_cmd.env("PA_MULTI_AGENT_CONFIG", config_path);
             uv_cmd.stdin(std::process::Stdio::null());
             uv_cmd.stdout(std::process::Stdio::null());
             uv_cmd.stderr(std::process::Stdio::null());
 
             if let Ok(_child) = uv_cmd.spawn() {
-                std::thread::sleep(std::time::Duration::from_millis(400));
+                let start = std::time::Instant::now();
+                while start.elapsed() < std::time::Duration::from_secs(5) {
+                    #[cfg(unix)]
+                    {
+                        let admin_sock = sockets_dir.join("admin.sock");
+                        if admin_sock.exists() {
+                            if let Ok(mut stream) =
+                                std::os::unix::net::UnixStream::connect(&admin_sock)
+                            {
+                                use std::io::Write;
+                                let _ =
+                                    stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+                                return Ok(());
+                            }
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
                 return Ok(());
             }
         }
