@@ -1,0 +1,19 @@
+[package]
+name = "pa-agentd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pa-agentd"
+path = "src/main.rs"
+
+[dependencies]
+pa-core = { path = "../pa-core" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

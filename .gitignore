@@ -40,5 +40,10 @@ build/
 # Generated index (from README.md)
 docs/index.md
 
+# Rust / Cargo
+target/
+Cargo.lock.bk
+**/*.rs.bk
+
 # Host caches
 .cache/

@@ -54,7 +54,7 @@ class TartMacOSBackend(FactoryBackend):
         try:
             res = subprocess.run(cmd, input=payload, capture_output=True, text=True, check=True, timeout=30)
             data = json.loads(res.stdout)
-            return cast(dict[str, Any], data) if isinstance(data, dict) else {"error": "Invalid response"}
+            return cast("dict[str, Any]", data) if isinstance(data, dict) else {"error": "Invalid response"}
         except Exception as e:
             log.warning(f"Tart SSH RPC {method} failed: {e}")
             return {"error": str(e)}
