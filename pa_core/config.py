@@ -79,3 +79,11 @@ PROXY_UPSTREAM_NETWORK_ENV: str | None = (
 # resource limits, and extra agent env/mounts — are read from
 # ``{PROJECT_DIR}/.pa-container/config.yaml`` (see ``network.load_project_config``
 # and its accessors), not environment variables.
+
+try:
+    import factory_schema
+
+    sys.modules["pa_core.config.factory_schema"] = factory_schema
+    sys.modules["config.factory_schema"] = factory_schema
+except ImportError:
+    pass

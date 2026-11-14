@@ -100,6 +100,11 @@ def _flow_to_dict(flow: HTTPFlow) -> dict[str, object]:
             "content_type": resp.headers.get("Content-Type", "") if resp.headers else "",
         }
 
+    # Agent Attribution
+    agent_id = flow.metadata.get("pa_agent_id") if hasattr(flow, "metadata") and flow.metadata else None
+    if agent_id:
+        flow_dict["pa_agent_id"] = agent_id
+
     # Error
     error = getattr(flow, "error", None)
     if error is not None:
@@ -233,6 +238,21 @@ class FlowExporter:
             line = json.dumps(_flow_to_dict(flow), separators=(",", ":"))
             with open(path, mode) as f:
                 f.write(line + "\n")
+            
+            # If flow has pa_agent_id or policy flow_log_path, write per-agent export stream
+            agent_id = flow.metadata.get("pa_agent_id") if hasattr(flow, "metadata") and flow.metadata else None
+            policy = flow.metadata.get("pa_policy") if hasattr(flow, "metadata") and flow.metadata else None
+            agent_path = getattr(policy, "flow_log_path", None)
+            if not agent_path and agent_id:
+                agent_path = os.path.join(self.export_dir, f"flows-agent-{agent_id}.jsonl")
+            
+            if agent_path:
+                agent_mode = "a" if agent_id in self._truncated else "w"
+                if agent_id:
+                    self._truncated.add(agent_id)
+                with open(agent_path, agent_mode) as af:
+                    af.write(line + "\n")
+
             self._count += 1
         except Exception as e:
             log.warning(f"[flow-export] Failed to append flow {flow_id} to {path}: {e}")

@@ -524,6 +524,23 @@ class AllowlistAddon:
                 log.info(f"[allowlist] ALLOW (localhost/llama) {hostname}{' ' + server_ip if server_ip else ''}")
             return
 
+        # Per-agent policy enforcement (Multi-Agent Factory mode)
+        pa_policy = flow.metadata.get("pa_policy") if isinstance(getattr(flow, "metadata", None), dict) else None
+        if pa_policy is not None:
+            allowed_hosts = getattr(pa_policy, "allowed_hosts", None)
+            if isinstance(allowed_hosts, (list, set, tuple)):
+                if _matches_hostname(hostname, [str(h) for h in allowed_hosts]):
+                    if self._log_allowed:
+                        log.info(f"[allowlist] ALLOW (agent policy {pa_policy.agent_id}) {hostname}")
+                    return
+                else:
+                    if self._log_blocked:
+                        log.info(f"[allowlist] DENY (agent policy {pa_policy.agent_id} prohibited) {hostname}")
+                    if self._dry_run:
+                        return
+                    self._block_flow(flow, reason=f"agent policy {pa_policy.agent_id} prohibited")
+                    return
+
         # Check rules
         result = self._check_rules(hostname, server_ip)
 

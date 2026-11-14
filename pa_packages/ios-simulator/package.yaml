@@ -1,0 +1,24 @@
+schema_version: "2.0.0"
+name: "ios-simulator"
+version: "1.0.0"
+description: "iOS Simulator bridge and ACP automation tool for macOS Factory VMs"
+category: "mobile"
+license: "MIT"
+
+config:
+    device: "iPhone 16 Pro"
+    runtime: "iOS18.0"
+
+payload:
+    type: "none"
+
+extension:
+    entrypoint: "host.plugin:IOSSimulatorPlugin"
+    config_key: "ios-simulator"
+
+runtime:
+    dependencies: []
+
+verification:
+    command: "echo ios-simulator ready"
+    expected_output_contains: "ios-simulator ready"

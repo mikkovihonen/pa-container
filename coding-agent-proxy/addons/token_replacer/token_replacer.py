@@ -830,6 +830,23 @@ class TokenReplacerAddon:
         hostname = _strip_port(flow.request.pretty_host or "")
 
         applicable_rules = self._should_replace(hostname)
+        pa_policy = flow.metadata.get("pa_policy") if isinstance(getattr(flow, "metadata", None), dict) else None
+        if pa_policy is not None and isinstance(getattr(pa_policy, "token_placeholders", None), dict):
+            allowed_tokens = set(pa_policy.token_placeholders.keys()) | set(pa_policy.token_placeholders.values())
+            scoped_rules = []
+            for r in applicable_rules:
+                val = str(r.get("replace_with", {}).get("value", ""))
+                patterns = [p.get("regex", "") for p in r.get("content_patterns", [])]
+                # If agent policy specifies placeholders, verify rule matches authorized tokens
+                is_authorized = (
+                    not allowed_tokens
+                    or any(k in val for k in allowed_tokens)
+                    or any(any(k in p for k in allowed_tokens) for p in patterns)
+                )
+                if is_authorized:
+                    scoped_rules.append(r)
+            applicable_rules = scoped_rules
+
         if not applicable_rules:
             return
 
@@ -884,6 +901,23 @@ class TokenReplacerAddon:
         hostname = _strip_port(flow.request.pretty_host or "")
 
         applicable_rules = self._should_replace(hostname)
+        pa_policy = flow.metadata.get("pa_policy") if isinstance(getattr(flow, "metadata", None), dict) else None
+        if pa_policy is not None and isinstance(getattr(pa_policy, "token_placeholders", None), dict):
+            allowed_tokens = set(pa_policy.token_placeholders.keys()) | set(pa_policy.token_placeholders.values())
+            scoped_rules = []
+            for r in applicable_rules:
+                val = str(r.get("replace_with", {}).get("value", ""))
+                patterns = [p.get("regex", "") for p in r.get("content_patterns", [])]
+                # If agent policy specifies placeholders, verify rule matches authorized tokens
+                is_authorized = (
+                    not allowed_tokens
+                    or any(k in val for k in allowed_tokens)
+                    or any(any(k in p for k in allowed_tokens) for p in patterns)
+                )
+                if is_authorized:
+                    scoped_rules.append(r)
+            applicable_rules = scoped_rules
+
         if not applicable_rules:
             return
 

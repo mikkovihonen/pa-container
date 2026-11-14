@@ -134,10 +134,27 @@ class LogsOptions(GlobalCliOptions):
     path: bool = False
     list: bool = False
     lines: int | None = None
+    agent: str | None = None
     # Clean sub-options
     all_projects: bool = False
     older_than: str | None = None
     force: bool = False
+
+
+@dataclass
+class ReviewOptions(GlobalCliOptions):
+    """Options for the 'review' subcommand."""
+
+    agent: str = "agent1"
+    open: bool = False
+    ide: str | None = None
+
+
+@dataclass
+class FactoryOptions(GlobalCliOptions):
+    """Options for the 'factory' subcommand."""
+
+    action: str = "status"
 
 
 # ─── Parser Construction ────────────────────────────────────────────────────
@@ -386,6 +403,10 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Number of lines to display from the log tail.",
     )
+    logs_parser.add_argument(
+        "--agent",
+        help="Filter flow logs and audit streams for a specific agent (e.g. 'agent1').",
+    )
 
     logs_subparsers = logs_parser.add_subparsers(dest="logs_subcommand")
     clean_logs_parser = logs_subparsers.add_parser(
@@ -449,6 +470,31 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Initialize global configuration (~/.config/pa-container/config.yaml) instead of local project.",
     )
+
+    # ─── 'review' subcommand ─────────────────────────────────────────────────
+    review_parser = subparsers.add_parser(
+        "review",
+        parents=[common_parser],
+        help="Open or create a local git worktree to review an agent's workspace changes.",
+        description="Fetch an agent's isolated workspace branch into a local worktree for IDE review.",
+    )
+    review_parser.add_argument("agent", nargs="?", default="agent1", help="Agent identifier to review (e.g. 'agent1').")
+    review_parser.add_argument(
+        "--open", action="store_true", help="Open the review worktree in your default IDE/editor."
+    )
+    review_parser.add_argument("--ide", help="Custom IDE binary to launch (e.g. 'code', 'cursor', 'zed').")
+
+    # ─── 'factory' subcommand ────────────────────────────────────────────────
+    factory_parser = subparsers.add_parser(
+        "factory",
+        parents=[common_parser],
+        help="Manage the Software Factory VM lifecycle (up, down, status).",
+        description="Orchestrate the 3-tier Factory VM environment and agent sandboxes.",
+    )
+    factory_subparsers = factory_parser.add_subparsers(dest="factory_subcommand", required=True)
+    factory_subparsers.add_parser("up", parents=[common_parser], help="Boot Factory VM and external proxy.")
+    factory_subparsers.add_parser("down", parents=[common_parser], help="Stop Factory VM and external proxy.")
+    factory_subparsers.add_parser("status", parents=[common_parser], help="Display Factory VM and agent status.")
 
     # Dynamic CLI subcommand contributions from discovered capability packages
     try:
@@ -597,6 +643,7 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             path=getattr(args, "path", False),
             list=getattr(args, "list", False),
             lines=getattr(args, "lines", None),
+            agent=getattr(args, "agent", None),
             all_projects=getattr(args, "all_projects", False),
             older_than=getattr(args, "older_than", None),
             force=getattr(args, "force", False),
@@ -627,6 +674,30 @@ def parse_cli_args(argv: Sequence[str] | None = None) -> tuple[str, Any]:
             global_config=bool(getattr(args, "global_config", False)),
         )
         return cmd, i_options
+
+    if cmd == "review":
+        r_options = ReviewOptions(
+            verbose=verbose,
+            quiet=quiet,
+            log_level=log_level,
+            log_file=log_file,
+            no_color=no_color,
+            agent=getattr(args, "agent", "agent1"),
+            open=bool(getattr(args, "open", False)),
+            ide=getattr(args, "ide", None),
+        )
+        return cmd, r_options
+
+    if cmd == "factory":
+        f_options = FactoryOptions(
+            verbose=verbose,
+            quiet=quiet,
+            log_level=log_level,
+            log_file=log_file,
+            no_color=no_color,
+            action=getattr(args, "factory_subcommand", "status") or "status",
+        )
+        return cmd, f_options
 
     return cmd, args
 
@@ -702,6 +773,48 @@ def handle_proxy_command(options: ProxyOptions) -> int:
             for p in proxies:
                 if p.mitmweb_url:
                     webbrowser.open(p.mitmweb_url)
+        return 0
+
+    # Multi-Agent Factory configuration
+    factory_toml = PROJECT_DIR / "factory.toml"
+    if factory_toml.is_file():
+        from factory_schema import load_factory_config, resolve_agent_ports
+
+        cfg = load_factory_config(factory_toml)
+        agents = resolve_agent_ports(cfg.agents)
+        if options.json:
+            data_factory = [
+                {
+                    "agent_id": a.id,
+                    "driver": a.driver,
+                    "uid": a.uid,
+                    "proxy_port": a.proxy_port,
+                    "transparent_port": a.transparent_port,
+                    "allowed_hosts": a.allowlist,
+                }
+                for a in agents
+            ]
+            console.print(json_module.dumps(data_factory, indent=2))
+            return 0
+
+        table = Table(title=f"Multi-Agent Proxy Port Allocations ({cfg.factory.name})", box=None)
+        table.add_column("Agent ID", style="bold cyan")
+        table.add_column("UID")
+        table.add_column("Driver")
+        table.add_column("Proxy Port")
+        table.add_column("Transparent Port")
+        table.add_column("Allowed Hosts")
+
+        for a in agents:
+            table.add_row(
+                a.id,
+                str(a.uid),
+                a.driver,
+                f"http://127.0.0.1:{a.proxy_port}",
+                str(a.transparent_port),
+                ", ".join(a.allowlist) if a.allowlist else "[dim]All[/dim]",
+            )
+        console.print(table)
         return 0
 
     # Project-specific query
@@ -814,12 +927,22 @@ def handle_logs_command(options: LogsOptions) -> int:
         return 0
 
     # Default: view or follow log tail
-    target_symlink = project_logs / ("latest-build.log" if options.build else "latest.log")
-    if not target_symlink.exists():
-        console.print(f"[yellow]No {'build' if options.build else 'run'} log found for this project.[/yellow]")
-        return 0
-
-    target_file = target_symlink.resolve()
+    if options.agent:
+        agent_log = project_logs / f"flows-agent-{options.agent}.jsonl"
+        if not agent_log.exists():
+            alt_log = Path.home() / ".cache" / "pa-container" / "exports" / f"flows-agent-{options.agent}.jsonl"
+            if alt_log.exists():
+                agent_log = alt_log
+        if not agent_log.exists():
+            console.print(f"[yellow]No flow log found for agent '{options.agent}'.[/yellow]")
+            return 0
+        target_file = agent_log
+    else:
+        target_symlink = project_logs / ("latest-build.log" if options.build else "latest.log")
+        if not target_symlink.exists():
+            console.print(f"[yellow]No {'build' if options.build else 'run'} log found for this project.[/yellow]")
+            return 0
+        target_file = target_symlink.resolve()
 
     if options.follow:
         try:
@@ -875,6 +998,57 @@ def handle_init_command(options: InitOptions) -> int:
         return 1
 
 
+def handle_review_command(options: ReviewOptions) -> int:
+    """Fetch agent's branch from Factory VM into host worktree."""
+    from review import review_agent_workspace
+
+    console = Console(no_color=options.no_color)
+    try:
+        wt = review_agent_workspace(
+            agent_id=options.agent,
+            host_repo=PROJECT_DIR,
+            open_ide=options.open,
+            ide_cmd=options.ide,
+        )
+        console.print(f"[green]Review worktree ready for agent '{options.agent}': {wt}[/green]")
+        return 0
+    except Exception as e:
+        cli_logger.error(f"Review command failed: {e}", exc_info=True)
+        console.print(f"[red]Failed to create review worktree: {e}[/red]")
+        return 1
+
+
+def handle_factory_command(options: FactoryOptions) -> int:
+    """Manage Factory VM and proxy lifecycle."""
+    from backends.base import get_backend
+    from factory_schema import load_factory_config
+
+    console = Console(no_color=options.no_color)
+    cfg = load_factory_config(PROJECT_DIR / "factory.toml")
+    backend = get_backend(cfg)
+
+    try:
+        if options.action == "up":
+            proxy_ip = backend.start_proxy(cfg)
+            backend.ensure_factory_vm(cfg, proxy_ip)
+            console.print(f"[green]Factory VM is up. Proxy host gateway: {proxy_ip}[/green]")
+            return 0
+        elif options.action == "down":
+            backend.stop_factory()
+            console.print("[green]Factory VM stopped.[/green]")
+            return 0
+        else:
+            st = backend.get_status()
+            console.print(f"[bold cyan]Factory Backend:[/bold cyan] {st.get('backend')}")
+            console.print(f"[bold cyan]VM Name:[/bold cyan] {st.get('vm_name')}")
+            console.print(f"[bold cyan]Guest Status:[/bold cyan] {st.get('guest')}")
+            return 0
+    except Exception as e:
+        cli_logger.error(f"Factory command failed: {e}", exc_info=True)
+        console.print(f"[red]Factory command error: {e}[/red]")
+        return 1
+
+
 def _check_unconfigured_flag_remediation(unknown: list[str], project_dir: Path) -> None:
     """Check if any unknown argument belongs to an unconfigured capability package and suggest remediation."""
     from images import read_project_packages
@@ -911,7 +1085,7 @@ def _check_unconfigured_command_remediation(argv: Sequence[str] | None) -> None:
     candidate = args_list[0].strip().lower()
     if candidate.startswith("-"):
         return
-    builtins = {"init", "run", "logs", "proxy", "clean", "test", "help"}
+    builtins = {"init", "run", "logs", "proxy", "clean", "test", "help", "review", "factory"}
     if candidate in builtins:
         return
 
@@ -956,6 +1130,14 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         if cmd == "proxy":
             sys.exit(handle_proxy_command(options))
+            return
+
+        if cmd == "review":
+            sys.exit(handle_review_command(options))
+            return
+
+        if cmd == "factory":
+            sys.exit(handle_factory_command(options))
             return
 
         if hasattr(options, "_acp_handler") and callable(options._acp_handler):

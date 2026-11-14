@@ -195,6 +195,29 @@ def ensure_proxy_image(runtime: str, repo_root: Path = REPO_ROOT) -> bool:
 
 def execute_run(options: RunOptions, driver: LogDriver | None = None) -> int:
     log_drv = driver or get_log_driver() or init_log_driver(PROJECT_DIR)
+
+    # 3-tier Software Factory Execution Mode (v2.0)
+    factory_toml = PROJECT_DIR / "factory.toml"
+    if factory_toml.is_file():
+        from backends.base import get_backend
+        from factory_schema import load_factory_config, resolve_agent_ports
+
+        log_drv.start_stage(LogCategory.PREFLIGHT, "Initializing 3-tier Software Factory")
+        factory_cfg = load_factory_config(factory_toml)
+        backend = get_backend(factory_cfg)
+        proxy_ip = backend.start_proxy(factory_cfg)
+        backend.ensure_factory_vm(factory_cfg, proxy_ip)
+        backend.sync_git_to_vault(PROJECT_DIR)
+        agents = resolve_agent_ports(factory_cfg.agents)
+        target_agent = agents[0]
+        if options.agent:
+            for a in agents:
+                if a.id == options.agent:
+                    target_agent = a
+                    break
+        log_drv.start_stage(LogCategory.AGENT, f"Launching agent {target_agent.id} in sandbox")
+        return backend.launch_agent(target_agent)
+
     try:
         _init_runtime()
     except EnvironmentError as e:
