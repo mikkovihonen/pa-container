@@ -57,7 +57,11 @@ impl TartMacOSBackend {
         Ok(ip)
     }
 
-    pub fn execute_ssh_rpc(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+    pub fn execute_ssh_rpc(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
         let vm_ip = self.get_vm_ip()?;
         let payload = json!({
             "jsonrpc": "2.0",
@@ -85,7 +89,9 @@ impl TartMacOSBackend {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .with_context(|| format!("Failed to spawn SSH process to {}@{}", self.ssh_user, vm_ip))?;
+            .with_context(|| {
+                format!("Failed to spawn SSH process to {}@{}", self.ssh_user, vm_ip)
+            })?;
 
         if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(payload_str.as_bytes())?;
@@ -154,7 +160,9 @@ impl FactoryBackend for TartMacOSBackend {
                 "--no-audio",
                 &self.vm_name,
             ]);
-            let _ = cmd.spawn().with_context(|| format!("Failed to spawn Tart VM '{}'", self.vm_name))?;
+            let _ = cmd
+                .spawn()
+                .with_context(|| format!("Failed to spawn Tart VM '{}'", self.vm_name))?;
         }
 
         Ok(())
@@ -175,10 +183,16 @@ impl FactoryBackend for TartMacOSBackend {
         );
 
         let out = Command::new("git")
-            .args(["push", &vault_git_url, &format!("{}:refs/heads/main", branch)])
+            .args([
+                "push",
+                &vault_git_url,
+                &format!("{}:refs/heads/main", branch),
+            ])
             .current_dir(host_repo)
             .output()
-            .with_context(|| format!("Failed to push repository to VM vault at {}", vault_git_url))?;
+            .with_context(|| {
+                format!("Failed to push repository to VM vault at {}", vault_git_url)
+            })?;
 
         if !out.status.success() {
             anyhow::bail!(

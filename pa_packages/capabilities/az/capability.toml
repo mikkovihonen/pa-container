@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "az"
+category = "cloud"
+version = "1.0.0"
+description = "Azure CLI and Azure DevOps extension"
+requires = ["languages"]
+
+[staging]
+install_prefix = "/opt/pa/packs/az"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["management.azure.com", "login.microsoftonline.com", "dev.azure.com"]

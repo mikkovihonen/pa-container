@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "data-tools"
+category = "devtools"
+version = "1.0.0"
+description = "Structured data processing capability: jq (JSON), yq (YAML/XML), and Miller mlr (CSV/TSV/JSON)"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/data-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

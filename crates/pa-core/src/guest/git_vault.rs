@@ -122,7 +122,10 @@ impl GitVaultManager {
                 .status()
                 .context("Failed to execute APFS clone command")?;
             if !res.success() {
-                anyhow::bail!("APFS CoW clone failed on macOS for {}", destination.display());
+                anyhow::bail!(
+                    "APFS CoW clone failed on macOS for {}",
+                    destination.display()
+                );
             }
         } else {
             let res = Command::new("cp")
@@ -135,7 +138,10 @@ impl GitVaultManager {
                 .status()
                 .context("Failed to execute reflink clone command")?;
             if !res.success() {
-                anyhow::bail!("Reflink CoW clone failed on Linux for {}", destination.display());
+                anyhow::bail!(
+                    "Reflink CoW clone failed on Linux for {}",
+                    destination.display()
+                );
             }
         }
 
@@ -151,5 +157,3 @@ impl GitVaultManager {
         Ok(destination.to_path_buf())
     }
 }
-
-

@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "tunnels"
+category = "networking"
+version = "1.0.0"
+description = "Automated secure tunneling provider for public ingress via Cloudflare (cloudflared) and Tailscale (serve/funnel)"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/tunnels"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["api.cloudflare.com", "controlplane.tailscale.com", "login.tailscale.com"]

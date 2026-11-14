@@ -1,21 +1,20 @@
 from __future__ import annotations
 
+import importlib.util
 import json
-import os
 import sys
 from pathlib import Path
-from mitmproxy.http import HTTPFlow, Request, Response
-from mitmproxy.test.tflow import tflow
 
-import importlib.util
+from mitmproxy.http import HTTPFlow, Response
+from mitmproxy.test.tflow import tflow
 
 ADDONS_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ADDONS_DIR / "multi_agent_context"))
 sys.path.insert(0, str(ADDONS_DIR / "allowlist"))
 sys.path.insert(0, str(ADDONS_DIR / "token_replacer"))
 
-from multi_agent_context import AgentPolicy, MultiAgentContextAddon
 from allowlist import AllowlistAddon
+from multi_agent_context import AgentPolicy, MultiAgentContextAddon
 
 _fe_spec = importlib.util.spec_from_file_location("proxy_flow_exporter", ADDONS_DIR / "flow_export" / "flow_export.py")
 _fe_mod = importlib.util.module_from_spec(_fe_spec)
@@ -113,7 +112,7 @@ class TestMultiAgentContext:
             flow_log_path=str(tmp_path / "flows-agent1.jsonl"),
         )
         ctx_addon = MultiAgentContextAddon(port_map={8081: policy})
-        
+
         monkeypatch.setenv("FLOW_EXPORT_DIR", str(tmp_path))
         monkeypatch.setenv("FLOW_EXPORT_ENABLED", "true")
         export_addon = FlowExporter()

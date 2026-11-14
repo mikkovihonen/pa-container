@@ -143,7 +143,11 @@ table ip pa_factory {{
     out
 }
 
-pub fn apply_firewall(rules_content: &str, config_path: Option<&Path>, mock: bool) -> Result<PathBuf> {
+pub fn apply_firewall(
+    rules_content: &str,
+    config_path: Option<&Path>,
+    mock: bool,
+) -> Result<PathBuf> {
     if mock && config_path.is_none() {
         let target = std::env::temp_dir().join("pa_mock_firewall.conf");
         fs::write(&target, rules_content)?;

@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "3d-tools"
+category = "media"
+version = "1.0.0"
+description = "3D model processing capability: assimp format conversion, admesh STL repair, Draco mesh compression, OpenVDB volume inspection, and Blender/MeshLab/OpenSCAD utilities"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/3d-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

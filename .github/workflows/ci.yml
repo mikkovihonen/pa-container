@@ -8,8 +8,34 @@ on:
     branches: [main]
 
 jobs:
-  check:
-    name: Lint & Test
+  rust-check:
+    name: Rust Workspace Test & Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run workspace tests
+        run: cargo test --workspace
+
+  proxy-and-docs:
+    name: Proxy & Docs Validation
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,78 +63,33 @@ jobs:
           restore-keys: ${{ runner.os }}-uv-
 
       - name: Install dependencies
-        run: uv sync --frozen --project . --all-groups
+        run: uv sync --frozen --project .
 
-      - name: Seed configurations
-        run: |
-          ./pa init --global
-          ./pa init
+      - name: Run ruff check
+        run: uv run ruff check
 
-      - name: Install pre-commit
-        run: uv tool install pre-commit
+      - name: Run ruff format check
+        run: uv run ruff format --check
 
-      - name: Run pre-commit hooks
-        run: pre-commit run --all-files --show-diff-on-failure
+      - name: Run mypy
+        run: uv run mypy
+
+      - name: Run proxy addon tests
+        run: uv run pytest coding-agent-proxy/addons
 
       - name: Validate version consistency
         run: uv run python3 .github/workflows/scripts/validate_versions.py
 
-  test:
-    name: Test & Coverage
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+      - name: Scan markdown documentation
+        run: uv run pymarkdown --config .pymarkdown.json scan
 
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "latest"
-
-      - name: Cache uv cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
-          restore-keys: ${{ runner.os }}-uv-
-
-      - name: Install dependencies
-        run: uv sync --frozen --project . --all-groups
-
-      - name: Seed configurations
-        run: |
-          ./pa init --global
-          ./pa init
-
-      - name: Run tests with coverage
-        run: uv run --group pa_core --group proxy pytest --cov --cov-report=xml --cov-report=term-missing
-
-      - name: Generate coverage badge
-        run: uv run python3 .github/workflows/scripts/generate_coverage_badge.py
-
-      - name: Commit coverage badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git add -f docs/assets/
-          git diff --cached --quiet || git commit -m 'Update coverage badge'
-          git push
+      - name: Build documentation site
+        run: uv run zensical build
 
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: [check, test]
+    needs: [rust-check, proxy-and-docs]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -122,10 +103,6 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      # The release body is the CHANGELOG section for this version; GitHub's
-      # generated notes (the "What's Changed" PR list) are appended below it.
-      # An empty extract is fatal — otherwise a heading that does not match the
-      # tag ships an auto-notes-only release with no signal that it happened.
       - name: Extract CHANGELOG section
         run: |
           awk -v v="${{ steps.version.outputs.VERSION }}" '

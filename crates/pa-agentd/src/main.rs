@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use pa_core::guest::{
     apply_firewall, build_bwrap_args, build_sandbox_exec_command, ensure_agent_user,
-    generate_nftables_conf, generate_pf_conf, AgentFirewallRule, GitVaultManager,
-    IOSRunnerDaemon,
+    generate_nftables_conf, generate_pf_conf, AgentFirewallRule, GitVaultManager, IOSRunnerDaemon,
 };
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -16,7 +15,11 @@ use std::sync::Mutex;
 pub const DEFAULT_SOCKET_PATH: &str = "/var/run/pa-agentd.sock";
 
 #[derive(Parser, Debug)]
-#[command(name = "pa-agentd", version, about = "PA-Container 2.0 In-Guest Control Plane Daemon")]
+#[command(
+    name = "pa-agentd",
+    version,
+    about = "PA-Container 2.0 In-Guest Control Plane Daemon"
+)]
 pub struct Cli {
     #[arg(long, help = "Run in stdio mode (for SSH control channels)")]
     pub stdio: bool,
@@ -108,10 +111,7 @@ impl GuestDaemonService {
             .get("username")
             .and_then(|u| u.as_str())
             .context("Missing username")?;
-        let uid = params
-            .get("uid")
-            .and_then(|u| u.as_u64())
-            .unwrap_or(2001) as u32;
+        let uid = params.get("uid").and_then(|u| u.as_u64()).unwrap_or(2001) as u32;
         let home_base = params.get("home_base").and_then(|h| h.as_str());
 
         let home = ensure_agent_user(username, uid, home_base.map(Path::new), false)?;
@@ -199,7 +199,8 @@ impl GuestDaemonService {
             .context("Missing agent_id")?;
         let branch_name = params.get("branch_name").and_then(|b| b.as_str());
 
-        let destination = if let Some(dest_str) = params.get("destination").and_then(|d| d.as_str()) {
+        let destination = if let Some(dest_str) = params.get("destination").and_then(|d| d.as_str())
+        {
             PathBuf::from(dest_str)
         } else {
             let base = if cfg!(target_os = "macos") {
@@ -238,10 +239,7 @@ impl GuestDaemonService {
             .get("user")
             .and_then(|u| u.as_str())
             .unwrap_or(agent_id);
-        let uid = params
-            .get("uid")
-            .and_then(|u| u.as_u64())
-            .unwrap_or(2001) as u32;
+        let uid = params.get("uid").and_then(|u| u.as_u64()).unwrap_or(2001) as u32;
         let proxy_ip = params
             .get("proxy_ip")
             .and_then(|p| p.as_str())
@@ -275,12 +273,7 @@ impl GuestDaemonService {
             let _ = fs::create_dir_all(&profile_dir);
             let pfile = profile_dir.join(format!("{}.sb", user));
             let content = pa_core::guest::generate_seatbelt_profile(
-                user,
-                proxy_ip,
-                proxy_port,
-                5353,
-                None,
-                None,
+                user, proxy_ip, proxy_port, 5353, None, None,
             );
             let _ = fs::write(&pfile, content);
             build_sandbox_exec_command(&pfile, &command)
@@ -334,9 +327,12 @@ impl GuestDaemonService {
             });
         }
 
-        let child = cmd
-            .spawn()
-            .with_context(|| format!("Failed to spawn sandboxed agent process for user '{}'", user))?;
+        let child = cmd.spawn().with_context(|| {
+            format!(
+                "Failed to spawn sandboxed agent process for user '{}'",
+                user
+            )
+        })?;
 
         let pid = child.id();
         self.active_processes
@@ -356,10 +352,7 @@ impl GuestDaemonService {
         let mut procs = self.active_processes.lock().unwrap();
 
         for (id, child) in procs.iter_mut() {
-            let running = match child.try_wait() {
-                Ok(None) => true,
-                _ => false,
-            };
+            let running = matches!(child.try_wait(), Ok(None));
             map.insert(
                 id.clone(),
                 json!({
@@ -376,13 +369,25 @@ impl GuestDaemonService {
     }
 
     fn rpc_ios_create_sim(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
-        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
+        let agent_id = params
+            .get("agent_id")
+            .and_then(|a| a.as_str())
+            .context("Missing agent_id")?;
         let device_type = params.get("device_type").and_then(|d| d.as_str());
         let runtime = params.get("runtime").and_then(|r| r.as_str());
         let proxy_ip = params.get("proxy_ip").and_then(|p| p.as_str());
-        let proxy_port = params.get("proxy_port").and_then(|p| p.as_u64()).map(|p| p as u16);
+        let proxy_port = params
+            .get("proxy_port")
+            .and_then(|p| p.as_u64())
+            .map(|p| p as u16);
 
-        let udid = self.ios_runner.create_and_boot_simulator(agent_id, device_type, runtime, proxy_ip, proxy_port)?;
+        let udid = self.ios_runner.create_and_boot_simulator(
+            agent_id,
+            device_type,
+            runtime,
+            proxy_ip,
+            proxy_port,
+        )?;
         Ok(json!({
             "agent_id": agent_id,
             "udid": udid,
@@ -390,13 +395,31 @@ impl GuestDaemonService {
     }
 
     fn rpc_ios_launch_app(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
-        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
-        let app_path = params.get("app_path").and_then(|p| p.as_str()).context("Missing app_path")?;
-        let bundle_id = params.get("bundle_id").and_then(|b| b.as_str()).context("Missing bundle_id")?;
+        let agent_id = params
+            .get("agent_id")
+            .and_then(|a| a.as_str())
+            .context("Missing agent_id")?;
+        let app_path = params
+            .get("app_path")
+            .and_then(|p| p.as_str())
+            .context("Missing app_path")?;
+        let bundle_id = params
+            .get("bundle_id")
+            .and_then(|b| b.as_str())
+            .context("Missing bundle_id")?;
         let proxy_ip = params.get("proxy_ip").and_then(|p| p.as_str());
-        let proxy_port = params.get("proxy_port").and_then(|p| p.as_u64()).map(|p| p as u16);
+        let proxy_port = params
+            .get("proxy_port")
+            .and_then(|p| p.as_u64())
+            .map(|p| p as u16);
 
-        self.ios_runner.install_and_launch_app(agent_id, Path::new(app_path), bundle_id, proxy_ip, proxy_port)?;
+        self.ios_runner.install_and_launch_app(
+            agent_id,
+            Path::new(app_path),
+            bundle_id,
+            proxy_ip,
+            proxy_port,
+        )?;
         Ok(json!({
             "agent_id": agent_id,
             "status": "launched",
@@ -405,10 +428,18 @@ impl GuestDaemonService {
     }
 
     fn rpc_ios_screenshot(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
-        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
-        let output_path = params.get("output_path").and_then(|p| p.as_str()).context("Missing output_path")?;
+        let agent_id = params
+            .get("agent_id")
+            .and_then(|a| a.as_str())
+            .context("Missing agent_id")?;
+        let output_path = params
+            .get("output_path")
+            .and_then(|p| p.as_str())
+            .context("Missing output_path")?;
 
-        let res = self.ios_runner.capture_screenshot(agent_id, Path::new(output_path))?;
+        let res = self
+            .ios_runner
+            .capture_screenshot(agent_id, Path::new(output_path))?;
         Ok(json!({
             "agent_id": agent_id,
             "screenshot_path": res.to_str().unwrap_or(""),
@@ -416,7 +447,10 @@ impl GuestDaemonService {
     }
 
     fn rpc_ios_delete_sim(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
-        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
+        let agent_id = params
+            .get("agent_id")
+            .and_then(|a| a.as_str())
+            .context("Missing agent_id")?;
         self.ios_runner.delete_simulator(agent_id)?;
         Ok(json!({
             "agent_id": agent_id,
@@ -472,34 +506,30 @@ pub fn run_unix_socket_server(service: &GuestDaemonService, socket_path: &Path) 
 
     let _ = fs::set_permissions(socket_path, fs::Permissions::from_mode(0o660));
 
-    for stream in listener.incoming() {
-        if let Ok(stream) = stream {
-            let reader = BufReader::new(stream.try_clone()?);
-            let mut writer = stream;
+    for stream in listener.incoming().flatten() {
+        let reader = BufReader::new(stream.try_clone()?);
+        let mut writer = stream;
 
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let line_trimmed = line.trim();
-                    if line_trimmed.is_empty() {
-                        continue;
-                    }
-                    let res = match serde_json::from_str::<serde_json::Value>(line_trimmed) {
-                        Ok(req) => service.dispatch(&req),
-                        Err(e) => json!({
-                            "jsonrpc": "2.0",
-                            "id": null,
-                            "error": { "code": -32700, "message": format!("Parse error: {}", e) }
-                        }),
-                    };
-                    let mut res_str = match serde_json::to_string(&res) {
-                        Ok(s) => s,
-                        Err(_) => continue,
-                    };
-                    res_str.push('\n');
-                    let _ = writer.write_all(res_str.as_bytes());
-                    let _ = writer.flush();
-                }
+        for line in reader.lines().map_while(Result::ok) {
+            let line_trimmed = line.trim();
+            if line_trimmed.is_empty() {
+                continue;
             }
+            let res = match serde_json::from_str::<serde_json::Value>(line_trimmed) {
+                Ok(req) => service.dispatch(&req),
+                Err(e) => json!({
+                    "jsonrpc": "2.0",
+                    "id": null,
+                    "error": { "code": -32700, "message": format!("Parse error: {}", e) }
+                }),
+            };
+            let mut res_str = match serde_json::to_string(&res) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            res_str.push('\n');
+            let _ = writer.write_all(res_str.as_bytes());
+            let _ = writer.flush();
         }
     }
 
@@ -516,8 +546,8 @@ fn main() -> Result<()> {
     let service = GuestDaemonService::new(cli.vault_root);
 
     if let Some(exec_json) = cli.r#exec {
-        let req: serde_json::Value = serde_json::from_str(&exec_json)
-            .context("Invalid JSON string passed to --exec")?;
+        let req: serde_json::Value =
+            serde_json::from_str(&exec_json).context("Invalid JSON string passed to --exec")?;
         let res = service.dispatch(&req);
         println!("{}", serde_json::to_string(&res)?);
         return Ok(());

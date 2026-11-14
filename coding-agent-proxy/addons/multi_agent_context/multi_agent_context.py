@@ -9,11 +9,10 @@ listening port (sockname[1]). Injects identity metadata into flow.metadata
 (Allowlist, TokenReplacer, FlowExport) can enforce per-agent isolation.
 """
 
-import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import yaml
 from mitmproxy import ctx, http

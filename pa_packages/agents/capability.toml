@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "agents"
+category = "agents"
+version = "1.0.0"
+description = "Unified AI coding agents runtime capability (Pi, OpenCode, Claude Code, and Google Antigravity)"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/agents"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com"]

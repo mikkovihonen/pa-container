@@ -1,150 +1,126 @@
-# Multi-Agent Support
+# Multi-Agent Architecture: PA-Container 2.0
 
-`pa-container` features a decoupled, pluggable agent architecture that allows running multiple coding agent engines within the exact same hardened container sandbox and audit proxy environment.
-
-Whether you run the default **Pi Coding Agent**, **OpenCode**, **Antigravity**, or **Claude Code**, your workspace benefits from:
-
-- **Identical Security Boundary**: Rootless container execution, read-only root filesystem, tmpfs isolation, and egress proxy inspection.
-- **Credential Protection**: Agents run with placeholder credentials; actual secrets are stored in the host OS keyring and injected on proxy egress via the Token Replacer addon.
-- **Dynamic Model Synthesis**: Host-wide models and gateways (`~/.config/pa-container/models/` and `gateways/`) are translated automatically into native configuration formats for each agent.
-- **On-Demand Toolchain Staging**: Alternative agent binaries are built and staged independently as lightweight scratch images and layered into project containers on demand.
+PA-Container 2.0 provides native multi-tenant agent execution inside a shared Factory VM. Rather than running a single container per agent, the Factory VM provisions dedicated POSIX user accounts, independent kernel sandboxes, isolated Git branches, and distinct proxy listening ports for each agent.
 
 ---
 
-## Supported Agents
+## 1. Multi-Tenant Agent Security Model
 
-| Agent Identifier | Display Name | Capability Feature | Default Command | T3 Code Driver |
-| :--- | :--- | :--- | :--- | :--- |
-| `pi` | Pi Coding Agent | `agents[pi]` (`@earendil-works/pi-coding-agent`) | `pi` | `pi` |
-| `opencode` | OpenCode | `agents[opencode]` (`@opencode/cli`) | `opencode` | — |
-| `antigravity` | Google Antigravity | `agents[antigravity]` (Google Antigravity CLI / `agy`) | `agy` | `antigravity` |
-| `claude` | Anthropic Claude Code | `agents[claude]` (`@anthropic-ai/claude-code`) | `claude` | `claudeAgent` |
+```mermaid
+flowchart TD
+    subgraph VM["Factory Virtual Machine"]
+        subgraph Vault["CoW Git Vault (/var/pa-vault)"]
+            Master["main branch (bare repo)"]
+            B1["refs/heads/pa/agent1/*"]
+            B2["refs/heads/pa/agent2/*"]
+            Hook["POSIX pre-receive ACL Hook"]
+        end
 
----
+        subgraph Tenant1["Tenant 1: agent1 (UID 2001)"]
+            Home1["/home/agent1 (0700)"]
+            SB1["Seatbelt / Landlock Sandbox"]
+            Driver1["Driver: Pi / Claude"]
+        end
 
-## Enabling and Selecting Agents
+        subgraph Tenant2["Tenant 2: agent2 (UID 2002)"]
+            Home2["/home/agent2 (0700)"]
+            SB2["Seatbelt / Landlock Sandbox"]
+            Driver2["Driver: Antigravity / OpenCode"]
+        end
+    end
 
-### 1. Workspace Configuration (`config.yaml`)
+    subgraph Proxy["Egress Proxy (coding-agent-proxy)"]
+        P1["Port 8081 (agent1 traffic)"]
+        P2["Port 8082 (agent2 traffic)"]
+    end
 
-Specify enabled agent features and the default active agent in `.pa-container/config.yaml`. Every agent—including Pi—can be enabled or disabled. Configure the `agents` package with its active features using YAML dictionary syntax:
-
-```yaml
-packages:
-  # Enable coding agents as features of the unified agents package.
-  # Supported: pi, opencode, antigravity, claude
-  - agents:
-      - pi
-      - opencode
-
-agent:
-  default: pi            # Default active agent when --agent is omitted on CLI
-  command: ["run"]       # Optional command arguments override
-  options: ["--verbose"] # Optional CLI options appended to invocation
+    Driver1 -->|Egress via 8081| P1
+    Driver2 -->|Egress via 8082| P2
+    Driver1 -->|Git push| Hook
+    Driver2 -->|Git push| Hook
+    Hook --> B1
+    Hook --> B2
 ```
 
-When configured in `config.yaml`, `pa-container` automatically stages the toolchains for all enabled agents in the project container image and sets up the appropriate state directories and mounts.
+### Core Tenancy Principles
 
-### 2. Command-Line Override (`--agent`)
+- **POSIX User Separation:**
+    - Every agent runs under a unique POSIX UID ($\text{UID} \ge 2001$, e.g., 2001 for `agent1`, 2002 for `agent2`).
+    - Home directories are locked down (`0700`), preventing cross-agent filesystem inspection.
+- **Kernel-Level Sandboxing:**
+    - Linux: Landlock ABI v4+ restricts filesystem traversal and network syscalls; Bubblewrap isolates namespaces.
+    - macOS: Apple Seatbelt (`.sb`) profiles enforce read-only system roots and Metal GPU acceleration access.
+- **Git Branch Namespacing:**
+    - Agent Git operations interact with the local `/var/pa-vault` bare repository.
+    - Agents may only push to their assigned branch namespace: `refs/heads/pa/$AGENT_ID/*`.
+    - Cross-agent overwrites or pushes to `main` are rejected by the pre-receive hook.
+- **Port-Based Proxy Attribution:**
+    - `agent1` traffic routes through port `8081`; `agent2` routes through port `8082`.
+    - Outbound audit logs (`flows-agent1.jsonl`, `flows-agent2.jsonl`) maintain forensic isolation.
 
-You can select any enabled agent for a single invocation using the `--agent` command-line flag:
+---
+
+## 2. Supported Agent Drivers
+
+| Agent Identifier | Driver Engine | Binary Name | Default Config Path |
+| :--- | :--- | :--- | :--- |
+| `pi` | Pi Coding Agent | `pi` | `/home/<agent>/.pi/` |
+| `claude` | Anthropic Claude Code | `claude` | `/home/<agent>/.claude/` |
+| `opencode` | OpenCode CLI | `opencode` | `/home/<agent>/.config/opencode/` |
+| `antigravity` | Google Antigravity | `agy` | `/home/<agent>/.gemini/antigravity/` |
+
+---
+
+## 3. Configuring Agents in `factory.toml`
+
+Agents are declared under the `[[agents]]` array in `factory.toml`:
+
+```toml
+[[agents]]
+id = "lead-dev"
+uid = 2001
+driver = "claude"
+capabilities = ["git", "source-control", "languages", "language-servers"]
+allowlist = ["api.anthropic.com", "github.com", "registry.npmjs.org"]
+tokens = ["ANTHROPIC_API_KEY", "GITHUB_TOKEN"]
+
+[[agents]]
+id = "security-auditor"
+uid = 2002
+driver = "antigravity"
+capabilities = ["git", "reverse-engineering", "code-intelligence"]
+allowlist = ["generativelanguage.googleapis.com"]
+tokens = ["GEMINI_API_KEY"]
+```
+
+---
+
+## 4. Multi-Agent CLI Workflows
+
+### Launching Agents
 
 ```bash
-# Launch OpenCode in interactive mode (must be an active feature of agents)
-pa run --agent opencode
+# Launch lead-dev with a task
+./pa run --agent lead-dev --prompt "Refactor authentication flow"
 
-# Launch Google Antigravity (must be an active feature of agents)
-pa run --agent antigravity
-
-# Launch Claude Code (must be an active feature of agents)
-pa run --agent claude
+# Launch security-auditor concurrently in the same VM
+./pa run --agent security-auditor --prompt "Scan codebase for unsafe pointer usage"
 ```
 
-If an agent is not listed under active features of `agents`, `pa-container` rejects the invocation with an error.
+### Inspecting Port Status
 
----
-
-## Agent Architectures & Isolation
-
-### 1. Pi Coding Agent (`pi`)
-
-- **State Directory**: `.pa-container/agents/pi/` mounted to `/home/agent/.pi/agent`.
-- **Configuration**: Synthesizes native `/home/agent/.pi/agent/models.json` on-demand from host models and project allowlist.
-- **Tmpfs Isolation**: Transient binaries in `/home/agent/.pi/agent/bin` are mounted on tmpfs to prevent disk persistence.
-
-### 2. OpenCode (`opencode`)
-
-- **State Directory**: `.pa-container/agents/opencode/` mounted to `/home/agent/.config/opencode` (configuration) and `.pa-container/agents/opencode/data/` mounted to `/home/agent/.local/share/opencode` (sessions and database).
-- **Model Translation**: Synthesizes `.pa-container/agents/opencode/opencode.json` with OpenAI-compatible endpoint configurations and restricts `enabled_providers` to project-configured models.
-- **Egress Authentication**: Outgoing requests carry placeholder `Bearer pa-container-token-placeholder` headers that the proxy transforms into the real API key.
-
-### 3. Google Antigravity (`antigravity`)
-
-- **State Directory**: `.pa-container/agents/antigravity/` mounted to `/home/agent/.gemini/antigravity` (and `.pa-container/agents/antigravity/config/` mounted to `/home/agent/.gemini/config`).
-- **Model Translation**: Synthesizes `.pa-container/agents/antigravity/config.json` and `settings.json` targeting Gemini models.
-- **Egress Authentication**: Proxy injects the host's `GEMINI_API_KEY` into `x-goog-api-key` headers for `generativelanguage.googleapis.com`.
-
-### 4. Claude Code (`claude`)
-
-- **State Directory**: `.pa-container/agents/claude/` mounted to `/home/agent/.claude`.
-- **Model Translation**: Synthesizes `.pa-container/agents/claude/claude.json`.
-- **Egress Authentication**: Outgoing requests carry `x-api-key: pa-container-token-placeholder` replaced with the host's `ANTHROPIC_API_KEY`.
-- **T3 Code Integration**: Enables the `claudeAgent` provider in T3 Code for web-based multi-agent workflows.
-
----
-
-## Dynamic Model Synthesis
-
-Instead of managing separate configuration formats for each agent, `pa-container` synthesizes native configuration files dynamically from your global models and an optional project-level allowlist.
-
-### Global Models & Gateways
-
-Global model definitions reside on your host:
-- `~/.config/pa-container/models/*.yaml`: Local LLM endpoints (llama.cpp, Ollama, vLLM).
-- `~/.config/pa-container/gateways/*.yaml`: Remote gateways (OpenAI, Anthropic, Opper, OpenRouter).
-
-### Project Allowlist (`.pa-container/models.yaml`)
-
-You can restrict which models are available to the agent in your project workspace by creating `.pa-container/models.yaml`:
-
-```yaml
-# Optional default model to set as active
-default: "claude-3-7-sonnet"
-
-# Allowlist of model or gateway names permitted in this project
-allow:
-  - "claude-3-7-sonnet"
-  - "qwen-2.5-coder-32b"
-  - "opper"
+```bash
+./pa proxy
 ```
 
----
+### Reviewing Worktree Changes
 
-## Unified Agent Capability Package (`pa_packages/agents`)
+Each agent's commits are reviewed independently without polluting the host's active working tree:
 
-All agent runtimes are consolidated into the unified `pa_packages/agents` Agent Capability Package:
+```bash
+# Review changes from lead-dev in a local worktree
+./pa review lead-dev --open
 
-- `pa_packages/agents/package.yaml`: Package manifest declaring optional features `pi`, `opencode`, `claude`, and `antigravity`.
-- `pa_packages/agents/host/`: Lifted host runtime abstractions (`base.py`, `registry.py`, `synthesis.py`, `plugin.py`, and `drivers/`).
-- `pa_packages/agents/features/`: Per-feature assets — build scripts (`features/pi/build.sh`, `features/opencode/build.sh`, `features/claude/build.sh`, `features/antigravity/build.sh`) and skill fragments (`features/<engine>/skill/SKILL.md`).
-- `pa_packages/agents/skill/`: Package base skill with target-agent projections.
-
-Each feature defines its binary payload, skill fragments, MCP server configurations, egress allowlists, and verification commands.
-
-When agent features are configured:
-1. `pa-container` checks if the capability image `pa-container-pkg-agents:local` exists and matches the content hash of the active features.
-2. If absent or stale, the package image is built automatically.
-3. The package image is dynamically composed into the project-specific agent container image via `COPY --from=pa-container-pkg-agents:local / /`.
-
----
-
-## Adding Custom Agent Packages
-
-New agent engines can be integrated into `pa-container` as canonical subpackages under `pa_packages/agents/<engine>/` or as standalone ACP packages:
-
-1. Create `pa_packages/agents/<engine>/package.yaml`:
-    - Define `name: "agents/<engine>"`, `payload`, `runtime`, `skill`, and `verification`.
-2. Add the agent skill at `pa_packages/agents/<engine>/skill/SKILL.md` (or specify `source` under `skill:`).
-3. In `pa_packages/agents/host/drivers/<engine>.py`, create a driver inheriting from `AgentDriver`:
-    - Implement `name`, `get_mounts()`, `get_command()`, `get_environment()`, and `synthesize_config()`.
-4. In `pa_packages/agents/host/registry.py`, register the driver in `AVAILABLE_AGENTS` and `DRIVER_CLASSES`.
-5. Write host-side unit tests under `pa_packages/agents/host/tests/`. The test suite and mypy will discover and verify them automatically.
+# Review changes from security-auditor
+./pa review security-auditor --open
+```

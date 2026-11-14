@@ -15,10 +15,17 @@ pub struct Cli {
     #[arg(long = "ro-path", help = "Allowed read-only filesystem path")]
     pub ro_paths: Vec<PathBuf>,
 
-    #[arg(long = "allow-tcp-connect", help = "Allowed TCP connect endpoint (IP:PORT)")]
+    #[arg(
+        long = "allow-tcp-connect",
+        help = "Allowed TCP connect endpoint (IP:PORT)"
+    )]
     pub allow_tcp_connect: Vec<String>,
 
-    #[arg(required = true, trailing_var_arg = true, help = "Target command and arguments to execute")]
+    #[arg(
+        required = true,
+        trailing_var_arg = true,
+        help = "Target command and arguments to execute"
+    )]
     pub command: Vec<String>,
 }
 

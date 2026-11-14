@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "code-intelligence"
+category = "search"
+version = "1.0.0"
+description = "Codebase search, syntactic parsing, and context packing (ripgrep, fd, ast-grep, tree-sitter, colgrep, repomix, tokencount)"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/code-intelligence"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

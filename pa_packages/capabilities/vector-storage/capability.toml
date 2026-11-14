@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "vector-storage"
+category = "database"
+version = "1.0.0"
+description = "Embedded vector storage and SIMD vector search extensions: sqlite-vec, USearch, and optional Qdrant daemon"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/vector-storage"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

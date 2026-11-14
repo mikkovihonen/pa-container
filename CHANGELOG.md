@@ -4,7 +4,46 @@ All notable changes to this project will be documented in this file. The format 
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [2.0.0] - 2026-11-14
+
+### Architecture Rewrite (Clean Departure from Legacy)
+
+Version 2.0.0 is a complete, ground-up rewrite that transitions PA-Container from a single-agent
+rootless Podman container environment to a multi-agent **Agentic Software Factory** powered by
+microVM hypervisors (Tart on macOS, Incus on Linux). All legacy fallbacks, Python host runtimes,
+and container-in-container hacks have been permanently eradicated.
+
+#### Added
+- **Unified Rust Cargo Workspace (`crates/`):**
+    - `crates/pa-core`: Core shared libraries, backends (Tart on macOS, Incus on Linux), CoW Git Vault, dynamic Seatbelt compiler, and capability registry.
+    - `crates/pa-cli`: Unified host CLI binary (`pa run`, `pa factory`, `pa review`, `pa proxy`, `pa logs`).
+    - `crates/pa-agentd`: Statically compiled in-guest control plane daemon communicating over JSON-RPC 2.0 stdio, managing POSIX multi-user tenancy and iOS simulator automation.
+    - `crates/pa-landlock`: Native Linux Landlock ABI v4+ sandbox restrictor for filesystem and TCP syscalls.
+- **Hardware-Level MicroVM Isolation:**
+    - macOS Apple Silicon: Automated Tart virtualization with Softnet bridge egress control.
+    - Linux: Automated Incus system container and microVM management with KVM.
+- **Multi-Tenant POSIX User Isolation:**
+    - Dynamic in-guest provisioning of unprivileged agent users ($\text{UID} \ge 2001$) via `dscl` / `useradd`.
+    - In-guest privilege dropping via POSIX `setgid`/`setuid` prior to sandboxed execution.
+- **Copy-on-Write Git Vault (`/var/pa-vault`):**
+    - Ingestion of host dirty working trees into in-guest bare Git repositories with CoW clones.
+    - Zero-dependency POSIX `/bin/sh` pre-receive hook enforcing strict branch isolation (`refs/heads/pa/$AGENT_ID/*`).
+- **Multi-Port Auditable Egress Proxy (`coding-agent-proxy`):**
+    - Per-agent dedicated proxy listening ports (`8081`, `8082`, ...) eliminating cross-agent traffic eavesdropping.
+    - Zeroizing memory HMAC-SHA256 placeholder token synthesis and dynamic secret injection.
+- **Declarative Capability Packs (`pa_packages/`):**
+    - Replaced 108 legacy `package.yaml` files and 43 `build.sh` scripts with clean, declarative `capability.toml` manifests.
+    - 3-tier canonical package structure: `pa_packages/agents/`, `pa_packages/toolchains/`, `pa_packages/capabilities/`.
+
+#### Removed
+- **Legacy Python Host Runtime:** Deleted 30,308 lines of Python across 31 modules and 82 test suites in `pa_core/`.
+- **Legacy ACP Package Scaffolding:** Deleted all `package.yaml`, `build.sh`, `entrypoint.d/`, and Python host extension directories (`host/*.py`).
+- **Container-in-Container Scaffolding:** Removed `coding-agent/` Containerfile and Podman sysctl/iptables hacks.
+- **Legacy Relics:** Purged `.pi/` toolchains, obsolete `pi-container` branding assets, and local cache directories.
+
+---
+
+## [0.7.0] - 2026-11-14
 
 ### Security
 

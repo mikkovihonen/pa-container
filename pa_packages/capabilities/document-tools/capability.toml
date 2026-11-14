@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "document-tools"
+category = "devtools"
+version = "1.0.0"
+description = "Document conversion and extraction: Pandoc (universal document converter) and Poppler utilities (PDF text/image extraction)"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/document-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

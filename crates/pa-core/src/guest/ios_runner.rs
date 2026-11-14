@@ -82,16 +82,52 @@ impl IOSRunnerDaemon {
         if let (Some(ip), Some(port)) = (proxy_ip, proxy_port) {
             let proxy_url = format!("http://{}:{}", ip, port);
             let _ = Command::new("xcrun")
-                .args(["simctl", "spawn", &udid, "defaults", "write", "com.apple.CFNetwork", "HTTPProxy", ip])
+                .args([
+                    "simctl",
+                    "spawn",
+                    &udid,
+                    "defaults",
+                    "write",
+                    "com.apple.CFNetwork",
+                    "HTTPProxy",
+                    ip,
+                ])
                 .status();
             let _ = Command::new("xcrun")
-                .args(["simctl", "spawn", &udid, "defaults", "write", "com.apple.CFNetwork", "HTTPPort", &port.to_string()])
+                .args([
+                    "simctl",
+                    "spawn",
+                    &udid,
+                    "defaults",
+                    "write",
+                    "com.apple.CFNetwork",
+                    "HTTPPort",
+                    &port.to_string(),
+                ])
                 .status();
             let _ = Command::new("xcrun")
-                .args(["simctl", "spawn", &udid, "defaults", "write", "com.apple.CFNetwork", "HTTPSProxy", ip])
+                .args([
+                    "simctl",
+                    "spawn",
+                    &udid,
+                    "defaults",
+                    "write",
+                    "com.apple.CFNetwork",
+                    "HTTPSProxy",
+                    ip,
+                ])
                 .status();
             let _ = Command::new("xcrun")
-                .args(["simctl", "spawn", &udid, "defaults", "write", "com.apple.CFNetwork", "HTTPSPort", &port.to_string()])
+                .args([
+                    "simctl",
+                    "spawn",
+                    &udid,
+                    "defaults",
+                    "write",
+                    "com.apple.CFNetwork",
+                    "HTTPSPort",
+                    &port.to_string(),
+                ])
                 .status();
             let _ = proxy_url;
         }
@@ -122,7 +158,12 @@ impl IOSRunnerDaemon {
         };
 
         let install_status = Command::new("xcrun")
-            .args(["simctl", "install", &udid, app_bundle_path.to_str().unwrap_or("")])
+            .args([
+                "simctl",
+                "install",
+                &udid,
+                app_bundle_path.to_str().unwrap_or(""),
+            ])
             .status()
             .context("Failed to install app on iOS simulator")?;
         if !install_status.success() {
@@ -138,7 +179,9 @@ impl IOSRunnerDaemon {
         }
         cmd.args(["simctl", "launch", &udid, bundle_id]);
 
-        let launch_status = cmd.status().context("Failed to launch app on iOS simulator")?;
+        let launch_status = cmd
+            .status()
+            .context("Failed to launch app on iOS simulator")?;
         if !launch_status.success() {
             bail!("simctl launch failed for bundle ID {}", bundle_id);
         }
@@ -146,11 +189,7 @@ impl IOSRunnerDaemon {
         Ok(())
     }
 
-    pub fn capture_screenshot(
-        &self,
-        agent_id: &str,
-        output_path: &Path,
-    ) -> Result<PathBuf> {
+    pub fn capture_screenshot(&self, agent_id: &str, output_path: &Path) -> Result<PathBuf> {
         let udid = {
             let sims = self.simulators.lock().unwrap();
             sims.get(agent_id).cloned()
@@ -166,7 +205,13 @@ impl IOSRunnerDaemon {
         }
 
         let status = Command::new("xcrun")
-            .args(["simctl", "io", &udid, "screenshot", output_path.to_str().unwrap_or("")])
+            .args([
+                "simctl",
+                "io",
+                &udid,
+                "screenshot",
+                output_path.to_str().unwrap_or(""),
+            ])
             .status()
             .context("Failed to capture screenshot from iOS simulator")?;
         if !status.success() {
@@ -183,7 +228,9 @@ impl IOSRunnerDaemon {
         };
 
         if let Some(u) = udid {
-            let _ = Command::new("xcrun").args(["simctl", "shutdown", &u]).output();
+            let _ = Command::new("xcrun")
+                .args(["simctl", "shutdown", &u])
+                .output();
             let status = Command::new("xcrun")
                 .args(["simctl", "delete", &u])
                 .status()

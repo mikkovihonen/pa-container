@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "language-servers"
+category = "devtools"
+version = "1.0.0"
+description = "Unified language server capability providing lsp-bridge core and language servers (pyright, typescript-language-server, rust-analyzer, gopls)"
+requires = ["languages"]
+
+[staging]
+install_prefix = "/opt/pa/packs/language-servers"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

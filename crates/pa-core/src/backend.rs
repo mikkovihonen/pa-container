@@ -18,21 +18,25 @@ pub fn get_backend(config: &FactoryConfig) -> Result<Box<dyn FactoryBackend>> {
     match b_type.as_str() {
         "auto" => {
             if cfg!(target_os = "macos") {
-                Ok(Box::new(crate::backends::tart_macos::TartMacOSBackend::new(
-                    Some(config.clone()),
-                    None,
-                    None,
-                    None,
-                    None,
-                )))
+                Ok(Box::new(
+                    crate::backends::tart_macos::TartMacOSBackend::new(
+                        Some(config.clone()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                ))
             } else {
-                Ok(Box::new(crate::backends::incus_linux::IncusLinuxBackend::new(
-                    Some(config.clone()),
-                    None,
-                    None,
-                    None,
-                    None,
-                )))
+                Ok(Box::new(
+                    crate::backends::incus_linux::IncusLinuxBackend::new(
+                        Some(config.clone()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                ))
             }
         }
         "macos-tart" | "tart" => Ok(Box::new(

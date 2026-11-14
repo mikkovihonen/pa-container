@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "browser"
+category = "browser"
+version = "1.0.0"
+description = "Web browser automation: Chromium on virtual desktop, shared headless runtime libraries, and Playwright MCP"
+requires = ["virtual-desktop"]
+
+[staging]
+install_prefix = "/opt/pa/packs/browser"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

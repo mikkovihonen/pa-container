@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "developer-tools"
+category = "devtools"
+version = "1.0.0"
+description = "General developer workflow utilities, task runners, and scripting helpers (just)"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/developer-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "agent-orchestrators"
+category = "orchestration"
+version = "1.0.0"
+description = "Multi-agent orchestration capability: tmux session control, parallel Git worktree lifecycle (Worktrunk), multiplayer terminal/web workspace (Zellij), multi-provider web control plane (T3 Code), and inter-agent message bus (AgentIntercom)"
+requires = ["agents", "git"]
+
+[staging]
+install_prefix = "/opt/pa/packs/agent-orchestrators"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

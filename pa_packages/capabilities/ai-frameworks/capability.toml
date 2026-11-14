@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "ai-frameworks"
+category = "ai"
+version = "1.0.0"
+description = "High-level AI and Agent Frameworks: LangGraph (graph-based multi-actor workflows), PydanticAI (type-safe agent framework), and smolagents (code-centric agents)"
+requires = ["languages"]
+
+[staging]
+install_prefix = "/opt/pa/packs/ai-frameworks"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["huggingface.co", "pypi.org", "files.pythonhosted.org"]

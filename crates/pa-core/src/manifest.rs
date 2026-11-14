@@ -9,8 +9,7 @@ use std::path::{Path, PathBuf};
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn derive_placeholder_token(session_nonce: &[u8], agent_id: &str, env_var: &str) -> String {
-    let mut mac = HmacSha256::new_from_slice(session_nonce)
-        .expect("HMAC accepts keys of any size");
+    let mut mac = HmacSha256::new_from_slice(session_nonce).expect("HMAC accepts keys of any size");
     mac.update(agent_id.as_bytes());
     mac.update(b":");
     mac.update(env_var.as_bytes());
@@ -105,8 +104,10 @@ impl CapabilityRegistry {
                     if toml_path.is_file() {
                         let raw = fs::read_to_string(&toml_path)
                             .with_context(|| format!("Failed to read {}", toml_path.display()))?;
-                        let mut manifest: CapabilityManifest = toml::from_str(&raw)
-                            .with_context(|| format!("Invalid capability.toml at {}", toml_path.display()))?;
+                        let mut manifest: CapabilityManifest =
+                            toml::from_str(&raw).with_context(|| {
+                                format!("Invalid capability.toml at {}", toml_path.display())
+                            })?;
                         manifest.package_dir = entry.path();
                         by_name.insert(manifest.capability.name.clone(), manifest);
                     }
@@ -121,9 +122,15 @@ impl CapabilityRegistry {
         self.by_name.get(name)
     }
 
-    pub fn resolve_dependency_closure(&self, requested: &[String]) -> Result<Vec<CapabilityManifest>> {
+    pub fn resolve_dependency_closure(
+        &self,
+        requested: &[String],
+    ) -> Result<Vec<CapabilityManifest>> {
         #[derive(Clone, Copy, PartialEq, Eq)]
-        enum VisitState { Temp, Perm }
+        enum VisitState {
+            Temp,
+            Perm,
+        }
 
         let mut state: HashMap<String, VisitState> = HashMap::new();
         let mut ordered = Vec::new();
@@ -136,11 +143,15 @@ impl CapabilityRegistry {
         ) -> Result<()> {
             match state.get(name) {
                 Some(VisitState::Perm) => return Ok(()),
-                Some(VisitState::Temp) => bail!("Circular capability dependency involving '{name}'"),
+                Some(VisitState::Temp) => {
+                    bail!("Circular capability dependency involving '{name}'")
+                }
                 None => {}
             }
             state.insert(name.to_string(), VisitState::Temp);
-            let manifest = reg.by_name.get(name)
+            let manifest = reg
+                .by_name
+                .get(name)
                 .ok_or_else(|| anyhow::anyhow!("Unknown capability pack: '{}'", name))?;
             for dep in &manifest.capability.requires {
                 visit(reg, dep, state, ordered)?;

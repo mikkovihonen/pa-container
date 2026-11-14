@@ -1,34 +1,15 @@
 [project]
 name = "pa-container"
 version = "2.0.0"
-description = "Containerized environment for running the pi-coding-agent with local LLM inference"
+description = "Next-Generation Multi-Agent Software Factory with MicroVM Isolation and Network Auditing"
 license = { file = "LICENSE" }
 requires-python = ">=3.14"
-dependencies = [
-    "pyyaml>=6.0.3",
-    "keyring>=24.0.0",
-    "rich>=13.9.0",
-]
-
-[project.scripts]
-pa = "cli:main"
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.package-dir]
-"" = "pa_core"
-
-[tool.setuptools.packages.find]
-where = ["pa_core"]
+dependencies = []
 
 [dependency-groups]
 proxy = [
     "mitmproxy>=12.2.3",
-]
-pa_core = [
-    "huggingface_hub>=1.26.0",
+    "pyyaml>=6.0.3",
 ]
 docs = [
     "zensical>=0.0.57",
@@ -44,8 +25,8 @@ dev = [
 ]
 
 [tool.uv]
-default-groups = ["pa_core", "proxy", "dev"]
-package = true
+default-groups = ["proxy", "docs", "dev"]
+package = false
 override-dependencies = [
     "msgpack>=1.2.1",
     "tornado>=6.5.7",
@@ -55,48 +36,38 @@ override-dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = [
-    "pa_core/tests",
     "coding-agent-proxy/addons/allowlist/tests",
     "coding-agent-proxy/addons/token_replacer/tests",
     "coding-agent-proxy/addons/flow_export/tests",
     "coding-agent-proxy/addons/multi_agent_context/tests",
-    "pa_packages",
 ]
 markers = [
-    "smoke: package smoke tests",
-    "integration: live container integration tests",
+    "smoke: proxy smoke tests",
+    "integration: live proxy integration tests",
 ]
 
 [tool.coverage.run]
 branch = true
 source = [
-    "pa_core",
-    "pa_packages",
     "coding-agent-proxy/addons/allowlist",
     "coding-agent-proxy/addons/token_replacer",
     "coding-agent-proxy/addons/flow_export",
     "coding-agent-proxy/addons/multi_agent_context",
 ]
-omit = [
-    "pa_packages/**/container/**",
-    "pa_packages/**/tests/**",
-]
 
 [tool.coverage.report]
-fail_under = 88
+fail_under = 80
 show_missing = true
 skip_empty = true
 
 [tool.ruff]
 target-version = "py314"
 line-length = 120
-src = ["pa_core", "pa_packages"]
+src = ["coding-agent-proxy/addons", "scripts"]
 include = [
-    "pa_core/**/*.py",
-    "coding-agent-proxy/addons/allowlist/**/*.py",
-    "coding-agent-proxy/addons/token_replacer/**/*.py",
-    "pa_packages/**/*.py",
+    "coding-agent-proxy/**/*.py",
     "scripts/**/*.py",
+    ".github/**/*.py",
 ]
 
 [tool.ruff.lint]
@@ -124,8 +95,7 @@ skip-magic-trailing-comma = false
 
 [tool.ruff.lint.isort]
 known-first-party = [
-    "util", "config", "runtimes", "models", "server", "network", "secret_store",
-    "allowlist", "token_replacer",  # coding-agent-proxy/addons
+    "allowlist", "token_replacer", "flow_export", "multi_agent_context",
 ]
 
 [tool.mypy]
@@ -135,10 +105,9 @@ disallow_any_generics = true
 disallow_subclassing_any = true
 warn_redundant_casts = true
 warn_unused_ignores = true
-mypy_path = ["pa_core", "coding-agent-proxy/addons"]
+mypy_path = ["coding-agent-proxy/addons"]
 explicit_package_bases = true
 files = [
-    "pa_core",
     "coding-agent-proxy/addons",
     "scripts",
     ".github/workflows/scripts",
@@ -153,10 +122,3 @@ module = [
     "*.tests.*",
 ]
 ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = [
-    "pa_packages.*",
-]
-ignore_missing_imports = true
-

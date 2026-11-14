@@ -52,13 +52,19 @@ pub struct RunArgs {
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
 
-    #[arg(trailing_var_arg = true, help = "Extra arguments passed to the agent driver")]
+    #[arg(
+        trailing_var_arg = true,
+        help = "Extra arguments passed to the agent driver"
+    )]
     pub extra_args: Vec<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct FactoryArgs {
-    #[arg(help = "Factory lifecycle action: up, down, or status", default_value = "status")]
+    #[arg(
+        help = "Factory lifecycle action: up, down, or status",
+        default_value = "status"
+    )]
     pub action: String,
 
     #[arg(short, long, help = "Path to factory.toml configuration file")]
@@ -170,7 +176,10 @@ fn handle_factory(args: &FactoryArgs) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&status)?);
         }
         other => {
-            anyhow::bail!("Unknown factory action '{}'. Expected 'up', 'down', or 'status'.", other);
+            anyhow::bail!(
+                "Unknown factory action '{}'. Expected 'up', 'down', or 'status'.",
+                other
+            );
         }
     }
 
@@ -178,14 +187,12 @@ fn handle_factory(args: &FactoryArgs) -> Result<()> {
 }
 
 fn handle_review(args: &ReviewArgs) -> Result<()> {
-    println!("==> Preparing review worktree for agent '{}'...", args.agent);
-    let worktree_path = review_agent_workspace(
-        &args.agent,
-        None,
-        args.open,
-        args.ide.as_deref(),
-        false,
-    )?;
+    println!(
+        "==> Preparing review worktree for agent '{}'...",
+        args.agent
+    );
+    let worktree_path =
+        review_agent_workspace(&args.agent, None, args.open, args.ide.as_deref(), false)?;
     println!("==> Review worktree ready at: {}", worktree_path.display());
     Ok(())
 }
@@ -215,7 +222,9 @@ fn handle_proxy(args: &ProxyArgs) -> Result<()> {
                     .map(|tok| {
                         (
                             tok.clone(),
-                            json!(pa_core::manifest::derive_placeholder_token(nonce, &a.id, tok)),
+                            json!(pa_core::manifest::derive_placeholder_token(
+                                nonce, &a.id, tok
+                            )),
                         )
                     })
                     .collect();
@@ -236,11 +245,20 @@ fn handle_proxy(args: &ProxyArgs) -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<15} {:<8} {:<10} {:<12} {:<18} {:<15}", "AGENT ID", "UID", "DRIVER", "PROXY PORT", "TRANSPARENT PORT", "ALLOWLIST");
+    println!(
+        "{:<15} {:<8} {:<10} {:<12} {:<18} {:<15}",
+        "AGENT ID", "UID", "DRIVER", "PROXY PORT", "TRANSPARENT PORT", "ALLOWLIST"
+    );
     println!("{}", "-".repeat(82));
     for a in &agents {
-        let p_port = a.proxy_port.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
-        let t_port = a.transparent_port.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
+        let p_port = a
+            .proxy_port
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "-".into());
+        let t_port = a
+            .transparent_port
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "-".into());
         let allowed = if a.allowlist.is_empty() {
             "*".to_string()
         } else {
@@ -260,7 +278,11 @@ fn handle_logs(args: &LogsArgs) -> Result<()> {
     let cache_dir = dirs_fallback_cache();
     let flow_file = cache_dir.join(format!("flows-agent-{}.jsonl", agent_id));
 
-    println!("==> Reading logs for agent '{}' from {}...", agent_id, flow_file.display());
+    println!(
+        "==> Reading logs for agent '{}' from {}...",
+        agent_id,
+        flow_file.display()
+    );
 
     if flow_file.is_file() {
         let content = std::fs::read_to_string(&flow_file)?;

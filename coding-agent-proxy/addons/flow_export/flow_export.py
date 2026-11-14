@@ -41,12 +41,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from mitmproxy import http
-    from mitmproxy.http import HTTPFlow, Headers
+    from mitmproxy.http import Headers, HTTPFlow
 
 log = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ class FlowExporter:
         return os.path.join(self.export_dir, f"flows-{_sanitize_ip(client_ip)}.jsonl")
 
     @staticmethod
-    def _is_denied_flow(flow: "http.HTTPFlow") -> bool:
+    def _is_denied_flow(flow: http.HTTPFlow) -> bool:
         """Return True if the flow was denied/blocked (must be retained in memory).
 
         Checks:
@@ -184,9 +185,7 @@ class FlowExporter:
                 return True
         if getattr(flow, "error", None) is not None:
             return True
-        if getattr(flow, "marked", False):
-            return True
-        return False
+        return bool(getattr(flow, "marked", False))
 
     def _trim_in_memory_view(self) -> None:
         """Trim allowed flows from mitmweb's in-memory view to keep memory bounded.
@@ -200,7 +199,7 @@ class FlowExporter:
         try:
             from mitmproxy import ctx
 
-            view = getattr(ctx.master.addons, "get")("view") if hasattr(ctx, "master") and ctx.master else None
+            view = ctx.master.addons.get("view") if hasattr(ctx, "master") and ctx.master else None  # type: ignore[no-untyped-call]
             if not view or len(view) <= self._max_view_flows:
                 return
 
@@ -217,7 +216,7 @@ class FlowExporter:
         except Exception as e:
             log.debug(f"[flow-export] View trimming error: {e}")
 
-    def _append(self, flow: "http.HTTPFlow") -> None:
+    def _append(self, flow: http.HTTPFlow) -> None:
         """Append one flow as a single JSON line to its client's file. Deduped by
         flow id so a flow is never written twice. Best-effort: a write failure is
         logged, not raised, so it never disrupts the proxied request.
@@ -238,14 +237,14 @@ class FlowExporter:
             line = json.dumps(_flow_to_dict(flow), separators=(",", ":"))
             with open(path, mode) as f:
                 f.write(line + "\n")
-            
+
             # If flow has pa_agent_id or policy flow_log_path, write per-agent export stream
             agent_id = flow.metadata.get("pa_agent_id") if hasattr(flow, "metadata") and flow.metadata else None
             policy = flow.metadata.get("pa_policy") if hasattr(flow, "metadata") and flow.metadata else None
             agent_path = getattr(policy, "flow_log_path", None)
             if not agent_path and agent_id:
                 agent_path = os.path.join(self.export_dir, f"flows-agent-{agent_id}.jsonl")
-            
+
             if agent_path:
                 agent_mode = "a" if agent_id in self._truncated else "w"
                 if agent_id:
@@ -257,12 +256,12 @@ class FlowExporter:
         except Exception as e:
             log.warning(f"[flow-export] Failed to append flow {flow_id} to {path}: {e}")
 
-    def response(self, flow: "http.HTTPFlow") -> None:
+    def response(self, flow: http.HTTPFlow) -> None:
         """Append allowed flows and the allowlist's synthetic 403 responses."""
         self._append(flow)
         self._trim_in_memory_view()
 
-    def error(self, flow: "http.HTTPFlow") -> None:
+    def error(self, flow: http.HTTPFlow) -> None:
         """Append flows that errored or were killed (e.g. allowlist 444)."""
         self._append(flow)
         self._trim_in_memory_view()
@@ -272,8 +271,7 @@ class FlowExporter:
         so nothing is written here — this hook running is not required for a
         complete export."""
         log.info(
-            f"[flow-export] Appended {self._count} flow(s) across "
-            f"{len(self._truncated)} client(s) to {self.export_dir}"
+            f"[flow-export] Appended {self._count} flow(s) across {len(self._truncated)} client(s) to {self.export_dir}"
         )
 
 

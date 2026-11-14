@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "ocr-tools"
+category = "media"
+version = "1.0.0"
+description = "OCR capability: tesseract text extraction from images and scanned pages, English baseline data, and optional ocrmypdf and language packs"
+requires = ["image-tools"]
+
+[staging]
+install_prefix = "/opt/pa/packs/ocr-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

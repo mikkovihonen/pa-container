@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "languages"
+category = "toolchains"
+version = "1.0.0"
+description = "Unified programming languages and toolchains capability: Python (uv), Node.js, Rust (rustup/cargo), Go"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/languages"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "static.rust-lang.org", "crates.io"]

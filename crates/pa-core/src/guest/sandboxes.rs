@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_bwrap_args(
     user: &str,
     home_dir: &Path,
@@ -262,6 +263,15 @@ mod tests {
         let profile = PathBuf::from("/etc/pa/profiles/agent1.sb");
         let cmd = vec!["echo".into(), "test".into()];
         let args = build_sandbox_exec_command(&profile, &cmd);
-        assert_eq!(args, vec!["sandbox-exec", "-f", "/etc/pa/profiles/agent1.sb", "echo", "test"]);
+        assert_eq!(
+            args,
+            vec![
+                "sandbox-exec",
+                "-f",
+                "/etc/pa/profiles/agent1.sb",
+                "echo",
+                "test"
+            ]
+        );
     }
 }

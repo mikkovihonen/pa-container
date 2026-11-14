@@ -1,0 +1,15 @@
+schema_version = "1.0"
+
+[capability]
+name = "reverse-engineering"
+category = "security"
+version = "1.0.0"
+description = "Reverse engineering and binary analysis suite: Ghidra (headless/GUI), Capstone/Unicorn/Keystone, binary triage utilities, and MCP server"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/reverse-engineering"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []

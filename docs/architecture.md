@@ -1,223 +1,101 @@
-# Architecture
+# Architecture: PA-Container 2.0 Software Factory
 
-## Overview
+PA-Container 2.0 transforms personal agent development from single-agent container sandboxing into a multi-agent **Agentic Software Factory**. It provides hardware-grade virtualization boundaries, per-agent POSIX isolation, dynamic kernel sandboxing, and strict network auditing.
 
-```mermaid
-flowchart TB
-    agent_eth["<b>pa-container-agent</b><br/><br/>eth0<br/>isolated-net"]
+---
 
-    subgraph net["isolated-net<br/>(--internal, no gateway)"]
-        direction TB
-    end
-    style net fill:none,text-align:left
-
-    subgraph proxy["<b>pa-container-agent-proxy</b>"]
-        direction TB
-        mitm["mitmproxy<br/>transparent :8080<br/>allowlist + token_replacer"]
-        dns["mitmproxy<br/>DNS :5353<br/>resolves 'llama' / provider hosts → eth1 IP"]
-    end
-    style proxy fill:none,text-align:left
-
-    subgraph host["<b>Host</b><br/>llama-server (host process)"]
-        direction TB
-    end
-    style host fill:none,text-align:left
-
-    eth1["eth1<br/>isolated-net"]
-    eth0["eth0<br/>upstream network<br/>internet + MASQUERADE"]
-
-    %% L3 routing: agent → isolated-net → proxy eth1
-    agent_eth -.->|L3 routed via proxy eth1 IP| eth1
-    agent_eth --- net
-    net --- eth1
-
-    %% Proxy internal: L4 interception & forwarding
-    eth1 -->|REDIRECT<br/>80/443 → :8080| mitm
-    eth1 -->|REDIRECT<br/>53 → :5353| dns
-    eth1 -->|DNAT provider:<cp> → llama_net| llama_net
-    mitm -->|egress| eth0
-    dns -->|egress| eth0
-    eth1 -.->|opt-in FORWARD → eth0 → MASQUERADE| eth0
-    eth0 -->|internet| Out["Internet"]
-
-    subgraph llama_net["llama-server reachability"]
-        direction TB
-        podman_net["podman<br/>host.containers.internal<br/>(gvproxy)"]
-    end
-    style llama_net fill:none,text-align:left
-
-    llama_net --> host
-```
-
-The key components of the system are
-
-1. **`llama-server`** (host process): Runs `llama.cpp`'s `llama-server` natively on the host. It provides OpenAI-compatible API endpoints for one or more local LLM models. Each model is permitted in the workspace via `<project>/.pa-container/models.yaml` and resolved against host model definitions at `~/.config/pa-container/models/<model-id>.yaml` or gateways at `~/.config/pa-container/gateways/<gateway-id>.yaml`. The system seeds `models.yaml` from the `coding-agent/default/project/` template and default model definitions from `coding-agent/default/global/models/` on first run. Unlike the proxy, a llama-server is a shared host resource. It uses the provider **name plus a fingerprint of the model definition configuration (flags and model files)** as its key. Projects with an identically configured provider share one process. This avoids loading the model twice. A same-named provider with different parameters gets its own server. This prevents attaching the wrong model.
-
-2. **`pa-container-agent-proxy`** (container): A transparent proxy container based on Fedora Minimal with [mitmproxy](https://mitmproxy.org/). It intercepts the pi container's HTTP, HTTPS, and DNS traffic. The system installs a self-signed CA certificate into the pi container image so it can decrypt HTTPS. Each workspace gets its **own** proxy and its own isolated network. The system names the proxy by a hash of the project path. Its mitmweb web UI runs on an **auto-assigned host port** that the system logs at startup. Two [addons](proxy/overview.md#addons) run on the intercepted traffic. The first is an **allowlist** that blocks non-allowlisted hosts. The second is a **token_replacer** that substitutes tokens in outgoing traffic: it can redact secrets (API keys, bearer tokens, cookies, JWTs) or replace in-container placeholders with real credentials held by the proxy. The system denies all non-HTTP protocols by default. The agent cannot reach the internet except through the proxy. The agent can only use protocols that the proxy inspects (HTTP, HTTPS, DNS) or that you explicitly opt in to (see [Proxy egress policy](design-details.md#proxy-egress-policy)).
-
-3. **`pa-container-agent`** (container): The main agent container. The system builds it from Fedora Minimal (`registry.fedoraproject.org/fedora-minimal:45`). It includes Node 26, Python 3.15.2, `uv` for dependency management, and (for nested containers) rootless podman plus `podman-compose`. Agent Capability Packages in `pa_packages/` provide discrete, self-contained capability layers composed dynamically via `COPY --from=pa-container-pkg-<name>:local / /`. No workspace needs to install them. The agent connects **only** to an internal `isolated-net` network. Its default route and DNS point at the proxy so all traffic goes through it. The proxy reaches the host `llama-server` via `host.containers.internal` on podman for macOS or directly on Linux. This requires no socat. With `nested_containers.enabled`, the agent runs its own rootless podman inside itself. Those containers live in the agent's namespaces. Their traffic also goes through the proxy (see [Nested containers](design-details.md#nested-containers)).
-
-<a name="network-topology"></a>
-## Networking
-
-The proxy's iptables rules enforce a **default-deny** forward policy. HTTP, HTTPS, and DNS from the agent go through mitmproxy. The proxy uses `REDIRECT` to ports 8080 and 5353. This bypasses the `FORWARD` chain entirely. The system denies every other protocol by default. Opt-in forwarding uses plain NAT. You configure it per-project in `.pa-container/config.yaml` under `egress.allow`. Options include ssh, smtp, git, ntp, and custom TCP or UDP ports. mitmproxy does **not inspect** these opt-in connections. The system creates `isolated-net` with `--internal`. This removes the external gateway. The agent has no route to the internet except the default route and DNS pointed at the proxy.
-
-By default the whole stack is **IPv4-only**. The isolated network has no IPv6 subnet. Both containers disable IPv6 via sysctl. This prevents agent traffic from escaping the transparent-proxy REDIRECT over v6. Set `network.ipv6: true` in the project's `.pa-container/config.yaml` to enable IPv6. IPv6 mode creates the network with an IPv6 subnet (`--ipv6`). It mirrors the proxy's REDIRECT, NAT, and FORWARD rules in `ip6tables`. It gives the agent an IPv6 default route through the proxy. The container runtime **and** the host must both have IPv6 egress. This option targets **Linux hosts running podman with working host IPv6**. Leave it `false` on macOS.
-
-
-## Startup orchestration & parallel initialization
-
-When `pi` runs (`pa_core/run.py`), startup dependencies are orchestrated concurrently using `start_dependencies_parallel()` in `pa_core/containers.py`:
+## 1. System Topology Overview
 
 ```mermaid
 flowchart TB
-    Sweep["<b>1. Crash Recovery & Sweepers</b><br/>Reap dead servers, stale proxy locks, and dangling containers"]
-
-    Sweep --> S1
-    Sweep --> S2
-    Sweep --> Proxy
-
-    subgraph Parallel["<b>2. Parallel Dependency Startup</b> (start_dependencies_parallel)"]
-        direction TB
-        S1["<b>llama-server 1</b><br/>Port allocated<br/>Model weight loading & /health polling"]
-        S2["<b>llama-server 2</b><br/>Port allocated<br/>Model weight loading & /health polling"]
-        Proxy["<b>pa-container-agent-proxy</b><br/>Create isolated network<br/>Start proxy container & poll mitmweb"]
+    subgraph Host["Host Machine (macOS / Linux)"]
+        CLI["pa CLI (crates/pa-cli)"]
+        Keyring["OS Keyring (Zeroizing Memory)"]
+        Llama["llama-server (host Metal/CUDA)"]
+        
+        subgraph ProxyStack["Egress & Auditing Proxy (coding-agent-proxy)"]
+            Proxy["mitmproxy :8081 (Agent 1)\nmitmproxy :8082 (Agent 2)\nDNS :5353"]
+            Allowlist["Per-Agent Allowlist Addon"]
+            Replacer["HMAC Token Replacer Addon"]
+            Exporter["Flow Exporter (JSONL)"]
+        end
     end
-    style Parallel fill:none,text-align:left
 
-    S1 -.->|"port_ready_event (~15ms)"| Proxy
-    S2 -.->|"port_ready_event (~15ms)"| Proxy
+    subgraph Hypervisor["Factory MicroVM Boundary (Tart / Incus)"]
+        Daemon["pa-agentd (In-Guest Control Daemon)"]
+        Vault["CoW Git Vault (/var/pa-vault)"]
+        
+        subgraph Agent1["Agent 1 Execution Context (UID 2001)"]
+            SB1["Sandbox (Landlock ABI v4+ / Seatbelt)"]
+            Proc1["Agent Driver (Pi / Claude / Antigravity)"]
+            Tree1["Isolated Git Worktree"]
+        end
 
-    S1 --> Barrier["<b>3. Health Readiness Barrier</b><br/>Synchronizes all server & proxy /health checks"]
-    S2 --> Barrier
-    Proxy --> Barrier
+        subgraph Agent2["Agent 2 Execution Context (UID 2002)"]
+            SB2["Sandbox (Landlock ABI v4+ / Seatbelt)"]
+            Proc2["Agent Driver (OpenCode / Antigravity)"]
+            Tree2["Isolated Git Worktree"]
+        end
+    end
 
-    Barrier -->|All healthy| Agent["<b>4. Start pa-container-agent</b><br/>Attach to isolated-net<br/>Route default gateway & DNS to proxy"]
-    Barrier -.->|Any failure or SIGINT| Rollback["<b>ExitStack Rollback</b><br/>Clean teardown of all started resources"]
+    CLI -->|SSH / Stdio JSON-RPC 2.0| Daemon
+    CLI -->|Ingest Dirty Git Stash| Vault
+    Daemon -->|POSIX dscl/useradd| Agent1
+    Daemon -->|POSIX dscl/useradd| Agent2
+    
+    Proc1 -->|Port 8081 / HTTPS| Proxy
+    Proc2 -->|Port 8082 / HTTPS| Proxy
+    Proxy --> Allowlist
+    Allowlist --> Replacer
+    Replacer --> Exporter
+    Exporter -->|Egress| WAN["External APIs / Upstream Git"]
+    Proxy -.->|Local Inference :11434| Llama
 ```
 
-### Dependency lifecycle stages
+---
 
-1. **Crash recovery & orphan sweeping**:
-    - `containers.sweep_orphaned_servers()` stops host `llama-server` processes whose client sessions have terminated.
-    - `containers.sweep_orphaned_proxies()` cleans up stale proxy locks, stops orphaned proxy containers, and removes dangling bridge networks.
-    - `containers.cleanup_orphaned_agent_containers()` removes exited or abandoned agent containers from prior crashed runs.
+## 2. Core Architectural Layers
 
-2. **Parallel dependency startup (`start_dependencies_parallel`)**:
-    - **Multi-server concurrency**: If multiple local models are allowed in `models.yaml`, all `llama-server` instances launch in parallel worker threads, downloading models and loading weights into memory/VRAM concurrently.
-    - **Port readiness signaling**: Each `Server` assigns its host port immediately upon process spawn and signals `port_ready_event` (~15ms).
-    - **Concurrent proxy initialization**: `ContainerNetworkManager` builds `LLAMA_PORTS` port forwarding rules as soon as server ports are allocated, launching the proxy container and polling mitmweb health in parallel with server weight loading.
-    - **Health synchronization barrier**: The coordinator thread waits for all servers and the proxy container to complete health verification.
-    - **Clean rollback via `ExitStack`**: If any server or the proxy fails to start (e.g. OOM or timeout), `ExitStack` automatically cancels outstanding startup tasks and cleans up all started containers and processes.
+### Layer 1: Host Orchestration (`crates/pa-cli`)
+- **Role:** Central developer-facing binary written in Rust using `clap`.
+- **Key Responsibilities:**
+    - Parses declarative configuration (`factory.toml`).
+    - Synthesizes session nonces and derives HMAC-SHA256 placeholder tokens (`pa-tok-<agent_id>-<hash>`).
+    - Stages capability skills across agent workspaces.
+    - Synchronizes host dirty Git state into the in-guest Git Vault.
+    - Manages lifecycle commands: `pa run`, `pa factory`, `pa review`, `pa proxy`, `pa logs`.
 
-3. **Agent container launch**:
-    - Inspects the running proxy's internal interface IP and provisions shadow volumes and tmpfs mounts.
-    - Launches `pa-container-agent` attached to the isolated bridge network with default route and DNS directed to the proxy.
+### Layer 2: MicroVM Hypervisor Isolation
+- **Role:** Hard virtualization boundary preventing guest breakouts from reaching host memory or filesystem.
+- **Backends:**
+    - **macOS (`macos-tart`):** Automates Tart virtualization on Apple Silicon. Network traffic routes over the `Softnet` bridge.
+    - **Linux (`linux-incus`):** Automates Incus system containers and KVM virtual machines with native network bridges.
 
-For in-depth explanations of proxy egress forwarding rules, nested container architecture, and the toolchain builder image, see [Design details](design-details.md).
+### Layer 3: In-Guest Daemon (`crates/pa-agentd`)
+- **Role:** Statically compiled, single-binary daemon running inside the Factory VM.
+- **Protocol:** Strongly typed JSON-RPC 2.0 over SSH stdio, requiring no exposed network ports.
+- **Responsibilities:**
+    - Provisions unprivileged agent users ($\text{UID} \ge 2001$) via POSIX commands (`dscl` on macOS, `useradd` on Linux).
+    - Enforces cgroups v2 resource quotas (memory, CPU, PID limits) on Linux.
+    - Spawns and supervises sandboxed processes under dropped POSIX credentials.
+    - Manages the iOS Simulator automation bridge via `ios-runnerd`.
 
-## Project Structure
+### Layer 4: In-Guest Process Sandboxing
+- **Role:** Second-line defense confining agent processes within their designated directories.
+- **Implementations:**
+    - **Linux (`crates/pa-landlock`):** Native Rust Landlock ABI v4+ ruleset restriction (`PR_SET_NO_NEW_PRIVS`, filesystem path access, TCP bind/connect filtering) combined with Bubblewrap (`bwrap`).
+    - **macOS:** Dynamic Seatbelt (`.sb`) profile compilation executed via `sandbox-exec`. Enforces read-only system roots, isolated user homes, and hardware acceleration access to Apple Silicon Metal/ANE.
 
-```
-.
-├── pa                                # Unified CLI executable entrypoint
-├── pyproject.toml                    # uv project: dependencies, dependency-groups, ruff/mypy/pytest config
-├── uv.lock                           # Pinned dependency lockfile (committed)
-├── .gitignore
-│
-├── pa_core/                          # Python source for build and run utilities
-│   ├── build.py                      # Builds proxy and agent container images
-│   ├── run.py                        # Orchestration entrypoint: validation + main() lifecycle
-│   ├── config.py                     # Shared constants (paths, env, logging) — no side effects
-│   ├── config_types.py               # Shared TypedDict declarations (zero circular dependencies)
-│   ├── runtimes.py                   # ContainerRuntime abstraction (PodmanRuntime)
-│   ├── models.py                     # Model + ServerConfig/ModelConfig (download, checksum)
-│   ├── server.py                     # Server: llama-server lifecycle & multi-client refcounting
-│   ├── network.py                    # ContainerNetworkManager: proxy + isolated network lifecycle
-│   ├── containers.py                 # Dependency orchestration (start_dependencies_parallel, sweeper)
-│   ├── images.py                     # Image resolution, hashing, building, and pruning
-│   ├── volumes.py                    # Named shadow and nested container volume management
-│   ├── project.py                    # Project key derivation, project scoping, and template seeding
-│   ├── security.py                   # Security configuration and mount policy validation
-│   ├── yaml_strict.py                # Strict duplicate-key YAML parser
-│   ├── util.py                       # Shared utilities (env loading, validation, port allocation, signals)
-│   └── tests/                        # Pytest test suite
-│       ├── conftest.py
-│       ├── test_build.py
-│       ├── test_config_schema.py
-│       ├── test_config_types.py
-│       ├── test_containers.py
-│       ├── test_flow_export.py
-│       ├── test_images.py
-│       ├── test_models.py
-│       ├── test_network.py
-│       ├── test_project.py
-│       ├── test_run.py
-│       ├── test_runtimes.py
-│       ├── test_security.py
-│       ├── test_server.py
-│       ├── test_util.py
-│       ├── test_volumes.py
-│       └── test_yaml_strict.py
-│
-├── pa_packages/                      # Agent Capability Packages (ACPs)
-│   ├── podman/                       # Podman 6.x nested container engine + Netavark/Aardvark
-│   ├── python/                       # CPython 3.15 (from source, PGO) + uv + podman-compose
-│   ├── node/                         # Node.js 26 binary distribution
-│   ├── go/                           # Go compiler toolchain
-│   ├── rust/                         # Rust compiler toolchain
-│   └── .../                          # 31 packages with package.yaml, skill, MCP, and build recipes
-│
-├── coding-agent/                  # Main agent container
-│   ├── Containerfile                 # Fedora Minimal base definition (microdnf, subuid, CA)
-│   ├── entrypoint.sh                 # Container entrypoint (default route via proxy, git config, uv venv)
-│   └── default/                      # Seed templates (global and project configurations)
-│       ├── global/                   # Seed template for ~/.config/pa-container/
-│       │   ├── config.yaml           # Global configuration (runtime, llama, build)
-│       │   ├── models/               # Seed model definitions (~/.config/pa-container/models/)
-│       │   │   └── Qwen3.6-35B-A3B-UD-Q6_K_XL.yaml
-│       │   ├── gateways/             # Seed gateway directory (~/.config/pa-container/gateways/)
-│       │   └── chat-templates/       # Bundled Jinja chat templates (~/.config/pa-container/chat-templates/)
-│       │       └── Qwen3.6-35B-A3B-UD-Q6_K-XL/
-│       │           └── chat_template.jinja
-│       └── project/                  # Seed template for <project>/.pa-container
-│           ├── agents/               # → .pa-container/agents
-│           │   └── pi/               # Pi coding agent template
-│           │       ├── AGENTS.md     # Agent instructions
-│           │       ├── config.json
-│           │       ├── settings.json
-│           │       └── .pi_ignore
-│           ├── models.yaml           # Allowed models allowlist for the workspace
-│           ├── config.yaml           # Orchestration: resources, tmpfs, flow_export, egress, nested_containers
-│           ├── allowlist.yaml        # Generic hostname allowlist (pypi/npm/github/fedora-dnf)
-│           ├── token_replacer.yaml   # Token substitution rules (redaction and placeholder injection)
-│           └── dependencies/         # Dependency command templates
-│               ├── agent/commands.sh
-│               └── root/commands.sh
-│
-├── coding-agent-proxy/            # Transparent proxy container
-│   ├── Containerfile                 # mitmproxy + addon scripts/configs + pyyaml
-│   ├── entrypoint.sh                 # iptables (redirect/DNAT, default-deny FORWARD) + mitmweb with addons
-│   └── addons/
-│       ├── allowlist/                # Hostname/IP allowlist addon (active)
-│       └── token_replacer/           # Token substitution addon (redaction and placeholder injection) (active)
-│
-├── llama-server/                     # LLM server components
-│   ├── models/                       # Downloaded GGUF model files (gitignored)
-│   ├── logs/                         # llama-server log files (gitignored)
-│   └── .locks/                       # Process lock files (gitignored)
-│       └── local-gemma/              # Per-model lock directory
-│           ├── .llama_server.pid
-│           └── .llama_server_clients.json
-│
-├── docs/setups/                      # Model-specific setup directories
-│   └── gemma-4-26b-a4b-it-qat-GGUF/  # Notes and config for specific model setups
-│
-└── .pa-container/                    # Per-project config (this repo's own; each workspace gets its own)
-    ├── agent/                        # Agent launch config (sessions, config.json, …)
-    ├── models.yaml                   # Allowed models allowlist
-    ├── config.yaml                   # Orchestration: resource limits, tmpfs, flow-export, egress
-    ├── token_replacer.yaml           # Token substitution rules (mounted into this project's proxy)
-    ├── allowlist.yaml                # Hostname allowlist (mounted into this project's proxy)
-    └── exports/                      # Captured flow history for this project (gitignored)
-```
+### Layer 5: CoW Git Vault (`/var/pa-vault`)
+- **Role:** Atomic multi-tenant source code vault utilizing filesystem Copy-on-Write (CoW).
+- **Branch Namespacing:**
+    - Each agent is confined to its assigned Git branch: `refs/heads/pa/$AGENT_ID/*`.
+    - Pure POSIX shell `pre-receive` hook evaluates ref pushes and aborts any cross-agent push attempts without requiring Python runtimes in the guest.
+
+### Layer 6: Multi-Port Egress Proxy (`coding-agent-proxy`)
+- **Role:** Network interception, auditing, and secret injection powered by `mitmproxy`.
+- **Multi-Port Isolation:**
+    - Each agent is assigned an independent proxy port (`8081`, `8082`, etc.).
+    - Agents cannot inspect or spoof other agents' network traffic.
+    - Host allowlists are enforced per port.
+    - Placeholder tokens are verified against agent identity before real API credentials from the host keyring are injected into outbound headers.

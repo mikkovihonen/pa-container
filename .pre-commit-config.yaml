@@ -1,6 +1,27 @@
 repos:
   - repo: local
     hooks:
+      - id: cargo-fmt
+        name: cargo-fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo-clippy
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-test
+        name: cargo-test
+        entry: cargo test --workspace
+        language: system
+        types: [rust]
+        pass_filenames: false
+
       - id: ruff
         name: ruff
         entry: uv run --project . ruff check --fix
@@ -24,16 +45,9 @@ repos:
         types: [python]
         pass_filenames: false
 
-      - id: mypy-packages
-        name: mypy-packages
-        entry: uv run --project . python3 scripts/check_packages_mypy.py
-        language: system
-        types: [python]
-        pass_filenames: false
-
       - id: pytest
         name: pytest
-        entry: uv run --project . --group pa_core --group proxy pytest
+        entry: uv run --project . --group proxy pytest
         language: system
         types: [python]
         pass_filenames: false
@@ -51,5 +65,3 @@ repos:
         language: system
         types: [markdown]
         pass_filenames: true
-
-

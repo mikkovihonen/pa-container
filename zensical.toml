@@ -1,6 +1,6 @@
 [project]
 site_name = "pa-container"
-site_description = "A containerized environment for running the pi-coding-agent with local LLM inference and full auditability"
+site_description = "Next-Generation Multi-Agent Software Factory with MicroVM Isolation and Network Auditing"
 site_url = "https://mikkovihonen.github.io/pa-container"
 
 repo_name = "mikkovihonen/pa-container"
@@ -11,7 +11,7 @@ nav = [
   { "Getting Started" = "getting-started.md" },
   { "Sandboxing 101" = "sandboxing.md" },
   { "Architecture" = "architecture.md" },
-  { "Design details" = "design-details.md" },
+  { "Architecture Plan" = "design/pa_container_next_generation_software_factory_architecture_plan.md" },
   { "Configuration" = "configuration.md" },
   { "Multi-Agent Support" = "agents.md" },
   { "T3 Code Integration" = "t3-code.md" },
