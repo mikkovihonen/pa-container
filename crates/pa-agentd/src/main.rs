@@ -3,6 +3,7 @@ use clap::Parser;
 use pa_core::guest::{
     apply_firewall, build_bwrap_args, build_sandbox_exec_command, ensure_agent_user,
     generate_nftables_conf, generate_pf_conf, AgentFirewallRule, GitVaultManager,
+    IOSRunnerDaemon,
 };
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -32,6 +33,7 @@ pub struct Cli {
 
 pub struct GuestDaemonService {
     pub vault_manager: GitVaultManager,
+    pub ios_runner: IOSRunnerDaemon,
     pub active_processes: Mutex<HashMap<String, Child>>,
 }
 
@@ -39,6 +41,7 @@ impl GuestDaemonService {
     pub fn new(vault_root: Option<PathBuf>) -> Self {
         Self {
             vault_manager: GitVaultManager::new(vault_root),
+            ios_runner: IOSRunnerDaemon::default(),
             active_processes: Mutex::new(HashMap::new()),
         }
     }
@@ -66,6 +69,10 @@ impl GuestDaemonService {
             "cow_clone" => self.rpc_cow_clone(&params),
             "launch_agent" => self.rpc_launch_agent(&params),
             "get_status" => self.rpc_get_status(),
+            "ios_create_sim" => self.rpc_ios_create_sim(&params),
+            "ios_launch_app" => self.rpc_ios_launch_app(&params),
+            "ios_screenshot" => self.rpc_ios_screenshot(&params),
+            "ios_delete_sim" => self.rpc_ios_delete_sim(&params),
             _ => {
                 return json!({
                     "jsonrpc": "2.0",
@@ -106,9 +113,8 @@ impl GuestDaemonService {
             .and_then(|u| u.as_u64())
             .unwrap_or(2001) as u32;
         let home_base = params.get("home_base").and_then(|h| h.as_str());
-        let mock = params.get("mock").and_then(|m| m.as_bool()).unwrap_or(false);
 
-        let home = ensure_agent_user(username, uid, home_base.map(Path::new), mock)?;
+        let home = ensure_agent_user(username, uid, home_base.map(Path::new), false)?;
 
         Ok(json!({
             "user": username,
@@ -130,7 +136,6 @@ impl GuestDaemonService {
             .get("control_port")
             .and_then(|p| p.as_u64())
             .unwrap_or(2222) as u16;
-        let mock = params.get("mock").and_then(|m| m.as_bool()).unwrap_or(false);
 
         let mut agents = Vec::new();
         if let Some(arr) = params.get("agents").and_then(|a| a.as_array()) {
@@ -162,7 +167,7 @@ impl GuestDaemonService {
             generate_nftables_conf(proxy_ip, dns_port, &agents, control_port)
         };
 
-        let path = apply_firewall(&rules, None, mock)?;
+        let path = apply_firewall(&rules, None, false)?;
 
         Ok(json!({
             "status": "applied",
@@ -193,10 +198,6 @@ impl GuestDaemonService {
             .and_then(|a| a.as_str())
             .context("Missing agent_id")?;
         let branch_name = params.get("branch_name").and_then(|b| b.as_str());
-        let mock_cow = params
-            .get("mock_cow")
-            .and_then(|m| m.as_bool())
-            .unwrap_or(false);
 
         let destination = if let Some(dest_str) = params.get("destination").and_then(|d| d.as_str()) {
             PathBuf::from(dest_str)
@@ -214,7 +215,7 @@ impl GuestDaemonService {
             &destination,
             agent_id,
             branch_name,
-            mock_cow,
+            false,
         )?;
 
         let branch = branch_name
@@ -237,6 +238,10 @@ impl GuestDaemonService {
             .get("user")
             .and_then(|u| u.as_str())
             .unwrap_or(agent_id);
+        let uid = params
+            .get("uid")
+            .and_then(|u| u.as_u64())
+            .unwrap_or(2001) as u32;
         let proxy_ip = params
             .get("proxy_ip")
             .and_then(|p| p.as_str())
@@ -245,7 +250,6 @@ impl GuestDaemonService {
             .get("proxy_port")
             .and_then(|p| p.as_u64())
             .unwrap_or(8081) as u16;
-        let mock = params.get("mock").and_then(|m| m.as_bool()).unwrap_or(false);
 
         let command: Vec<String> = match params.get("command").and_then(|c| c.as_array()) {
             Some(arr) => arr
@@ -267,24 +271,19 @@ impl GuestDaemonService {
         };
 
         let wrapped_cmd = if cfg!(target_os = "macos") {
-            let profile_file = if mock {
-                PathBuf::from(format!("/tmp/mock_{}.sb", user))
-            } else {
-                let profile_dir = PathBuf::from("/etc/pa/profiles");
-                let _ = fs::create_dir_all(&profile_dir);
-                let pfile = profile_dir.join(format!("{}.sb", user));
-                let content = pa_core::guest::generate_seatbelt_profile(
-                    user,
-                    proxy_ip,
-                    proxy_port,
-                    5353,
-                    None,
-                    None,
-                );
-                let _ = fs::write(&pfile, content);
-                pfile
-            };
-            build_sandbox_exec_command(&profile_file, &command)
+            let profile_dir = PathBuf::from("/etc/pa/profiles");
+            let _ = fs::create_dir_all(&profile_dir);
+            let pfile = profile_dir.join(format!("{}.sb", user));
+            let content = pa_core::guest::generate_seatbelt_profile(
+                user,
+                proxy_ip,
+                proxy_port,
+                5353,
+                None,
+                None,
+            );
+            let _ = fs::write(&pfile, content);
+            build_sandbox_exec_command(&pfile, &command)
         } else {
             let mut env_map = BTreeMap::new();
             if let Some(obj) = params.get("extra_env").and_then(|e| e.as_object()) {
@@ -306,24 +305,38 @@ impl GuestDaemonService {
             )
         };
 
-        if mock {
-            return Ok(json!({
-                "status": "started",
-                "mock": true,
-                "command": wrapped_cmd,
-            }));
-        }
-
         let workdir = home_dir.join("workspace");
         let cwd = if workdir.exists() { workdir } else { home_dir };
 
-        let child = Command::new(&wrapped_cmd[0])
-            .args(&wrapped_cmd[1..])
+        let mut cmd = Command::new(&wrapped_cmd[0]);
+        cmd.args(&wrapped_cmd[1..])
             .current_dir(&cwd)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(unix)]
+        unsafe {
+            use std::os::unix::process::CommandExt;
+            let target_uid = uid;
+            let target_gid = uid;
+            cmd.pre_exec(move || {
+                if nix::unistd::geteuid().is_root() {
+                    let ret_gid = libc::setgid(target_gid as libc::gid_t);
+                    if ret_gid != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    let ret_uid = libc::setuid(target_uid as libc::uid_t);
+                    if ret_uid != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
+
+        let child = cmd
             .spawn()
-            .context("Failed to spawn sandboxed agent process")?;
+            .with_context(|| format!("Failed to spawn sandboxed agent process for user '{}'", user))?;
 
         let pid = child.id();
         self.active_processes
@@ -359,6 +372,55 @@ impl GuestDaemonService {
         Ok(json!({
             "platform": std::env::consts::OS,
             "agents": map,
+        }))
+    }
+
+    fn rpc_ios_create_sim(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
+        let device_type = params.get("device_type").and_then(|d| d.as_str());
+        let runtime = params.get("runtime").and_then(|r| r.as_str());
+        let proxy_ip = params.get("proxy_ip").and_then(|p| p.as_str());
+        let proxy_port = params.get("proxy_port").and_then(|p| p.as_u64()).map(|p| p as u16);
+
+        let udid = self.ios_runner.create_and_boot_simulator(agent_id, device_type, runtime, proxy_ip, proxy_port)?;
+        Ok(json!({
+            "agent_id": agent_id,
+            "udid": udid,
+        }))
+    }
+
+    fn rpc_ios_launch_app(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
+        let app_path = params.get("app_path").and_then(|p| p.as_str()).context("Missing app_path")?;
+        let bundle_id = params.get("bundle_id").and_then(|b| b.as_str()).context("Missing bundle_id")?;
+        let proxy_ip = params.get("proxy_ip").and_then(|p| p.as_str());
+        let proxy_port = params.get("proxy_port").and_then(|p| p.as_u64()).map(|p| p as u16);
+
+        self.ios_runner.install_and_launch_app(agent_id, Path::new(app_path), bundle_id, proxy_ip, proxy_port)?;
+        Ok(json!({
+            "agent_id": agent_id,
+            "status": "launched",
+            "bundle_id": bundle_id,
+        }))
+    }
+
+    fn rpc_ios_screenshot(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
+        let output_path = params.get("output_path").and_then(|p| p.as_str()).context("Missing output_path")?;
+
+        let res = self.ios_runner.capture_screenshot(agent_id, Path::new(output_path))?;
+        Ok(json!({
+            "agent_id": agent_id,
+            "screenshot_path": res.to_str().unwrap_or(""),
+        }))
+    }
+
+    fn rpc_ios_delete_sim(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let agent_id = params.get("agent_id").and_then(|a| a.as_str()).context("Missing agent_id")?;
+        self.ios_runner.delete_simulator(agent_id)?;
+        Ok(json!({
+            "agent_id": agent_id,
+            "status": "deleted",
         }))
     }
 }
@@ -486,24 +548,5 @@ mod tests {
         let res = service.dispatch(&req);
         assert_eq!(res["id"], 42);
         assert_eq!(res["result"]["status"], "ok");
-    }
-
-    #[test]
-    fn test_guest_daemon_provision_user_mock() {
-        let service = GuestDaemonService::new(None);
-        let req = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "provision_user",
-            "params": {
-                "username": "agent1",
-                "uid": 2001,
-                "home_base": "/tmp/test_homes",
-                "mock": true
-            }
-        });
-        let res = service.dispatch(&req);
-        assert_eq!(res["result"]["user"], "agent1");
-        assert_eq!(res["result"]["uid"], 2001);
     }
 }

@@ -1,0 +1,16 @@
+schema_version = "1.0"
+
+[capability]
+name = "ios-simulator"
+category = "mobile"
+version = "1.0.0"
+description = "iOS Simulator bridge and automation tool for macOS Factory VMs"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/ios-simulator"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []
+tokens = []

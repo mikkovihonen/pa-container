@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -60,14 +61,28 @@ class IOSRunnerDaemon:
             self.simulators[agent_id] = udid
             return udid
 
-    def install_and_launch_app(self, agent_id: str, app_bundle_path: Path, bundle_id: str, mock: bool = False) -> bool:
+    def install_and_launch_app(
+        self,
+        agent_id: str,
+        app_bundle_path: Path,
+        bundle_id: str,
+        proxy_ip: str | None = None,
+        proxy_port: int | None = None,
+        mock: bool = False,
+    ) -> bool:
         udid = self.simulators.get(agent_id)
         if not udid:
             raise ValueError(f"No active simulator found for agent {agent_id}")
         if mock:
             return True
         subprocess.run(["xcrun", "simctl", "install", udid, str(app_bundle_path)], check=True)
-        subprocess.run(["xcrun", "simctl", "launch", udid, bundle_id], check=True)
+        env = dict(os.environ)
+        if proxy_ip and proxy_port:
+            proxy_url = f"http://{proxy_ip}:{proxy_port}"
+            env["SIMCTL_CHILD_HTTP_PROXY"] = proxy_url
+            env["SIMCTL_CHILD_HTTPS_PROXY"] = proxy_url
+            env["SIMCTL_CHILD_ALL_PROXY"] = proxy_url
+        subprocess.run(["xcrun", "simctl", "launch", udid, bundle_id], env=env, check=True)
         return True
 
     def capture_screenshot(self, agent_id: str, output_path: Path, mock: bool = False) -> Path:

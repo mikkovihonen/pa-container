@@ -205,17 +205,30 @@ fn handle_proxy(args: &ProxyArgs) -> Result<()> {
     }
 
     if args.json {
+        let nonce = b"pa_factory_v2_session_default";
         let list: Vec<_> = agents
             .iter()
             .map(|a| {
+                let token_map: serde_json::Map<String, serde_json::Value> = a
+                    .tokens
+                    .iter()
+                    .map(|tok| {
+                        (
+                            tok.clone(),
+                            json!(pa_core::manifest::derive_placeholder_token(nonce, &a.id, tok)),
+                        )
+                    })
+                    .collect();
                 json!({
                     "id": a.id,
                     "uid": a.uid,
                     "driver": a.driver,
                     "proxy_port": a.proxy_port,
                     "transparent_port": a.transparent_port,
+                    "capabilities": a.capabilities,
                     "allowlist": a.allowlist,
                     "tokens": a.tokens,
+                    "placeholders": token_map,
                 })
             })
             .collect();

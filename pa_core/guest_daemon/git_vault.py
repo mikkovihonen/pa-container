@@ -10,26 +10,31 @@ log = logging.getLogger(__name__)
 
 DEFAULT_VAULT_ROOT = Path("/var/pa-vault")
 
-PRE_RECEIVE_HOOK = """#!/usr/bin/env python3
-import sys
-import os
+PRE_RECEIVE_HOOK = """#!/bin/sh
+set -eu
 
-agent_id = os.environ.get("PA_AGENT_ID", "")
-user = os.environ.get("USER", "")
-allowed_prefix = os.environ.get("PA_BRANCH_PREFIX", f"pa/{agent_id}")
+AGENT_ID="${PA_AGENT_ID:-}"
+if [ -z "$AGENT_ID" ]; then
+    AGENT_ID="$(whoami)"
+fi
+ALLOWED_PREFIX="${PA_BRANCH_PREFIX:-pa/${AGENT_ID}/}"
 
-for line in sys.stdin:
-    oldrev, newrev, refname = line.strip().split()
-    # Permit branch deletions and tag creations within prefix
-    if refname.startswith("refs/heads/"):
-        branch = refname[len("refs/heads/"):]
-        if allowed_prefix and not branch.startswith(allowed_prefix):
-            sys.stderr.write(
-                f"PA-Git-Vault: Access Denied. Agent '{agent_id}' (user '{user}') "
-                f"can only push to '{allowed_prefix}/*', but attempted push to '{branch}'.\\n"
-            )
-            sys.exit(1)
-sys.exit(0)
+while read -r oldrev newrev refname; do
+    case "$refname" in
+        refs/heads/*)
+            branch="${refname#refs/heads/}"
+            case "$branch" in
+                pa/"$AGENT_ID"/*)
+                    ;;
+                *)
+                    echo "PA-Git-Vault: Access Denied. Agent '$AGENT_ID' can only push to '$ALLOWED_PREFIX*', but attempted push to '$branch'." >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
+    esac
+done
+exit 0
 """
 
 

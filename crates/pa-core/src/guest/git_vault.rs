@@ -5,25 +5,31 @@ use std::process::Command;
 
 pub const DEFAULT_VAULT_ROOT: &str = "/var/pa-vault";
 
-pub const PRE_RECEIVE_HOOK: &str = r#"#!/usr/bin/env python3
-import sys
-import os
+pub const PRE_RECEIVE_HOOK: &str = r#"#!/bin/sh
+set -eu
 
-agent_id = os.environ.get("PA_AGENT_ID", "")
-user = os.environ.get("USER", "")
-allowed_prefix = os.environ.get("PA_BRANCH_PREFIX", f"pa/{agent_id}")
+AGENT_ID="${PA_AGENT_ID:-}"
+if [ -z "$AGENT_ID" ]; then
+    AGENT_ID="$(whoami)"
+fi
+ALLOWED_PREFIX="${PA_BRANCH_PREFIX:-pa/${AGENT_ID}/}"
 
-for line in sys.stdin:
-    oldrev, newrev, refname = line.strip().split()
-    if refname.startswith("refs/heads/"):
-        branch = refname[len("refs/heads/"):]
-        if allowed_prefix and not branch.startswith(allowed_prefix):
-            sys.stderr.write(
-                f"PA-Git-Vault: Access Denied. Agent '{agent_id}' (user '{user}') "
-                f"can only push to '{allowed_prefix}/*', but attempted push to '{branch}'.\n"
-            )
-            sys.exit(1)
-sys.exit(0)
+while read -r oldrev newrev refname; do
+    case "$refname" in
+        refs/heads/*)
+            branch="${refname#refs/heads/}"
+            case "$branch" in
+                pa/"$AGENT_ID"/*)
+                    ;;
+                *)
+                    echo "PA-Git-Vault: Access Denied. Agent '$AGENT_ID' can only push to '$ALLOWED_PREFIX*', but attempted push to '$branch'." >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
+    esac
+done
+exit 0
 "#;
 
 pub struct GitVaultManager {
@@ -81,7 +87,7 @@ impl GitVaultManager {
         destination: &Path,
         agent_id: &str,
         branch_name: Option<&str>,
-        mock_cow: bool,
+        _mock_cow: bool,
     ) -> Result<PathBuf> {
         let ref_checkout = self.get_reference_checkout(project_name);
 
@@ -94,15 +100,17 @@ impl GitVaultManager {
 
         if !ref_checkout.exists() {
             let repo_path = self.get_repo_path(project_name);
-            let _ = Command::new("git")
+            let status = Command::new("git")
                 .args([
                     "clone",
                     repo_path.to_str().unwrap_or(""),
                     destination.to_str().unwrap_or(""),
                 ])
-                .status();
-        } else if mock_cow {
-            let _ = copy_dir_all(&ref_checkout, destination);
+                .status()
+                .context("Failed to clone repository")?;
+            if !status.success() {
+                anyhow::bail!("git clone failed from {}", repo_path.display());
+            }
         } else if cfg!(target_os = "macos") {
             let res = Command::new("cp")
                 .args([
@@ -111,9 +119,10 @@ impl GitVaultManager {
                     ref_checkout.to_str().unwrap_or(""),
                     destination.to_str().unwrap_or(""),
                 ])
-                .status();
-            if res.is_err() || !res.unwrap().success() {
-                let _ = copy_dir_all(&ref_checkout, destination);
+                .status()
+                .context("Failed to execute APFS clone command")?;
+            if !res.success() {
+                anyhow::bail!("APFS CoW clone failed on macOS for {}", destination.display());
             }
         } else {
             let res = Command::new("cp")
@@ -123,9 +132,10 @@ impl GitVaultManager {
                     ref_checkout.to_str().unwrap_or(""),
                     destination.to_str().unwrap_or(""),
                 ])
-                .status();
-            if res.is_err() || !res.unwrap().success() {
-                let _ = copy_dir_all(&ref_checkout, destination);
+                .status()
+                .context("Failed to execute reflink clone command")?;
+            if !res.success() {
+                anyhow::bail!("Reflink CoW clone failed on Linux for {}", destination.display());
             }
         }
 
@@ -142,17 +152,4 @@ impl GitVaultManager {
     }
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    fs::create_dir_all(dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        let dest_child = dst.join(entry.file_name());
-        if ty.is_dir() {
-            copy_dir_all(&entry.path(), &dest_child)?;
-        } else {
-            fs::copy(entry.path(), dest_child)?;
-        }
-    }
-    Ok(())
-}
+

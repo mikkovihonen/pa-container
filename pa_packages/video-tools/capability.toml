@@ -1,0 +1,16 @@
+schema_version = "1.0"
+
+[capability]
+name = "video-tools"
+category = "media"
+version = "1.0.0"
+description = "Video processing capability: ffmpeg-free, OpenH264, SVT-AV1, VP9, fdk-aac-free, and MediaInfo metadata"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/video-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = []
+tokens = []

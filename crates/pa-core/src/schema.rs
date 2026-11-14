@@ -62,11 +62,9 @@ impl Default for ComputeSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct PackagesSpec {
+pub struct CapabilitiesSpec {
     #[serde(default)]
-    pub toolchains: Vec<String>,
-    #[serde(default)]
-    pub acps: Vec<String>,
+    pub installed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -140,7 +138,7 @@ pub struct AgentSpec {
     #[serde(default = "default_branch_prefix")]
     pub branch_prefix: String,
     #[serde(default)]
-    pub acps: Vec<String>,
+    pub capabilities: Vec<String>,
     #[serde(default)]
     pub allowlist: Vec<String>,
     #[serde(default)]
@@ -167,7 +165,7 @@ impl AgentSpec {
             proxy_port: None,
             transparent_port: None,
             branch_prefix: format!("pa/{}", id_str),
-            acps: Vec::new(),
+            capabilities: Vec::new(),
             allowlist: Vec::new(),
             tokens: Vec::new(),
         }
@@ -183,7 +181,7 @@ pub struct FactoryConfig {
     #[serde(default)]
     pub compute: ComputeSpec,
     #[serde(default)]
-    pub packages: PackagesSpec,
+    pub capabilities: CapabilitiesSpec,
     #[serde(default)]
     pub inference: InferenceSpec,
     #[serde(default)]
@@ -202,7 +200,7 @@ impl Default for FactoryConfig {
             schema_version: default_schema_version(),
             factory: FactoryMetadata::default(),
             compute: ComputeSpec::default(),
-            packages: PackagesSpec::default(),
+            capabilities: CapabilitiesSpec::default(),
             inference: InferenceSpec::default(),
             ui: UiSpec::default(),
             agents: vec![AgentSpec::new("agent1")],
@@ -287,7 +285,7 @@ pub fn resolve_agent_ports(agents: &[AgentSpec], dynamic: bool) -> Vec<AgentSpec
             proxy_port: p_port,
             transparent_port: t_port,
             branch_prefix: a.branch_prefix.clone(),
-            acps: a.acps.clone(),
+            capabilities: a.capabilities.clone(),
             allowlist: a.allowlist.clone(),
             tokens: a.tokens.clone(),
         });

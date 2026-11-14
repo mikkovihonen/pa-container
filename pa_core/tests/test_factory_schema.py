@@ -29,9 +29,8 @@ cpus = 4
 memory_mb = 8192
 gpu = "required"
 
-[packages]
-toolchains = ["nodejs-22", "python-3.13"]
-acps = ["ios-simulator"]
+[capabilities]
+installed = ["ios-simulator", "image-tools"]
 
 [inference.llama_server]
 enabled = true
@@ -71,7 +70,7 @@ tokens = ["OPENAI_API_KEY"]
     assert cfg.compute.backend == "macos-tart"
     assert cfg.compute.cpus == 4
     assert cfg.compute.memory_mb == 8192
-    assert cfg.packages.toolchains == ["nodejs-22", "python-3.13"]
+    assert cfg.capabilities.installed == ["ios-simulator", "image-tools"]
     assert cfg.inference.llama_server.enabled is True
     assert len(cfg.agents) == 2
 

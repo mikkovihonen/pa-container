@@ -24,15 +24,60 @@ pub struct Cli {
 
 #[cfg(target_os = "linux")]
 fn apply_landlock_sandbox(
-    _rw_paths: &[PathBuf],
-    _ro_paths: &[PathBuf],
-    _allow_tcp: &[String],
+    rw_paths: &[PathBuf],
+    ro_paths: &[PathBuf],
+    allow_tcp: &[String],
 ) -> Result<()> {
-    // Attempt Linux prctl PR_SET_NO_NEW_PRIVS
-    unsafe {
-        libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+    use landlock::{
+        Access, AccessFs, AccessNet, NetPort, PathBeneath, PathFd, Ruleset, RulesetAttr,
+        RulesetCreatedAttr, RulesetStatus, ABI,
+    };
+
+    let ret = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+    if ret != 0 {
+        anyhow::bail!(
+            "Failed to set PR_SET_NO_NEW_PRIVS: {}",
+            std::io::Error::last_os_error()
+        );
     }
-    // Landlock ABI setup via syscalls where supported
+
+    let abi = ABI::V4;
+    let mut ruleset = Ruleset::default()
+        .handle_access(AccessNet::ConnectTcp | AccessNet::BindTcp)?
+        .handle_access(AccessFs::from_all(abi))?
+        .create()?;
+
+    for ep in allow_tcp {
+        let port_str = if let Some((_, p)) = ep.rsplit_once(':') {
+            p
+        } else {
+            ep.as_str()
+        };
+        if let Ok(port) = port_str.parse::<u16>() {
+            ruleset = ruleset.add_rule(NetPort::new(port, AccessNet::ConnectTcp))?;
+        }
+    }
+
+    for p in rw_paths {
+        if p.exists() {
+            if let Ok(fd) = PathFd::new(p) {
+                ruleset = ruleset.add_rule(PathBeneath::new(fd, AccessFs::from_all(abi)))?;
+            }
+        }
+    }
+
+    for p in ro_paths {
+        if p.exists() {
+            if let Ok(fd) = PathFd::new(p) {
+                ruleset = ruleset.add_rule(PathBeneath::new(fd, AccessFs::from_read(abi)))?;
+            }
+        }
+    }
+
+    let status = ruleset.restrict_self()?;
+    if matches!(status.ruleset, RulesetStatus::NotEnforced) {
+        eprintln!("[pa-landlock] Warning: Landlock not enforced by current Linux kernel");
+    }
     Ok(())
 }
 
@@ -42,7 +87,7 @@ fn apply_landlock_sandbox(
     _ro_paths: &[PathBuf],
     _allow_tcp: &[String],
 ) -> Result<()> {
-    // On non-Linux platforms, Landlock is a no-op simulation
+    eprintln!("[pa-landlock] Note: Linux Landlock sandbox is only active on Linux kernels.");
     Ok(())
 }
 
@@ -53,8 +98,7 @@ fn main() -> Result<()> {
         anyhow::bail!("No command specified to execute");
     }
 
-    // Apply sandbox restrictions before exec
-    let _ = apply_landlock_sandbox(&cli.rw_paths, &cli.ro_paths, &cli.allow_tcp_connect);
+    apply_landlock_sandbox(&cli.rw_paths, &cli.ro_paths, &cli.allow_tcp_connect)?;
 
     let program = &cli.command[0];
     let args = &cli.command[1..];

@@ -1,0 +1,23 @@
+schema_version = "1.0"
+
+[capability]
+name = "image-tools"
+category = "media"
+version = "1.0.0"
+description = "Image processing capability: ImageMagick conversion and effects, ExifTool/exiv2 metadata, WebP/JPEG/TIFF/PNG codec utilities"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/image-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["api.openai.com", "generativelanguage.googleapis.com", "api.stability.ai"]
+
+[[proxy.tokens]]
+env_var = "OPENAI_API_KEY"
+allowed_hosts = ["api.openai.com"]
+
+[[proxy.tokens]]
+env_var = "STABILITY_API_KEY"
+allowed_hosts = ["api.stability.ai"]

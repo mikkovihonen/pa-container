@@ -1,0 +1,19 @@
+schema_version = "1.0"
+
+[capability]
+name = "source-control"
+category = "source-control"
+version = "1.0.0"
+description = "Source control automation and Git workflows for autonomous agents"
+requires = ["git"]
+
+[staging]
+install_prefix = "/opt/pa/packs/source-control"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["github.com", "api.github.com", "*.githubusercontent.com"]
+
+[[proxy.tokens]]
+env_var = "GITHUB_TOKEN"
+allowed_hosts = ["github.com", "api.github.com"]

@@ -1,0 +1,19 @@
+schema_version = "1.0"
+
+[capability]
+name = "git"
+category = "source-control"
+version = "1.0.0"
+description = "Git version control and repository management tools"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/git"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["github.com", "*.github.com", "*.githubusercontent.com", "gitlab.com"]
+
+[[proxy.tokens]]
+env_var = "GITHUB_TOKEN"
+allowed_hosts = ["github.com", "api.github.com"]

@@ -1,0 +1,19 @@
+schema_version = "1.0"
+
+[capability]
+name = "sound-tools"
+category = "media"
+version = "1.0.0"
+description = "Audio processing capability: SoX effects, spectrograms, FAAD2 AAC/M4A decode, FLAC/Ogg/Opus codecs, LAME/twolame MP3"
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/sound-tools"
+bin_dirs = ["bin"]
+
+[proxy]
+allowlist = ["api.openai.com"]
+
+[[proxy.tokens]]
+env_var = "OPENAI_API_KEY"
+allowed_hosts = ["api.openai.com"]

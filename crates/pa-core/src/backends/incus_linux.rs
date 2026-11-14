@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::json;
 use std::fs;
 use std::io::Write;
@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::backend::FactoryBackend;
-use crate::schema::{AgentSpec, FactoryConfig, resolve_agent_ports};
+use crate::schema::{resolve_agent_ports, AgentSpec, FactoryConfig};
 
 pub const DEFAULT_BRIDGE_IP: &str = "10.240.0.1";
 pub const DEFAULT_VM_NAME: &str = "pa-factory-linux";
@@ -36,7 +36,47 @@ impl IncusLinuxBackend {
         }
     }
 
+    pub fn get_vm_ip(&self) -> Result<String> {
+        let out = Command::new("incus")
+            .args(["list", &self.vm_name, "--format", "json"])
+            .output()
+            .with_context(|| format!("Failed to run incus list for '{}'", self.vm_name))?;
+
+        if !out.status.success() {
+            anyhow::bail!(
+                "Incus VM '{}' list failed: {}",
+                self.vm_name,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+
+        let instances: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .context("Failed to parse incus list JSON output")?;
+
+        if let Some(arr) = instances.as_array() {
+            if let Some(vm) = arr.first() {
+                if let Some(net) = vm.pointer("/state/network/eth0/addresses") {
+                    if let Some(addrs) = net.as_array() {
+                        for a in addrs {
+                            if a.get("family").and_then(|f| f.as_str()) == Some("inet") {
+                                if let Some(ip) = a.get("address").and_then(|s| s.as_str()) {
+                                    return Ok(ip.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "Incus VM '{}' has not acquired an active IPv4 address",
+            self.vm_name
+        )
+    }
+
     pub fn execute_ssh_rpc(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+        let vm_ip = self.get_vm_ip()?;
         let payload = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -45,7 +85,7 @@ impl IncusLinuxBackend {
         });
         let payload_str = serde_json::to_string(&payload)?;
 
-        let mut child = match Command::new("ssh")
+        let mut child = Command::new("ssh")
             .args([
                 "-p",
                 &self.ssh_port.to_string(),
@@ -54,53 +94,40 @@ impl IncusLinuxBackend {
                 "-o",
                 "UserKnownHostsFile=/dev/null",
                 "-o",
-                "ConnectTimeout=3",
-                &format!("{}@{}", self.ssh_user, self.bridge_ip),
+                "ConnectTimeout=5",
+                &format!("{}@{}", self.ssh_user, vm_ip),
                 "pa-agentd",
                 "--stdio",
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
-        {
-            Ok(c) => c,
-            Err(_) => {
-                return Ok(json!({
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "result": {
-                        "status": "mock",
-                        "method": method,
-                    }
-                }));
-            }
-        };
+            .with_context(|| format!("Failed to spawn SSH process to {}@{}", self.ssh_user, vm_ip))?;
 
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(payload_str.as_bytes());
-            let _ = stdin.write_all(b"\n");
+            stdin.write_all(payload_str.as_bytes())?;
+            stdin.write_all(b"\n")?;
         }
 
-        let output = child.wait_with_output();
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout_str = String::from_utf8_lossy(&out.stdout);
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout_str.trim()) {
-                    return Ok(v);
-                }
-            }
-            _ => {}
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "SSH RPC error for method '{}': {}",
+                method,
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
 
-        Ok(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "status": "simulated",
-                "method": method,
-            }
-        }))
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let resp: serde_json::Value = serde_json::from_str(stdout_str.trim())
+            .with_context(|| format!("Invalid JSON-RPC response from guest: {}", stdout_str))?;
+
+        if let Some(err) = resp.get("error") {
+            anyhow::bail!("JSON-RPC returned error for {}: {}", method, err);
+        }
+
+        Ok(resp)
     }
 }
 
@@ -139,7 +166,7 @@ impl FactoryBackend for IncusLinuxBackend {
             .output();
 
         if check.is_err() || !check.unwrap().status.success() {
-            let _ = Command::new("incus")
+            let launch_status = Command::new("incus")
                 .args([
                     "launch",
                     "images:fedora/41/cloud",
@@ -150,7 +177,12 @@ impl FactoryBackend for IncusLinuxBackend {
                     "-c",
                     &format!("limits.memory={}MB", config.compute.memory_mb),
                 ])
-                .output();
+                .status()
+                .with_context(|| format!("Failed to launch Incus VM '{}'", self.vm_name))?;
+
+            if !launch_status.success() {
+                anyhow::bail!("incus launch failed for VM '{}'", self.vm_name);
+            }
 
             if config.compute.gpu == "optional" || config.compute.gpu == "required" {
                 let _ = Command::new("incus")
@@ -168,41 +200,44 @@ impl FactoryBackend for IncusLinuxBackend {
             .and_then(|s| s.to_str())
             .unwrap_or("project");
 
-        let _ = self.execute_ssh_rpc("init_vault", json!({ "project_name": project_name }));
+        let vm_ip = self.get_vm_ip()?;
+        self.execute_ssh_rpc("init_vault", json!({ "project_name": project_name }))?;
 
         let vault_git_url = format!(
             "ssh://{}@{}:{}/var/pa-vault/{}.git",
-            self.ssh_user, self.bridge_ip, self.ssh_port, project_name
+            self.ssh_user, vm_ip, self.ssh_port, project_name
         );
 
-        let res = Command::new("git")
+        let out = Command::new("git")
             .args(["push", &vault_git_url, &format!("{}:refs/heads/main", branch)])
             .current_dir(host_repo)
-            .output();
+            .output()
+            .with_context(|| format!("Failed to push repository to VM vault at {}", vault_git_url))?;
 
-        if let Ok(out) = res {
-            if out.status.success() {
-                let rev = Command::new("git")
-                    .args(["rev-parse", "HEAD"])
-                    .current_dir(host_repo)
-                    .output();
-                if let Ok(rev_out) = rev {
-                    return Ok(String::from_utf8_lossy(&rev_out.stdout).trim().to_string());
-                }
-            }
+        if !out.status.success() {
+            anyhow::bail!(
+                "git push to vault failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
         }
 
-        Ok("HEAD".to_string())
+        let rev_out = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(host_repo)
+            .output()
+            .context("Failed to get HEAD commit")?;
+
+        Ok(String::from_utf8_lossy(&rev_out.stdout).trim().to_string())
     }
 
     fn launch_agent(&self, agent: &AgentSpec, task_prompt: Option<&str>) -> Result<i32> {
-        let _ = self.execute_ssh_rpc(
+        self.execute_ssh_rpc(
             "provision_user",
             json!({
                 "username": agent.id,
                 "uid": agent.uid,
             }),
-        );
+        )?;
 
         let agents_data = vec![json!({
             "id": agent.id,
@@ -211,26 +246,30 @@ impl FactoryBackend for IncusLinuxBackend {
             "transparent_port": agent.transparent_port.unwrap_or(8091),
         })];
 
-        let _ = self.execute_ssh_rpc(
+        self.execute_ssh_rpc(
             "update_firewall",
             json!({
                 "proxy_ip": self.bridge_ip,
                 "dns_port": 5353,
                 "agents": agents_data,
             }),
-        );
+        )?;
 
         let project_name = "default";
-        let _ = self.execute_ssh_rpc(
+        self.execute_ssh_rpc(
             "cow_clone",
             json!({
                 "project_name": project_name,
                 "agent_id": agent.id,
                 "branch_name": format!("{}/task", agent.branch_prefix),
             }),
-        );
+        )?;
 
-        let mut cmd = vec!["pa-agent-entrypoint".to_string(), "--driver".to_string(), agent.driver.clone()];
+        let mut cmd = vec![
+            "pa-agent-entrypoint".to_string(),
+            "--driver".to_string(),
+            agent.driver.clone(),
+        ];
         if let Some(prompt) = task_prompt {
             cmd.push("--prompt".to_string());
             cmd.push(prompt.to_string());
@@ -242,14 +281,16 @@ impl FactoryBackend for IncusLinuxBackend {
                 "agent_id": agent.id,
                 "command": cmd,
                 "user": agent.id,
+                "uid": agent.uid,
                 "proxy_ip": self.bridge_ip,
                 "proxy_port": agent.proxy_port.unwrap_or(8081),
             }),
-        );
+        )?;
 
-        match res {
-            Ok(v) if v.get("result").is_some() => Ok(0),
-            _ => Ok(1),
+        if res.get("result").is_some() {
+            Ok(0)
+        } else {
+            anyhow::bail!("Failed to launch agent '{}': {:?}", agent.id, res);
         }
     }
 
@@ -258,26 +299,33 @@ impl FactoryBackend for IncusLinuxBackend {
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("project");
+
+        let vm_ip = self.get_vm_ip()?;
         let vault_git_url = format!(
             "ssh://{}@{}:{}/var/pa-vault/{}.git",
-            self.ssh_user, self.bridge_ip, self.ssh_port, project_name
+            self.ssh_user, vm_ip, self.ssh_port, project_name
         );
         let worktree_path = host_repo.join(".pa").join("review").join(agent_id);
 
-        let _ = Command::new("git")
+        let out = Command::new("git")
             .args([
                 "fetch",
                 &vault_git_url,
                 &format!("+refs/heads/pa/{0}/*:refs/remotes/pa/{0}/*", agent_id),
             ])
             .current_dir(host_repo)
-            .output();
+            .output()
+            .with_context(|| format!("Failed to fetch agent branch from {}", vault_git_url))?;
+
+        if !out.status.success() {
+            anyhow::bail!("git fetch failed: {}", String::from_utf8_lossy(&out.stderr));
+        }
 
         if !worktree_path.exists() {
             if let Some(p) = worktree_path.parent() {
                 let _ = fs::create_dir_all(p);
             }
-            let _ = Command::new("git")
+            let add_out = Command::new("git")
                 .args([
                     "worktree",
                     "add",
@@ -285,16 +333,29 @@ impl FactoryBackend for IncusLinuxBackend {
                     &format!("pa/{}/task", agent_id),
                 ])
                 .current_dir(host_repo)
-                .output();
+                .output()
+                .context("Failed to add git worktree")?;
+
+            if !add_out.status.success() {
+                anyhow::bail!(
+                    "git worktree add failed: {}",
+                    String::from_utf8_lossy(&add_out.stderr)
+                );
+            }
         }
 
         Ok(worktree_path)
     }
 
     fn stop_factory(&self) -> Result<()> {
-        let _ = Command::new("incus")
+        let status = Command::new("incus")
             .args(["stop", &self.vm_name])
-            .output();
+            .status()
+            .with_context(|| format!("Failed to stop Incus VM '{}'", self.vm_name))?;
+
+        if !status.success() {
+            anyhow::bail!("incus stop failed for VM '{}'", self.vm_name);
+        }
         Ok(())
     }
 
@@ -327,5 +388,13 @@ mod tests {
         let backend = IncusLinuxBackend::new(None, None, None, None, None);
         assert_eq!(backend.vm_name, DEFAULT_VM_NAME);
         assert_eq!(backend.bridge_ip, DEFAULT_BRIDGE_IP);
+    }
+
+    #[test]
+    fn test_incus_start_proxy() {
+        let backend = IncusLinuxBackend::new(None, None, None, None, None);
+        let cfg = FactoryConfig::default();
+        let ip = backend.start_proxy(&cfg).unwrap();
+        assert_eq!(ip, DEFAULT_BRIDGE_IP);
     }
 }

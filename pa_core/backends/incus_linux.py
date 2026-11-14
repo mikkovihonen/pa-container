@@ -36,8 +36,25 @@ class IncusLinuxBackend(FactoryBackend):
         self.ssh_port = ssh_port
         self.proxy_proc: subprocess.Popen[Any] | None = None
 
+    def get_vm_ip(self) -> str:
+        """Query Incus CLI for the guest VM's assigned IPv4 address."""
+        res = subprocess.run(
+            ["incus", "list", self.vm_name, "--format", "json"], capture_output=True, text=True, check=True
+        )
+        instances = json.loads(res.stdout)
+        if isinstance(instances, list) and instances:
+            vm = instances[0]
+            addrs = vm.get("state", {}).get("network", {}).get("eth0", {}).get("addresses", [])
+            for a in addrs:
+                if a.get("family") == "inet":
+                    ip = a.get("address")
+                    if ip:
+                        return str(ip)
+        raise RuntimeError(f"Incus VM '{self.vm_name}' has not acquired an active IPv4 address")
+
     def _execute_ssh_rpc(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Send a JSON-RPC request to pa-agentd inside the VM over SSH stdio channel."""
+        vm_ip = self.get_vm_ip()
         payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
         cmd = [
             "ssh",
@@ -47,17 +64,17 @@ class IncusLinuxBackend(FactoryBackend):
             "StrictHostKeyChecking=no",
             "-o",
             "UserKnownHostsFile=/dev/null",
-            f"{self.ssh_user}@{self.bridge_ip}",
+            f"{self.ssh_user}@{vm_ip}",
             "pa-agentd",
             "--stdio",
         ]
-        try:
-            res = subprocess.run(cmd, input=payload, capture_output=True, text=True, check=True, timeout=30)
-            data = json.loads(res.stdout)
-            return cast("dict[str, Any]", data) if isinstance(data, dict) else {"error": "Invalid response"}
-        except Exception as e:
-            log.warning(f"SSH RPC {method} failed: {e}")
-            return {"error": str(e)}
+        res = subprocess.run(cmd, input=payload, capture_output=True, text=True, check=True, timeout=30)
+        data = json.loads(res.stdout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Invalid JSON-RPC response from guest: {res.stdout}")
+        if "error" in data:
+            raise RuntimeError(f"JSON-RPC error: {data['error']}")
+        return cast("dict[str, Any]", data)
 
     def start_proxy(self, config: FactoryConfig) -> str:
         """Generate multi-agent proxy config and start coding-agent-proxy."""
@@ -122,21 +139,17 @@ class IncusLinuxBackend(FactoryBackend):
         project_name = host_repo.name
         self._execute_ssh_rpc("init_vault", {"project_name": project_name})
 
-        vault_git_url = f"ssh://{self.ssh_user}@{self.bridge_ip}:{self.ssh_port}/var/pa-vault/{project_name}.git"
-        try:
-            res = subprocess.run(
-                ["git", "push", vault_git_url, f"{branch}:refs/heads/main"],
-                cwd=host_repo,
-                capture_output=True,
-                text=True,
-            )
-            if res.returncode == 0:
-                rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=host_repo, capture_output=True, text=True)
-                return rev.stdout.strip()
-        except Exception as e:
-            log.warning(f"Could not push to vault over SSH: {e}")
-
-        return "HEAD"
+        vm_ip = self.get_vm_ip()
+        vault_git_url = f"ssh://{self.ssh_user}@{vm_ip}:{self.ssh_port}/var/pa-vault/{project_name}.git"
+        subprocess.run(
+            ["git", "push", vault_git_url, f"{branch}:refs/heads/main"],
+            cwd=host_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=host_repo, capture_output=True, text=True, check=True)
+        return rev.stdout.strip()
 
     def launch_agent(self, agent: AgentSpec, task_prompt: str | None = None) -> int:
         """Instruct pa-agentd to provision user, update nftables, CoW clone, and start agent."""

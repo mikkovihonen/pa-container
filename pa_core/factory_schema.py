@@ -21,9 +21,8 @@ class ComputeSpec:
 
 
 @dataclass
-class PackagesSpec:
-    toolchains: list[str] = field(default_factory=list)
-    acps: list[str] = field(default_factory=list)
+class CapabilitiesSpec:
+    installed: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -53,7 +52,7 @@ class AgentSpec:
     proxy_port: int | None = None
     transparent_port: int | None = None
     branch_prefix: str = "pa"
-    acps: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
     allowlist: list[str] = field(default_factory=list)
     tokens: list[str] = field(default_factory=list)
 
@@ -63,7 +62,7 @@ class FactoryConfig:
     schema_version: str = "2.0"
     factory: FactoryMetadata = field(default_factory=FactoryMetadata)
     compute: ComputeSpec = field(default_factory=ComputeSpec)
-    packages: PackagesSpec = field(default_factory=PackagesSpec)
+    capabilities: CapabilitiesSpec = field(default_factory=CapabilitiesSpec)
     inference: InferenceSpec = field(default_factory=InferenceSpec)
     ui: UiSpec = field(default_factory=UiSpec)
     agents: list[AgentSpec] = field(default_factory=list)
@@ -140,7 +139,7 @@ def resolve_agent_ports(
                 proxy_port=p_port,
                 transparent_port=t_port,
                 branch_prefix=agent.branch_prefix,
-                acps=list(agent.acps),
+                capabilities=list(agent.capabilities),
                 allowlist=list(agent.allowlist),
                 tokens=list(agent.tokens),
             )
@@ -196,11 +195,11 @@ def load_factory_config(path: Path | str | None = None) -> FactoryConfig:
         gpu=comp_data.get("gpu", "optional"),
     )
 
-    pkg_data = data.get("packages", {})
-    packages = PackagesSpec(
-        toolchains=pkg_data.get("toolchains", []),
-        acps=pkg_data.get("acps", []),
-    )
+    cap_data = data.get("capabilities", {})
+    if isinstance(cap_data, list):
+        capabilities = CapabilitiesSpec(installed=cap_data)
+    else:
+        capabilities = CapabilitiesSpec(installed=cap_data.get("installed", []))
 
     inf_data = data.get("inference", {})
     llama_data = inf_data.get("llama_server", {})
@@ -234,7 +233,7 @@ def load_factory_config(path: Path | str | None = None) -> FactoryConfig:
                 proxy_port=int(proxy_port) if proxy_port is not None else None,
                 transparent_port=int(transparent_port) if transparent_port is not None else None,
                 branch_prefix=a.get("branch_prefix", f"pa/{agent_id}"),
-                acps=a.get("acps", []),
+                capabilities=a.get("capabilities", a.get("acps", [])),
                 allowlist=a.get("allowlist", []),
                 tokens=a.get("tokens", []),
             )
@@ -256,7 +255,7 @@ def load_factory_config(path: Path | str | None = None) -> FactoryConfig:
         schema_version=data.get("schema_version", "2.0"),
         factory=factory_meta,
         compute=compute,
-        packages=packages,
+        capabilities=capabilities,
         inference=inference,
         ui=ui,
         agents=agents,

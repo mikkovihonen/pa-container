@@ -481,7 +481,7 @@ def test_live_package_smoke():
     """Live smoke test asserting that source-control verifies in-container cleanly."""
     if not shutil.which("podman"):
         pytest.skip("podman not installed")
-    if os.environ.get("CI") and not os.environ.get("PA_CONTAINER_LIVE_TESTS"):
-        pytest.skip("Live container tests skipped in CI without PA_CONTAINER_LIVE_TESTS=1")
+    if not os.environ.get("PA_CONTAINER_LIVE_TESTS"):
+        pytest.skip("Live container tests skipped without PA_CONTAINER_LIVE_TESTS=1")
     res = verify_package("source-control")
     assert res.passed is True

@@ -800,7 +800,7 @@ pub fn derive_placeholder_token(session_nonce: &[u8], agent_id: &str, env_var: &
 #### Placeholder Token Formula & Host-Scoped Secret Protection
 
 $$
-\text{Placeholder}(\text{agent\_id}, \text{env\_var}) = \texttt{"pa-tok-"} \parallel \text{agent\_id} \parallel \texttt{"-"} \parallel \text{HMAC-SHA256}(\text{session\_nonce}, \text{agent\_id} \parallel \texttt{":"} \parallel \text{env\_var})[:16]
+\text{Placeholder}(\text{agent\_id}, \text{env\_var}) = \texttt{"pa-tok-"} \parallel \text{agent\_id} \parallel \texttt{"-"} \parallel \operatorname{HMAC-SHA256}_{[:16]}(\text{session\_nonce}, \text{agent\_id} \parallel \texttt{":"} \parallel \text{env\_var})
 $$
 
 * The agent process inside the VM receives `OPENAI_API_KEY=pa-tok-agent1-9f8a7b6c5d4e3f2a` (the real secret never enters the VM).

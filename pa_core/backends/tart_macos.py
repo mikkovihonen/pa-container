@@ -36,8 +36,17 @@ class TartMacOSBackend(FactoryBackend):
         self.ssh_port = ssh_port
         self.vm_proc: subprocess.Popen[Any] | None = None
 
+    def get_vm_ip(self) -> str:
+        """Query Tart CLI for the guest VM's assigned IP address."""
+        res = subprocess.run(["tart", "ip", self.vm_name], capture_output=True, text=True, check=True)
+        ip = res.stdout.strip()
+        if not ip:
+            raise RuntimeError(f"Tart VM '{self.vm_name}' returned empty IP")
+        return ip
+
     def _execute_ssh_rpc(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Send a JSON-RPC request to pa-agentd inside the Tart VM over SSH stdio channel."""
+        vm_ip = self.get_vm_ip()
         payload = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
         cmd = [
             "ssh",
@@ -47,17 +56,17 @@ class TartMacOSBackend(FactoryBackend):
             "StrictHostKeyChecking=no",
             "-o",
             "UserKnownHostsFile=/dev/null",
-            f"{self.ssh_user}@{self.proxy_host_ip}",
+            f"{self.ssh_user}@{vm_ip}",
             "pa-agentd",
             "--stdio",
         ]
-        try:
-            res = subprocess.run(cmd, input=payload, capture_output=True, text=True, check=True, timeout=30)
-            data = json.loads(res.stdout)
-            return cast("dict[str, Any]", data) if isinstance(data, dict) else {"error": "Invalid response"}
-        except Exception as e:
-            log.warning(f"Tart SSH RPC {method} failed: {e}")
-            return {"error": str(e)}
+        res = subprocess.run(cmd, input=payload, capture_output=True, text=True, check=True, timeout=30)
+        data = json.loads(res.stdout)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Invalid JSON-RPC response from guest: {res.stdout}")
+        if "error" in data:
+            raise RuntimeError(f"JSON-RPC error: {data['error']}")
+        return cast("dict[str, Any]", data)
 
     def start_proxy(self, config: FactoryConfig) -> str:
         """Start coding-agent-proxy configured with multi-agent port mapping."""
@@ -89,46 +98,36 @@ class TartMacOSBackend(FactoryBackend):
     def ensure_factory_vm(self, config: FactoryConfig, proxy_ip: str) -> None:
         """Launch the Tart macOS guest VM with Softnet locked to proxy IP."""
         log.info(f"Ensuring Tart macOS VM '{self.vm_name}' is running with Softnet locked to {proxy_ip}/32...")
-        tart_cmd = [
-            "tart",
-            "run",
-            "--net-softnet",
-            f"--net-softnet-allow={proxy_ip}/32",
-            "--no-clipboard",
-            "--no-audio",
-            self.vm_name,
-        ]
         try:
-            # Check if VM is already responsive over SSH
-            check = subprocess.run(
-                ["ssh", "-p", str(self.ssh_port), "-o", "ConnectTimeout=2", f"{self.ssh_user}@{proxy_ip}", "true"],
-                capture_output=True,
-            )
-            if check.returncode != 0:
-                self.vm_proc = subprocess.Popen(tart_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except FileNotFoundError:
-            log.warning("Tart CLI not installed on host. Running in simulation / mock mode.")
+            self.get_vm_ip()
+        except Exception:
+            tart_cmd = [
+                "tart",
+                "run",
+                "--net-softnet",
+                f"--net-softnet-allow={proxy_ip}/32",
+                "--no-clipboard",
+                "--no-audio",
+                self.vm_name,
+            ]
+            self.vm_proc = subprocess.Popen(tart_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def sync_git_to_vault(self, host_repo: Path, branch: str = "HEAD") -> str:
         """Push host Git repository into the macOS Factory VM /var/pa-vault."""
         project_name = host_repo.name
         self._execute_ssh_rpc("init_vault", {"project_name": project_name})
 
-        vault_git_url = f"ssh://{self.ssh_user}@{self.proxy_host_ip}:{self.ssh_port}/var/pa-vault/{project_name}.git"
-        try:
-            res = subprocess.run(
-                ["git", "push", vault_git_url, f"{branch}:refs/heads/main"],
-                cwd=host_repo,
-                capture_output=True,
-                text=True,
-            )
-            if res.returncode == 0:
-                rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=host_repo, capture_output=True, text=True)
-                return rev.stdout.strip()
-        except Exception as e:
-            log.warning(f"Could not push to Tart vault: {e}")
-
-        return "HEAD"
+        vm_ip = self.get_vm_ip()
+        vault_git_url = f"ssh://{self.ssh_user}@{vm_ip}:{self.ssh_port}/var/pa-vault/{project_name}.git"
+        subprocess.run(
+            ["git", "push", vault_git_url, f"{branch}:refs/heads/main"],
+            cwd=host_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=host_repo, capture_output=True, text=True, check=True)
+        return rev.stdout.strip()
 
     def launch_agent(self, agent: AgentSpec, task_prompt: str | None = None) -> int:
         """Provision macOS POSIX user, apply pf firewall, APFS CoW clone, and start Seatbelt sandbox."""
