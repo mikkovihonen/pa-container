@@ -104,25 +104,6 @@ class VerificationConfig:
 
 
 @dataclass(frozen=True)
-class FeatureConfig:
-    """Optional capability feature specification for a package."""
-
-    name: str = ""
-    description: str = ""
-    default: bool = False
-    required: bool = False
-    payload: PayloadConfig = field(default_factory=lambda: PayloadConfig(type="none"))
-    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
-    mcp: MCPConfig = field(default_factory=MCPConfig)
-    egress: EgressConfig = field(default_factory=EgressConfig)
-    token_replacer: list[TokenReplacerRule] = field(default_factory=list)
-    skill_fragment: str | None = None
-    verification: VerificationConfig = field(default_factory=VerificationConfig)
-    config: dict[str, Any] = field(default_factory=dict)
-    secrets: list[SecretMappingConfig] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class CLICommandExtension:
     """CLI subcommand contributed by a capability package."""
 
@@ -210,8 +191,6 @@ class PackageManifest:
     token_replacer: list[TokenReplacerRule] = field(default_factory=list)
     secrets: list[SecretMappingConfig] = field(default_factory=list)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
-    features: dict[str, FeatureConfig] = field(default_factory=dict)
-    features_required: bool = False
     extension: ExtensionConfig = field(default_factory=ExtensionConfig)
     hooks: LifecycleHooksConfig = field(default_factory=LifecycleHooksConfig)
     integration: IntegrationConfig = field(default_factory=IntegrationConfig)
@@ -390,29 +369,12 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
     tr_rules = _parse_token_replacers(data.get("token_replacer") or {})
     verification = _parse_verification(data.get("verification") or {})
 
-    # Features
-    features_raw = data.get("features") or {}
-    features_required = False
-    features: dict[str, FeatureConfig] = {}
-    if isinstance(features_raw, dict):
-        features_required = bool(features_raw.pop("required", False))
-        for feat_name, feat_dict in features_raw.items():
-            if isinstance(feat_dict, dict):
-                features[feat_name] = FeatureConfig(
-                    name=feat_name,
-                    description=str(feat_dict.get("description", "")),
-                    default=bool(feat_dict.get("default", False)),
-                    required=bool(feat_dict.get("required", False)),
-                    payload=_parse_payload(feat_dict.get("payload") or {}),
-                    runtime=_parse_runtime(feat_dict.get("runtime") or {}),
-                    mcp=_parse_mcp(feat_dict.get("mcp") or {}, default_server_id=f"{name}-{feat_name}"),
-                    egress=_parse_egress(feat_dict.get("egress") or {}),
-                    token_replacer=_parse_token_replacers(feat_dict.get("token_replacer") or {}),
-                    skill_fragment=feat_dict.get("skill_fragment"),
-                    verification=_parse_verification(feat_dict.get("verification") or {}),
-                    config=dict(feat_dict.get("config") or {}),
-                    secrets=_parse_secrets(feat_dict.get("secrets") or []),
-                )
+    # Reject features
+    if "features" in data:
+        raise ValueError(
+            f"Package '{name}' defines 'features:'. Features have been removed from ACP. "
+            f"Use canonical nested packages instead (e.g. pa_packages/{name}/<subpackage>/package.yaml){origin}"
+        )
 
     # Extension
     ext_data = data.get("extension") or {}
@@ -499,8 +461,6 @@ def parse_package_manifest(data: dict[str, Any], path: Path | None = None) -> Pa
         token_replacer=tr_rules,
         secrets=secrets,
         verification=verification,
-        features=features,
-        features_required=features_required,
         extension=extension,
         hooks=hooks,
         integration=integration,

@@ -1,0 +1,59 @@
+schema_version: "0.7.0"
+name: "source-control/gitea"
+version: "1.0.0"
+description: "Gitea / Forgejo CLI (tea) and repository workflows"
+category: "scm"
+license: "MIT"
+
+config:
+    auto_detect_host_cli: false
+
+secrets:
+    - name: "forgejo"
+      required: true
+      placeholder: "GITEA_TOKEN_PLACEHOLDER"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+    env:
+        TEA_VERSION: "0.16.0"
+        TEA_SHA256_AMD64: "9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636"
+        TEA_SHA256_ARM64: "0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879"
+
+runtime:
+    dependencies:
+        - "source-control/base"
+
+egress:
+    allow_hosts:
+        - "gitea.com"
+        - "codeberg.org"
+
+token_replacer:
+    - name: "gitea-token-inject"
+      hostnames:
+          - "gitea.com"
+          - "codeberg.org"
+      content_patterns:
+          - field: "headers"
+            header_name: "Authorization"
+            regex: "GITEA_TOKEN_PLACEHOLDER"
+          - field: "headers"
+            header_name: "Authorization"
+            encoding: "base64"
+            regex: "GITEA_TOKEN_PLACEHOLDER"
+      replace_with:
+          strategy: "static"
+          value: "${ENV:GITEA_TOKEN}"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "tea --version"
+    expected_output_contains: "0.16"

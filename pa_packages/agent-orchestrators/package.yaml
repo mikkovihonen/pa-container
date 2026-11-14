@@ -1,0 +1,40 @@
+schema_version: "0.7.0"
+name: "agent-orchestrators"
+version: "1.0.0"
+description: "Multi-agent orchestration capability: tmux session control, parallel Git worktree lifecycle (Worktrunk), multiplayer terminal/web workspace (Zellij), multi-provider web control plane (T3 Code), and inter-agent message bus (AgentIntercom)"
+category: "orchestration"
+license: "MIT AND Apache-2.0"
+
+payload:
+    type: "none"
+
+skill:
+    enabled: true
+    source: "skill/base.md"
+    target_agents: ["all"]
+
+extension:
+    entrypoint: "host.plugin:AgentOrchestratorsPlugin"
+    config_key: "orchestrators"
+
+cli_flags:
+    - "--t3"
+    - "--t3-lan"
+    - "--t3-port"
+    - "--t3-advertise-host"
+    - "--t3-tunnel"
+    - "--t3-tunnel-domain"
+    - "--t3-tunnel-quick"
+    - "--t3-tunnel-runner"
+    - "--t3-tunnel-keyring-account"
+    - "--t3-tunnel-tailscale-mode"
+    - "--t3-public-url"
+
+runtime:
+    dependencies:
+        - "agent-orchestrators/base"
+        - "agent-orchestrators/worktrunk"
+
+verification:
+    command: "tmux -V && git --version && jq --version"
+    expected_output_contains: "tmux"

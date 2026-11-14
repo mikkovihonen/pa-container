@@ -6,66 +6,17 @@ category: "media"
 license: "MPL-2.0 AND Apache-2.0 AND MIT AND GPL-2.0-or-later"
 
 payload:
-    type: distro_package
-    packages:
-        - "assimp"
-        - "admesh"
-        - "draco"
-        - "openvdb"
+    type: "none"
 
 skill:
     enabled: true
     source: "skill/base.md"
     target_agents: ["all"]
 
-features:
-    trimesh:
-        description: "trimesh Python mesh toolkit with scipy, networkx, and lxml for load/convert/repair/analyze workflows (STL, OBJ, PLY, GLB/TF, 3MF)"
-        default: true
-        payload:
-            type: distro_package
-            packages:
-                - "python3-trimesh"
-                - "python3-scipy"
-                - "python3-networkx"
-                - "python3-lxml"
-        skill_fragment: "features/trimesh/skill/SKILL.md"
-        verification:
-            command: "python3 -c 'import trimesh, numpy, scipy, networkx, lxml; print(\"trimesh\", trimesh.__version__)'"
-            expected_output_contains: "trimesh"
-    blender:
-        description: "Blender headless scripting and rendering (bpy via 'blender -b --python', Cycles CPU); interactive use pairs with the virtual-desktop package"
-        default: false
-        payload:
-            type: distro_package
-            packages:
-                - "blender"
-        skill_fragment: "features/blender/skill/SKILL.md"
-        verification:
-            command: "blender -v"
-            expected_output_contains: "Blender"
-    meshlab:
-        description: "MeshLab headless mesh processing, cleaning, and format conversion CLI ('QT_QPA_PLATFORM=offscreen meshlab -i in -o out')"
-        default: false
-        payload:
-            type: distro_package
-            packages:
-                - "meshlab"
-        skill_fragment: "features/meshlab/skill/SKILL.md"
-        verification:
-            command: "QT_QPA_PLATFORM=offscreen meshlab --help 2>&1"
-            expected_output_contains: "meshlab"
-    openscad:
-        description: "OpenSCAD parametric solid modeling with headless STL/3MF/DXF/SVG export (2021.01 release)"
-        default: false
-        payload:
-            type: distro_package
-            packages:
-                - "openscad"
-        skill_fragment: "features/openscad/skill/SKILL.md"
-        verification:
-            command: "openscad -v 2>&1"
-            expected_output_contains: "OpenSCAD"
+runtime:
+    dependencies:
+        - "3d-tools/base"
+        - "3d-tools/trimesh"
 
 verification:
     command: "assimp version && admesh --version && vdb_print -version"

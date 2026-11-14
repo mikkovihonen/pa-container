@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""STDIO Model Context Protocol (MCP) server for AgentIntercom."""
+
+import json
+import os
+import subprocess
+import sys
+
+SERVER_INFO = {"name": "pa-agentintercom", "version": "1.0.0"}
+
+TOOLS = [
+    {
+        "name": "intercom_peers",
+        "description": "List active human and coding agent peers registered on AgentIntercom across worktrees.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "intercom_send",
+        "description": "Send a structured message, API contract update, or delegated task to another peer on AgentIntercom.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient peer name (or 'all' for broadcast)"},
+                "message": {"type": "string", "description": "Message body"},
+            },
+            "required": ["to", "message"],
+        },
+    },
+    {
+        "name": "intercom_inbox",
+        "description": "Read incoming messages in the current agent's durable AgentIntercom inbox.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "unread_only": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
+        "name": "intercom_ack",
+        "description": "Acknowledge a message ID in the AgentIntercom inbox after acting on it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string", "description": "Message ID to acknowledge"},
+            },
+            "required": ["message_id"],
+        },
+    },
+]
+
+
+def call_cli(cli_args: list[str]) -> str:
+    env = os.environ.copy()
+    env.setdefault("PA_INTERCOM_DIR", "/tmp/pa-intercom")
+    res = subprocess.run(
+        ["agentintercom", *cli_args],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    output = (res.stdout or "") + (res.stderr or "")
+    return output.strip() or "OK"
+
+
+def handle_request(req: dict) -> dict | None:
+    method = req.get("method")
+    req_id = req.get("id")
+
+    if method == "initialize":
+        subprocess.run(
+            ["pa-intercom-hook", "register", "--harness", "mcp"],
+            capture_output=True,
+            check=False,
+        )
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": SERVER_INFO,
+            },
+        }
+
+    if method == "notifications/initialized":
+        return None
+
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": TOOLS}}
+
+    if method == "tools/call":
+        params = req.get("params", {})
+        name = params.get("name")
+        args = params.get("arguments", {}) or {}
+
+        if name == "intercom_peers":
+            text = call_cli(["peers", "--json"])
+        elif name == "intercom_send":
+            text = call_cli(["send", "--to", str(args.get("to", "")), "--message", str(args.get("message", ""))])
+        elif name == "intercom_inbox":
+            flags = ["inbox", "--json"]
+            if args.get("unread_only", True):
+                flags.insert(1, "--unread")
+            text = call_cli(flags)
+        elif name == "intercom_ack":
+            text = call_cli(["ack", str(args.get("message_id", ""))])
+        else:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {name}"},
+            }
+
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"content": [{"type": "text", "text": text}]},
+        }
+
+    if req_id is not None:
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+    return None
+
+
+def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--version":
+        print("pa-intercom-mcp 1.0.0")
+        return 0
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+            resp = handle_request(req)
+            if resp is not None:
+                sys.stdout.write(json.dumps(resp) + "\n")
+                sys.stdout.flush()
+        except Exception as exc:
+            sys.stderr.write(f"pa-intercom-mcp error: {exc}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -34,11 +34,8 @@ def get_package_dir(package_name: str, repo_root: Path | None = None) -> Path:
 
 def package_to_image_tag(package_name: str, features: list[str] | set[str] | None = None) -> str:
     """Return the local container image tag for an Agent Capability Package."""
-    clean_name = package_name.lower().replace("_", "-")
-    if not features:
-        return f"pa-container-pkg-{clean_name}:local"
-    feat_str = "--".join(sorted(features))
-    return f"pa-container-pkg-{clean_name}--{feat_str}:local"
+    clean_name = package_name.lower().replace("/", "-").replace(":", "-").replace("_", "-")
+    return f"pa-container-pkg-{clean_name}:local"
 
 
 def package_to_content_tag(
@@ -47,22 +44,19 @@ def package_to_content_tag(
     features: list[str] | set[str] | None = None,
 ) -> str:
     """Return the content-addressed immutable container image tag for an Agent Capability Package."""
-    clean_name = package_name.lower().replace("_", "-")
-    if not features:
-        return f"pa-container-pkg-{clean_name}:{hash_digest}"
-    feat_str = "--".join(sorted(features))
-    return f"pa-container-pkg-{clean_name}--{feat_str}:{hash_digest}"
+    clean_name = package_name.lower().replace("/", "-").replace(":", "-").replace("_", "-")
+    return f"pa-container-pkg-{clean_name}:{hash_digest}"
 
 
 def discover_packages(repo_root: Path | None = None) -> dict[str, PackageManifest]:
-    """Discover and parse all available package manifests under packages/*/package.yaml."""
+    """Discover and parse all available package manifests under pa_packages/*/package.yaml and pa_packages/*/*/package.yaml."""
     packages_dir = get_packages_dir(repo_root)
     if not packages_dir.is_dir():
         return {}
 
     manifests: dict[str, PackageManifest] = {}
     for entry in sorted(packages_dir.iterdir()):
-        if entry.is_dir():
+        if entry.is_dir() and not entry.name.startswith("."):
             manifest_file = entry / "package.yaml"
             if manifest_file.is_file():
                 try:
@@ -70,6 +64,15 @@ def discover_packages(repo_root: Path | None = None) -> dict[str, PackageManifes
                     manifests[manifest.name] = manifest
                 except Exception as e:
                     logger.warning(f"Failed to load package manifest at {manifest_file}: {e}")
+            for sub_entry in sorted(entry.iterdir()):
+                if sub_entry.is_dir() and not sub_entry.name.startswith("."):
+                    sub_manifest = sub_entry / "package.yaml"
+                    if sub_manifest.is_file():
+                        try:
+                            manifest = load_package_manifest(sub_manifest)
+                            manifests[manifest.name] = manifest
+                        except Exception as e:
+                            logger.warning(f"Failed to load package manifest at {sub_manifest}: {e}")
     return manifests
 
 
@@ -109,9 +112,6 @@ def compute_package_hash(
         except OSError:
             pass
 
-    if features:
-        hasher.update(f"features:{','.join(sorted(features))}".encode())
-
     # Deterministically walk all regular files in the package directory affecting container image
     for file_path in sorted(pkg_dir.rglob("*")):
         if not file_path.is_file() or file_path.name.startswith("."):
@@ -120,6 +120,9 @@ def compute_package_hash(
         parts = rel_path.parts
         # Host Python code and tests do not affect container image layers
         if "host" in parts or "__pycache__" in parts:
+            continue
+        # Subdirectories containing their own package.yaml are independent subpackages
+        if any((pkg_dir / Path(*parts[:i]) / "package.yaml").is_file() for i in range(1, len(parts))):
             continue
         hasher.update(str(rel_path).encode())
         try:
@@ -134,12 +137,7 @@ def compute_package_hash(
     if manifest_file.is_file():
         try:
             mf = load_package_manifest(manifest_file)
-            active_feats = set(features or [])
-            build_pkgs: set[str] = set(mf.payload.build_packages)
-            for f_name, f_obj in mf.features.items():
-                if f_name in active_feats or (not active_feats and f_obj.default):
-                    build_pkgs.update(f_obj.payload.build_packages)
-            for bp in sorted(build_pkgs):
+            for bp in sorted(set(mf.payload.build_packages)):
                 if bp not in visited:
                     bp_hash = compute_package_hash(bp, repo_root=r_root, visited=visited)
                     hasher.update(f"build_pkg:{bp}:{bp_hash}".encode())
@@ -192,10 +190,5 @@ def collect_distro_packages(
 
         if manifest.payload.packages:
             pkgs_set.update(manifest.payload.packages)
-        feat_set = set(active_feats) if active_feats is not None else None
-        for feat_name, feat in manifest.features.items():
-            is_active = (feat_name in feat_set) if feat_set is not None else feat.default
-            if is_active and feat.payload.packages:
-                pkgs_set.update(feat.payload.packages)
 
     return sorted(p for p in pkgs_set if p)

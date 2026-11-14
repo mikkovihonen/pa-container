@@ -39,8 +39,7 @@ def valid_config(tmp_path: Path) -> Path:
                 },
                 "packages": [
                     {
-                        "agents": {
-                            "features": [{"pi": {"config": {}, "secrets": []}}],
+                        "agents/pi": {
                             "config": {},
                             "secrets": [],
                         }
@@ -291,7 +290,6 @@ class TestLegacyNestedContainersRejected:
         data["packages"].append(
             {
                 "podman": {
-                    "features": [],
                     "config": {
                         "storage": "volume",
                         "security": "disable",
@@ -798,28 +796,9 @@ class TestPackagesSchema:
         with valid_config.open("r") as f:
             data = yaml.safe_load(f)
         pkgs = []
-        for name in sorted(discover_packages().keys()):
-            secrets = []
-            if name == "source-control":
-                secrets = [
-                    {"name": "github", "account": "ACC"},
-                    {"name": "gitlab", "account": "ACC"},
-                    {"name": "forgejo", "account": "ACC"},
-                    {"name": "azure_devops", "account": "ACC"},
-                    {"name": "bitbucket", "account": "ACC"},
-                    {"name": "gitcafe", "account": "ACC"},
-                ]
-            if name == "agents":
-                features = [{"pi": {"config": {}, "secrets": []}}]
-            elif name == "source-control":
-                features = [{"github": {"config": {}, "secrets": [{"name": "github", "account": "ACC"}]}}]
-            elif name == "virtual-desktop":
-                features = [{"wayland": {"config": {}, "secrets": []}}]
-            elif name == "browser":
-                features = [{"chromium-headless": {"config": {}, "secrets": []}}]
-            else:
-                features = []
-            pkgs.append({name: {"features": features, "config": {}, "secrets": secrets}})
+        for name, manifest in sorted(discover_packages().items()):
+            secrets = [{"name": s.name, "account": "ACC"} for s in manifest.secrets]
+            pkgs.append({name: {"config": {}, "secrets": secrets}})
         data["packages"] = pkgs
         valid_config.write_text(yaml.dump(data))
 
@@ -827,6 +806,18 @@ class TestPackagesSchema:
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is True
         assert errors == []
+
+    def test_legacy_package_names_rejected(self, valid_config: Path):
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        for legacy in ["python", "node", "c-cpp", "go", "ruby", "rust", "zig", "vips", "github"]:
+            data["packages"] = [{legacy: {"config": {}, "secrets": []}}]
+            valid_config.write_text(yaml.dump(data))
+            is_valid, errors, _ = validate_config(valid_config)
+            assert is_valid is False
+            assert any(f"package '{legacy}' has been consolidated" in e for e in errors)
 
     def test_empty_packages(self, valid_config: Path):
         from config_schema import validate_config
@@ -887,8 +878,7 @@ class TestPackagesSchema:
             data = yaml.safe_load(f)
         data["packages"] = [
             {
-                "agents": {
-                    "features": [{"pi": {"config": {}, "secrets": []}}],
+                "agents/pi": {
                     "config": {},
                     "secrets": [{"name": "key"}],
                 }
@@ -908,8 +898,7 @@ class TestPackagesSchema:
             data = yaml.safe_load(f)
         data["packages"].append(
             {
-                "source-control": {
-                    "features": [{"github": {"config": {}, "secrets": []}}],
+                "source-control/github": {
                     "config": {},
                     "secrets": [],
                 }
@@ -922,7 +911,7 @@ class TestPackagesSchema:
         assert is_valid is False
         assert any("unmapped required secret 'github'" in e for e in errors)
 
-    def test_bare_string_feature_rejected(self, valid_config: Path):
+    def test_features_rejected(self, valid_config: Path):
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
@@ -941,7 +930,7 @@ class TestPackagesSchema:
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any("Canonical Feature Specification" in e for e in errors)
+        assert any("'features' is not supported" in e for e in errors)
 
     def test_feature_missing_config_rejected(self, valid_config: Path):
         from config_schema import validate_config
@@ -950,9 +939,7 @@ class TestPackagesSchema:
             data = yaml.safe_load(f)
         data["packages"] = [
             {
-                "agents": {
-                    "features": [{"pi": {"secrets": []}}],
-                    "config": {},
+                "agents/pi": {
                     "secrets": [],
                 }
             }
@@ -971,17 +958,9 @@ class TestPackagesSchema:
             data = yaml.safe_load(f)
         data["packages"] = [
             {
-                "source-control": {
-                    "features": [
-                        {
-                            "github": {
-                                "config": {},
-                                "secrets": [{"name": "github"}],
-                            }
-                        }
-                    ],
+                "source-control/github": {
                     "config": {},
-                    "secrets": [],
+                    "secrets": [{"name": "github"}],
                 }
             }
         ]
@@ -1053,7 +1032,6 @@ class TestPackagesSchema:
         data["packages"].append(
             {
                 "git": {
-                    "features": [],
                     "config": {"safe_directory": True, "rewrite_ssh_to_https": False},
                     "secrets": [],
                 }
@@ -1079,9 +1057,7 @@ class TestPackagesSchema:
         assert is_valid is False
         assert any("Legacy root-level configuration section 'source_control' is not allowed" in e for e in errors)
 
-    def test_required_feature_with_at_least_one_selected(self, tmp_path: Path):
-        from config_schema import validate_config
-        from packages import discover_packages
+    def test_manifest_features_rejected_on_load(self, tmp_path: Path):
         from packages.manifest import load_package_manifest
 
         pkg_dir = tmp_path / "pa_packages" / "req-feats"
@@ -1096,191 +1072,12 @@ payload:
     packages:
         - "coreutils"
 features:
-    required: true
     alpha:
         description: "Alpha feature"
-        default: false
-    beta:
-        description: "Beta feature"
-        default: false
 """
         )
-        real_pkgs = discover_packages()
-        real_pkgs["req-feats"] = load_package_manifest(pkg_dir / "package.yaml")
-
-        with patch("config_schema.discover_packages", return_value=real_pkgs):
-            config_path = tmp_path / "config.yaml"
-            config_path.write_text(
-                yaml.dump(
-                    {
-                        "schema_version": "0.7.0",
-                        "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
-                        "llama": {"startup_timeout": 180, "startup_attempts": 2},
-                        "network": {"ipv6": False, "dns": "1.1.1.1"},
-                        "proxy": {
-                            "expose_ui": "localhost",
-                            "max_view_flows": 2000,
-                            "stream_large_bodies": "10m",
-                            "open_browser": False,
-                        },
-                        "packages": [
-                            {
-                                "req-feats": {
-                                    "features": [{"alpha": {"config": {}, "secrets": []}}],
-                                    "config": {},
-                                    "secrets": [],
-                                }
-                            }
-                        ],
-                        "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
-                        "tmpfs": {"paths": []},
-                        "flow_export": {"enabled": False},
-                        "egress": {"allow": {}},
-                        "security": {
-                            "read_only_git_hooks": True,
-                            "blocked_mount_paths": [],
-                            "blocked_ip_ranges": [],
-                            "git_config_allowlist": [],
-                        },
-                        "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
-                    }
-                )
-            )
-            is_valid, errors, _ = validate_config(config_path)
-        assert is_valid is True
-        assert errors == []
-
-    def test_required_feature_with_empty_features_fails(self, tmp_path: Path):
-        from config_schema import validate_config
-        from packages import discover_packages
-        from packages.manifest import load_package_manifest
-
-        pkg_dir = tmp_path / "pa_packages" / "req-feats-empty"
-        pkg_dir.mkdir(parents=True)
-        (pkg_dir / "package.yaml").write_text(
-            """schema_version: "0.7.0"
-name: "req-feats-empty"
-version: "1.0.0"
-category: "agents"
-payload:
-    type: distro_package
-    packages:
-        - "coreutils"
-features:
-    required: true
-    alpha:
-        description: "Alpha feature"
-        default: false
-    beta:
-        description: "Beta feature"
-        default: false
-"""
-        )
-        real_pkgs = discover_packages()
-        real_pkgs["req-feats-empty"] = load_package_manifest(pkg_dir / "package.yaml")
-
-        with patch("config_schema.discover_packages", return_value=real_pkgs):
-            config_path = tmp_path / "config.yaml"
-            config_path.write_text(
-                yaml.dump(
-                    {
-                        "schema_version": "0.7.0",
-                        "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
-                        "llama": {"startup_timeout": 180, "startup_attempts": 2},
-                        "network": {"ipv6": False, "dns": "1.1.1.1"},
-                        "proxy": {
-                            "expose_ui": "localhost",
-                            "max_view_flows": 2000,
-                            "stream_large_bodies": "10m",
-                            "open_browser": False,
-                        },
-                        "packages": [{"req-feats-empty": {"features": [], "config": {}, "secrets": []}}],
-                        "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
-                        "tmpfs": {"paths": []},
-                        "flow_export": {"enabled": False},
-                        "egress": {"allow": {}},
-                        "security": {
-                            "read_only_git_hooks": True,
-                            "blocked_mount_paths": [],
-                            "blocked_ip_ranges": [],
-                            "git_config_allowlist": [],
-                        },
-                        "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
-                    }
-                )
-            )
-            is_valid, errors, _ = validate_config(config_path)
-        assert is_valid is False
-        assert any("this package requires at least one feature" in e for e in errors)
-        assert any("req-feats-empty" in e for e in errors)
-
-    def test_required_feature_with_unknown_feature_fails_first(self, tmp_path: Path):
-        from config_schema import validate_config
-        from packages import discover_packages
-        from packages.manifest import load_package_manifest
-
-        pkg_dir = tmp_path / "pa_packages" / "req-feats-unknown"
-        pkg_dir.mkdir(parents=True)
-        (pkg_dir / "package.yaml").write_text(
-            """schema_version: "0.7.0"
-name: "req-feats-unknown"
-version: "1.0.0"
-category: "agents"
-payload:
-    type: distro_package
-    packages:
-        - "coreutils"
-features:
-    required: true
-    alpha:
-        description: "Alpha feature"
-        default: false
-"""
-        )
-        real_pkgs = discover_packages()
-        real_pkgs["req-feats-unknown"] = load_package_manifest(pkg_dir / "package.yaml")
-
-        with patch("config_schema.discover_packages", return_value=real_pkgs):
-            config_path = tmp_path / "config.yaml"
-            config_path.write_text(
-                yaml.dump(
-                    {
-                        "schema_version": "0.7.0",
-                        "resources": {"agent": {"memory": "16g", "cpus": 8}, "proxy": {"memory": "4g", "cpus": 4}},
-                        "llama": {"startup_timeout": 180, "startup_attempts": 2},
-                        "network": {"ipv6": False, "dns": "1.1.1.1"},
-                        "proxy": {
-                            "expose_ui": "localhost",
-                            "max_view_flows": 2000,
-                            "stream_large_bodies": "10m",
-                            "open_browser": False,
-                        },
-                        "packages": [
-                            {
-                                "req-feats-unknown": {
-                                    "features": [{"nonexistent": {"config": {}, "secrets": []}}],
-                                    "config": {},
-                                    "secrets": [],
-                                }
-                            }
-                        ],
-                        "agent": {"env": {}, "mounts": [], "read_only_pa_container": True},
-                        "tmpfs": {"paths": []},
-                        "flow_export": {"enabled": False},
-                        "egress": {"allow": {}},
-                        "security": {
-                            "read_only_git_hooks": True,
-                            "blocked_mount_paths": [],
-                            "blocked_ip_ranges": [],
-                            "git_config_allowlist": [],
-                        },
-                        "logging": {"log_level": "INFO", "retention": {"max_days": 14, "max_launches": 10}},
-                    }
-                )
-            )
-            is_valid, errors, _ = validate_config(config_path)
-        assert is_valid is False
-        assert any("unknown feature 'nonexistent'" in e for e in errors)
+        with pytest.raises(ValueError, match="defines 'features:'"):
+            load_package_manifest(pkg_dir / "package.yaml")
 
 
 class TestAgentsSchema:
@@ -1343,6 +1140,56 @@ class TestDesktopSchema:
         assert any("Legacy root-level configuration section 'desktop' is not allowed" in e for e in errors)
 
     def test_desktop_package_config_valid(self, valid_config: Path):
+        """Canonical virtual-desktop package configuration is valid."""
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"].append(
+            {
+                "virtual-desktop": {
+                    "config": {
+                        "resolution": "1920x1080",
+                        "compositor": "labwc",
+                        "open_browser": False,
+                        "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
+                        "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
+                        "gpu": {"enabled": "auto"},
+                    },
+                    "secrets": [],
+                }
+            }
+        )
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is True
+        assert errors == []
+
+    def test_desktop_package_x11_subpackage_valid(self, valid_config: Path):
+        """Selecting the x11 display backend subpackage is valid."""
+        from config_schema import validate_config
+
+        with valid_config.open("r") as f:
+            data = yaml.safe_load(f)
+        data["packages"].append(
+            {
+                "virtual-desktop/x11": {
+                    "config": {},
+                    "secrets": [],
+                }
+            }
+        )
+        valid_config.write_text(yaml.dump(data))
+
+        with patch("config_schema.get_app_version", return_value=None):
+            is_valid, errors, _ = validate_config(valid_config)
+        assert is_valid is True
+        assert errors == []
+
+    def test_desktop_package_features_rejected(self, valid_config: Path):
+        """Features under virtual-desktop are strictly rejected."""
         from config_schema import validate_config
 
         with valid_config.open("r") as f:
@@ -1351,71 +1198,7 @@ class TestDesktopSchema:
             {
                 "virtual-desktop": {
                     "features": [{"wayland": {"config": {}, "secrets": []}}],
-                    "config": {
-                        "resolution": "1920x1080",
-                        "compositor": "labwc",
-                        "open_browser": False,
-                        "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
-                        "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
-                        "gpu": {"enabled": "auto"},
-                    },
-                    "secrets": [],
-                }
-            }
-        )
-        valid_config.write_text(yaml.dump(data))
-
-        with patch("config_schema.get_app_version", return_value=None):
-            is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is True
-        assert errors == []
-
-    def test_desktop_package_x11_feature_valid(self, valid_config: Path):
-        """Selecting the x11 display backend feature is valid without the wayland-only 'compositor' key."""
-        from config_schema import validate_config
-
-        with valid_config.open("r") as f:
-            data = yaml.safe_load(f)
-        data["packages"].append(
-            {
-                "virtual-desktop": {
-                    "features": [{"x11": {"config": {}, "secrets": []}}],
-                    "config": {
-                        "resolution": "1280x1024",
-                        "open_browser": False,
-                        "vnc": {"enabled": True, "port": "auto", "expose": "localhost"},
-                        "novnc": {"enabled": True, "port": "auto", "expose": "localhost"},
-                        "gpu": {"enabled": False},
-                    },
-                    "secrets": [],
-                }
-            }
-        )
-        valid_config.write_text(yaml.dump(data))
-
-        with patch("config_schema.get_app_version", return_value=None):
-            is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is True
-        assert errors == []
-
-    def test_desktop_package_features_required(self, valid_config: Path):
-        """virtual-desktop requires at least one display backend feature since v2.1.0."""
-        from config_schema import validate_config
-
-        with valid_config.open("r") as f:
-            data = yaml.safe_load(f)
-        data["packages"].append(
-            {
-                "virtual-desktop": {
-                    "features": [],
-                    "config": {
-                        "resolution": "1920x1080",
-                        "compositor": "labwc",
-                        "open_browser": False,
-                        "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
-                        "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
-                        "gpu": {"enabled": "auto"},
-                    },
+                    "config": {},
                     "secrets": [],
                 }
             }
@@ -1425,34 +1208,4 @@ class TestDesktopSchema:
         with patch("config_schema.get_app_version", return_value=None):
             is_valid, errors, _ = validate_config(valid_config)
         assert is_valid is False
-        assert any(
-            "virtual-desktop: this package requires at least one feature. Available: wayland, x11" in e for e in errors
-        )
-
-    def test_desktop_package_unknown_feature_rejected(self, valid_config: Path):
-        """Unknown display backend features are rejected against the package manifest."""
-        from config_schema import validate_config
-
-        with valid_config.open("r") as f:
-            data = yaml.safe_load(f)
-        data["packages"].append(
-            {
-                "virtual-desktop": {
-                    "features": [{"mir": {"config": {}, "secrets": []}}],
-                    "config": {
-                        "resolution": "1920x1080",
-                        "open_browser": False,
-                        "vnc": {"enabled": True, "port": 5900, "expose": "localhost"},
-                        "novnc": {"enabled": True, "port": 6080, "expose": "localhost"},
-                        "gpu": {"enabled": "auto"},
-                    },
-                    "secrets": [],
-                }
-            }
-        )
-        valid_config.write_text(yaml.dump(data))
-
-        with patch("config_schema.get_app_version", return_value=None):
-            is_valid, errors, _ = validate_config(valid_config)
-        assert is_valid is False
-        assert any("unknown feature 'mir'. Available features: wayland, x11" in e for e in errors)
+        assert any("'features' is not supported" in e for e in errors)

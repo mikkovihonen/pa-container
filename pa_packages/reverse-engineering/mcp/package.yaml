@@ -1,0 +1,33 @@
+schema_version: "0.7.0"
+name: "reverse-engineering/mcp"
+version: "1.0.0"
+description: "Reverse engineering Model Context Protocol (MCP) server for structured binary analysis and decompilation"
+category: "security"
+license: "Apache-2.0"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_packages:
+        - "languages/python"
+
+runtime:
+    dependencies:
+        - "languages/python"
+        - "reverse-engineering/base"
+
+mcp:
+    enabled: true
+    server_id: "reverse-engineering"
+    transport: "stdio"
+    command: "/usr/local/bin/re-mcp-server"
+    args: []
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "re-mcp-server --self-test"
+    expected_output_contains: "mcp-server-ready"

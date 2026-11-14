@@ -1,0 +1,29 @@
+schema_version: "0.7.0"
+name: "reverse-engineering/emulation"
+version: "1.0.0"
+description: "Capstone (disassembly), Unicorn (CPU emulation), and Keystone (assembly) frameworks with Python bindings"
+category: "security"
+license: "BSD-3-Clause"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_packages:
+        - "languages/python"
+    packages:
+        - "capstone"
+        - "python3-capstone"
+
+runtime:
+    dependencies:
+        - "languages/python"
+        - "reverse-engineering/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "python3 -c 'import capstone; print(\"capstone-ok\")'"
+    expected_output_contains: "capstone-ok"

@@ -18,11 +18,11 @@ payload:
         - "curl"
         - "openssl-devel"
     build_packages:
-        - "python"
+        - "languages/python"
 
 runtime:
     dependencies:
-        - "python"
+        - "languages/python"
 
 verification:
     command: "python3 -c \"import langgraph, pydantic_ai, smolagents; print('ai-frameworks ready')\""

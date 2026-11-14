@@ -16,45 +16,93 @@ from packages.discovery import discover_packages
 
 logger = get_category_logger(__name__, LogCategory.BUILD)
 
+REMOVED_LEGACY_PACKAGES: dict[str, str] = {
+    "python": "languages/python",
+    "node": "languages/node",
+    "c-cpp": "languages/c-cpp",
+    "go": "languages/go",
+    "ruby": "languages/ruby",
+    "rust": "languages/rust",
+    "zig": "languages/zig",
+    "pi": "agents/pi",
+    "opencode": "agents/opencode",
+    "claude": "agents/claude",
+    "antigravity": "agents/antigravity",
+    "chromium": "browser/chromium",
+    "chromium-headless": "browser/chromium-headless",
+    "vips": "image-tools/vips",
+    "jxl-heif": "image-tools/jxl-heif",
+    "gmic": "image-tools/gmic",
+    "trimesh": "3d-tools/trimesh",
+    "blender": "3d-tools/blender",
+    "meshlab": "3d-tools/meshlab",
+    "openscad": "3d-tools/openscad",
+    "whisper": "sound-tools/whisper",
+    "docling": "document-tools/docling",
+    "ocrmypdf": "ocr-tools/ocrmypdf",
+    "ghidra-headless": "reverse-engineering/ghidra-headless",
+    "ghidra": "reverse-engineering/ghidra",
+    "emulation": "reverse-engineering/emulation",
+    "qdrant": "vector-storage/qdrant",
+    "wayland": "virtual-desktop/wayland",
+    "x11": "virtual-desktop/x11",
+    "pyright": "language-servers/pyright",
+    "typescript": "language-servers/typescript",
+    "clangd": "language-servers/clangd",
+    "zls": "language-servers/zls",
+    "rust-analyzer": "language-servers/rust-analyzer",
+    "github": "source-control/github",
+    "gitlab": "source-control/gitlab",
+    "t3": "agent-orchestrators/t3",
+    "gitea": "source-control/gitea",
+    "cafe": "source-control/cafe",
+    "azure-devops": "source-control/azure-devops",
+    "bitbucket": "source-control/bitbucket",
+}
+
 """Transitive dependency resolution and topological sorting for Agent Capability Packages (ACPs)."""
 
 
 def resolve_package_dependencies(
-    packages_map: Mapping[str, Sequence[str] | None],
+    packages_map: Mapping[str, Sequence[str] | None] | Sequence[str],
     manifests: dict[str, PackageManifest] | None = None,
     repo_root: Path | None = None,
     include_build_packages: bool = True,
 ) -> dict[str, list[str]]:
-    """Transitively resolve all package and feature runtime and build tool dependencies in topological order.
+    """Transitively resolve all package runtime and build tool dependencies in topological order.
 
     Args:
-        packages_map: Mapping of package names to active features (e.g. {"agents": ["pi"]}).
+        packages_map: Mapping of package names or list of package names.
         manifests: Optional pre-loaded package manifests mapping.
         repo_root: Optional repository root path.
         include_build_packages: Whether to include build-time tool dependencies (payload.build_packages).
 
     Returns:
-        Topologically sorted dictionary of {package_name: [active_features]} where
+        Topologically sorted dictionary of {package_name: []} where
         dependencies precede dependent packages.
 
     Raises:
-        ValueError: If a circular dependency loop is detected.
+        ValueError: If a circular dependency loop is detected or a removed legacy package is referenced.
     """
     if manifests is None:
         manifests = discover_packages(repo_root)
 
-    # Initialize resolved features with copies of incoming features
-    resolved_features: dict[str, set[str]] = {}
-    for pkg_name, feats in packages_map.items():
-        clean_name = str(pkg_name).strip()
-        if not clean_name:
-            continue
-        feat_set = {str(f).strip() for f in (feats or []) if str(f).strip()}
-        resolved_features[clean_name] = feat_set
+    # Normalize incoming package list
+    incoming_pkgs: list[str] = []
+    if isinstance(packages_map, (list, set, tuple)) or hasattr(packages_map, "keys"):
+        incoming_pkgs = [str(p).strip() for p in packages_map if str(p).strip()]
+
+    # Validate against legacy packages
+    all_packages: set[str] = set()
+    for clean_name in incoming_pkgs:
+        if clean_name in REMOVED_LEGACY_PACKAGES:
+            target = REMOVED_LEGACY_PACKAGES[clean_name]
+            raise ValueError(f"Package '{clean_name}' has been consolidated into '{target}'. Use '{target}' instead.")
+        all_packages.add(clean_name)
 
     # Transitive expansion
     direct_deps_graph: dict[str, set[str]] = {}
-    queue: list[str] = list(resolved_features.keys())
+    queue: list[str] = list(all_packages)
     visited_for_expansion: set[str] = set()
 
     while queue:
@@ -66,28 +114,18 @@ def resolve_package_dependencies(
         current_deps: set[str] = set()
         manifest = manifests.get(current_pkg)
         if manifest is not None:
-            # Package-level runtime and build-time tool dependencies
             current_deps.update(manifest.runtime.dependencies)
             if include_build_packages:
                 current_deps.update(manifest.payload.build_packages)
 
-            # Feature-level runtime and build-time tool dependencies for active features
-            active_feats = resolved_features.get(current_pkg, set())
-            for feat_name, feat in manifest.features.items():
-                if feat_name in active_feats or (not active_feats and feat.default):
-                    current_deps.update(feat.runtime.dependencies)
-                    if include_build_packages:
-                        current_deps.update(feat.payload.build_packages)
-
         direct_deps_graph[current_pkg] = current_deps
 
         for dep in current_deps:
-            if dep not in resolved_features:
-                dep_manifest = manifests.get(dep)
-                default_feats: set[str] = set()
-                if dep_manifest is not None:
-                    default_feats = {f_name for f_name, f_obj in dep_manifest.features.items() if f_obj.default}
-                resolved_features[dep] = default_feats
+            if dep in REMOVED_LEGACY_PACKAGES:
+                target = REMOVED_LEGACY_PACKAGES[dep]
+                raise ValueError(f"Package '{dep}' has been consolidated into '{target}'. Use '{target}' instead.")
+            if dep not in all_packages:
+                all_packages.add(dep)
                 queue.append(dep)
 
     # Topological sort using post-order DFS
@@ -110,8 +148,8 @@ def resolve_package_dependencies(
         visited.add(node)
         sorted_order.append(node)
 
-    for pkg in sorted(resolved_features.keys()):
+    for pkg in sorted(all_packages):
         if pkg not in visited:
             _dfs(pkg, [])
 
-    return {pkg: sorted(resolved_features[pkg]) for pkg in sorted_order}
+    return {pkg: [] for pkg in sorted_order}

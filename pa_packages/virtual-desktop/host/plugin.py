@@ -121,38 +121,43 @@ class VirtualDesktopPlugin(ACPPlugin):
             },
         }
 
-    def _active_desktop_features(self, context: RunContext) -> set[str]:
-        """Resolve the virtual-desktop features enabled in the project configuration."""
-        feats: set[str] = set()
-        try:
-            from images import resolve_project_packages
-
-            specs = resolve_project_packages(context.project_dir)
-            feats = {str(f) for f in (specs.get("virtual-desktop") or [])}
-        except Exception as e:
-            logger.debug(f"Could not resolve virtual-desktop features from project config: {e}")
-        if not feats and self.manifest is not None:
-            feats = {name for name, f in self.manifest.features.items() if f.default}
-        return feats
-
     def _resolve_backend(self, context: RunContext) -> str:
-        """Resolve the active display backend (wayland or x11) from the project configuration."""
-        feats = self._active_desktop_features(context)
-        if not feats:
-            return DEFAULT_BACKEND
+        """Resolve the active display backend (wayland or x11) from active packages or project configuration."""
+        active = set(context.active_packages or [])
+        backends: set[str] = set()
+        for pkg_name in active:
+            if pkg_name == "virtual-desktop/wayland":
+                backends.add("wayland")
+            elif pkg_name == "virtual-desktop/x11":
+                backends.add("x11")
+            elif pkg_name.startswith("virtual-desktop/") and pkg_name != "virtual-desktop/base":
+                sub = pkg_name.removeprefix("virtual-desktop/")
+                raise ValueError(f"virtual-desktop: unknown display backend '{sub}'")
 
-        unknown = sorted(feats - set(DESKTOP_BACKENDS))
-        if unknown:
-            raise ValueError(
-                f"virtual-desktop: unknown display backend feature(s): {', '.join(unknown)}. "
-                f"Available backends: {', '.join(DESKTOP_BACKENDS)}."
-            )
-        if len(feats) > 1:
+        if context.config:
+            pkgs = context.config.get("packages") or []
+            for p in pkgs:
+                name = p if isinstance(p, str) else (next(iter(p.keys())) if isinstance(p, dict) and p else "")
+                name = str(name).strip().lower()
+                if name == "virtual-desktop/wayland":
+                    backends.add("wayland")
+                elif name == "virtual-desktop/x11":
+                    backends.add("x11")
+                elif name.startswith("virtual-desktop/") and name not in (
+                    "virtual-desktop",
+                    "virtual-desktop/base",
+                    "virtual-desktop/wayland",
+                    "virtual-desktop/x11",
+                ):
+                    sub = name.removeprefix("virtual-desktop/")
+                    raise ValueError(f"virtual-desktop: unknown display backend '{sub}'")
+
+        if len(backends) > 1:
             raise ValueError(
                 "virtual-desktop: display backends are mutually exclusive; enable exactly one of "
-                f"{', '.join(DESKTOP_BACKENDS)} under 'features' for the virtual-desktop package."
+                f"{', '.join(f'virtual-desktop/{b}' for b in DESKTOP_BACKENDS)}."
             )
-        return next(iter(feats))
+        return next(iter(backends)) if backends else DEFAULT_BACKEND
 
     def on_run_init(self, context: RunContext) -> None:
         """Register desktop mode, configuration, and active display backend in the run context."""
@@ -190,6 +195,29 @@ class VirtualDesktopPlugin(ACPPlugin):
         self.novnc_port, self.vnc_port = resolve_desktop_ports(cfg)
         self.novnc_url = f"http://127.0.0.1:{self.novnc_port}/vnc.html?autoconnect=true&resize=scale"
         self.vnc_endpoint = f"127.0.0.1:{self.vnc_port}"
+
+        if context.tunnel_provider and context.tunnel_provider.is_enabled():
+            from packages.plugin import IngressAuthPolicy, TunnelEndpointRequest
+
+            novnc_ep = context.tunnel_provider.register_service(
+                TunnelEndpointRequest(
+                    service_name="desktop",
+                    port=self.novnc_port,
+                    protocol="http",
+                    auth_policy=IngressAuthPolicy.REQUIRED,
+                    preferred_subdomain="desktop",
+                    path_prefix="/desktop",
+                    title="Virtual Desktop noVNC",
+                )
+            )
+            if novnc_ep:
+                base_url = novnc_ep.public_url
+                if novnc_ep.access_token:
+                    self.novnc_url = (
+                        f"{base_url}/vnc.html?autoconnect=true&resize=scale&pa_token={novnc_ep.access_token}"
+                    )
+                else:
+                    self.novnc_url = f"{base_url}/vnc.html?autoconnect=true&resize=scale"
 
         context.set_attribute("desktop.backend", backend)
         context.set_attribute("desktop.novnc_port", self.novnc_port)
@@ -239,19 +267,19 @@ class VirtualDesktopPlugin(ACPPlugin):
             ]
         )
 
-        root_hook = self.package_dir / "container" / "entrypoint.d" / "root" / "60-desktop.sh"
+        root_hook = self.package_dir / "base" / "entrypoint.d" / "root" / "60-desktop.sh"
         if root_hook.is_file():
             spec.extra_run_args.extend(
                 ["--volume", f"{root_hook}:/usr/local/share/pa-container/entrypoint.d/root/60-desktop.sh:ro"]
             )
-        agent_hook = self.package_dir / "container" / "entrypoint.d" / "agent" / "60-desktop.sh"
+        agent_hook = self.package_dir / "base" / "entrypoint.d" / "agent" / "60-desktop.sh"
         if agent_hook.is_file():
             spec.extra_run_args.extend(
                 ["--volume", f"{agent_hook}:/usr/local/share/pa-container/entrypoint.d/agent/60-desktop.sh:ro"]
             )
 
         for hook_kind in ("root", "agent"):
-            backend_hook = self.package_dir / "features" / backend / "entrypoint.d" / hook_kind / "61-desktop.sh"
+            backend_hook = self.package_dir / backend / "entrypoint.d" / hook_kind / "61-desktop.sh"
             if backend_hook.is_file():
                 spec.extra_run_args.extend(
                     [

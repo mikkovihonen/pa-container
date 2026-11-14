@@ -1,0 +1,63 @@
+schema_version: "0.7.0"
+name: "source-control/gitlab"
+version: "1.0.0"
+description: "GitLab CLI (glab) and repository workflows"
+category: "scm"
+license: "MIT"
+
+config:
+    auto_detect_host_cli: false
+
+secrets:
+    - name: "gitlab"
+      required: true
+      placeholder: "GITLAB_TOKEN_PLACEHOLDER"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+    env:
+        GLAB_VERSION: "1.128.0"
+        GLAB_SHA256_AMD64: "bc024819e7598b19429a199cd87f640d98b2b67416d8ad796f19e4260b57a7c7"
+        GLAB_SHA256_ARM64: "60d0512085a8c1be7c5ef51aa7e4ee28213444cea0376b3260707d90489199ea"
+
+runtime:
+    dependencies:
+        - "source-control/base"
+
+egress:
+    allow_hosts:
+        - "gitlab.com"
+        - "*.gitlab.com"
+
+token_replacer:
+    - name: "gitlab-token-inject"
+      hostnames:
+          - "gitlab.com"
+          - "*.gitlab.com"
+      content_patterns:
+          - field: "headers"
+            header_name: "PRIVATE-TOKEN"
+            regex: "GITLAB_TOKEN_PLACEHOLDER"
+          - field: "headers"
+            header_name: "Authorization"
+            regex: "GITLAB_TOKEN_PLACEHOLDER"
+          - field: "headers"
+            header_name: "Authorization"
+            encoding: "base64"
+            regex: "GITLAB_TOKEN_PLACEHOLDER"
+      replace_with:
+          strategy: "static"
+          value: "${ENV:GITLAB_TOKEN}"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "glab --version"
+    expected_output_contains: "glab 1.128"

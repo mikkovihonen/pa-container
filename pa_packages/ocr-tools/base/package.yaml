@@ -1,0 +1,21 @@
+schema_version: 0.7.0
+name: ocr-tools/base
+version: 1.0.0
+description: 'Base OCR capability: tesseract engine, English baseline data, and OSD
+  orientation detection'
+category: media
+license: Apache-2.0
+payload:
+  type: distro_package
+  packages:
+  - tesseract
+  - tesseract-langpack-eng
+  - tesseract-osd
+skill:
+  enabled: true
+  source: skill/SKILL.md
+  target_agents:
+  - all
+verification:
+  command: tesseract --version && tesseract --list-langs
+  expected_output_contains: eng

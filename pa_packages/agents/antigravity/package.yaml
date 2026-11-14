@@ -1,0 +1,48 @@
+schema_version: "0.7.0"
+name: "agents/antigravity"
+version: "1.0.0"
+description: "Google Antigravity agent CLI (agy) and T3 ACP runtime"
+category: "agents"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+        - "unzip"
+    env:
+        ANTIGRAVITY_VERSION: "1.5.2"
+        ANTIGRAVITY_BUILD_ID: "4951595792859136"
+        ANTIGRAVITY_SHA256_AMD64: "da696a8dc6122a63d5ffbdd21b02c8a62d5361fba0ed7d3bc2d2619889e62711"
+        ANTIGRAVITY_SHA256_ARM64: "cd155ecd9bc962037423e6826ed0b61d3b16d84d350cdc9a8c14478f24f5f235"
+        ANTIGRAVITY_ACP_VERSION: "1.4.5"
+        ANTIGRAVITY_ACP_SHA256_AMD64: "923923a0d7dc8073f66cc6f78647a3107e3a7ee2b7e1a24df8b3927b5188013b"
+        ANTIGRAVITY_ACP_SHA256_ARM64: "7d64246633ae094f67e3bbcd2d679e89048f91346d5339313336e7483f40f056"
+
+egress:
+    allow_hosts:
+        - "generativelanguage.googleapis.com"
+        - "cloudresourcemanager.googleapis.com"
+        - "oauth2.googleapis.com"
+
+token_replacer:
+    - name: "gemini-key"
+      hostnames:
+          - "generativelanguage.googleapis.com"
+      content_patterns:
+          - field: "headers"
+            header_name: "x-goog-api-key"
+            regex: ".*"
+      replace_with:
+          strategy: "static"
+          value: "GEMINI_API_KEY_PLACEHOLDER"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "agy --version"

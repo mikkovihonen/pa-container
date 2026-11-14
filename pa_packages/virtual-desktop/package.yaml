@@ -21,99 +21,12 @@ config:
         enabled: "auto"
 
 payload:
-    type: build_script
-    script: "build.sh"
-    # Distro packages installed into the TARGET image by the package builder
-    # (collect_distro_packages). Never hand-stage these from the build stage.
-    packages:
-        - "novnc"
-        - "python3-websockify"
-        - "mesa-dri-drivers"
-        - "dejavu-sans-fonts"
-        - "liberation-sans-fonts"
-
-features:
-    required: true
-    wayland:
-        description: "Headless Wayland display stack: labwc compositor with Xwayland compatibility, wayvnc VNC server, and wlr-randr/grim/slurp/xdotool/wtype automation tooling"
-        default: true
-        payload:
-            type: build_script
-            script: "features/wayland/build.sh"
-            # Runtime display stack installed into the TARGET image as distro
-            # packages. xkbcomp + xkeyboard-config are required by Xwayland
-            # (and libxkbcommon) for keymap compilation at runtime.
-            packages:
-                - "labwc"
-                - "xorg-x11-server-Xwayland"
-                - "wlr-randr"
-                - "wayvnc"
-                - "grim"
-                - "slurp"
-                - "xdotool"
-                - "wtype"
-                - "mesa-libEGL"
-                - "mesa-libGLES"
-                - "mesa-libgbm"
-                - "xkeyboard-config"
-                - "xkbcomp"
-        runtime:
-            env:
-                DISPLAY: ":0"
-                WAYLAND_DISPLAY: "wayland-0"
-        skill_fragment: "features/wayland/skill/SKILL.md"
-        verification:
-            command: "command -v labwc && command -v wayvnc && command -v Xwayland && command -v wlr-randr && command -v grim && command -v slurp && command -v wtype && command -v xdotool && command -v xkbcomp && test -e /usr/share/X11/xkb && echo labwc-wayvnc-Xwayland-xkb-ready"
-            expected_output_contains: "labwc"
-    x11:
-        description: "Headless X11 display stack: Xvfb display server, x11vnc VNC server, openbox window manager, and xdotool/wmctrl automation tooling"
-        default: false
-        payload:
-            type: build_script
-            script: "features/x11/build.sh"
-            # Runtime display stack installed into the TARGET image as distro
-            # packages. xkbcomp + xkeyboard-config are required by Xvfb for
-            # keymap compilation; without them Xvfb aborts with
-            # "Failed to activate virtual core keyboard".
-            packages:
-                - "xorg-x11-server-Xvfb"
-                - "x11vnc"
-                - "openbox"
-                - "xdotool"
-                - "wmctrl"
-                - "ImageMagick"
-                - "xkeyboard-config"
-                - "xkbcomp"
-        runtime:
-            env:
-                DISPLAY: ":0"
-        skill_fragment: "features/x11/skill/SKILL.md"
-        verification:
-            # Binary presence plus a real Xvfb launch: Xvfb aborts without
-            # xkeyboard-config keymap data, so this catches missing runtime deps.
-            command: "command -v Xvfb && command -v x11vnc && command -v openbox && command -v xdotool && command -v wmctrl && command -v import && command -v xkbcomp && (Xvfb :9 -ac -nolisten tcp -screen 0 320x240x16 >/dev/null 2>&1 &); _ok=0; for _i in 1 2 3 4 5 6 7 8 9 10; do [ -S /tmp/.X11-unix/X9 ] && { _ok=1; break; }; sleep 0.2; done; [ $_ok = 1 ] && echo Xvfb-display-server-ready"
-            expected_output_contains: "Xvfb"
+    type: "none"
 
 skill:
     enabled: true
-    source: "container/skill/SKILL.md"
+    source: "base/skill/SKILL.md"
     target_agents: ["all"]
-
-mcp:
-    enabled: true
-    server_id: "virtual-desktop"
-    transport: "stdio"
-    command: "/usr/local/bin/agent-desktop"
-    args: ["mcp"]
-
-runtime:
-    dependencies:
-        - "python"
-    devices:
-        - "/dev/dri"
-    env:
-        XDG_RUNTIME_DIR: "/run/user/1000"
-        PA_CONTAINER_DESKTOP: "true"
 
 extension:
     entrypoint: "host.plugin:VirtualDesktopPlugin"
@@ -122,6 +35,11 @@ extension:
         - name: "desktop"
           help: "Inspect active virtual desktop containers, noVNC web UIs, and VNC endpoints"
           handler: "host.desktop:handle_desktop_command"
+
+runtime:
+    dependencies:
+        - "virtual-desktop/base"
+        - "virtual-desktop/wayland"
 
 verification:
     command: "agent-desktop status"

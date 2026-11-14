@@ -1,0 +1,16 @@
+schema_version: 0.7.0
+name: ocr-tools/lang-ell
+version: 1.0.0
+description: Greek OCR language data
+category: media
+license: Apache-2.0
+payload:
+  type: distro_package
+  packages:
+  - tesseract-langpack-ell
+runtime:
+  dependencies:
+  - ocr-tools/base
+verification:
+  command: tesseract --list-langs
+  expected_output_contains: ell

@@ -376,7 +376,7 @@ class TestAgentResolution:
 
         pa_dir = tmp_path / ".pa-container"
         pa_dir.mkdir(parents=True)
-        (pa_dir / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["claude"]}]}))
+        (pa_dir / "config.yaml").write_text(yaml.dump({"packages": ["agents/claude"]}))
         enabled = read_enabled_agents(pa_dir)
         assert enabled == ["claude"]
         assert "pi" not in enabled

@@ -1,0 +1,26 @@
+schema_version: "0.7.0"
+name: "image-tools/jxl-heif"
+version: "1.0.0"
+description: "Modern still-image codecs: JPEG XL (cjxl/djxl) and HEIF/AVIF encode and decode (heif-enc/heif-convert, ImageMagick HEIC delegate)"
+category: "media"
+license: "BSD-3-Clause AND LGPL-3.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "libjxl-utils"
+        - "libheif-tools"
+        - "ImageMagick-heic"
+
+runtime:
+    dependencies:
+        - "image-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "cjxl --version && heif-enc --version"
+    expected_output_contains: "cjxl"

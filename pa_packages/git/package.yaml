@@ -10,37 +10,15 @@ config:
     rewrite_ssh_to_https: true
 
 payload:
-    type: distro_package
-    packages:
-        - "git"
-
-features:
-    mcp:
-        description: "Git Model Context Protocol (MCP) server for repository inspection and operations"
-        default: false
-        payload:
-            type: build_script
-            script: "features/mcp/build.sh"
-            build_deps:
-                - "python3-pip"
-            build_packages:
-                - "python"
-        mcp:
-            enabled: true
-            server_id: "git"
-            transport: "stdio"
-            command: "/usr/local/bin/mcp-server-git"
-            args: []
-        runtime:
-            dependencies:
-                - "python"
-        verification:
-            command: "mcp-server-git --help"
-            expected_output_contains: "mcp-server-git"
+    type: "none"
 
 extension:
     entrypoint: "host.plugin:GitPlugin"
     config_key: "git"
+
+runtime:
+    dependencies:
+        - "git/base"
 
 verification:
     command: "git --version"

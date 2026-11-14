@@ -10,8 +10,6 @@ if TYPE_CHECKING:
 
 sys.dont_write_bytecode = True
 
-from packages.discovery import get_package_dir
-from packages.manifest import load_package_manifest
 
 from .drivers import AntigravityDriver, ClaudeDriver, OpenCodeDriver, PiAgentDriver
 
@@ -30,15 +28,8 @@ _LOADED_AGENT_DRIVERS: dict[str, AgentDriver] = {}
 
 
 def discover_available_agents(repo_root: Path | None = None) -> dict[str, str]:
-    """Map agent feature name to package name ('agents') for all available agent features."""
-    try:
-        pkg_dir = get_package_dir("agents", repo_root=repo_root)
-        manifest = load_package_manifest(pkg_dir / "package.yaml")
-        if manifest.features:
-            return dict.fromkeys(sorted(manifest.features.keys()), "agents")
-    except Exception:
-        pass
-    return dict.fromkeys(AVAILABLE_AGENTS, "agents")
+    """Map agent name to package name (e.g. 'pi' -> 'agents/pi') for all available agents."""
+    return {name: f"agents/{name}" for name in sorted(AVAILABLE_AGENTS)}
 
 
 def get_agent_driver(

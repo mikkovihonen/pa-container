@@ -1,0 +1,22 @@
+schema_version: 0.7.0
+name: ocr-tools/ocrmypdf
+version: 1.0.0
+description: 'Adds searchable text layers to scanned PDFs: ocrmypdf with its ghostscript
+  and pikepdf stack'
+category: media
+license: MPL-2.0 AND AGPL-3.0-or-later
+payload:
+  type: distro_package
+  packages:
+  - ocrmypdf
+runtime:
+  dependencies:
+  - ocr-tools/base
+skill:
+  enabled: true
+  source: skill/SKILL.md
+  target_agents:
+  - all
+verification:
+  command: ocrmypdf --version
+  expected_output_contains: ocrmypdf

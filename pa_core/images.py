@@ -53,39 +53,38 @@ def resolve_project_packages(
     pkgs_dict: dict[str, set[str]] = {}
     r_root = repo_root or REPO_ROOT
 
+    from packages.dependencies import REMOVED_LEGACY_PACKAGES
+
     def _add_pkg_entry(entry: Any) -> None:
         if isinstance(entry, str):
             if "+" in entry:
                 raise ValueError(
-                    f"Invalid package specification '{entry}': string concatenation with '+' is not supported. "
-                    f"Use dictionary syntax, e.g. - {entry.split('+')[0]}: [{', '.join(entry.split('+')[1:])}]"
+                    f"Invalid package specification '{entry}': '+' syntax is not supported. "
+                    "Use canonical package names (e.g. 'languages/python')."
                 )
-            if entry.strip():
-                pkgs_dict.setdefault(entry.strip(), set())
+            clean_entry = entry.strip()
+            if clean_entry in REMOVED_LEGACY_PACKAGES:
+                target = REMOVED_LEGACY_PACKAGES[clean_entry]
+                raise ValueError(
+                    f"Package '{clean_entry}' has been consolidated into '{target}'. Use '{target}' instead."
+                )
+            if clean_entry:
+                pkgs_dict.setdefault(clean_entry, set())
         elif isinstance(entry, dict):
             for k, v in entry.items():
                 pkg_name = str(k).strip()
                 if not pkg_name:
                     continue
+                if pkg_name in REMOVED_LEGACY_PACKAGES:
+                    target = REMOVED_LEGACY_PACKAGES[pkg_name]
+                    raise ValueError(
+                        f"Package '{pkg_name}' has been consolidated into '{target}'. Use '{target}' instead."
+                    )
+                if isinstance(v, dict) and "features" in v:
+                    raise ValueError(
+                        f"Package '{pkg_name}': 'features' is not supported. Use canonical packages instead."
+                    )
                 pkgs_dict.setdefault(pkg_name, set())
-                if isinstance(v, list):
-                    for f in v:
-                        if isinstance(f, str) and f.strip():
-                            pkgs_dict[pkg_name].add(f.strip())
-                        elif isinstance(f, dict) and len(f) == 1:
-                            f_key = str(next(iter(f.keys()))).strip()
-                            if f_key:
-                                pkgs_dict[pkg_name].add(f_key)
-                elif isinstance(v, dict):
-                    feats_list = v.get("features")
-                    if isinstance(feats_list, list):
-                        for f in feats_list:
-                            if isinstance(f, str) and f.strip():
-                                pkgs_dict[pkg_name].add(f.strip())
-                            elif isinstance(f, dict) and len(f) == 1:
-                                f_key = str(next(iter(f.keys()))).strip()
-                                if f_key:
-                                    pkgs_dict[pkg_name].add(f_key)
 
     if include_core:
         from packages import get_core_packages
@@ -177,9 +176,9 @@ def compute_image_hash(
     if packages_map:
         from packages import compute_package_hash
 
-        for p, feats in sorted(packages_map.items()):
-            pkg_hash = compute_package_hash(p, r_root, features=feats)
-            combined_hash.update(f"pkg:{p}:{','.join(feats)}:{pkg_hash}".encode())
+        for p in sorted(packages_map.keys()):
+            pkg_hash = compute_package_hash(p, r_root)
+            combined_hash.update(f"pkg:{p}:{pkg_hash}".encode())
 
     return combined_hash.hexdigest()[:16]
 

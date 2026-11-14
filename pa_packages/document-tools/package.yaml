@@ -6,39 +6,16 @@ category: "devtools"
 license: "GPL-2.0-or-later"
 
 payload:
-    type: build_script
-    script: "build.sh"
-    build_deps:
-        - "poppler-utils"
-        - "curl"
-        - "tar"
-        - "gzip"
-    env:
-        PANDOC_VERSION: "3.13"
-        PANDOC_SHA256_X86_64: "38aa33b325a2bc96a4c39409631212db55702f564250bcdbead180b3bf646389"
-        PANDOC_SHA256_AARCH64: "21e1d4ba09bd0b334590d204580fd4f6629b21be4ab6a32b26cc98982e9e0c68"
-
-features:
-    docling:
-        description: "AI-native neural document parsing (PDF, DOCX, PPTX to Markdown)"
-        default: false
-        payload:
-            type: "build_script"
-            script: "features/docling/build.sh"
-            build_packages:
-                - "python"
-        runtime:
-            dependencies:
-                - "python"
-        skill_fragment: "features/docling/skill/SKILL.md"
-        verification:
-            command: "docling --version"
-            expected_output_contains: "docling"
+    type: "none"
 
 skill:
     enabled: true
-    source: "features/docling/skill/SKILL.md"
+    source: "base/skill/SKILL.md"
     target_agents: ["all"]
+
+runtime:
+    dependencies:
+        - "document-tools/base"
 
 verification:
     command: "pandoc --version && pdftotext -v && pdfinfo -v"

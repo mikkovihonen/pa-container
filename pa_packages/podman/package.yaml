@@ -33,7 +33,7 @@ payload:
         - "iptables-nft"
         - "shadow-utils-subid"
     build_packages:
-        - "python"
+        - "languages/python"
     env:
         PODMAN_VERSION: "v6.1.4"
         PODMAN_COMMIT: "464c15fec06f0074c916f9eff87c4806869c2833"
@@ -60,7 +60,7 @@ mcp:
 
 runtime:
     dependencies:
-        - "python"
+        - "languages/python"
     nested_containers: true
     subuid_ranges:
         - "agent:1:999"

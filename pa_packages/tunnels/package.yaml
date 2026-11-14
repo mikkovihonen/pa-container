@@ -1,0 +1,16 @@
+schema_version: "0.7.0"
+name: "tunnels"
+version: "1.0.0"
+description: "Automated secure tunneling provider for public ingress via Cloudflare (cloudflared) and Tailscale (serve/funnel)"
+category: "networking"
+license: "MIT"
+
+payload:
+    type: "none"
+
+extension:
+    entrypoint: "host.plugin:TunnelsPlugin"
+    config_key: "tunnels"
+
+verification:
+    command: "true"

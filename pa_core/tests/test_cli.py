@@ -86,7 +86,7 @@ class TestCliParser:
     def test_run_options_with_package_plugin(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         pa_dir = tmp_path / ".pa-container"
         pa_dir.mkdir()
-        (pa_dir / "config.yaml").write_text("packages:\n  - t3\n")
+        (pa_dir / "config.yaml").write_text("packages:\n  - agent-orchestrators\n  - tunnels\n")
         monkeypatch.setattr("cli.PROJECT_DIR", tmp_path)
 
         cmd, options = parse_cli_args(
@@ -100,9 +100,9 @@ class TestCliParser:
                 "8080",
                 "--t3-advertise-host",
                 "192.168.1.10",
-                "--t3-tunnel",
+                "--tunnel",
                 "cloudflare",
-                "--t3-tunnel-quick",
+                "--tunnel-quick",
             ]
         )
         assert cmd == "run"
@@ -111,8 +111,8 @@ class TestCliParser:
         assert options.t3_lan is True
         assert options.t3_port == "8080"
         assert options.t3_advertise_host == "192.168.1.10"
-        assert options.t3_tunnel == "cloudflare"
-        assert options.t3_tunnel_quick is True
+        assert options.tunnel == "cloudflare"
+        assert options.tunnel_quick is True
 
     def test_unconfigured_package_flag_remediation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -122,8 +122,8 @@ class TestCliParser:
             parse_cli_args(["run", "--t3"])
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "The '--t3' option requires the 't3' capability package" in captured.err
-        assert "packages:\n        - t3" in captured.err
+        assert "The '--t3' option requires the 'agent-orchestrators' capability package" in captured.err
+        assert "packages:\n        - agent-orchestrators" in captured.err
 
     def test_run_open_browser_flag(self) -> None:
         cmd, options = parse_cli_args(["run", "--open-browser"])

@@ -1,0 +1,41 @@
+schema_version: "0.7.0"
+name: "virtual-desktop/base"
+version: "2.1.0"
+description: "Virtual desktop base stack: agent-desktop automation CLI, noVNC streaming, websockify, and core desktop fonts"
+category: "desktop"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    packages:
+        - "novnc"
+        - "python3-websockify"
+        - "mesa-dri-drivers"
+        - "dejavu-sans-fonts"
+        - "liberation-sans-fonts"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+mcp:
+    enabled: true
+    server_id: "virtual-desktop"
+    transport: "stdio"
+    command: "/usr/local/bin/agent-desktop"
+    args: ["mcp"]
+
+runtime:
+    dependencies:
+        - "languages/python"
+    devices:
+        - "/dev/dri"
+    env:
+        XDG_RUNTIME_DIR: "/run/user/1000"
+        PA_CONTAINER_DESKTOP: "true"
+
+verification:
+    command: "agent-desktop status"
+    expected_output_contains: "Virtual Desktop"

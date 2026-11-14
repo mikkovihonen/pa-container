@@ -154,7 +154,9 @@ exec gosu agent bash -c '
             fi
 
             if [ "$_is_managed" = "true" ]; then
-                if [ ! -f "$_share_packages_dir/$_existing_skill_name/skill/SKILL.md" ]; then
+                if [ ! -f "$_share_packages_dir/$_existing_skill_name/skill/SKILL.md" ] && \
+                   [ ! -f "$_share_packages_dir"/*/"$_existing_skill_name/skill/SKILL.md" ] && \
+                   [ ! -f "$_share_packages_dir/$_existing_skill_name/base/skill/SKILL.md" ]; then
                     rm -rf "$_existing_skill_dir"
                 fi
             fi
@@ -162,13 +164,25 @@ exec gosu agent bash -c '
     done
 
     # 2. Automatically project installed skills from ACP packages into active agent directories
-    for _pkg_skill in "$_share_packages_dir"/*/skill/SKILL.md; do
+    for _pkg_skill in "$_share_packages_dir"/*/skill/SKILL.md "$_share_packages_dir"/*/*/skill/SKILL.md; do
         [ -f "$_pkg_skill" ] || continue
-        _dir_part="$(dirname "$_pkg_skill")"
-        _skill_name="$(basename "$_dir_part")"
-        if [ "$_skill_name" = "skill" ]; then
-            _skill_name="$(basename "$(dirname "$_dir_part")")"
+
+        _skill_name=""
+        if grep -q "^name: " "$_pkg_skill" 2>/dev/null; then
+            _skill_name="$(grep -m 1 "^name:" "$_pkg_skill" | sed "s/^name:[[:space:]]*//" | tr -d " \"\r\t" | tr -d "\047")"
         fi
+
+        if [ -z "$_skill_name" ]; then
+            _dir_part="$(dirname "$_pkg_skill")"
+            _parent_dir="$(dirname "$_dir_part")"
+            _pkg_leaf="$(basename "$_parent_dir")"
+            if [ "$_pkg_leaf" = "base" ]; then
+                _skill_name="$(basename "$(dirname "$_parent_dir")")"
+            else
+                _skill_name="$_pkg_leaf"
+            fi
+        fi
+
         for _agent_skills in "${_target_agent_skills_dirs[@]+"${_target_agent_skills_dirs[@]}"}"; do
             mkdir -p "$_agent_skills/$_skill_name"
             cp -a "$_pkg_skill" "$_agent_skills/$_skill_name/SKILL.md" 2>/dev/null || true

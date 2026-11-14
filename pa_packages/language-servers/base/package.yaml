@@ -1,0 +1,19 @@
+schema_version: "0.7.0"
+name: "language-servers/base"
+version: "1.0.0"
+description: "Language server base capability providing lsp-bridge core runner"
+category: "devtools"
+license: "Apache-2.0"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "lsp-bridge --version"
+    expected_output_contains: "lsp-bridge 1.0.0"

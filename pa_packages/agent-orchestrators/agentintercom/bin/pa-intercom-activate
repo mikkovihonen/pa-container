@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SHARE_DIR="${PA_AGENTINTERCOM_SHARE:-/usr/local/share/pa-agentintercom}"
+QUIET=0
+for arg in "$@"; do
+    if [ "$arg" = "--quiet" ] || [ "$arg" = "-q" ]; then
+        QUIET=1
+    fi
+done
+
+# 1. Pi Coding Agent: symlink extension into ~/.pi/agent/extensions/
+mkdir -p "${HOME}/.pi/agent/extensions"
+if [ -f "${SHARE_DIR}/pi/agentintercom.ts" ]; then
+    ln -sf "${SHARE_DIR}/pi/agentintercom.ts" "${HOME}/.pi/agent/extensions/agentintercom.ts"
+fi
+
+# 2. OpenCode: symlink plugin and register MCP server in ~/.config/opencode/opencode.json
+mkdir -p "${HOME}/.config/opencode/plugin"
+if [ -f "${SHARE_DIR}/opencode/agentintercom.mjs" ]; then
+    ln -sf "${SHARE_DIR}/opencode/agentintercom.mjs" "${HOME}/.config/opencode/plugin/agentintercom.mjs"
+fi
+OPENCODE_CFG="${HOME}/.config/opencode/opencode.json"
+if [ ! -f "${OPENCODE_CFG}" ]; then
+    echo '{}' > "${OPENCODE_CFG}"
+fi
+if command -v jq >/dev/null 2>&1; then
+    jq '.mcp.agentintercom = {"type": "local", "command": ["/usr/local/bin/pa-intercom-mcp"], "enabled": true}' \
+        "${OPENCODE_CFG}" > "${OPENCODE_CFG}.tmp" && mv "${OPENCODE_CFG}.tmp" "${OPENCODE_CFG}"
+fi
+
+# 3. Claude Code: merge lifecycle hooks into ~/.claude/settings.json and MCP into ~/.claude.json
+mkdir -p "${HOME}/.claude"
+CLAUDE_SETTINGS="${HOME}/.claude/settings.json"
+if [ ! -f "${CLAUDE_SETTINGS}" ]; then
+    echo '{}' > "${CLAUDE_SETTINGS}"
+fi
+if [ -f "${SHARE_DIR}/claude/settings-fragment.json" ] && command -v jq >/dev/null 2>&1; then
+    jq -s '.[0] * .[1]' "${CLAUDE_SETTINGS}" "${SHARE_DIR}/claude/settings-fragment.json" \
+        > "${CLAUDE_SETTINGS}.tmp" && mv "${CLAUDE_SETTINGS}.tmp" "${CLAUDE_SETTINGS}"
+fi
+
+CLAUDE_JSON="${HOME}/.claude.json"
+if [ ! -f "${CLAUDE_JSON}" ]; then
+    echo '{}' > "${CLAUDE_JSON}"
+fi
+if command -v jq >/dev/null 2>&1; then
+    jq '.mcpServers.agentintercom = {"command": "/usr/local/bin/pa-intercom-mcp", "args": []}' \
+        "${CLAUDE_JSON}" > "${CLAUDE_JSON}.tmp" && mv "${CLAUDE_JSON}.tmp" "${CLAUDE_JSON}"
+fi
+
+# 4. Antigravity / Gemini: merge MCP server and hooks into ~/.gemini/antigravity/mcp_config.json & ~/.gemini/settings.json
+mkdir -p "${HOME}/.gemini/antigravity"
+AG_MCP="${HOME}/.gemini/antigravity/mcp_config.json"
+if [ ! -f "${AG_MCP}" ]; then
+    echo '{}' > "${AG_MCP}"
+fi
+if command -v jq >/dev/null 2>&1; then
+    jq '.mcpServers.agentintercom = {"command": "/usr/local/bin/pa-intercom-mcp", "args": []}' \
+        "${AG_MCP}" > "${AG_MCP}.tmp" && mv "${AG_MCP}.tmp" "${AG_MCP}"
+fi
+
+GEMINI_SETTINGS="${HOME}/.gemini/settings.json"
+if [ ! -f "${GEMINI_SETTINGS}" ]; then
+    echo '{}' > "${GEMINI_SETTINGS}"
+fi
+if [ -f "${SHARE_DIR}/antigravity/mcp-fragment.json" ] && command -v jq >/dev/null 2>&1; then
+    jq -s '.[0] * .[1]' "${GEMINI_SETTINGS}" "${SHARE_DIR}/antigravity/mcp-fragment.json" \
+        > "${GEMINI_SETTINGS}.tmp" && mv "${GEMINI_SETTINGS}.tmp" "${GEMINI_SETTINGS}"
+fi
+
+if [ "${QUIET}" -eq 0 ]; then
+    echo "AgentIntercom runtime extensions activated."
+fi

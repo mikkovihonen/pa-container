@@ -1,0 +1,30 @@
+schema_version: "0.7.0"
+name: "image-tools/base"
+version: "1.0.0"
+description: "Base image processing capability: ImageMagick conversion and effects, ExifTool/exiv2 metadata, WebP/JPEG/TIFF/PNG codec utilities, optimizers, rsvg-convert SVG rasterization, and potrace vectorization"
+category: "media"
+license: "GPL-2.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "ImageMagick"
+        - "perl-Image-ExifTool"
+        - "exiv2"
+        - "librsvg2-tools"
+        - "libwebp-tools"
+        - "libjpeg-turbo-utils"
+        - "libtiff-tools"
+        - "optipng"
+        - "pngquant"
+        - "pngcheck"
+        - "potrace"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "magick -version && exiftool -ver && rsvg-convert --version && cwebp -version && optipng -v"
+    expected_output_contains: "ImageMagick"

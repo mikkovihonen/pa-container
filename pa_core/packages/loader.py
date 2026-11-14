@@ -239,20 +239,6 @@ def resolve_project_package_declarations(
             pkg_configs[pkg_name] = p_cfg
             pkg_secrets[pkg_name] = p_sec
 
-            feat_configs[pkg_name] = {}
-            feat_secrets[pkg_name] = {}
-            raw_features = val.get("features") or []
-            if isinstance(raw_features, list):
-                for f_item in raw_features:
-                    if isinstance(f_item, dict) and len(f_item) == 1:
-                        f_name, f_val = next(iter(f_item.items()))
-                        if isinstance(f_val, dict):
-                            f_manifest = manifest.features.get(f_name) if manifest else None
-                            f_defaults = f_manifest.config if f_manifest else {}
-                            fc, fs = resolve_component_declaration(f_val, f_defaults)
-                            feat_configs[pkg_name][f_name] = fc
-                            feat_secrets[pkg_name][f_name] = fs
-
     return pkg_configs, pkg_secrets, feat_configs, feat_secrets
 
 

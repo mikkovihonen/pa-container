@@ -1,0 +1,17 @@
+schema_version: "0.7.0"
+name: "agent-orchestrators/base"
+version: "1.0.0"
+description: "Base terminal orchestration tools: tmux detached session control, git worktree lifecycle, and jq JSON state parsing"
+category: "orchestration"
+license: "MIT"
+
+payload:
+    type: distro_package
+    packages:
+        - "tmux"
+        - "git"
+        - "jq"
+
+verification:
+    command: "tmux -V && git --version && jq --version"
+    expected_output_contains: "tmux"

@@ -403,11 +403,11 @@ class TestBuildProjectImage:
                 "/path/to/root/commands.sh",
                 "test.local",
                 "abc123",
-                packages=["go", "rust"],
+                packages=["languages/go", "languages/rust"],
             )
             mock_ensure.assert_called_once()
-            assert "COPY --from=pa-container-pkg-go" in captured_cf[0]
-            assert "COPY --from=pa-container-pkg-rust" in captured_cf[0]
+            assert "COPY --from=pa-container-pkg-languages-go" in captured_cf[0]
+            assert "COPY --from=pa-container-pkg-languages-rust" in captured_cf[0]
 
     def test_build_project_image_legacy_fallback(self):
         """When use_prebuilt=False, fallback to inline multi-stage dynamic build."""
@@ -426,11 +426,11 @@ class TestBuildProjectImage:
                 "/path/to/root/commands.sh",
                 "test.local",
                 "abc123",
-                packages=["go", "rust"],
+                packages=["languages/go", "languages/rust"],
                 use_prebuilt=False,
             )
-            assert "COPY --from=artifact-go /out/go/ /" in captured_cf[0]
-            assert "COPY --from=artifact-rust /out/rust/ /" in captured_cf[0]
+            assert "COPY --from=artifact-languages-go /out/languages-go/ /" in captured_cf[0]
+            assert "COPY --from=artifact-languages-rust /out/languages-rust/ /" in captured_cf[0]
 
     def test_build_project_image_with_distro_packages(self):
         """When distro packages are required, a unified microdnf install command is generated."""
@@ -450,12 +450,12 @@ class TestBuildProjectImage:
                 "/path/to/root/commands.sh",
                 "test.local",
                 "abc123",
-                packages=["python"],
+                packages=["languages/python"],
             )
             cf = captured_cf[0]
             assert "python3" in cf
             assert "uv" in cf
-            assert "COPY --from=pa-container-pkg-python" in cf
+            assert "COPY --from=pa-container-pkg-languages-python" in cf
 
     def test_build_project_image_without_distro_packages(self):
         """When no runtime distro packages are needed, runner stage omits distro install."""
@@ -482,12 +482,12 @@ class TestBuildProjectImage:
             assert "microdnf install" not in cf
 
     def test_build_project_image_automatically_includes_core_packages(self, tmp_path):
-        """build_project_image should automatically include core packages (e.g. python) even when not requested."""
+        """build_project_image should automatically include core packages (e.g. languages/python) even when not requested."""
         proj_dir = tmp_path / "project"
         proj_dir.mkdir()
         cfg_dir = proj_dir / ".pa-container"
         cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['go']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['git']\n")
 
         captured_cf = []
 
@@ -509,8 +509,8 @@ class TestBuildProjectImage:
             )
 
             cf = captured_cf[0]
-            assert "COPY --from=pa-container-pkg-go" in cf
-            assert "COPY --from=pa-container-pkg-python" in cf
+            assert "COPY --from=pa-container-pkg-git" in cf
+            assert "COPY --from=pa-container-pkg-languages-python" in cf
 
     def test_build_project_image_builds_base(self):
         """build_project_image ensures base image is built."""
@@ -537,10 +537,20 @@ class TestMainWithPackages:
             patch("build.check_build_memory", return_value=True),
             patch("packages.build_package", side_effect=lambda pkg, **kw: built.append(pkg)),
         ):
-            main(["--packages", "c-cpp,git"])
-            assert built == ["c-cpp", "git"] or built == ["git", "c-cpp"]
+            main(["--packages", "languages/c-cpp,git"])
+            assert built == ["languages/c-cpp", "git"] or built == ["git", "languages/c-cpp"]
 
-    def test_main_with_packages_features(self):
+    def test_main_with_packages_features_rejected(self):
+        from build import main
+
+        with (
+            patch("build.validate_environment", return_value="podman"),
+            patch("build.check_build_memory", return_value=True),
+            pytest.raises(SystemExit),
+        ):
+            main(["--packages", "git+github"])
+
+    def test_main_with_packages_canonical(self):
         from build import main
 
         built_calls = []
@@ -549,10 +559,9 @@ class TestMainWithPackages:
             patch("build.check_build_memory", return_value=True),
             patch("packages.build_package", side_effect=lambda pkg, **kw: built_calls.append((pkg, kw))),
         ):
-            main(["--packages", "git+github"])
+            main(["--packages", "source-control/github"])
             assert len(built_calls) == 1
-            assert built_calls[0][0] == "git"
-            assert built_calls[0][1].get("features") == ["github"]
+            assert built_calls[0][0] == "source-control/github"
 
     def test_main_with_packages_all(self):
         from build import main

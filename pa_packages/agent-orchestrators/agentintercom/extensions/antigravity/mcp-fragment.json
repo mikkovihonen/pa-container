@@ -1,0 +1,32 @@
+{
+    "mcpServers": {
+        "agentintercom": {
+            "command": "/usr/local/bin/pa-intercom-mcp",
+            "args": []
+        }
+    },
+    "hooks": {
+        "SessionStart": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "/usr/local/bin/pa-intercom-hook register --harness antigravity"
+                    }
+                ]
+            }
+        ],
+        "AfterTool": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "/usr/local/bin/pa-intercom-hook check-context --harness antigravity --ack"
+                    }
+                ]
+            }
+        ]
+    }
+}

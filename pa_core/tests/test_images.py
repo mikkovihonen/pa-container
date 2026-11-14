@@ -99,19 +99,19 @@ class TestComputeImageHash:
     def test_t3_shim_content_different_hash(self, tmp_path):
         from packages.discovery import compute_package_hash
 
-        pkg_dir = tmp_path / "pa_packages" / "t3"
+        pkg_dir = tmp_path / "pa_packages" / "agent-orchestrators" / "t3"
         (pkg_dir / "container" / "bin").mkdir(parents=True)
-        (pkg_dir / "package.yaml").write_text("name: t3\nversion: 0.1.7\n")
+        (pkg_dir / "package.yaml").write_text("name: agent-orchestrators/t3\nversion: 0.1.7\n")
         (pkg_dir / "container" / "bin" / "t3-advertise-host.cjs").write_text("// v1")
-        hash1 = compute_package_hash("t3", repo_root=tmp_path)
+        hash1 = compute_package_hash("agent-orchestrators/t3", repo_root=tmp_path)
         (pkg_dir / "container" / "bin" / "t3-advertise-host.cjs").write_text("// v2")
-        hash2 = compute_package_hash("t3", repo_root=tmp_path)
+        hash2 = compute_package_hash("agent-orchestrators/t3", repo_root=tmp_path)
         assert hash1 != hash2
 
         # Verify host Python changes do not affect container hash
         (pkg_dir / "host").mkdir(parents=True, exist_ok=True)
         (pkg_dir / "host" / "plugin.py").write_text("# host code")
-        hash3 = compute_package_hash("t3", repo_root=tmp_path)
+        hash3 = compute_package_hash("agent-orchestrators/t3", repo_root=tmp_path)
         assert hash2 == hash3
 
     def test_empty_commands_skipped(self, tmp_path):
@@ -143,11 +143,11 @@ class TestComputeImageHash:
         hash_none = images.compute_image_hash(repo)
         assert hash_none is not None
 
-        (cfg_dir / "config.yaml").write_text("packages: ['go']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['languages/go']\n")
         hash_go = images.compute_image_hash(repo)
         assert hash_go != hash_none
 
-        (cfg_dir / "config.yaml").write_text("packages: ['go', 'rust']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['languages/go', 'languages/rust']\n")
         hash_go_rust = images.compute_image_hash(repo)
         assert hash_go_rust != hash_go
 
@@ -158,28 +158,30 @@ class TestComputeImageHash:
 
         cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['rust', 'go']\n")
-        assert images.read_project_packages(repo) == ["go", "rust"]
+        (cfg_dir / "config.yaml").write_text("packages: ['languages/rust', 'languages/go']\n")
+        assert images.read_project_packages(repo) == ["languages/go", "languages/rust"]
 
-        (cfg_dir / "config.yaml").write_text("packages: ['opencode']\n")
-        assert images.read_project_packages(repo) == ["opencode"]
+        (cfg_dir / "config.yaml").write_text("packages: ['agents/opencode']\n")
+        assert images.read_project_packages(repo) == ["agents/opencode"]
 
-        (cfg_dir / "config.yaml").write_text("packages: ['antigravity']\n")
-        assert images.read_project_packages(repo) == ["antigravity"]
+        (cfg_dir / "config.yaml").write_text("packages: ['agents/antigravity']\n")
+        assert images.read_project_packages(repo) == ["agents/antigravity"]
 
-        (cfg_dir / "config.yaml").write_text("packages: ['claude-code']\n")
-        assert images.read_project_packages(repo) == ["claude-code"]
+        (cfg_dir / "config.yaml").write_text("packages: ['agents/claude']\n")
+        assert images.read_project_packages(repo) == ["agents/claude"]
 
-        (cfg_dir / "config.yaml").write_text("packages: ['pi']\n")
-        assert images.read_project_packages(repo) == ["pi"]
+        (cfg_dir / "config.yaml").write_text("packages: ['agents/pi']\n")
+        assert images.read_project_packages(repo) == ["agents/pi", "languages/node"]
 
-        (cfg_dir / "config.yaml").write_text("packages: ['opencode']\n")
-        assert images.read_project_packages(repo) == ["opencode"]
+        (cfg_dir / "config.yaml").write_text("packages: ['agents/pi', 'agents/claude']\n")
+        assert images.read_project_packages(repo) == ["agents/claude", "agents/pi", "languages/node"]
 
-        (cfg_dir / "config.yaml").write_text("packages: ['pi', 'claude-code']\n")
-        assert images.read_project_packages(repo) == ["claude-code", "pi"]
-
-        assert images.read_project_packages(repo, extra_packages=["opencode"]) == ["claude-code", "opencode", "pi"]
+        assert images.read_project_packages(repo, extra_packages=["agents/opencode"]) == [
+            "agents/claude",
+            "agents/opencode",
+            "agents/pi",
+            "languages/node",
+        ]
 
     def test_resolve_project_packages_features(self, tmp_path):
         repo = tmp_path / "repo"
@@ -187,33 +189,25 @@ class TestComputeImageHash:
         cfg_dir.mkdir(parents=True)
         (cfg_dir / "config.yaml").write_text(
             "packages:\n"
-            "  - vector-storage:\n"
-            "      - qdrant\n"
-            "  - document-tools:\n"
-            "      features:\n"
-            "        - docling\n"
-            "  - language-servers:\n"
-            "      - rust-analyzer\n"
-            "      - pyright\n"
-            "  - python\n"
+            "  - vector-storage/qdrant\n"
+            "  - document-tools/docling\n"
+            "  - language-servers/rust-analyzer\n"
+            "  - language-servers/pyright\n"
+            "  - languages/python\n"
         )
         raw = images.resolve_project_packages(repo, resolve_dependencies=False)
-        assert raw["vector-storage"] == ["qdrant"]
-        assert raw["document-tools"] == ["docling"]
-        assert raw["language-servers"] == ["pyright", "rust-analyzer"]
-        assert raw["python"] == []
+        assert raw["vector-storage/qdrant"] == []
+        assert raw["document-tools/docling"] == []
+        assert raw["language-servers/pyright"] == []
+        assert raw["language-servers/rust-analyzer"] == []
+        assert raw["languages/python"] == []
 
         resolved = images.resolve_project_packages(repo)
-        assert "node" in resolved
-        assert images.read_project_packages(repo) == [
-            "document-tools",
-            "language-servers",
-            "node",
-            "python",
-            "vector-storage",
-        ]
+        assert "languages/node" in resolved
+        assert "document-tools/base" in resolved
+        assert "document-tools/docling" in resolved
 
-        with pytest.raises(ValueError, match=r"string concatenation with '\+' is not supported"):
+        with pytest.raises(ValueError, match=r"'\+' syntax is not supported"):
             (cfg_dir / "config.yaml").write_text("packages:\n  - vector-storage+qdrant\n")
             images.resolve_project_packages(repo)
 
@@ -221,10 +215,12 @@ class TestComputeImageHash:
         repo = tmp_path / "repo"
         repo.mkdir()
         resolved = images.resolve_project_packages(repo)
-        assert "python" in resolved
+        assert "languages" in resolved
+        assert "languages/python" in resolved
 
         resolved_no_core = images.resolve_project_packages(repo, include_core=False)
-        assert "python" not in resolved_no_core
+        assert "languages" not in resolved_no_core
+        assert "languages/python" not in resolved_no_core
 
     def test_read_project_packages_include_core_flag(self, tmp_path):
         repo = tmp_path / "repo"
@@ -232,14 +228,17 @@ class TestComputeImageHash:
         # Default is False (only explicit/extra packages)
         assert images.read_project_packages(repo) == []
         assert images.read_project_packages(repo, include_core=False) == []
-        # With include_core=True, core packages like python are returned
-        assert "python" in images.read_project_packages(repo, include_core=True)
+        # With include_core=True, core packages like languages and languages/python are returned
+        assert "languages" in images.read_project_packages(repo, include_core=True)
+        assert "languages/python" in images.read_project_packages(repo, include_core=True)
 
         cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['go']\n")
-        assert images.read_project_packages(repo) == ["go"]
-        assert images.read_project_packages(repo, include_core=True) == ["go", "python"]
+        (cfg_dir / "config.yaml").write_text("packages: ['git']\n")
+        assert images.read_project_packages(repo) == ["git", "git/base"]
+        assert "git" in images.read_project_packages(repo, include_core=True)
+        assert "languages" in images.read_project_packages(repo, include_core=True)
+        assert "languages/python" in images.read_project_packages(repo, include_core=True)
 
     def test_resolve_agent_image_with_packages_only(self, tmp_path):
         repo = tmp_path / "repo"
@@ -247,13 +246,13 @@ class TestComputeImageHash:
         tag, is_project = images.resolve_agent_image(repo)
         assert is_project is False
 
-        tag_cli, is_project_cli = images.resolve_agent_image(repo, extra_packages=["opencode"])
+        tag_cli, is_project_cli = images.resolve_agent_image(repo, extra_packages=["agents/opencode"])
         assert is_project_cli is True
         assert "pa-container-project-" in tag_cli
 
         cfg_dir = repo / ".pa-container"
         cfg_dir.mkdir()
-        (cfg_dir / "config.yaml").write_text("packages: ['go']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['languages/go']\n")
         tag, is_project = images.resolve_agent_image(repo)
         assert is_project is True
         assert "pa-container-project-" in tag
@@ -368,8 +367,8 @@ class TestEnsurePackageImages:
         monkeypatch.setattr("packages.builder.build_package", lambda pkg, **kw: built.append(pkg))
         monkeypatch.setattr("packages.builder.package_image_is_current", lambda pkg, **kw: pkg == "git")
 
-        packages.ensure_package_images(["c-cpp", "git", "go"], runtime="podman")
-        assert built == ["c-cpp", "go"] or built == ["go", "c-cpp"]
+        packages.ensure_package_images(["languages/c-cpp", "git", "languages/go"], runtime="podman")
+        assert built == ["languages/c-cpp", "languages/go"] or built == ["languages/go", "languages/c-cpp"]
 
 
 class TestHasDependencyFiles:
@@ -493,10 +492,10 @@ class TestResolveAgentImage:
         (cfg_dir / "dependencies" / "root").mkdir(parents=True, exist_ok=True)
         (cfg_dir / "dependencies" / "root" / "commands.sh").write_text("echo test")
 
-        (cfg_dir / "config.yaml").write_text("packages: ['pi']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['agents/pi']\n")
         hash_without = images.compute_image_hash(tmp_path, repo_root=tmp_path)
 
-        (cfg_dir / "config.yaml").write_text("packages: ['pi', 'virtual-desktop']\n")
+        (cfg_dir / "config.yaml").write_text("packages: ['agents/pi', 'virtual-desktop']\n")
         hash_with = images.compute_image_hash(tmp_path, repo_root=tmp_path)
 
         assert hash_without is not None

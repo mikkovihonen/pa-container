@@ -26,19 +26,9 @@ version: "1.0.0"
 description: "Unified AI coding agents runtime capability"
 category: "agents"
 license: "MIT"
-features:
-    pi:
-        description: "Native Pi coding agent"
-        default: true
-    claude:
-        description: "Claude Code"
-        default: false
-    opencode:
-        description: "OpenCode"
-        default: false
-    antigravity:
-        description: "Antigravity"
-        default: false
+runtime:
+    dependencies:
+        - "agents/pi"
 """
     from packages.manifest import parse_package_manifest
 
@@ -62,13 +52,8 @@ def test_agents_plugin_lifecycle_and_configure(dummy_manifest: PackageManifest, 
 
     config_data = {
         "packages": [
-            {
-                "agents": {
-                    "features": ["pi", "opencode"],
-                    "config": {},
-                    "secrets": [],
-                }
-            }
+            "agents/pi",
+            "agents/opencode",
         ],
         "agent": {
             "default": "pi",
@@ -84,7 +69,7 @@ def test_agents_plugin_lifecycle_and_configure(dummy_manifest: PackageManifest, 
         project_dir=project_dir,
         options=options,  # type: ignore[arg-type]
         config=config_data,
-        active_packages=["agents"],
+        active_packages=["agents/pi", "agents/opencode"],
     )
 
     plugin.on_run_init(ctx)
@@ -112,20 +97,17 @@ def test_agents_plugin_canonical_features(dummy_manifest: PackageManifest, tmp_p
     config_canonical = {
         "packages": [
             {
-                "agents": {
-                    "features": [
-                        {"pi": {"config": {}, "secrets": []}},
-                        {
-                            "claude": {
-                                "config": {},
-                                "secrets": [{"name": "anthropic", "account": "ANTHROPIC_KEY"}],
-                            }
-                        },
-                    ],
+                "agents/pi": {
                     "config": {},
                     "secrets": [],
                 }
-            }
+            },
+            {
+                "agents/claude": {
+                    "config": {},
+                    "secrets": [{"name": "anthropic", "account": "ANTHROPIC_KEY"}],
+                }
+            },
         ]
     }
     enabled = plugin._resolve_enabled_agents(config_canonical)

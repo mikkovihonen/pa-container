@@ -1,0 +1,24 @@
+schema_version: "0.7.0"
+name: "3d-tools/openscad"
+version: "1.0.0"
+description: "OpenSCAD parametric solid modeling with headless STL/3MF/DXF/SVG export (2021.01 release)"
+category: "media"
+license: "GPL-2.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "openscad"
+
+runtime:
+    dependencies:
+        - "3d-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "openscad -v 2>&1"
+    expected_output_contains: "OpenSCAD"

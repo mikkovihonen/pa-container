@@ -1,0 +1,30 @@
+schema_version: "0.7.0"
+name: "sound-tools/base"
+version: "1.0.0"
+description: "Base audio processing capability: SoX effects, spectrograms, and analysis, FAAD2 AAC/M4A decode, FLAC/Ogg/Opus codecs, LAME/twolame MP3, shntool splitting, and gain normalization"
+category: "media"
+license: "GPL-2.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND MIT"
+
+payload:
+    type: distro_package
+    packages:
+        - "sox"
+        - "faad2"
+        - "flac"
+        - "opus-tools"
+        - "vorbis-tools"
+        - "lame"
+        - "twolame"
+        - "shntool"
+        - "normalize"
+        - "vorbisgain"
+        - "mp3gain"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "sox --version && faad -h 2>&1 && flac --version && opusenc --version"
+    expected_output_contains: "sox"

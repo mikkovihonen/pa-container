@@ -57,21 +57,12 @@ class SourceControlPlugin(ACPPlugin):
             },
         }
 
-    def contribute_feature_config_schema(self, feature_name: str) -> dict[str, Any] | None:
-        """Contribute validation schema dictionary for source-control features."""
-        return {
-            "type": dict,
-            "required": False,
-            "keys": {
-                "auto_detect_host_cli": {"type": bool, "required": False},
-            },
-        }
-
     def _collect_declared_secrets(self, context: RunContext) -> list[dict[str, str]]:
-        """Collect all secret slots declared for this package (package + feature level)."""
+        """Collect all secret slots declared for source-control packages."""
         secrets: list[dict[str, str]] = list(context.get_package_secrets("source-control"))
-        for f_sec in context.feature_secrets.get("source-control", {}).values():
-            secrets.extend(f_sec)
+        for pkg in context.active_packages:
+            if pkg.startswith("source-control/"):
+                secrets.extend(context.get_package_secrets(pkg))
         return secrets
 
     def on_run_init(self, context: RunContext) -> None:
@@ -84,10 +75,16 @@ class SourceControlPlugin(ACPPlugin):
         context.add_mode("source-control")
         secrets = self._collect_declared_secrets(context)
 
-        feat_configs_map = context.feature_configs.get("source-control", {})
+        forge_configs_map: dict[str, dict[str, Any]] = {}
+        for pkg in context.active_packages:
+            if pkg.startswith("source-control/"):
+                forge = pkg.removeprefix("source-control/")
+                if forge != "base":
+                    forge_configs_map[forge] = context.get_package_config(pkg)
+
         tokens = resolve_source_control_tokens(
             secrets=secrets,
-            feature_configs=feat_configs_map,
+            feature_configs=forge_configs_map,
             raw_config=context.config,
             log=logger,
         )

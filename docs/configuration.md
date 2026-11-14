@@ -359,13 +359,8 @@ proxy:
   max_view_flows: 2000        # max allowed flows in mitmweb RAM (denied flows always kept)
   stream_large_bodies: 10m    # stream bodies > threshold directly (e.g. 10m, off)
 packages:
-  - agents:
-      features:
-        - pi
-      config: {}
-      secrets: []
+  - agents/pi
   - git:
-      features: []
       config:
         safe_directory: true
         rewrite_ssh_to_https: true
@@ -496,7 +491,7 @@ The `agent` section controls the execution mode (`cli` vs `t3`) and directly pub
     - `expose`: `"localhost"` (binds `127.0.0.1`, default) or `"lan"` (binds `0.0.0.0`, all interfaces). Can also be elevated on the CLI with `--t3-lan`.
     - `publish`: List of ports to map from the host to the agent container (e.g. `[3773]` or `["13773:3773"]`). When running in `t3` mode, port 3773 is claimed automatically.
 
-*Note: Remote pairing hosts and secure tunnels (Tailscale or Cloudflare) are configured at runtime strictly via command-line flags (e.g. `--t3-tunnel <type>` or `--t3-advertise-host <host>`) to keep `config.yaml` free of personal endpoints and remote access topology.*
+*Note: Remote pairing hosts and secure tunnels (Tailscale or Cloudflare) are configured at runtime via command-line flags (e.g. `--tunnel <type>` or `--t3-advertise-host <host>`) or declaratively under `packages: - tunnels:` in `config.yaml`.*
 
 ### Transient `tmpfs` mounts
 
@@ -530,7 +525,6 @@ Git repository safety and protocol redirection inside the container sandbox are 
 ```yaml
 packages:
   - git:
-      features: []
       config:
         # Configure git safe.directory to permit git operations inside the mounted workspace directory,
         # preventing "dubious ownership" errors caused by UID differences between host and container.
@@ -542,24 +536,22 @@ packages:
         # Default: true.
         rewrite_ssh_to_https: true
       secrets: []
+  - git/mcp  # optional Git Model Context Protocol server
 ```
 
 > Legacy root-level `git:` configuration is not supported and is rejected during validation.
 
-- **`features`**: Optional Git capabilities.
-    - **`mcp`**: Installs `mcp-server-git` via script and registers the Git Model Context Protocol server (`/usr/local/bin/mcp-server-git`) for repository exploration and manipulation by agent models. Default: disabled (`features: []`).
+- **`git/mcp`**: Installs `mcp-server-git` via script and registers the Git Model Context Protocol server (`/usr/local/bin/mcp-server-git`) for repository exploration and manipulation by agent models.
 - **`safe_directory`**: Marks `/workspace` as safe for Git (running `git config --system --add safe.directory '*'`). This prevents Git 2.35.2+ dubious ownership errors when `/workspace` is mounted from a host user UID differing from container UID `1000`.
 - **`rewrite_ssh_to_https`**: Automatically redirects SSH git remotes for GitHub, GitLab, and Codeberg to HTTPS URLs. This allows background Git operations (such as T3 Code upstream branch checks) to fetch cleanly through the HTTP/HTTPS proxy allowlist without requiring host SSH keys or the `ssh` binary.
 
 ### Source control integration
 
-Source control management and credentials for Git hosting providers (GitHub, GitLab, Forgejo/Gitea, Azure DevOps, Bitbucket, GitCafe) are owned and declared under the `source-control` package in `packages`:
+Source control management and credentials for Git hosting providers (GitHub, GitLab, Forgejo/Gitea, Azure DevOps, Bitbucket, GitCafe) are owned and declared under canonical `source-control/<provider>` packages in `packages`:
 
 ```yaml
 packages:
-  - source-control:
-      features:
-        - github
+  - source-control/github:
       config:
         # Automatically discover tokens from active host CLI sessions (e.g. host `gh auth token`).
         # Default: false.
@@ -724,71 +716,58 @@ All runtime stacks, language toolchains, and tools are opt-in per workspace as A
 
 ```yaml
 packages:
-  # Coding agents (unified capability with optional engines)
-  - agents:
-      - pi
-      - claude
-      - opencode
-      - antigravity
-  # Language toolchains
-  - go
-  - rust
-  - c-cpp
-  - zig
-  - ruby
-  - python
-  - node
-  # Language servers (unified LSP bridge with optional language servers)
-  - language-servers:
-      - rust-analyzer
-      - pyright
-  # Domain capabilities with optional features
+  # Coding agents
+  - agents/pi
+  - agents/claude
+  - agents/opencode
+  - agents/antigravity
+  # Language toolchains (mandatory languages/python is included automatically)
+  - languages/node
+  - languages/rust
+  # Language servers
+  - language-servers/rust-analyzer
+  - language-servers/pyright
+  # Domain capabilities
   - code-intelligence
   - data-tools
-  - document-tools:
-      - docling
+  - document-tools/docling
   - developer-tools
-  - browser:
-      - chromium-headless
-  - vector-storage:
-      - qdrant
+  - browser/chromium-headless
+  - vector-storage/qdrant
   - ai-frameworks
-  - image-tools:
-      - vips
-      - jxl-heif
-      - gmic
+  - image-tools/vips
+  - image-tools/jxl-heif
+  - image-tools/gmic
   - video-tools
-  - sound-tools:
-      - whisper
-  - 3d-tools:
-      - trimesh
-      - blender
-      - meshlab
-      - openscad
-  - ocr-tools:
-      - ocrmypdf
-      - lang-fin
+  - sound-tools/whisper
+  - 3d-tools/trimesh
+  - 3d-tools/blender
+  - 3d-tools/meshlab
+  - 3d-tools/openscad
+  - ocr-tools/ocrmypdf
+  - ocr-tools/lang-fin
   # Container virtualization & desktop GUI
   - podman
-  - virtual-desktop:
-      - wayland
+  - virtual-desktop/wayland
   # Version control & source control authentication
   - git
-  - source-control:
-      - github
-      - gitlab
+  - source-control/github
+  - source-control/gitlab
   # Agent control panels
   - t3
 ```
 
 #### Canonical Package Specification
 
-Every package inclusion in `packages` must use the structured **Canonical Package Specification**:
+Every package inclusion in `packages` uses canonical package names (`<namespace>/<subpackage>` or standalone package name). Packages may be listed as simple string identifiers or as configuration blocks:
 
 ```yaml
 packages:
+  # Simple package inclusion
+  - <package-name>
+
+  # Or with configuration overrides and secrets:
   - <package-name>:
-      features: [...]
       config: {...}
       secrets:
         - name: <slot-name>
@@ -796,31 +775,26 @@ packages:
 ```
 
 Key requirements:
-- **`features`**: List of enabled package features (or empty list `[]`).
+- **Canonical Slash Names**: Multi-tool capability packages use canonical hierarchical slash paths (e.g. `languages/node`, `source-control/github`, `ocr-tools/ocrmypdf`, `virtual-desktop/wayland`). Standalone single-purpose packages retain their top-level names (e.g. `git`, `podman`, `tunnels`, `ai-frameworks`). Legacy bare names (e.g. `python`, `github`, `vips`) and `+` concatenation syntax (e.g. `git+github`) are strictly rejected.
+- **No Features**: The `features:` concept has been completely removed from the ACP specification. Defining a `features:` block in any `package.yaml` or project `config.yaml` raises an immediate fatal validation error.
+- **Aggregators**: Namespace root packages (e.g. `languages`, `agents`, `virtual-desktop`, `ocr-tools/languages`) act as pure dependency aggregators that automatically pull in default subpackages.
 - **`config`**: Configuration overrides for package-contributed settings (or `{}` to accept package defaults defined in `package.yaml`).
-- **`secrets`**: Explicit keyring secret mappings. Both `name` (the logical secret slot) and `account` (host OS Keyring account) are strictly required with no default values allowed. Any required secret slot defined by an active package or feature that is not explicitly mapped will raise a fatal validation error.
-- **Core Packages**: Baseline packages marked with `core: true` in their `package.yaml` (such as `python`) are assembled automatically into every container build.
-- **Strict Format**: Shorthand formats (bare strings like `- git`, list shorthands like `- agents: [pi]`, or direct properties) are not supported and are rejected during validation.
+- **`secrets`**: Explicit keyring secret mappings. Both `name` (the logical secret slot) and `account` (host OS Keyring account) are strictly required with no default values allowed. Any required secret slot defined by an active package that is not explicitly mapped will raise a fatal validation error.
+- **Core Packages**: Baseline packages marked with `core: true` in their `package.yaml` (such as `languages` and `languages/python`) are assembled automatically into every container build.
 
 Example:
 
 ```yaml
 packages:
-  - agents:
-      features:
-        - pi
-      config: {}
-      secrets: []
+  - agents/pi
 
   - git:
-      features: []
       config:
         safe_directory: true
         rewrite_ssh_to_https: true
       secrets: []
 
   - podman:
-      features: []
       config:
         storage: volume
         security: disable
@@ -829,9 +803,7 @@ packages:
           publish: []
       secrets: []
 
-  - source-control:
-      features:
-        - github
+  - source-control/github:
       config:
         auto_detect_host_cli: false
         setup_git_credentials: true
@@ -842,68 +814,93 @@ packages:
 
 **Available packages:**
 - **Coding Agents & Runtimes:**
-    - `agents`: Unified AI coding agents capability package. Optional features:
-        - `pi`: Native Pi coding agent CLI runtime (default feature).
-        - `opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration.
-        - `claude`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (`claude`).
-        - `antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (`agy`).
-- **Core Runtimes & Virtualization:**
-    - `python`: CPython 3.15 runtime with `uv` and `pip`.
-    - `node`: Node.js 26 runtime with `npm` and `npx`.
+    - `agents`: Aggregator package (default: `agents/pi`). Subpackages:
+        - `agents/pi`: Native Pi coding agent CLI runtime (default agent).
+        - `agents/opencode`: OpenCode CLI agent runtime with OpenAI-compatible gateway integration.
+        - `agents/claude`: Anthropic Claude Code agent runtime with T3 Code and CLI integration (`claude`).
+        - `agents/antigravity`: Google Antigravity agent runtime with Gemini API and T3 Code ACP server integration (`agy`).
+- **Core Runtimes & Languages:**
+    - `languages`: Aggregator package (default: `languages/python`). Subpackages:
+        - `languages/python`: CPython 3.15 runtime with `uv` and `pip` (mandatory core package; always active).
+        - `languages/node`: Node.js 26 runtime with `npm` and `npx`.
+        - `languages/c-cpp`: Clang/LLVM, `clangd` language server, `mold` high-speed linker, CMake, and Ninja.
+        - `languages/go`: Official Go compiler toolchain and `gopls` language server.
+        - `languages/rust`: Official Rust toolchain with `cargo`, `rustc`, and `rust-analyzer`.
+        - `languages/ruby`: Ruby 3.4+ compiled with Rust-based YJIT and jemalloc.
+        - `languages/zig`: Zig compiler and `zls` language server.
     - `podman`: Rootless nested container engine (Podman 6), Netavark/Aardvark-dns networking, and `podman-compose`. Required when `nested_containers.enabled: true`.
-    - `virtual-desktop`: Headless virtual desktop with selectable display backends (Wayland via `labwc` + `wayvnc`, or X11 via `Xvfb` + `x11vnc`) and noVNC web streaming. Required for `pa desktop`.
-- **Language Toolchains:**
-    - `go`: Official Go compiler toolchain and `gopls` language server (provides `/usr/local/bin/go`, `gofmt`, `gopls`).
-    - `rust`: Official Rust toolchain with `rust-analyzer` language server, clippy, and rustfmt.
-    - `c-cpp`: Clang/LLVM, `clangd` language server, `mold` high-speed linker, CMake, and Ninja.
-    - `zig`: Zig compiler and `zls` language server.
-    - `ruby`: Ruby 3.4+ compiled with Rust-based YJIT and jemalloc.
+    - `virtual-desktop`: Aggregator package (default: `virtual-desktop/wayland`). Headless virtual desktop with selectable display backends and noVNC web streaming. Subpackages:
+        - `virtual-desktop/base`: Core desktop infrastructure and `agent-desktop` CLI.
+        - `virtual-desktop/wayland`: Wayland display backend (`labwc`, `wayvnc`, `wlr-randr`, `grim`, `slurp`).
+        - `virtual-desktop/x11`: X11 display backend (`Xvfb`, `openbox`, `x11vnc`).
+- **Agent Orchestration & Networking:**
+    - `agent-orchestrators`: Aggregator package (default: `agent-orchestrators/base`, `agent-orchestrators/worktrunk`). Multi-agent orchestration, parallel Git worktrees, terminal workspaces, web control plane, and inter-agent communication. Subpackages:
+        - `agent-orchestrators/base`: Base terminal orchestration tools (`tmux`, `git`, `jq`).
+        - `agent-orchestrators/worktrunk`: Worktrunk (`wt`) CLI for branch-addressed Git worktrees and state synchronization.
+        - `agent-orchestrators/zellij`: Zellij multiplayer terminal workspace and authenticated web server (`zellij web`).
+        - `agent-orchestrators/t3`: T3 Code collaborative multi-agent server and control surface.
+        - `agent-orchestrators/agentintercom`: Local message bus and zero-fork extensions for Pi, OpenCode, Claude Code, and Antigravity.
+    - `tunnels`: Automated secure ingress tunneling provider via Cloudflare (`cloudflared`) and Tailscale (`serve`/`funnel`).
 - **Unified Language Servers:**
-    - `language-servers`: Consolidated Language Server Protocol capability. Core provides `lsp-bridge` CLI and MCP adapter. Optional features:
-        - `rust-analyzer`: Official pre-compiled Rust language server.
-        - `zls`: Zig language server.
-        - `clangd`: C/C++ language server.
-        - `pyright`: Python type checker and LSP server.
-        - `typescript`: TypeScript and JavaScript language server (`typescript-language-server`).
+    - `language-servers`: Aggregator package (default: `language-servers/base`). Subpackages:
+        - `language-servers/base`: Core `lsp-bridge` CLI and MCP adapter.
+        - `language-servers/rust-analyzer`: Official pre-compiled Rust language server.
+        - `language-servers/zls`: Zig language server.
+        - `language-servers/clangd`: C/C++ language server.
+        - `language-servers/pyright`: Python type checker and LSP server.
+        - `language-servers/typescript`: TypeScript and JavaScript language server (`typescript-language-server`).
 - **Domain Capabilities:**
     - `code-intelligence`: Comprehensive search, AST parsing, and context assembly (`rg`, `fd`, `ast-grep`/`sg`, `tree-sitter`, `repomix`, `tokencount`, `colgrep`).
     - `data-tools`: Multi-format structured data querying and transformation (`jq`, `yq`, `mlr`).
-    - `document-tools`: Universal markup conversion and PDF parsing (`pandoc`, `pdftotext`, `pdfinfo`, `pdftoppm`). Optional feature: `docling` (Docling neural document parsing).
+    - `document-tools`: Aggregator package. Subpackages:
+        - `document-tools/base`: Universal markup conversion and PDF parsing (`pandoc`, `pdftotext`, `pdfinfo`, `pdftoppm`).
+        - `document-tools/docling`: Docling neural document parsing.
     - `developer-tools`: Task automation and command execution (`just`).
-    - `browser`: Web browser automation and MCP-based browser control. Optional features:
-        - `chromium-headless` (default): Shared headless runtime libraries for Chromium, Playwright, and Puppeteer.
-        - `chromium`: Chrome for Testing browser engine and Playwright MCP server (`chromium`, `google-chrome`, `playwright-mcp`) with interactive GUI use on the virtual desktop. Requires the `virtual-desktop` package.
-    - `vector-storage`: Embedded SIMD vector storage and search (`sqlite-vec`, `USearch`). Optional feature: `qdrant` (Qdrant vector database server).
+    - `browser`: Aggregator package (default: `browser/chromium-headless`). Subpackages:
+        - `browser/chromium-headless`: Shared headless runtime libraries for Chromium, Playwright, and Puppeteer.
+        - `browser/chromium`: Chrome for Testing browser engine and Playwright MCP server with interactive GUI use on the virtual desktop. Requires `virtual-desktop`.
+    - `vector-storage`: Aggregator package. Subpackages:
+        - `vector-storage/base`: Embedded SIMD vector storage and search (`sqlite-vec`, `USearch`).
+        - `vector-storage/qdrant`: Qdrant vector database server.
     - `ai-frameworks`: Modern Python agent architectures and state graphs (`langgraph`, `pydantic-ai`, `smolagents`).
-    - `image-tools`: Image processing, conversion, effects, metadata, SVG rasterization, and vectorization (`magick`, `exiftool`, `exiv2`, `rsvg-convert`, `cwebp`, `dwebp`, `optipng`, `pngquant`, `pngcheck`, `potrace`). Optional features:
-        - `vips`: libvips streaming image processing (`vips`, `vipsheader`).
-        - `jxl-heif`: Modern still-image codecs: JPEG XL (`cjxl`, `djxl`) and HEIF/AVIF (`heif-enc`, `heif-convert`, ImageMagick HEIC delegate).
-        - `gmic`: G'MIC image processing framework CLI (`gmic`).
+    - `image-tools`: Aggregator package. Subpackages:
+        - `image-tools/base`: Image processing, conversion, effects, metadata, SVG rasterization, and vectorization (`magick`, `exiftool`, `exiv2`, `rsvg-convert`, `cwebp`, `dwebp`, `optipng`, `pngquant`, `pngcheck`, `potrace`).
+        - `image-tools/vips`: libvips streaming image processing (`vips`, `vipsheader`).
+        - `image-tools/jxl-heif`: Modern still-image codecs: JPEG XL (`cjxl`, `djxl`) and HEIF/AVIF (`heif-enc`, `heif-convert`).
+        - `image-tools/gmic`: G'MIC image processing framework CLI (`gmic`).
     - `video-tools`: Video processing and container manipulation (`ffmpeg`, `ffprobe`, `mediainfo`, `mkvmerge`, `mkvextract`, `mkvpropedit`).
-    - `sound-tools`: Audio processing, effects, spectrograms, codecs, and normalization (`sox`, `soxi`, `faad`, `flac`, `metaflac`, `opusenc`, `opusdec`, `oggenc`, `oggdec`, `lame`, `twolame`, `shnsplit`, `normalize-audio`, `vorbisgain`, `mp3gain`). Optional feature:
-        - `whisper`: Offline in-container speech-to-text dynamically linked against Fedora `whisper-cpp` and `libsndfile` (`whisper-cli`) with pre-staged quantized model.
-    - `3d-tools`: 3D format conversion, STL repair, Draco compression, and OpenVDB inspection (`assimp`, `admesh`, `draco_encoder`, `draco_decoder`, `vdb_print`). Optional features:
-        - `trimesh` (default): Trimesh Python mesh toolkit with SciPy, NetworkX, and lxml for programmatic mesh analysis and repair.
-        - `blender`: Headless Blender scripting and CPU Cycles rendering (`blender`).
-        - `meshlab`: Headless MeshLab mesh processing and cleaning CLI (`meshlab`).
-        - `openscad`: OpenSCAD parametric CAD solid modeling with headless export (`openscad`).
-    - `ocr-tools`: Optical character recognition text extraction and orientation detection (`tesseract` with English and OSD data). Optional features:
-        - `ocrmypdf`: Searchable PDF layering with Ghostscript and pikepdf (`ocrmypdf`).
-        - 25 `lang-*` language packs (`lang-ara`, `lang-ces`, `lang-chi-sim`, `lang-chi-tra`, `lang-dan`, `lang-deu`, `lang-ell`, `lang-fin`, `lang-fra`, `lang-heb`, `lang-hin`, `lang-hun`, `lang-ita`, `lang-jpn`, `lang-kor`, `lang-nld`, `lang-nor`, `lang-pol`, `lang-por`, `lang-rus`, `lang-spa`, `lang-swe`, `lang-tur`, `lang-ukr`, `lang-vie`).
-    - `reverse-engineering`: Binary analysis, reverse engineering, and CPU emulation suite (`file`, `binutils`, `patchelf`, `checksec`, `strace`, `ltrace`, `binwalk`). Optional features:
-        - `ghidra-headless` (default): Ghidra batch analysis engine (`analyzeHeadless`, `ghidra-decompile`) with OpenJDK 21 headless runtime.
-        - `ghidra`: Full interactive Ghidra GUI application with desktop launcher. Requires the `virtual-desktop` package.
-        - `emulation` (default): Capstone disassembly, Unicorn CPU emulation, and Keystone assembly frameworks with Python bindings.
-        - `mcp`: Reverse engineering Model Context Protocol (MCP) server (`re-mcp-server`) exposing structured triage, disassembly, decompilation, and emulation tools.
+    - `sound-tools`: Aggregator package. Subpackages:
+        - `sound-tools/base`: Audio processing, effects, spectrograms, codecs, and normalization (`sox`, `flac`, `lame`, etc.).
+        - `sound-tools/whisper`: Offline in-container speech-to-text (`whisper-cli`) with pre-staged quantized model.
+    - `3d-tools`: Aggregator package. Subpackages:
+        - `3d-tools/base`: 3D format conversion, STL repair, Draco compression, and OpenVDB inspection (`assimp`, `admesh`, `draco_encoder`, `draco_decoder`, `vdb_print`).
+        - `3d-tools/trimesh`: Trimesh Python mesh toolkit with SciPy, NetworkX, and lxml for programmatic mesh analysis and repair.
+        - `3d-tools/blender`: Headless Blender scripting and CPU Cycles rendering (`blender`).
+        - `3d-tools/meshlab`: Headless MeshLab mesh processing and cleaning CLI (`meshlab`).
+        - `3d-tools/openscad`: OpenSCAD parametric CAD solid modeling with headless export (`openscad`).
+    - `ocr-tools`: Aggregator package. Subpackages:
+        - `ocr-tools/base`: Optical character recognition text extraction and orientation detection (`tesseract` with English and OSD data).
+        - `ocr-tools/ocrmypdf`: Searchable PDF layering with Ghostscript and pikepdf (`ocrmypdf`).
+        - `ocr-tools/languages`: Aggregator package depending on all 25 language packs.
+        - 25 individual `ocr-tools/lang-*` packages (`ocr-tools/lang-ara`, `ocr-tools/lang-ces`, `ocr-tools/lang-chi-sim`, `ocr-tools/lang-chi-tra`, `ocr-tools/lang-dan`, `ocr-tools/lang-deu`, `ocr-tools/lang-ell`, `ocr-tools/lang-fin`, `ocr-tools/lang-fra`, `ocr-tools/lang-heb`, `ocr-tools/lang-hin`, `ocr-tools/lang-hun`, `ocr-tools/lang-ita`, `ocr-tools/lang-jpn`, `ocr-tools/lang-kor`, `ocr-tools/lang-nld`, `ocr-tools/lang-nor`, `ocr-tools/lang-pol`, `ocr-tools/lang-por`, `ocr-tools/lang-rus`, `ocr-tools/lang-spa`, `ocr-tools/lang-swe`, `ocr-tools/lang-tur`, `ocr-tools/lang-ukr`, `ocr-tools/lang-vie`).
+    - `reverse-engineering`: Aggregator package. Subpackages:
+        - `reverse-engineering/base`: Binary analysis, reverse engineering, and CPU emulation suite (`file`, `binutils`, `patchelf`, `checksec`, `strace`, `ltrace`, `binwalk`).
+        - `reverse-engineering/ghidra-headless`: Ghidra batch analysis engine (`analyzeHeadless`, `ghidra-decompile`) with OpenJDK 21 headless runtime.
+        - `reverse-engineering/ghidra`: Full interactive Ghidra GUI application with desktop launcher. Requires `virtual-desktop`.
+        - `reverse-engineering/emulation`: Capstone disassembly, Unicorn CPU emulation, and Keystone assembly frameworks with Python bindings.
+        - `reverse-engineering/mcp`: Reverse engineering Model Context Protocol (MCP) server (`re-mcp-server`) exposing structured triage, disassembly, decompilation, and emulation tools.
 - **Version Control & Source Control:**
-    - `git`: High-performance Git engine with Git MCP server (`git`, `mcp-server-git`).
-    - `source-control`: Multi-provider forge authentication and Git credentials. Optional features:
-        - `github`: Official GitHub CLI with GitHub MCP server and proxy token substitution (`gh`).
-        - `gitlab`: Official GitLab CLI with proxy token substitution (`glab`).
-        - `gitea`: Official Gitea and Forgejo CLI (`tea`, `fj`).
-        - `azure-devops`: Azure CLI with pre-installed `azure-devops` extension (`az`).
-        - `bitbucket`: Bitbucket API integration.
-        - `cafe`: Official GitCafe CLI powered by standalone Bun runtime (`cafe`).
+    - `git`: Aggregator package. Subpackages:
+        - `git/base`: High-performance Git engine (`git`).
+        - `git/mcp`: Git Model Context Protocol server (`mcp-server-git`).
+    - `source-control`: Aggregator package. Subpackages:
+        - `source-control/base`: Multi-provider forge authentication and Git credentials.
+        - `source-control/github`: Official GitHub CLI with GitHub MCP server and proxy token substitution (`gh`).
+        - `source-control/gitlab`: Official GitLab CLI with proxy token substitution (`glab`).
+        - `source-control/forgejo`: Official Forgejo and Gitea CLI (`tea`, `fj`).
+        - `source-control/azure-devops`: Azure CLI with pre-installed `azure-devops` extension (`az`).
+        - `source-control/bitbucket`: Bitbucket API integration.
+        - `source-control/gitcafe`: Official GitCafe CLI powered by standalone Bun runtime (`cafe`).
 - **Agent Control Panels:**
     - `t3`: T3 Code web agent server for local UI control (`t3`). Required when using `--t3`.
 
@@ -975,7 +972,6 @@ Nested container virtualization is provided by the `podman` package. It lets the
 # .pa-container/config.yaml
 packages:
   - podman:
-      features: []
       config:
         storage: volume     # volume | tmpfs
         security: disable   # disable | engine_t
@@ -1408,9 +1404,6 @@ Virtual desktop support is provided by the `virtual-desktop` package. It enables
 ```yaml
 packages:
   - virtual-desktop:
-      features:
-        # Display backend: exactly one of 'wayland' (default) or 'x11'.
-        - wayland: {config: {}, secrets: []}
       config:
         # Virtual display resolution (WIDTHxHEIGHT).
         # Default: 1920x1080.

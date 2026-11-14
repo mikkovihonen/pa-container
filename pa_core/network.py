@@ -436,64 +436,23 @@ def read_enabled_agents(config_dir: Path | None = None) -> list[str]:
     manifests = discover_packages()
     agents: list[str] = []
 
+    def _register_agent_pkg(pkg_name: str) -> None:
+        if pkg_name == "agents":
+            if "pi" not in agents:
+                agents.append("pi")
+        elif pkg_name.startswith("agents/"):
+            ag = pkg_name.removeprefix("agents/")
+            if ag not in agents:
+                agents.append(ag)
+        elif pkg_name in manifests and manifests[pkg_name].category == "agents" and pkg_name not in agents:
+            agents.append(pkg_name)
+
     for entry in pkgs:
         if isinstance(entry, str):
-            p_name = entry.strip().lower()
-            if p_name in manifests and manifests[p_name].category == "agents":
-                if p_name == "agents":
-                    manifest = manifests["agents"]
-                    def_feats = (
-                        [feat_name for feat_name, feat in manifest.features.items() if getattr(feat, "default", False)]
-                        if manifest.features
-                        else ["pi"]
-                    )
-                    for df in def_feats:
-                        if df not in agents:
-                            agents.append(df)
-                else:
-                    if p_name not in agents:
-                        agents.append(p_name)
+            _register_agent_pkg(entry.strip().lower())
         elif isinstance(entry, dict):
-            for k, v in entry.items():
-                p_name = str(k).strip().lower()
-                if p_name in manifests and manifests[p_name].category == "agents":
-                    if p_name == "agents":
-                        feats: list[str] = []
-                        if isinstance(v, list):
-                            for vf in v:
-                                if isinstance(vf, str) and vf.strip():
-                                    feats.append(vf.strip().lower())
-                                elif isinstance(vf, dict) and len(vf) == 1:
-                                    f_key = str(next(iter(vf.keys()))).strip().lower()
-                                    if f_key:
-                                        feats.append(f_key)
-                        elif isinstance(v, dict):
-                            feat_list = v.get("features", [])
-                            if isinstance(feat_list, list):
-                                for fl_item in feat_list:
-                                    if isinstance(fl_item, str) and fl_item.strip():
-                                        feats.append(fl_item.strip().lower())
-                                    elif isinstance(fl_item, dict) and len(fl_item) == 1:
-                                        f_key = str(next(iter(fl_item.keys()))).strip().lower()
-                                        if f_key:
-                                            feats.append(f_key)
-                        if not feats:
-                            manifest = manifests["agents"]
-                            feats = (
-                                [
-                                    feat_name
-                                    for feat_name, feat in manifest.features.items()
-                                    if getattr(feat, "default", False)
-                                ]
-                                if manifest.features
-                                else ["pi"]
-                            )
-                        for af in feats:
-                            if af not in agents:
-                                agents.append(af)
-                    else:
-                        if p_name not in agents:
-                            agents.append(p_name)
+            for k in entry:
+                _register_agent_pkg(str(k).strip().lower())
 
     if not agents:
         raise ValueError(

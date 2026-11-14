@@ -1,0 +1,21 @@
+schema_version: "0.7.0"
+name: "language-servers/pyright"
+version: "1.0.0"
+description: "Static type checker and LSP language server for Python"
+category: "devtools"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_packages:
+        - "languages/node"
+
+runtime:
+    dependencies:
+        - "languages/node"
+        - "language-servers/base"
+
+verification:
+    command: "pyright --version"
+    expected_output_contains: "pyright"

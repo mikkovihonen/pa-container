@@ -138,7 +138,7 @@ def resolve_source_control_placeholder_env(
     """
     placeholders_by_slot: dict[str, str] = {}
     if manifest is not None:
-        for sec in list(manifest.secrets) + [s for f in manifest.features.values() for s in f.secrets]:
+        for sec in manifest.secrets:
             if sec.name and sec.placeholder:
                 placeholders_by_slot[sec.name] = sec.placeholder
 

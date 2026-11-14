@@ -232,7 +232,7 @@ class TestContainerNetworkManagerPullSecrets:
         proj.mkdir()
         pa_dir = proj / ".pa-container"
         pa_dir.mkdir()
-        (pa_dir / "config.yaml").write_text("packages:\n  - source-control:\n      - github\n")
+        (pa_dir / "config.yaml").write_text("packages:\n  - source-control/github\n")
 
         mgr = ContainerNetworkManager(
             container_runtime="podman",
@@ -1638,7 +1638,7 @@ class TestReadAgentsConfig:
 
         from network import read_enabled_agents
 
-        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["opencode", "claude"]}]}))
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["agents/opencode", "agents/claude"]}))
         assert read_enabled_agents(tmp_path) == ["opencode", "claude"]
 
     def test_read_default_agent_with_default(self, tmp_path):
@@ -1646,7 +1646,7 @@ class TestReadAgentsConfig:
 
         from network import read_default_agent
 
-        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": [{"agents": ["pi", "opencode"]}]}))
+        (tmp_path / "config.yaml").write_text(yaml.dump({"packages": ["agents/pi", "agents/opencode"]}))
         assert read_default_agent(tmp_path) == "pi"
 
     def test_read_default_agent_missing_raises(self, tmp_path):

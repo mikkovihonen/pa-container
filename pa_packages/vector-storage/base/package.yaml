@@ -1,0 +1,36 @@
+schema_version: "0.7.0"
+name: "vector-storage/base"
+version: "1.1.0"
+description: "Embedded vector storage and SIMD vector search extensions: sqlite-vec and USearch"
+category: "database"
+license: "MIT OR Apache-2.0"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "gcc"
+        - "make"
+        - "git"
+        - "python3"
+        - "sqlite"
+        - "sqlite-devel"
+        - "curl"
+        - "tar"
+        - "gzip"
+    env:
+        SQLITE_VEC_VERSION: "v0.1.9"
+        SQLITE_VEC_COMMIT: "e9f598abfa0c06b328d8fe5da9c3760cce74be10"
+        USEARCH_VERSION: "2.26.6"
+        USEARCH_SQLITE_SHA256_X86_64: "b6a712d344c70e6afc9f4f0c45a9d9be46f9b403e353890f96935c76e2f4b668"
+        USEARCH_SQLITE_SHA256_AARCH64: "b516e8bf00328517375d019894fce698eeff25ed1c4a6abe7dc4f0fe59170744"
+        USEARCH_LIB_SHA256_X86_64: "3cd78b6ff5abe0974bbac0a2a734120f98a26acdeec7a22538af90eee0800b95"
+        USEARCH_LIB_SHA256_AARCH64: "c12be3e6e7a4b697e518ac7a88dede6f308c83a14ace141b3da84e42865955e8"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "test -f /usr/local/lib/sqlite/vec0.so && test -f /usr/local/lib/sqlite/usearch_sqlite.so && test -f /usr/local/lib/libusearch.so"

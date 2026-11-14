@@ -1,0 +1,43 @@
+schema_version: "0.7.0"
+name: "agents/claude"
+version: "1.0.0"
+description: "Anthropic Claude Code agent executable and CLI"
+category: "agents"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+    env:
+        CLAUDE_CODE_VERSION: "2.1.319"
+        CLAUDE_SHA256_AMD64: "9b7b53954b8ffb886fafeefe9ef1e0e9e5c15e8aaf2f54d65ba64d0cca795dc7"
+        CLAUDE_SHA256_ARM64: "f1ce44ea6a383ff39463e82906ad2d9d6fe1bc92976d2ac38da965b15a6f8036"
+
+egress:
+    allow_hosts:
+        - "api.anthropic.com"
+        - "statsig.anthropic.com"
+
+token_replacer:
+    - name: "anthropic-key"
+      hostnames:
+          - "api.anthropic.com"
+      content_patterns:
+          - field: "headers"
+            header_name: "x-api-key"
+            regex: ".*"
+      replace_with:
+          strategy: "static"
+          value: "ANTHROPIC_API_KEY_PLACEHOLDER"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "claude --version"
+    expected_output_contains: "2.1.319"

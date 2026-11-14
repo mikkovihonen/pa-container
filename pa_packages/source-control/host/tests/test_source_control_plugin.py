@@ -321,10 +321,15 @@ class TestSourceControlPlugin:
             project_dir=tmp_path,
             options=options,
             config={"agent": {"env": {}}},
-            package_configs={"source-control": {"setup_git_credentials": True}},
-            package_secrets={"source-control": []},
-            feature_configs={"source-control": {"github": {"auto_detect_host_cli": False}}},
-            feature_secrets={"source-control": {"github": [{"name": "github", "account": "GH_TOKEN"}]}},
+            active_packages=["source-control", "source-control/github"],
+            package_configs={
+                "source-control": {"setup_git_credentials": True},
+                "source-control/github": {"auto_detect_host_cli": False},
+            },
+            package_secrets={
+                "source-control": [],
+                "source-control/github": [{"name": "github", "account": "GH_TOKEN"}],
+            },
         )
 
         def mock_get_keyring(account: str, service: str = "pa-container") -> str | None:

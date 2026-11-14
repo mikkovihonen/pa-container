@@ -1,0 +1,64 @@
+schema_version: "0.7.0"
+name: "browser/chromium"
+version: "2.0.0"
+description: "Chrome for Testing browser engine with Playwright MCP server and interactive GUI use on the virtual desktop"
+category: "browser"
+license: "BSD-3-Clause"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "unzip"
+        - "curl"
+    build_packages:
+        - "languages/node"
+    packages:
+        - "alsa-lib"
+        - "at-spi2-atk"
+        - "at-spi2-core"
+        - "atk"
+        - "cairo"
+        - "cups-libs"
+        - "dbus-libs"
+        - "libX11"
+        - "libXcomposite"
+        - "libXdamage"
+        - "libXext"
+        - "libXfixes"
+        - "libXrandr"
+        - "libxkbcommon"
+        - "mesa-libgbm"
+        - "nspr"
+        - "nss"
+        - "pango"
+    env:
+        CHROMIUM_VERSION: "157.0.8103.38"
+        CHROMIUM_SHA256_AMD64: "8cdeb344e9b2cefe59f4aea8d1d93d5d93054c03cde217665c16fc1f62e72a66"
+        CHROMIUM_SHA256_ARM64: "5517510e61657ff43ee9ab804ecd1a499b3d5bd3caf72f097516bd6565ba5a17"
+        PLAYWRIGHT_MCP_VERSION: "0.0.85"
+
+runtime:
+    dependencies:
+        - "languages/node"
+        - "virtual-desktop"
+    devices:
+        - "/dev/dri"
+    env:
+        CHROME_DEVEL_SANDBOX: "/usr/local/lib/chromium/chrome-sandbox"
+
+mcp:
+    enabled: true
+    server_id: "playwright"
+    transport: "stdio"
+    command: "/usr/local/bin/playwright-mcp"
+    args: []
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "chromium --version && playwright-mcp --version"
+    expected_output_contains: "Chrome for Testing"

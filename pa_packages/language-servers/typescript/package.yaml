@@ -1,0 +1,21 @@
+schema_version: "0.7.0"
+name: "language-servers/typescript"
+version: "1.0.0"
+description: "Language Server Protocol implementation for TypeScript and JavaScript"
+category: "devtools"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_packages:
+        - "languages/node"
+
+runtime:
+    dependencies:
+        - "languages/node"
+        - "language-servers/base"
+
+verification:
+    command: "typescript-language-server --version"
+    expected_output_contains: "typescript-language-server"

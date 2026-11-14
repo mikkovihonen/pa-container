@@ -6,46 +6,16 @@ category: "media"
 license: "GPL-2.0-or-later AND BSD-2-Clause AND BSD-3-Clause AND MIT"
 
 payload:
-    type: distro_package
-    packages:
-        - "sox"
-        - "faad2"
-        - "flac"
-        - "opus-tools"
-        - "vorbis-tools"
-        - "lame"
-        - "twolame"
-        - "shntool"
-        - "normalize"
-        - "vorbisgain"
-        - "mp3gain"
+    type: "none"
 
 skill:
     enabled: true
     source: "skill/base.md"
     target_agents: ["all"]
 
-features:
-    whisper:
-        description: "Offline speech-to-text transcription using Fedora's dynamically linked whisper-cpp library (libwhisper.so + OpenBLAS) and a pre-staged ggml-base-q5_1 model"
-        default: false
-        payload:
-            type: build_script
-            script: "features/whisper/build.sh"
-            build_deps:
-                - "gcc"
-                - "pkgconf-pkg-config"
-                - "whisper-cpp-devel"
-                - "libsndfile-devel"
-                - "curl"
-                - "ca-certificates"
-            packages:
-                - "whisper-cpp"
-                - "libsndfile"
-        skill_fragment: "features/whisper/skill/SKILL.md"
-        verification:
-            command: "sox -n -r 16000 -c 1 -b 16 /tmp/stt-check.wav synth 0.5 sine 440 gain -5 && whisper-cli /tmp/stt-check.wav && rm -f /tmp/stt-check.wav"
-            expected_output_contains: "whisper"
+runtime:
+    dependencies:
+        - "sound-tools/base"
 
 verification:
     command: "sox --version && faad -h 2>&1 && flac --version && opusenc --version"

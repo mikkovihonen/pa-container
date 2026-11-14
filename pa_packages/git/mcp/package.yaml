@@ -1,0 +1,30 @@
+schema_version: "0.7.0"
+name: "git/mcp"
+version: "2.47.1"
+description: "Git Model Context Protocol (MCP) server for repository inspection and operations"
+category: "scm"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "python3-pip"
+    build_packages:
+        - "languages/python"
+
+runtime:
+    dependencies:
+        - "languages/python"
+        - "git/base"
+
+mcp:
+    enabled: true
+    server_id: "git"
+    transport: "stdio"
+    command: "/usr/local/bin/mcp-server-git"
+    args: []
+
+verification:
+    command: "mcp-server-git --help"
+    expected_output_contains: "mcp-server-git"

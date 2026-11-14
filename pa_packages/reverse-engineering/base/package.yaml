@@ -1,0 +1,26 @@
+schema_version: "0.7.0"
+name: "reverse-engineering/base"
+version: "1.0.0"
+description: "Base binary analysis utilities (file, binutils, patchelf, strace, ltrace, binwalk, checksec)"
+category: "security"
+license: "Apache-2.0"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    packages:
+        - "file"
+        - "binutils"
+        - "patchelf"
+        - "strace"
+        - "ltrace"
+        - "binwalk"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "file --version && readelf -v && checksec /bin/sh"
+    expected_output_contains: "readelf"

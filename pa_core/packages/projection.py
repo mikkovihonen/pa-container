@@ -19,9 +19,8 @@ def get_mcp_servers_dict(
     manifests: list[PackageManifest],
     active_features: dict[str, list[str]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Extract and compile MCP server configurations from active package manifests and enabled features."""
+    """Extract and compile MCP server configurations from active package manifests."""
     servers: dict[str, dict[str, Any]] = {}
-    feats_map = active_features or {}
     for m in manifests:
         if m.mcp.enabled and m.mcp.command:
             server_entry: dict[str, Any] = {
@@ -34,27 +33,8 @@ def get_mcp_servers_dict(
                 server_entry["transport"] = m.mcp.transport
             if m.mcp.port is not None:
                 server_entry["port"] = m.mcp.port
-            servers[m.mcp.server_id or m.name] = server_entry
-
-        # Feature MCP servers
-        enabled_feats = feats_map.get(m.name, [])
-        for feat_name, feat in m.features.items():
-            if (
-                (feat_name in enabled_feats or (not enabled_feats and feat.default))
-                and feat.mcp.enabled
-                and feat.mcp.command
-            ):
-                f_server_entry: dict[str, Any] = {
-                    "command": feat.mcp.command,
-                    "args": list(feat.mcp.args),
-                }
-                if feat.mcp.env:
-                    f_server_entry["env"] = dict(feat.mcp.env)
-                if feat.mcp.transport:
-                    f_server_entry["transport"] = feat.mcp.transport
-                if feat.mcp.port is not None:
-                    f_server_entry["port"] = feat.mcp.port
-                servers[feat.mcp.server_id or f"{m.name}-{feat_name}"] = f_server_entry
+            clean_name = m.name.replace("/", "-")
+            servers[m.mcp.server_id or clean_name] = server_entry
 
     return servers
 
@@ -63,15 +43,10 @@ def aggregate_egress_hosts(
     manifests: list[PackageManifest],
     active_features: dict[str, list[str]] | None = None,
 ) -> list[str]:
-    """Aggregate all required network egress hosts across active packages and enabled features."""
+    """Aggregate all required network egress hosts across active packages."""
     hosts: set[str] = set()
-    feats_map = active_features or {}
     for m in manifests:
         hosts.update(m.egress.allow_hosts)
-        enabled_feats = feats_map.get(m.name, [])
-        for feat_name, feat in m.features.items():
-            if feat_name in enabled_feats or (not enabled_feats and feat.default):
-                hosts.update(feat.egress.allow_hosts)
     return sorted(hosts)
 
 
@@ -79,10 +54,9 @@ def aggregate_token_replacers(
     manifests: list[PackageManifest],
     active_features: dict[str, list[str]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Aggregate token replacement redaction rules from active packages and enabled features."""
+    """Aggregate token replacement redaction rules from active packages."""
     rules: list[dict[str, Any]] = []
     seen_names: set[str] = set()
-    feats_map = active_features or {}
 
     def _add_rule(r: Any, fallback_hosts: list[str]) -> None:
         if r.name not in seen_names:
@@ -105,11 +79,6 @@ def aggregate_token_replacers(
     for m in manifests:
         for r in m.token_replacer:
             _add_rule(r, list(m.egress.allow_hosts))
-        enabled_feats = feats_map.get(m.name, [])
-        for feat_name, feat in m.features.items():
-            if feat_name in enabled_feats or (not enabled_feats and feat.default):
-                for r in feat.token_replacer:
-                    _add_rule(r, list(feat.egress.allow_hosts))
 
     return rules
 
@@ -128,7 +97,6 @@ def aggregate_runtime_privileges(
     file_caps: list[dict[str, str]] = []
     nested_containers = False
     max_shm: str | None = None
-    feats_map = active_features or {}
 
     def _apply_runtime(rt: Any) -> None:
         nonlocal nested_containers, max_shm
@@ -146,10 +114,6 @@ def aggregate_runtime_privileges(
 
     for m in manifests:
         _apply_runtime(m.runtime)
-        enabled_feats = feats_map.get(m.name, [])
-        for feat_name, feat in m.features.items():
-            if feat_name in enabled_feats or (not enabled_feats and feat.default):
-                _apply_runtime(feat.runtime)
 
     return {
         "devices": sorted(devices),

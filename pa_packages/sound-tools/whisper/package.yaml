@@ -1,0 +1,33 @@
+schema_version: "0.7.0"
+name: "sound-tools/whisper"
+version: "1.0.0"
+description: "Offline speech-to-text transcription using Fedora's dynamically linked whisper-cpp library (libwhisper.so + OpenBLAS) and a pre-staged ggml-base-q5_1 model"
+category: "media"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "gcc"
+        - "pkgconf-pkg-config"
+        - "whisper-cpp-devel"
+        - "libsndfile-devel"
+        - "curl"
+        - "ca-certificates"
+    packages:
+        - "whisper-cpp"
+        - "libsndfile"
+
+runtime:
+    dependencies:
+        - "sound-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "sox -n -r 16000 -c 1 -b 16 /tmp/stt-check.wav synth 0.5 sine 440 gain -5 && whisper-cli /tmp/stt-check.wav && rm -f /tmp/stt-check.wav"
+    expected_output_contains: "whisper"

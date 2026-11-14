@@ -215,3 +215,28 @@ def test_skill_projection_works_with_nounset_enabled(tmp_path: Path):
     # Run with nounset=True and without setting PA_AGENT_SKILLS_DIRS
     res = _run_projection(home_agent, share_pkgs, share_agents_dir=share_agents, nounset=True)
     assert res.returncode == 0
+
+
+def test_skill_projection_nested_packages(tmp_path: Path):
+    """Verify that nested packages like languages/python and document-tools/base project cleanly."""
+    home_agent = tmp_path / "home" / "agent"
+    share_pkgs = tmp_path / "share" / "packages"
+    pi_skills = home_agent / ".pi" / "agent" / "skills"
+    pi_skills.mkdir(parents=True)
+
+    # 1. Nested package with frontmatter name
+    py_skill = share_pkgs / "languages" / "python" / "skill"
+    py_skill.mkdir(parents=True)
+    (py_skill / "SKILL.md").write_text("---\nname: python\n---\n# Python Skill\n", encoding="utf-8")
+
+    # 2. Nested package ending in base (fallback to namespace name)
+    doc_skill = share_pkgs / "document-tools" / "base" / "skill"
+    doc_skill.mkdir(parents=True)
+    (doc_skill / "SKILL.md").write_text("# Doc Tools\n", encoding="utf-8")
+
+    _run_projection(home_agent, share_pkgs, agent_skills_dirs=[pi_skills])
+
+    assert (pi_skills / "python" / "SKILL.md").is_file()
+    assert (pi_skills / "python" / ".pa-projected").is_file()
+    assert (pi_skills / "document-tools" / "SKILL.md").is_file()
+    assert (pi_skills / "document-tools" / ".pa-projected").is_file()

@@ -3,7 +3,8 @@ from __future__ import annotations
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
     import argparse
@@ -31,6 +32,81 @@ class ContainerMount:
 
 
 AgentMount = ContainerMount
+
+
+class IngressAuthPolicy(StrEnum):
+    """Authentication model provided by the backend service."""
+
+    INTRINSIC = "intrinsic"
+    """Service provides its own cryptographic or strong authentication (e.g. T3 pairing tokens).
+    Can be safely exposed directly without an external auth gate."""
+
+    REQUIRED = "required"
+    """Service has no native authentication (e.g. noVNC, raw dev server, web terminal).
+    Must be gated by an external Ingress Auth Gate when exposed publicly."""
+
+    NONE = "none"
+    """Service is intentionally unauthenticated and public (e.g. public static site demo).
+    Bypasses the auth gate only if explicitly requested by the user."""
+
+
+@dataclass(frozen=True)
+class TunnelEndpointRequest:
+    """Request from a package to expose a local service via tunnel."""
+
+    service_name: str
+    """Canonical identifier for the service (e.g. 't3', 'desktop', 'zellij')."""
+
+    port: int
+    """Local host port bound to 127.0.0.1 or 0.0.0.0."""
+
+    protocol: str = "http"
+    """Protocol type: 'http', 'websocket', or 'tcp'."""
+
+    auth_policy: IngressAuthPolicy = IngressAuthPolicy.REQUIRED
+    """Authentication policy required for this endpoint."""
+
+    preferred_subdomain: str | None = None
+    """Desired subdomain for named tunnels (e.g. 't3' for t3.domain.com)."""
+
+    path_prefix: str | None = None
+    """Subpath prefix if multiplexed behind a path router (e.g. '/desktop')."""
+
+    title: str = ""
+    """Human-readable display name for logging and terminal link banners."""
+
+
+@dataclass
+class TunnelEndpoint:
+    """Active provisioned tunnel endpoint."""
+
+    request: TunnelEndpointRequest
+    public_url: str
+    advertised_host: str
+    is_gated: bool
+    auth_mode: str = "none"
+    access_token: str | None = None
+
+
+@runtime_checkable
+class TunnelProvider(Protocol):
+    """Host-side tunnel provider interface."""
+
+    def is_enabled(self) -> bool:
+        """Whether tunneling has been activated via CLI or config."""
+        ...
+
+    def register_service(self, request: TunnelEndpointRequest) -> TunnelEndpoint | None:
+        """Register a local service endpoint to be tunneled."""
+        ...
+
+    def get_endpoint(self, service_name: str) -> TunnelEndpoint | None:
+        """Retrieve the provisioned endpoint for a service."""
+        ...
+
+    def provision_all(self, exit_stack: ExitStack) -> dict[str, TunnelEndpoint]:
+        """Start all registered tunnels and auth gates, registering cleanup handlers."""
+        ...
 
 
 @dataclass
@@ -99,6 +175,19 @@ class RunContext:
     def get_feature_secrets(self, package_name: str, feature_name: str) -> list[dict[str, str]]:
         """Retrieve explicit secret mappings for a feature within a package."""
         return self.feature_secrets.get(package_name, {}).get(feature_name, [])
+
+    @property
+    def tunnel_provider(self) -> TunnelProvider | None:
+        """Retrieve active tunnel provider instance if registered."""
+        prov = self.attributes.get("tunnel_provider")
+        if prov is not None and (isinstance(prov, TunnelProvider) or hasattr(prov, "is_enabled")):
+            return cast("TunnelProvider", prov)
+        return None
+
+    @tunnel_provider.setter
+    def tunnel_provider(self, provider: TunnelProvider | None) -> None:
+        """Set or clear active tunnel provider instance."""
+        self.attributes["tunnel_provider"] = provider
 
 
 class ACPPlugin:

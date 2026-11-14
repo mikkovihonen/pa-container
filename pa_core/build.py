@@ -202,19 +202,17 @@ def build_package(
     """Build a specific Agent Capability Package image."""
     from packages import build_package as pkg_build
 
-    active_feats = set(features) if features else set()
-    clean_pkg = package_name
     if "+" in package_name:
-        pname, *pfeats = package_name.split("+")
-        clean_pkg = pname.strip()
-        active_feats.update(f.strip() for f in pfeats if f.strip())
+        raise ValueError(
+            f"Invalid package name '{package_name}': features with '+' have been eliminated. "
+            "Use canonical package names (e.g. 'languages/python')."
+        )
 
     pkg_build(
-        clean_pkg,
+        package_name.strip(),
         runtime=runtime,
         repo_root=REPO_ROOT,
         label=label,
-        features=sorted(active_feats) if active_feats else None,
     )
 
 
@@ -589,17 +587,17 @@ def execute_build(options: BuildOptions, driver: LogDriver | None = None) -> int
 
             total_stages = len(requested)
             for idx, p in enumerate(requested, start=1):
-                clean_p = p
-                feats: list[str] | None = None
-                if "+" in p:
-                    base_p, *pfeats = p.split("+")
-                    clean_p = base_p.strip()
-                    feats = [f.strip() for f in pfeats if f.strip()]
+                clean_p = p.strip()
+                if "+" in clean_p:
+                    raise ValueError(
+                        f"Invalid package specification '{clean_p}': features with '+' have been eliminated. "
+                        "Use canonical package names (e.g. 'languages/python')."
+                    )
                 if log_drv is not None:
-                    with log_drv.stage(LogCategory.BUILD, f"[{idx}/{total_stages}] Building package ({p})"):
-                        pkg_build(clean_p, runtime=runtime, features=feats)
+                    with log_drv.stage(LogCategory.BUILD, f"[{idx}/{total_stages}] Building package ({clean_p})"):
+                        pkg_build(clean_p, runtime=runtime)
                 else:
-                    pkg_build(clean_p, runtime=runtime, features=feats)
+                    pkg_build(clean_p, runtime=runtime)
 
             logger.info("All requested packages built successfully.")
 

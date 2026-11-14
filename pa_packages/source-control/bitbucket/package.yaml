@@ -1,0 +1,52 @@
+schema_version: "0.7.0"
+name: "source-control/bitbucket"
+version: "1.0.0"
+description: "Bitbucket credentials and repository workflows"
+category: "scm"
+license: "MIT"
+
+config:
+    auto_detect_host_cli: false
+
+secrets:
+    - name: "bitbucket"
+      required: true
+      placeholder: "BITBUCKET_TOKEN_PLACEHOLDER"
+
+payload:
+    type: "none"
+
+runtime:
+    dependencies:
+        - "source-control/base"
+
+egress:
+    allow_hosts:
+        - "bitbucket.org"
+        - "api.bitbucket.org"
+
+token_replacer:
+    - name: "bitbucket-token-inject"
+      hostnames:
+          - "bitbucket.org"
+          - "api.bitbucket.org"
+      content_patterns:
+          - field: "headers"
+            header_name: "Authorization"
+            regex: "BITBUCKET_TOKEN_PLACEHOLDER"
+          - field: "headers"
+            header_name: "Authorization"
+            encoding: "base64"
+            regex: "BITBUCKET_TOKEN_PLACEHOLDER"
+      replace_with:
+          strategy: "static"
+          value: "${ENV:BITBUCKET_TOKEN}"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "git --version"
+    expected_output_contains: "git version"

@@ -1,0 +1,24 @@
+schema_version: "0.7.0"
+name: "image-tools/gmic"
+version: "1.0.0"
+description: "G'MIC image processing framework CLI with hundreds of filters and batch pipelines"
+category: "media"
+license: "CECILL-2.1"
+
+payload:
+    type: distro_package
+    packages:
+        - "gmic"
+
+runtime:
+    dependencies:
+        - "image-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "gmic -version"
+    expected_output_contains: "gmic"

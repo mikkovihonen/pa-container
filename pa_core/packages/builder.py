@@ -55,52 +55,22 @@ def assemble_package_skill(
     active_features: list[str] | set[str] | None = None,
     manifest: PackageManifest | None = None,
 ) -> str:
-    """Dynamically assemble a package SKILL.md from skill/base.md and active feature fragments."""
+    """Read a package SKILL.md or configured skill source."""
+    if manifest and manifest.skill and manifest.skill.source:
+        source_path = package_dir / manifest.skill.source
+        if source_path.is_file():
+            return source_path.read_text(encoding="utf-8").rstrip()
+
     container_dir = package_dir / "container"
     skill_dir = (container_dir / "skill") if (container_dir / "skill").is_dir() else (package_dir / "skill")
-    base_file = skill_dir / "base.md"
     skill_file = skill_dir / "SKILL.md"
+    base_file = skill_dir / "base.md"
 
-    base_content = ""
+    if skill_file.is_file():
+        return skill_file.read_text(encoding="utf-8").rstrip()
     if base_file.is_file():
-        base_content = base_file.read_text().rstrip()
-    elif skill_file.is_file():
-        base_content = skill_file.read_text().rstrip()
-
-    if not active_features:
-        return base_content
-
-    fragments: list[str] = [base_content] if base_content else []
-
-    if manifest is None:
-        mf = package_dir / "package.yaml"
-        if mf.is_file():
-            try:
-                manifest = load_package_manifest(mf)
-            except Exception:
-                manifest = None
-
-    for feat in sorted(active_features):
-        frag_path: Path | None = None
-        if manifest and feat in manifest.features:
-            s_frag = manifest.features[feat].skill_fragment
-            if s_frag:
-                custom_frag = package_dir / s_frag
-                if not custom_frag.is_file() and (container_dir / s_frag).is_file():
-                    custom_frag = container_dir / s_frag
-                if custom_frag.is_file():
-                    frag_path = custom_frag
-        if frag_path is None:
-            default_frag = package_dir / "features" / feat / "skill" / "SKILL.md"
-            if default_frag.is_file():
-                frag_path = default_frag
-
-        if frag_path and frag_path.is_file():
-            content = frag_path.read_text().strip()
-            if content:
-                fragments.append(content)
-
-    return ("\n\n---\n\n".join(fragments) + "\n") if fragments else ""
+        return base_file.read_text(encoding="utf-8").rstrip()
+    return ""
 
 
 def _append_binary_download(platforms: dict[str, PlatformDownload], dest_prefix: str = "/out") -> list[str]:
@@ -205,7 +175,7 @@ def generate_dynamic_builder_containerfile(
             lines.append(f"RUN microdnf install -y --nodocs {' '.join(distro_pkgs)} && microdnf clean all")
 
         for pkg in resolved_specs:
-            clean_p = pkg.lower().replace("_", "-")
+            clean_p = pkg.lower().replace("/", "-").replace("_", "-")
             active_feats = sorted(resolved_specs[pkg] or [])
             pkg_hash = compute_package_hash(pkg, repo_root=r_root, features=active_feats)
             content_tag = package_to_content_tag(pkg, pkg_hash, features=active_feats)
@@ -230,21 +200,14 @@ def generate_dynamic_builder_containerfile(
 
     # 1. Collect union of all system build dependencies and distro packages
     all_system_pkgs: set[str] = set(BASE_SYSTEM_BUILD_UTILS)
-    for pkg_name, feats in resolved_specs.items():
+    for pkg_name, _ in resolved_specs.items():
         mf = manifests.get(pkg_name)
         if mf is None:
             continue
-        filter_feats = set(feats or [])
         if mf.payload.build_deps:
             all_system_pkgs.update(mf.payload.build_deps)
         if mf.payload.packages:
             all_system_pkgs.update(mf.payload.packages)
-        for feat_name, f_obj in mf.features.items():
-            if feat_name in filter_feats or (not filter_feats and f_obj.default):
-                if f_obj.payload.build_deps:
-                    all_system_pkgs.update(f_obj.payload.build_deps)
-                if f_obj.payload.packages:
-                    all_system_pkgs.update(f_obj.payload.packages)
 
     system_pkgs_str = " ".join(sorted(all_system_pkgs))
     common_script_path = r_root / "pa_packages" / "common.sh"
@@ -268,7 +231,7 @@ def generate_dynamic_builder_containerfile(
 
     # 2. Emit isolated artifact build stages (in topological order)
     for pkg_name, feats in resolved_specs.items():
-        clean_pkg = pkg_name.lower().replace("_", "-")
+        clean_pkg = pkg_name.lower().replace("/", "-").replace("_", "-")
         stage_name = f"artifact-{clean_pkg}"
         username = f"builder-{clean_pkg}"
         active_feats = sorted(feats or [])
@@ -276,7 +239,6 @@ def generate_dynamic_builder_containerfile(
         if mf is None:
             continue
 
-        active_feat_configs = [mf.features[f] for f in active_feats if f in mf.features]
         pkg_dir = get_package_dir(pkg_name, r_root)
 
         lines.extend(
@@ -288,13 +250,9 @@ def generate_dynamic_builder_containerfile(
 
         # Dynamic build tools injection: import any declared build_packages from upstream artifact stages
         pkg_build_pkgs: list[str] = list(mf.payload.build_packages)
-        for f in active_feat_configs:
-            for bp in f.payload.build_packages:
-                if bp not in pkg_build_pkgs:
-                    pkg_build_pkgs.append(bp)
 
         for bp in pkg_build_pkgs:
-            clean_bp = bp.lower().replace("_", "-")
+            clean_bp = bp.lower().replace("/", "-").replace("_", "-")
             lines.append(f"COPY --from=artifact-{clean_bp} /out/{clean_bp}/ /")
 
         # Setup dedicated unprivileged user and stage directory
@@ -316,10 +274,6 @@ def generate_dynamic_builder_containerfile(
             if has_container:
                 lines.append(f"COPY --chown={username}:{username} {rel_pkg}/container/ /home/{username}/build/")
                 lines.append(f"COPY --chown={username}:{username} {rel_pkg}/package.yaml /home/{username}/build/")
-                if (pkg_dir / "features").is_dir():
-                    lines.append(
-                        f"COPY --chown={username}:{username} {rel_pkg}/features/ /home/{username}/build/features/"
-                    )
                 if (pkg_dir / "skill").is_dir() and not (pkg_dir / "container" / "skill").is_dir():
                     lines.append(f"COPY --chown={username}:{username} {rel_pkg}/skill/ /home/{username}/build/skill/")
             else:
@@ -329,8 +283,6 @@ def generate_dynamic_builder_containerfile(
 
         # Environment
         merged_env = dict(mf.payload.env)
-        for f in active_feat_configs:
-            merged_env.update(f.payload.env)
         for k, v in merged_env.items():
             lines.append(f'ENV {k}="{v}"')
 
@@ -355,20 +307,13 @@ def generate_dynamic_builder_containerfile(
         elif ptype == "binary_download" and mf.payload.platforms:
             lines.extend(_append_binary_download(mf.payload.platforms, dest_prefix=f"/out/{clean_pkg}"))
 
-        for f in active_feat_configs:
-            if f.payload.type == "build_script" and f.payload.script:
-                clean_f_script = f.payload.script.removeprefix("container/")
-                lines.append(f"RUN bash /home/{username}/build/{clean_f_script}")
-            elif f.payload.type == "binary_download" and f.payload.platforms:
-                lines.extend(_append_binary_download(f.payload.platforms, dest_prefix=f"/out/{clean_pkg}"))
-
         assembled_skill = assemble_package_skill(pkg_dir, active_feats, manifest=mf)
         lines.extend(_append_skill_and_metadata(pkg_name, clean_pkg, assembled_skill, username))
 
     # 3. Final Stage Assembly
     if target == "package":
         exp_pkg = export_package or (list(resolved_specs.keys())[-1] if resolved_specs else "pkg")
-        clean_exp = exp_pkg.lower().replace("_", "-")
+        clean_exp = exp_pkg.lower().replace("/", "-").replace("_", "-")
         lines.extend(
             [
                 "\n# ── Scratch Export Stage ───────────────────────────────────────────",
@@ -388,7 +333,7 @@ def generate_dynamic_builder_containerfile(
             lines.append(f"RUN microdnf install -y --nodocs {' '.join(distro_pkgs)} && microdnf clean all")
 
         for pkg in resolved_specs:
-            clean_p = pkg.lower().replace("_", "-")
+            clean_p = pkg.lower().replace("/", "-").replace("_", "-")
             lines.append(f"COPY --from=artifact-{clean_p} /out/{clean_p}/ /")
 
         if target == "agent":
@@ -443,15 +388,13 @@ def build_package(
         raise FileNotFoundError(f"Package '{package_name}' missing manifest at {manifest_file}")
 
     load_package_manifest(manifest_file)
-    active_feats = sorted(features) if features else []
-    pkg_hash = compute_package_hash(package_name, r_root, features=active_feats)
-    tag = package_to_image_tag(package_name, features=active_feats)
+    pkg_hash = compute_package_hash(package_name, r_root)
+    tag = package_to_image_tag(package_name)
     build_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    resolved_specs = resolve_package_dependencies({package_name: active_feats}, repo_root=r_root)
+    resolved_specs = resolve_package_dependencies({package_name: []}, repo_root=r_root)
 
-    feat_desc = f" (features: {active_feats})" if active_feats else ""
-    logger.info(f"Building package '{package_name}'{feat_desc} ({runtime}): {tag} (hash: {pkg_hash})")
+    logger.info(f"Building package '{package_name}' ({runtime}): {tag} (hash: {pkg_hash})")
 
     cf_content = generate_dynamic_builder_containerfile(
         resolved_specs,
@@ -459,11 +402,12 @@ def build_package(
         target="package",
         export_package=package_name,
     )
-    temp_dir = Path(tempfile.mkdtemp(prefix=f"pa-pkg-{package_name}-"))
+    clean_name = package_name.replace("/", "-")
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"pa-pkg-{clean_name}-"))
     temp_cf = temp_dir / "Containerfile"
     temp_cf.write_text(cf_content)
 
-    content_tag = package_to_content_tag(package_name, pkg_hash, features=active_feats)
+    content_tag = package_to_content_tag(package_name, pkg_hash)
 
     try:
         cmd = [
@@ -594,9 +538,6 @@ def ensure_package_images(
         if not mf:
             return True
         needed_build_pkgs: set[str] = set(mf.payload.build_packages)
-        for f in active_feats:
-            if f in mf.features:
-                needed_build_pkgs.update(mf.features[f].payload.build_packages)
         return needed_build_pkgs.issubset(completed)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:

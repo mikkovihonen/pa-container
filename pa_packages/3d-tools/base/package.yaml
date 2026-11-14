@@ -1,0 +1,23 @@
+schema_version: "0.7.0"
+name: "3d-tools/base"
+version: "1.0.0"
+description: "Base 3D model processing capability: assimp format conversion, admesh STL repair, Draco mesh compression, and OpenVDB volume inspection"
+category: "media"
+license: "MPL-2.0 AND Apache-2.0 AND MIT AND GPL-2.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "assimp"
+        - "admesh"
+        - "draco"
+        - "openvdb"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "assimp version && admesh --version && vdb_print -version"
+    expected_output_contains: "assimp"

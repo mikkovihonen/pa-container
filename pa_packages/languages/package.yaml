@@ -1,0 +1,23 @@
+schema_version: "0.7.0"
+name: "languages"
+version: "1.0.0"
+description: "Unified programming languages and toolchains capability"
+category: "toolchains"
+license: "MIT"
+core: true
+
+payload:
+    type: "none"
+
+skill:
+    enabled: true
+    source: "skill/base.md"
+    target_agents: ["all"]
+
+runtime:
+    dependencies:
+        - "languages/python"
+
+verification:
+    command: "python3 --version"
+    expected_output_contains: "Python 3.15"

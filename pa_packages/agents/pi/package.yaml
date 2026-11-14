@@ -1,0 +1,30 @@
+schema_version: "0.7.0"
+name: "agents/pi"
+version: "1.0.0"
+description: "Native Pi coding agent (@earendil-works/pi-coding-agent)"
+category: "agents"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+    build_packages:
+        - "languages/node"
+    env:
+        PI_VERSION: "1.5.0"
+        PI_SHA256: "5bfb66848a4c4b81c637ce8d2136be01945b70aac8e8556b091cb02241b385df"
+
+runtime:
+    dependencies:
+        - "languages/node"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "pi --version"
+    expected_output_contains: "1.5"

@@ -1,0 +1,34 @@
+schema_version: "0.7.0"
+name: "agent-orchestrators/t3"
+version: "0.1.7"
+description: "T3 Code server and collaborative multi-agent web interface"
+category: "orchestration"
+license: "MIT"
+
+payload:
+    type: build_script
+    script: "container/build.sh"
+    build_deps:
+        - "tar"
+        - "gzip"
+        - "curl"
+    env:
+        T3_VERSION: "0.1.7"
+        T3_SHA256_AMD64: "c089892bf7922e2e73c6f44a5d1ea125c99f70e378c18361cbbed2fba1920e6c"
+        T3_SHA256_ARM64: "5a528e23af394cc6f359036d3cb8441fda14129d477630fc6c53e4f4a1025bc8"
+
+runtime:
+    dependencies:
+        - "languages/node"
+        - "source-control"
+        - "tunnels"
+        - "agent-orchestrators/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "t3 --version"
+    expected_output_contains: "0.1.7"

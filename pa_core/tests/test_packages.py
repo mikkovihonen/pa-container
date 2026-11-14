@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -29,8 +31,10 @@ def test_discover_packages():
     pkgs = discover_packages()
     assert len(pkgs) >= 20
     assert "podman" in pkgs
-    assert "python" in pkgs
-    assert "node" in pkgs
+    assert "languages" in pkgs
+    assert "languages/python" in pkgs
+    assert "languages/node" in pkgs
+    assert "languages/rust" in pkgs
     assert "source-control" in pkgs
     assert "code-intelligence" in pkgs
     assert "virtual-desktop" in pkgs
@@ -133,18 +137,17 @@ def test_parse_package_manifest_full():
 
 def test_projection_helpers():
     pkgs = discover_packages()
-    active_manifests = [pkgs[k] for k in ("source-control", "podman") if k in pkgs]
-    active_features = {"source-control": ["github"]}
+    active_manifests = [pkgs[k] for k in ("source-control/github", "podman") if k in pkgs]
 
-    mcp_servers = get_mcp_servers_dict(active_manifests, active_features=active_features)
+    mcp_servers = get_mcp_servers_dict(active_manifests)
     assert "github" in mcp_servers
     assert mcp_servers["github"]["command"] == "/usr/local/bin/gh"
 
-    egress = aggregate_egress_hosts(active_manifests, active_features=active_features)
+    egress = aggregate_egress_hosts(active_manifests)
     assert "api.github.com" in egress
     assert "docker.io" in egress
 
-    tokens = aggregate_token_replacers(active_manifests, active_features=active_features)
+    tokens = aggregate_token_replacers(active_manifests)
     token_names = [t["name"] for t in tokens]
     assert "github-token-inject" in token_names
     gh_token = next(t for t in tokens if t["name"] == "github-token-inject")
@@ -165,14 +168,13 @@ def test_projection_helpers():
 
 def test_generate_package_containerfile():
     pkgs = discover_packages()
-    sc = pkgs["source-control"]
-    cf_sc = generate_package_containerfile(sc, get_package_dir("source-control"), active_features=["github"])
+    sc = pkgs["source-control/github"]
+    cf_sc = generate_package_containerfile(sc, get_package_dir("source-control/github"))
     assert "FROM registry.fedoraproject.org/fedora-minimal:45 AS builder-base" in cf_sc
-    assert "FROM builder-base AS artifact-source-control" in cf_sc
-    assert "USER builder-source-control" in cf_sc
-    assert "bash /home/builder-source-control/build/features/github/build.sh" in cf_sc
+    assert "FROM builder-base AS artifact-source-control-github" in cf_sc
+    assert "USER builder-source-control-github" in cf_sc
     assert "FROM scratch" in cf_sc
-    assert "COPY --from=artifact-source-control /out/source-control/ /" in cf_sc
+    assert "COPY --from=artifact-source-control-github /out/source-control-github/ /" in cf_sc
 
     podman = pkgs["podman"]
     cf_podman = generate_package_containerfile(podman, get_package_dir("podman"))
@@ -185,22 +187,20 @@ def test_generate_package_containerfile():
 
 def test_package_image_tag_with_features():
     assert package_to_image_tag("document-tools") == "pa-container-pkg-document-tools:local"
+    assert package_to_image_tag("document-tools/docling") == "pa-container-pkg-document-tools-docling:local"
     assert (
-        package_to_image_tag("document-tools", features=["docling"]) == "pa-container-pkg-document-tools--docling:local"
-    )
-    assert (
-        package_to_image_tag("language-servers", features=["rust-analyzer", "pyright"])
-        == "pa-container-pkg-language-servers--pyright--rust-analyzer:local"
+        package_to_image_tag("language-servers/rust-analyzer")
+        == "pa-container-pkg-language-servers-rust-analyzer:local"
     )
 
 
 def test_package_to_content_tag():
     from packages.discovery import package_to_content_tag
 
-    assert package_to_content_tag("rust", "abc12345") == "pa-container-pkg-rust:abc12345"
+    assert package_to_content_tag("languages/rust", "abc12345") == "pa-container-pkg-languages-rust:abc12345"
     assert (
-        package_to_content_tag("document-tools", "def67890", features=["docling"])
-        == "pa-container-pkg-document-tools--docling:def67890"
+        package_to_content_tag("document-tools/docling", "def67890")
+        == "pa-container-pkg-document-tools-docling:def67890"
     )
 
 
@@ -208,42 +208,24 @@ def test_assemble_package_skill(tmp_path: Path):
     pkg_dir = tmp_path / "pkg"
     skill_dir = pkg_dir / "skill"
     skill_dir.mkdir(parents=True)
-    feat_a_skill = pkg_dir / "features" / "featA" / "skill"
-    feat_b_skill = pkg_dir / "features" / "featB" / "skill"
-    feat_a_skill.mkdir(parents=True)
-    feat_b_skill.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# Core Capability\nBase instructions.")
 
-    (skill_dir / "base.md").write_text("# Core Capability\nBase instructions.")
-    (feat_a_skill / "SKILL.md").write_text("## Feature A\nFeature A instructions.")
-    (feat_b_skill / "SKILL.md").write_text("## Feature B\nFeature B instructions.")
-
-    # Without features: only base
     s0 = assemble_package_skill(pkg_dir)
     assert "# Core Capability" in s0
-    assert "Feature A" not in s0
-    assert "Feature B" not in s0
+    assert "Base instructions." in s0
 
-    # With featA: base + featA
-    s1 = assemble_package_skill(pkg_dir, active_features=["featA"])
-    assert "# Core Capability" in s1
-    assert "Feature A" in s1
-    assert "Feature B" not in s1
-
-    # With both
-    s2 = assemble_package_skill(pkg_dir, active_features=["featA", "featB"])
-    assert "# Core Capability" in s2
-    assert "Feature A" in s2
-    assert "Feature B" in s2
+    pkg2_dir = tmp_path / "pkg2"
+    (pkg2_dir / "skill").mkdir(parents=True)
+    (pkg2_dir / "skill" / "base.md").write_text("# Base Markdown")
+    s1 = assemble_package_skill(pkg2_dir)
+    assert "# Base Markdown" in s1
 
 
 def test_git_package_skill_assembly():
     """The git package carries no skill: git usage is common knowledge and the MCP tools self-register."""
     git_dir = get_package_dir("git")
-    s_base = assemble_package_skill(git_dir, active_features=[])
+    s_base = assemble_package_skill(git_dir)
     assert s_base == ""
-
-    s_mcp = assemble_package_skill(git_dir, active_features=["mcp"])
-    assert s_mcp == ""
 
 
 def test_manifest_features_and_extensions():
@@ -254,18 +236,16 @@ def test_manifest_features_and_extensions():
         "features": {
             "subtool": {
                 "description": "Subtool feature",
-                "default": False,
-                "payload": {
-                    "type": "build_script",
-                    "script": "subtool/build.sh",
-                },
-                "skill_fragment": "features/subtool/skill/SKILL.md",
-                "verification": {
-                    "command": "subtool --version",
-                    "expected_output_contains": "1.0",
-                },
             }
         },
+    }
+    with pytest.raises(ValueError, match="defines 'features:'"):
+        parse_package_manifest(data)
+
+    data_no_feat = {
+        "schema_version": "2.1.0",
+        "name": "ext-tool",
+        "version": "1.0.0",
         "extension": {
             "commands": [
                 {
@@ -291,10 +271,7 @@ def test_manifest_features_and_extensions():
             "expected_output_contains": "success",
         },
     }
-    m = parse_package_manifest(data)
-    assert "subtool" in m.features
-    assert m.features["subtool"].description == "Subtool feature"
-    assert m.features["subtool"].skill_fragment == "features/subtool/skill/SKILL.md"
+    m = parse_package_manifest(data_no_feat)
     assert len(m.extension.commands) == 1
     assert m.extension.commands[0].name == "subcmd"
     assert len(m.extension.flags) == 1
@@ -341,14 +318,6 @@ def test_collect_distro_packages():
                     "type": "distro_package",
                     "packages": ["python3", "uv"],
                 },
-                "features": {
-                    "extra": {
-                        "payload": {
-                            "type": "distro_package",
-                            "packages": ["python3-pip", "git"],
-                        }
-                    }
-                },
             }
         ),
         "pkg-b": parse_package_manifest(
@@ -373,13 +342,9 @@ def test_collect_distro_packages():
         ),
     }
 
-    # pkg-a without features + pkg-b: should collect python3, uv, jq
+    # pkg-a + pkg-b: should collect python3, uv, jq
     pkgs = collect_distro_packages({"pkg-a": [], "pkg-b": []}, manifests=manifests)
     assert pkgs == ["jq", "python3", "uv"]
-
-    # pkg-a with extra feature + pkg-b: should collect git, jq, python3, python3-pip, uv
-    pkgs_extra = collect_distro_packages({"pkg-a": ["extra"], "pkg-b": []}, manifests=manifests)
-    assert pkgs_extra == ["git", "jq", "python3", "python3-pip", "uv"]
 
     # pkg-c has build_script, no distro packages
     assert collect_distro_packages({"pkg-c": []}, manifests=manifests) == []
@@ -419,31 +384,12 @@ def test_resolve_package_dependencies_mocked():
                 "name": "pkg-b",
                 "version": "1.0.0",
                 "runtime": {"dependencies": ["pkg-c"]},
-                "features": {
-                    "feat-default": {
-                        "default": True,
-                    },
-                    "feat-optional": {
-                        "default": False,
-                    },
-                },
             }
         ),
         "pkg-c": parse_package_manifest(
             {
                 "name": "pkg-c",
                 "version": "1.0.0",
-            }
-        ),
-        "pkg-feature-dep": parse_package_manifest(
-            {
-                "name": "pkg-feature-dep",
-                "version": "1.0.0",
-                "features": {
-                    "extra": {
-                        "runtime": {"dependencies": ["pkg-c"]},
-                    }
-                },
             }
         ),
         "pkg-cycle-1": parse_package_manifest(
@@ -463,21 +409,12 @@ def test_resolve_package_dependencies_mocked():
     }
 
     # Transitive dependency: pkg-a -> pkg-b -> pkg-c
-    # pkg-b should also inherit its default feature "feat-default"
     res = resolve_package_dependencies({"pkg-a": []}, manifests=manifests)
     keys = list(res.keys())
     assert keys == ["pkg-c", "pkg-b", "pkg-a"]
     assert res["pkg-c"] == []
-    assert res["pkg-b"] == ["feat-default"]
+    assert res["pkg-b"] == []
     assert res["pkg-a"] == []
-
-    # Feature-conditional dependency: inactive vs active
-    res_no_feat = resolve_package_dependencies({"pkg-feature-dep": []}, manifests=manifests)
-    assert res_no_feat == {"pkg-feature-dep": []}
-
-    res_with_feat = resolve_package_dependencies({"pkg-feature-dep": ["extra"]}, manifests=manifests)
-    assert list(res_with_feat.keys()) == ["pkg-c", "pkg-feature-dep"]
-    assert res_with_feat["pkg-feature-dep"] == ["extra"]
 
     # Cycle detection
     with pytest.raises(ValueError, match="Circular package dependency detected"):
@@ -485,52 +422,54 @@ def test_resolve_package_dependencies_mocked():
 
 
 def test_resolve_package_dependencies_real():
-    # agents with pi depends on node
-    resolved = resolve_package_dependencies({"agents": ["pi"]})
+    # agents/pi depends on languages/node
+    resolved = resolve_package_dependencies({"agents/pi": []})
     keys = list(resolved.keys())
-    assert "node" in keys
-    assert "agents" in keys
-    assert keys.index("node") < keys.index("agents")
-    assert resolved["agents"] == ["pi"]
-    assert resolved["node"] == []
+    assert "languages/node" in keys
+    assert "agents/pi" in keys
+    assert keys.index("languages/node") < keys.index("agents/pi")
 
-    # git with mcp feature depends on python
-    resolved_git_mcp = resolve_package_dependencies({"git": ["mcp"]})
+    # git/mcp depends on languages/python and git/base
+    resolved_git_mcp = resolve_package_dependencies({"git/mcp": []})
     keys_git_mcp = list(resolved_git_mcp.keys())
-    assert "python" in keys_git_mcp
-    assert "git" in keys_git_mcp
-    assert keys_git_mcp.index("python") < keys_git_mcp.index("git")
-    assert resolved_git_mcp["git"] == ["mcp"]
+    assert "languages/python" in keys_git_mcp
+    assert "git/base" in keys_git_mcp
+    assert "git/mcp" in keys_git_mcp
+    assert keys_git_mcp.index("languages/python") < keys_git_mcp.index("git/mcp")
 
-    # git without mcp feature does not depend on python
-    resolved_git = resolve_package_dependencies({"git": []})
-    assert "python" not in resolved_git
-    assert "git" in resolved_git
+    # git/base does not depend on python
+    resolved_git = resolve_package_dependencies({"git/base": []})
+    assert "languages/python" not in resolved_git
+    assert "git/base" in resolved_git
 
-    # t3 depends on node and source-control
-    resolved_t3 = resolve_package_dependencies({"t3": []})
+    # agent-orchestrators/t3 depends on languages/node and source-control
+    resolved_t3 = resolve_package_dependencies({"agent-orchestrators/t3": []})
     keys_t3 = list(resolved_t3.keys())
-    assert "node" in keys_t3
+    assert "languages/node" in keys_t3
     assert "source-control" in keys_t3
-    assert "t3" in keys_t3
-    assert keys_t3.index("node") < keys_t3.index("t3")
-    assert keys_t3.index("source-control") < keys_t3.index("t3")
+    assert "agent-orchestrators/t3" in keys_t3
+    assert keys_t3.index("languages/node") < keys_t3.index("agent-orchestrators/t3")
+    assert keys_t3.index("source-control") < keys_t3.index("agent-orchestrators/t3")
 
-    # browser chromium feature depends on node and virtual-desktop
-    resolved_browser_chromium = resolve_package_dependencies({"browser": ["chromium"]})
+    # browser/chromium depends on languages/node and virtual-desktop
+    resolved_browser_chromium = resolve_package_dependencies({"browser/chromium": []})
     keys_browser_chromium = list(resolved_browser_chromium.keys())
-    assert "node" in keys_browser_chromium
+    assert "languages/node" in keys_browser_chromium
     assert "virtual-desktop" in keys_browser_chromium
-    assert keys_browser_chromium.index("node") < keys_browser_chromium.index("browser")
-    assert keys_browser_chromium.index("virtual-desktop") < keys_browser_chromium.index("browser")
-    assert resolved_browser_chromium["browser"] == ["chromium"]
-    assert resolved_browser_chromium["virtual-desktop"] == ["wayland"]
+    assert keys_browser_chromium.index("languages/node") < keys_browser_chromium.index("browser/chromium")
 
-    # browser chromium-headless feature pulls no virtual desktop
-    resolved_browser_headless = resolve_package_dependencies({"browser": ["chromium-headless"]})
+    # browser/chromium-headless pulls no virtual desktop
+    resolved_browser_headless = resolve_package_dependencies({"browser/chromium-headless": []})
     assert "virtual-desktop" not in resolved_browser_headless
-    assert "node" not in resolved_browser_headless
-    assert resolved_browser_headless["browser"] == ["chromium-headless"]
+    assert "browser/chromium-headless" in resolved_browser_headless
+
+
+def test_resolve_legacy_package_names_rejected():
+    from packages.dependencies import REMOVED_LEGACY_PACKAGES
+
+    for legacy, target in REMOVED_LEGACY_PACKAGES.items():
+        with pytest.raises(ValueError, match=f"Package '{legacy}' has been consolidated into '{target}'"):
+            resolve_package_dependencies({legacy: []})
 
 
 def test_manifest_build_memory_mib():
@@ -552,40 +491,22 @@ def test_manifest_build_memory_mib():
     assert m2.build_memory_mib == 0
 
 
-def test_generate_package_containerfile_mixed_payload(tmp_path: Path):
-    manifest = parse_package_manifest(
-        {
-            "name": "mixed-pkg",
-            "version": "1.0.0",
-            "payload": {
-                "type": "distro_package",
-                "packages": ["git"],
-            },
-            "features": {
-                "mcp": {
-                    "payload": {
-                        "type": "build_script",
-                        "script": "features/mcp/build.sh",
-                        "build_deps": ["python3-pip"],
+def test_generate_package_containerfile_rejects_features():
+    with pytest.raises(ValueError, match="defines 'features:'"):
+        parse_package_manifest(
+            {
+                "name": "mixed-pkg",
+                "version": "1.0.0",
+                "features": {
+                    "mcp": {
+                        "payload": {
+                            "type": "build_script",
+                            "script": "build.sh",
+                        }
                     }
-                }
-            },
-        }
-    )
-
-    # Without features: pure distro package creates artifact stage without build script
-    cf_no_feat = generate_package_containerfile(manifest, tmp_path, active_features=[])
-    assert "FROM builder-base AS artifact-mixed-pkg" in cf_no_feat
-    assert "USER builder-mixed-pkg" in cf_no_feat
-    assert "RUN bash /home" not in cf_no_feat
-
-    # With mcp feature: mixed payload compiles mcp feature script under builder-mixed-pkg
-    cf_with_feat = generate_package_containerfile(manifest, tmp_path, active_features=["mcp"])
-    assert "FROM builder-base AS artifact-mixed-pkg" in cf_with_feat
-    assert "USER builder-mixed-pkg" in cf_with_feat
-    assert "python3-pip" in cf_with_feat
-    assert "git" in cf_with_feat
-    assert "bash /home/builder-mixed-pkg/build/features/mcp/build.sh" in cf_with_feat
+                },
+            }
+        )
 
 
 def test_generate_package_containerfile_hybrid_payload(tmp_path: Path):
@@ -610,7 +531,7 @@ def test_generate_package_containerfile_hybrid_payload(tmp_path: Path):
     assert "bash /home/builder-hybrid-pkg/build/build.sh" in cf
 
 
-def test_collect_distro_packages_hybrid_and_feature_handling():
+def test_collect_distro_packages_hybrid():
     manifests = {
         "pkg-hybrid": parse_package_manifest(
             {
@@ -621,26 +542,12 @@ def test_collect_distro_packages_hybrid_and_feature_handling():
                     "packages": ["ripgrep", "fd-find"],
                     "script": "build.sh",
                 },
-                "features": {
-                    "extra": {
-                        "default": True,
-                        "payload": {
-                            "type": "distro_package",
-                            "packages": ["tree-sitter-cli"],
-                        },
-                    }
-                },
             }
         ),
     }
 
-    # active_feats=None -> uses default feature: ripgrep, fd-find, tree-sitter-cli
-    pkgs_default = collect_distro_packages({"pkg-hybrid": None}, manifests=manifests)
-    assert pkgs_default == ["fd-find", "ripgrep", "tree-sitter-cli"]
-
-    # active_feats=[] -> explicit empty list disables default features
-    pkgs_explicit_empty = collect_distro_packages({"pkg-hybrid": []}, manifests=manifests)
-    assert pkgs_explicit_empty == ["fd-find", "ripgrep"]
+    pkgs = collect_distro_packages({"pkg-hybrid": None}, manifests=manifests)
+    assert pkgs == ["fd-find", "ripgrep"]
 
 
 def test_generate_package_containerfile_entrypoint_staging(tmp_path: Path):
@@ -660,68 +567,29 @@ def test_generate_package_containerfile_entrypoint_staging(tmp_path: Path):
 
 
 def test_manifest_features_required():
-    # With required: true at package level
-    m = parse_package_manifest(
-        {
-            "name": "required-feats",
-            "version": "1.0.0",
-            "features": {
-                "required": True,
-                "alpha": {"description": "Alpha feature", "default": False},
-                "beta": {"description": "Beta feature", "default": False},
-            },
-        }
-    )
-    assert m.features_required is True
-    assert "alpha" in m.features
-    assert "beta" in m.features
-    assert m.features["alpha"].required is False  # per-feature not set
-    assert m.features["beta"].required is False
-
-    # Without required: defaults to False
-    m_no_required = parse_package_manifest(
-        {
-            "name": "optional-feats",
-            "version": "1.0.0",
-            "features": {
-                "alpha": {"description": "Alpha feature", "default": True},
-            },
-        }
-    )
-    assert m_no_required.features_required is False
-
-    # Empty features dict
-    m_empty = parse_package_manifest(
-        {
-            "name": "no-features",
-            "version": "1.0.0",
-        }
-    )
-    assert m_empty.features_required is False
-    assert m_empty.features == {}
+    with pytest.raises(ValueError, match="defines 'features:'"):
+        parse_package_manifest(
+            {
+                "name": "required-feats",
+                "version": "1.0.0",
+                "features": {
+                    "alpha": {"description": "Alpha feature"},
+                },
+            }
+        )
 
 
 def test_manifest_required_feature_per_feature_flag():
-    m = parse_package_manifest(
-        {
-            "name": "per-required",
-            "version": "1.0.0",
-            "features": {
-                "core": {
-                    "description": "Core feature",
-                    "default": True,
-                    "required": True,
+    with pytest.raises(ValueError, match="defines 'features:'"):
+        parse_package_manifest(
+            {
+                "name": "per-required",
+                "version": "1.0.0",
+                "features": {
+                    "core": {"description": "Core feature"},
                 },
-                "extra": {
-                    "description": "Extra feature",
-                    "default": False,
-                },
-            },
-        }
-    )
-    assert m.features_required is False  # package-level not set
-    assert m.features["core"].required is True
-    assert m.features["extra"].required is False
+            }
+        )
 
 
 def test_media_packages_discovery_and_assembly():
@@ -732,70 +600,54 @@ def test_media_packages_discovery_and_assembly():
         assert pkg_name in pkgs, f"Missing package: {pkg_name}"
         manifest = pkgs[pkg_name]
         assert manifest.category == "media"
-        assert manifest.payload.type == "distro_package"
-        assert manifest.skill.enabled is True
         assert manifest.verification.command != ""
 
-    # 1. image-tools
-    img_mf = pkgs["image-tools"]
-    assert "ImageMagick" in img_mf.payload.packages
-    assert "potrace" in img_mf.payload.packages
-    assert set(img_mf.features.keys()) == {"vips", "jxl-heif", "gmic"}
-    s_img = assemble_package_skill(get_package_dir("image-tools"), active_features=["vips", "jxl-heif", "gmic"])
-    assert "magick" in s_img
-    assert "vips" in s_img
-    assert "cjxl" in s_img
-    assert "gmic" in s_img
+    # 1. image-tools & subpackages
+    assert "image-tools/base" in pkgs
+    assert "image-tools/vips" in pkgs
+    assert "image-tools/jxl-heif" in pkgs
+    assert "image-tools/gmic" in pkgs
+    img_base = pkgs["image-tools/base"]
+    assert "ImageMagick" in img_base.payload.packages
+    assert "potrace" in img_base.payload.packages
+    s_vips = assemble_package_skill(get_package_dir("image-tools/vips"))
+    assert "vips" in s_vips
 
     # 2. video-tools
     vid_mf = pkgs["video-tools"]
     assert "ffmpeg-free" in vid_mf.payload.packages
     assert "mediainfo" in vid_mf.payload.packages
     assert "mkvtoolnix" in vid_mf.payload.packages
-    s_vid = assemble_package_skill(get_package_dir("video-tools"), active_features=[])
+    s_vid = assemble_package_skill(get_package_dir("video-tools"))
     assert "ffmpeg-free" in s_vid
-    assert "libopenh264" in s_vid
 
-    # 3. sound-tools
-    snd_mf = pkgs["sound-tools"]
-    assert "sox" in snd_mf.payload.packages
-    assert "faad2" in snd_mf.payload.packages
-    assert "whisper" in snd_mf.features
-    whisper_feat = snd_mf.features["whisper"]
-    assert whisper_feat.payload.type == "build_script"
-    assert whisper_feat.payload.script == "features/whisper/build.sh"
-    assert "whisper-cpp" in whisper_feat.payload.packages
-    assert "libsndfile" in whisper_feat.payload.packages
-    s_snd = assemble_package_skill(get_package_dir("sound-tools"), active_features=["whisper"])
-    assert "sox" in s_snd
-    assert "whisper-cli" in s_snd
+    # 3. sound-tools & subpackages
+    assert "sound-tools/base" in pkgs
+    assert "sound-tools/whisper" in pkgs
+    snd_base = pkgs["sound-tools/base"]
+    assert "sox" in snd_base.payload.packages
+    assert "faad2" in snd_base.payload.packages
+    s_whisper = assemble_package_skill(get_package_dir("sound-tools/whisper"))
+    assert "whisper" in s_whisper
 
-    # 4. 3d-tools
-    td_mf = pkgs["3d-tools"]
-    assert "assimp" in td_mf.payload.packages
-    assert "admesh" in td_mf.payload.packages
-    assert td_mf.features["trimesh"].default is True
-    assert td_mf.features["blender"].default is False
-    assert td_mf.features["meshlab"].default is False
-    assert td_mf.features["openscad"].default is False
-    s_3d = assemble_package_skill(
-        get_package_dir("3d-tools"),
-        active_features=["trimesh", "blender", "meshlab", "openscad"],
-    )
-    assert "assimp" in s_3d
-    assert "trimesh" in s_3d
-    assert "blender" in s_3d
-    assert "meshlab" in s_3d
-    assert "openscad" in s_3d
+    # 4. 3d-tools & subpackages
+    assert "3d-tools/base" in pkgs
+    assert "3d-tools/trimesh" in pkgs
+    assert "3d-tools/blender" in pkgs
+    assert "3d-tools/meshlab" in pkgs
+    assert "3d-tools/openscad" in pkgs
+    td_base = pkgs["3d-tools/base"]
+    assert "assimp" in td_base.payload.packages
+    assert "admesh" in td_base.payload.packages
+    s_blender = assemble_package_skill(get_package_dir("3d-tools/blender"))
+    assert "blender" in s_blender
 
-    # 5. ocr-tools
-    ocr_mf = pkgs["ocr-tools"]
-    assert "tesseract" in ocr_mf.payload.packages
-    assert "tesseract-langpack-eng" in ocr_mf.payload.packages
-    assert "tesseract-osd" in ocr_mf.payload.packages
-    assert "ocrmypdf" in ocr_mf.features
-    assert "lang-fin" in ocr_mf.features
-    assert len([f for f in ocr_mf.features if f.startswith("lang-")]) == 25
-    s_ocr = assemble_package_skill(get_package_dir("ocr-tools"), active_features=["ocrmypdf"])
-    assert "tesseract" in s_ocr
+    # 5. ocr-tools & subpackages
+    assert "ocr-tools/base" in pkgs
+    assert "ocr-tools/ocrmypdf" in pkgs
+    assert "ocr-tools/languages" in pkgs
+    assert "ocr-tools/lang-fin" in pkgs
+    ocr_base = pkgs["ocr-tools/base"]
+    assert "tesseract" in ocr_base.payload.packages
+    s_ocr = assemble_package_skill(get_package_dir("ocr-tools/ocrmypdf"))
     assert "ocrmypdf" in s_ocr

@@ -23,7 +23,7 @@ payload:
         - "unzip"
         - "openssl-devel"
     build_packages:
-        - "node"
+        - "languages/node"
     env:
         AST_GREP_VERSION: "0.38.1"
         AST_GREP_SHA256_X86_64: "a6f7a1c2c7d5bb9fa3266915c22da20ec576a8c43466492f4f0d5569ccae0bd9"
@@ -38,7 +38,7 @@ skill:
 
 runtime:
     dependencies:
-        - "node"
+        - "languages/node"
 
 verification:
     command: "rg --version && fd --version && ast-grep --version && tree-sitter --version && repomix --version && tokencount --help"

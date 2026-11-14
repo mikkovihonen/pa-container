@@ -1,0 +1,31 @@
+schema_version: "0.7.0"
+name: "vector-storage/qdrant"
+version: "1.20.0"
+description: "Qdrant vector similarity search engine and vector database daemon"
+category: "database"
+license: "Apache-2.0"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+        - "gzip"
+    env:
+        QDRANT_VERSION: "1.20.0"
+        QDRANT_SHA256_AMD64: "b03a64616a1f41ddab78b480a318466541765f19835318113b1821cbea8df52c"
+        QDRANT_SHA256_ARM64: "bd8a458b8ef8006ce2c603c5bd6d1d973e39d787f794008dd959112e747c3bb7"
+
+runtime:
+    dependencies:
+        - "vector-storage/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "qdrant --version"
+    expected_output_contains: "1.20"

@@ -1,0 +1,25 @@
+schema_version: "0.7.0"
+name: "language-servers/rust-analyzer"
+version: "1.0.0"
+description: "Modular compiler and LSP language server for Rust"
+category: "devtools"
+license: "Apache-2.0 OR MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "gzip"
+    env:
+        RUST_ANALYZER_VERSION: "2025-02-17"
+        RUST_ANALYZER_SHA256_X86_64: "89fd1698f3e5281a0176ba097aa7acf94f30b63a3370845cf04defd63166b56d"
+        RUST_ANALYZER_SHA256_AARCH64: "fc5bd7e19068b4500093edb5705f2340cf145d77ad0886d13f904196cfa99361"
+
+runtime:
+    dependencies:
+        - "language-servers/base"
+
+verification:
+    command: "rust-analyzer --version"
+    expected_output_contains: "rust-analyzer"

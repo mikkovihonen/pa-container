@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Universal AgentIntercom lifecycle hook dispatcher for pa-container agents."""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def git_branch() -> str:
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+        return out.replace("/", "-") if out else "workspace"
+    except Exception:
+        return Path.cwd().name or "workspace"
+
+
+def peer_name(harness: str) -> str:
+    env_peer = os.environ.get("PA_INTERCOM_PEER", "").strip() or os.environ.get("AGENTINTERCOM_PEER", "").strip()
+    if env_peer:
+        return env_peer
+    return f"{harness}-{git_branch()}"
+
+
+def run_intercom(args: list[str], peer: str) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    env.setdefault("PA_INTERCOM_DIR", "/tmp/pa-intercom")
+    env["AGENTINTERCOM_PEER"] = peer
+    return subprocess.run(
+        ["agentintercom", *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+
+def fetch_unread(peer: str) -> list[dict]:
+    res = run_intercom(["inbox", "--unread", "--json"], peer)
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+    try:
+        data = json.loads(res.stdout)
+        return data if isinstance(data, list) else data.get("messages", [])
+    except Exception:
+        return []
+
+
+def format_messages(messages: list[dict]) -> str:
+    lines = ["[AgentIntercom] Incoming unread messages:"]
+    for m in messages:
+        msg_id = m.get("id", "unknown")
+        sender = m.get("from", "peer")
+        body = m.get("message") or m.get("body") or ""
+        lines.append(f"- (id={msg_id}) from {sender}: {body}")
+    lines.append("Reply with `intercom_send` and mark handled with `intercom_ack`.")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="pa-intercom-hook")
+    parser.add_argument("--version", action="version", version="pa-intercom-hook 1.0.0")
+    sub = parser.add_subparsers(dest="cmd")
+
+    for name in ("register", "check-context", "check-stop", "drain-text"):
+        p = sub.add_parser(name)
+        p.add_argument("--harness", default="agent")
+        p.add_argument("--ack", action="store_true")
+
+    args = parser.parse_args()
+    if not args.cmd:
+        parser.print_help()
+        return 0
+
+    peer = peer_name(args.harness)
+
+    if args.cmd == "register":
+        run_intercom(["register", "--name", peer, "--worktree", str(Path.cwd().resolve())], peer)
+        return 0
+
+    messages = fetch_unread(peer)
+    if not messages:
+        return 0
+
+    summary = format_messages(messages)
+
+    if args.ack:
+        for m in messages:
+            if m.get("id"):
+                run_intercom(["ack", str(m["id"])], peer)
+
+    if args.cmd == "drain-text":
+        print(summary)
+        return 0
+
+    if args.cmd == "check-context":
+        payload = {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": summary,
+            }
+        }
+        print(json.dumps(payload))
+        return 0
+
+    if args.cmd == "check-stop":
+        payload = {
+            "decision": "block",
+            "reason": summary,
+        }
+        print(json.dumps(payload))
+        return 0
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

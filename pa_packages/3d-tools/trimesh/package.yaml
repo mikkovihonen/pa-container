@@ -1,0 +1,28 @@
+schema_version: "0.7.0"
+name: "3d-tools/trimesh"
+version: "1.0.0"
+description: "trimesh Python mesh toolkit with scipy, networkx, and lxml for load/convert/repair/analyze workflows (STL, OBJ, PLY, GLB/TF, 3MF)"
+category: "media"
+license: "MIT"
+
+payload:
+    type: distro_package
+    packages:
+        - "python3-trimesh"
+        - "python3-scipy"
+        - "python3-networkx"
+        - "python3-lxml"
+
+runtime:
+    dependencies:
+        - "languages/python"
+        - "3d-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "python3 -c 'import trimesh, numpy, scipy, networkx, lxml; print(\"trimesh\", trimesh.__version__)'"
+    expected_output_contains: "trimesh"

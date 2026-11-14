@@ -1,0 +1,33 @@
+schema_version: "0.7.0"
+name: "agent-orchestrators/worktrunk"
+version: "0.81.0"
+description: "Worktrunk (wt) CLI for branch-addressed Git worktree management, .worktreeinclude syncing, copy-on-write build caches, and parallel agent workflows"
+category: "orchestration"
+license: "MIT OR Apache-2.0"
+
+payload:
+    type: binary_download
+    platforms:
+        x86_64:
+            url: "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-x86_64-unknown-linux-musl.tar.xz"
+            sha256: "0c253f216985ce9cd7b202a11606b5ce6aa934b1019fd1fbb9b7ce2b47b1c74a"
+            extract_map:
+                "worktrunk-x86_64-unknown-linux-musl/wt": "/usr/local/bin/wt"
+        aarch64:
+            url: "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-aarch64-unknown-linux-musl.tar.xz"
+            sha256: "7a334d2e64c577afd0247e2411eff673360ab1f18897564f2d2e5d5374fbd74b"
+            extract_map:
+                "worktrunk-aarch64-unknown-linux-musl/wt": "/usr/local/bin/wt"
+
+runtime:
+    dependencies:
+        - "agent-orchestrators/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "wt --version"
+    expected_output_contains: "wt"

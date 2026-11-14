@@ -1,0 +1,38 @@
+schema_version: 0.7.0
+name: ocr-tools/languages
+version: 1.0.0
+description: All 25 OCR language packs for Tesseract
+category: media
+license: Apache-2.0
+payload:
+  type: none
+runtime:
+  dependencies:
+  - ocr-tools/lang-ara
+  - ocr-tools/lang-ces
+  - ocr-tools/lang-chi-sim
+  - ocr-tools/lang-chi-tra
+  - ocr-tools/lang-dan
+  - ocr-tools/lang-deu
+  - ocr-tools/lang-ell
+  - ocr-tools/lang-fin
+  - ocr-tools/lang-fra
+  - ocr-tools/lang-heb
+  - ocr-tools/lang-hin
+  - ocr-tools/lang-hun
+  - ocr-tools/lang-ita
+  - ocr-tools/lang-jpn
+  - ocr-tools/lang-kor
+  - ocr-tools/lang-nld
+  - ocr-tools/lang-nor
+  - ocr-tools/lang-pol
+  - ocr-tools/lang-por
+  - ocr-tools/lang-rus
+  - ocr-tools/lang-spa
+  - ocr-tools/lang-swe
+  - ocr-tools/lang-tur
+  - ocr-tools/lang-ukr
+  - ocr-tools/lang-vie
+verification:
+  command: tesseract --list-langs
+  expected_output_contains: eng

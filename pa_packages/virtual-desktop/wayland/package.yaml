@@ -1,0 +1,40 @@
+schema_version: "0.7.0"
+name: "virtual-desktop/wayland"
+version: "2.1.0"
+description: "Headless Wayland display stack: labwc compositor with Xwayland compatibility, wayvnc VNC server, and wlr-randr/grim/slurp/xdotool/wtype automation tooling"
+category: "desktop"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    packages:
+        - "labwc"
+        - "xorg-x11-server-Xwayland"
+        - "wlr-randr"
+        - "wayvnc"
+        - "grim"
+        - "slurp"
+        - "xdotool"
+        - "wtype"
+        - "mesa-libEGL"
+        - "mesa-libGLES"
+        - "mesa-libgbm"
+        - "xkeyboard-config"
+        - "xkbcomp"
+
+runtime:
+    dependencies:
+        - "virtual-desktop/base"
+    env:
+        DISPLAY: ":0"
+        WAYLAND_DISPLAY: "wayland-0"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "command -v labwc && command -v wayvnc && command -v Xwayland && command -v wlr-randr && command -v grim && command -v slurp && command -v wtype && command -v xdotool && command -v xkbcomp && test -e /usr/share/X11/xkb && echo labwc-wayvnc-Xwayland-xkb-ready"
+    expected_output_contains: "labwc"

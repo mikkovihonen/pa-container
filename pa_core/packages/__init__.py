@@ -38,7 +38,11 @@ from packages.plugin import (
     ACPAgentPlugin,
     ACPPlugin,
     ContainerRunSpec,
+    IngressAuthPolicy,
     RunContext,
+    TunnelEndpoint,
+    TunnelEndpointRequest,
+    TunnelProvider,
 )
 from packages.projection import (
     aggregate_egress_hosts,
@@ -64,6 +68,10 @@ __all__ = [
     "ACPAgentPlugin",
     "ContainerRunSpec",
     "RunContext",
+    "IngressAuthPolicy",
+    "TunnelEndpointRequest",
+    "TunnelEndpoint",
+    "TunnelProvider",
     "load_acp_plugin",
     "load_active_plugins",
     "load_project_plugins",

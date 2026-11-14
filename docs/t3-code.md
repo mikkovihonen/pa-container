@@ -131,7 +131,7 @@ When T3 Code runs inside a container, `t3 serve` must bind to `--host 0.0.0.0` s
         ```bash
         pa run --t3 --t3-advertise-host 192.168.1.100
         ```
-    - **Secure Tunnels**: For internet and mobile access, use automated tunnels via `--t3-tunnel <tailscale|cloudflare>` which automatically configure the advertised host and public HTTPS URL without touching `config.yaml`.
+    - **Secure Tunnels**: For internet and mobile access, use automated tunnels via `--tunnel <tailscale|cloudflare>` which automatically configure the advertised host and public HTTPS URL without touching `config.yaml`.
 - **LAN Elevation (`agent.ports.expose`)**:
     - **Default (`localhost`)**: Port `3773` is published exclusively on `127.0.0.1:3773:3773`.
     - **LAN Access (`lan`)**: To allow pairing and connection from other devices on your local network (e.g. phone, tablet, or another machine), explicitly set `agent.ports.expose: lan` in `config.yaml` or pass `--t3-lan` on the CLI.
@@ -169,7 +169,7 @@ To enable specific source control CLIs in your workspace, declare them in `.pa-c
 
 ```yaml
 packages:
-  - t3
+  - agent-orchestrators/t3
   - gh
   - glab
   - tea
@@ -323,10 +323,10 @@ Tailscale connects your mobile device and development workstation over an encryp
 2. Install the Tailscale app on your mobile device (iOS App Store or Google Play Store) and connect to the same Tailnet.
 
 #### Launching pa-container
-Run the launcher with `--t3-tunnel tailscale`:
+Run the launcher with `--tunnel tailscale`:
 
 ```bash
-pa run --t3 --t3-tunnel tailscale
+pa run --t3 --tunnel tailscale
 ```
 
 The launcher will:
@@ -372,7 +372,7 @@ Expose T3 Code under a user-owned custom domain on Cloudflare (e.g. `t3.yourdoma
 Run the launcher specifying your user-owned domain:
 
 ```bash
-pa run --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com
+pa run --t3 --tunnel cloudflare --tunnel-domain t3.yourdomain.com
 ```
 
 - If `cloudflared` is not installed on your host, `pa-container` runs it automatically as an isolated ephemeral container via `podman`.
@@ -396,14 +396,14 @@ pa run --t3 --t3-tunnel cloudflare --t3-tunnel-domain t3.yourdomain.com
 2. The Cloudflare Access login screen prompts for authentication (enter your email OTP or sign in with Google/GitHub).
 3. Once authenticated, T3 Code opens and establishes a secure WebSocket connection to your container.
 
-#### Ephemeral Quick Tunnels (`--t3-tunnel-quick`)
+#### Ephemeral Quick Tunnels (`--tunnel-quick`)
 For quick testing without a custom domain or Cloudflare account:
 
 ```bash
-pa run --t3-tunnel-quick
+pa run --t3 --tunnel-quick
 ```
 
-*(You can also use `pa run --t3 --t3-tunnel cloudflare --t3-tunnel-quick`; specifying `--t3-tunnel-quick` automatically implies both `--t3` and Cloudflare tunnel provider).*
+*(Specifying `--tunnel-quick` automatically implies Cloudflare tunnel provider).*
 
 This provisions an ephemeral tunnel on `https://<random>.trycloudflare.com` and renders the corresponding QR code.
 
@@ -411,14 +411,18 @@ This provisions an ephemeral tunnel on `https://<random>.trycloudflare.com` and 
 
 ### Tunnel CLI Options Reference
 
+The `tunnels` capability package provides canonical tunnel and ingress arguments:
+
 | Option | Values / Example | Description |
 | :--- | :--- | :--- |
-| `--t3-tunnel` | `tailscale` \| `cloudflare` | Activates remote access tunnel integration. |
-| `--t3-tunnel-domain` | `t3.yourdomain.com` | User-owned domain on Cloudflare. Required for named Cloudflare tunnels. |
-| `--t3-tunnel-quick` | *(flag)* | Uses ephemeral Cloudflare Quick Tunnel (`trycloudflare.com`) without a domain or account. |
-| `--t3-tunnel-runner` | `auto` (default) \| `host` \| `container` | Execution engine for `cloudflared`. `auto` uses host binary if found, else runs containerized via `podman`. |
-| `--t3-tunnel-keyring-account` | `CUSTOM_TOKEN_NAME` | Keyring account name to query. Defaults to `CLOUDFLARE_TUNNEL_TOKEN`. |
-| `--t3-tunnel-tailscale-mode` | `serve` (default) \| `direct` | `serve` provisions MagicDNS HTTPS via Tailscale Serve; `direct` advertises the Tailscale IPv4. |
+| `--tunnel` | `tailscale` \| `cloudflare` | Activates remote access tunnel integration. |
+| `--tunnel-domain` | `t3.yourdomain.com` | User-owned domain on Cloudflare. Required for named Cloudflare tunnels. |
+| `--tunnel-quick` | *(flag)* | Uses ephemeral Cloudflare Quick Tunnel (`trycloudflare.com`) without a domain or account. |
+| `--tunnel-runner` | `auto` (default) \| `host` \| `container` | Execution engine for `cloudflared`. `auto` uses host binary if found, else runs containerized via `podman`. |
+| `--tunnel-keyring-account` | `CUSTOM_TOKEN_NAME` | Keyring account name to query. Defaults to `CLOUDFLARE_TUNNEL_TOKEN`. |
+| `--tunnel-tailscale-mode` | `serve` (default) \| `funnel` | Tailscale exposure mode: `serve` (tailnet-only) or `funnel` (public internet). |
+| `--tunnel-auth` | `auto` \| `oidc` \| `basic` \| `token` \| `none` | Ingress authentication gate mode. |
+| `--tunnel-services` | `t3,desktop` | Comma-separated list of services to tunnel (default: all registered services). |
 | `--t3-public-url` | `https://proxy.example.com` | Explicit public URL override for custom reverse proxies. |
 
 ---

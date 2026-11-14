@@ -1,0 +1,15 @@
+schema_version: "0.7.0"
+name: "git/base"
+version: "2.47.1"
+description: "Fast, scalable, distributed revision control system (git)"
+category: "scm"
+license: "GPL-2.0"
+
+payload:
+    type: distro_package
+    packages:
+        - "git"
+
+verification:
+    command: "git --version"
+    expected_output_contains: "git version"

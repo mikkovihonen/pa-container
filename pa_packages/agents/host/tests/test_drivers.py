@@ -239,7 +239,7 @@ def test_synthesize_config_projects_package_mcp_servers(tmp_path: Path):
     project_dir.mkdir(parents=True)
     cfg_dir = project_dir / ".pa-container"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "config.yaml").write_text("packages:\n  - source-control:\n      - github\n  - podman: []\n")
+    (cfg_dir / "config.yaml").write_text("packages:\n  - source-control/github\n  - podman\n")
 
     # Claude Code
     claude = get_agent_driver("claude")

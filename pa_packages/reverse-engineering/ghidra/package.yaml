@@ -1,0 +1,38 @@
+schema_version: "0.7.0"
+name: "reverse-engineering/ghidra"
+version: "1.0.0"
+description: "Ghidra interactive GUI application with desktop launcher"
+category: "security"
+license: "Apache-2.0"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "unzip"
+    packages:
+        - "java-21-openjdk"
+        - "dejavu-sans-fonts"
+        - "liberation-sans-fonts"
+    env:
+        GHIDRA_VERSION: "12.2"
+        GHIDRA_BUILD_DATE: "20261016"
+        GHIDRA_SHA256: "2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67"
+
+runtime:
+    dependencies:
+        - "reverse-engineering/ghidra-headless"
+        - "virtual-desktop"
+    env:
+        GHIDRA_INSTALL_DIR: "/usr/local/share/ghidra"
+        JAVA_HOME: "/usr/lib/jvm/jre-21-openjdk"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "test -x /usr/local/bin/ghidra && test -f /usr/share/applications/ghidra.desktop && echo ghidra-gui-ready"
+    expected_output_contains: "ghidra-gui-ready"

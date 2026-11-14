@@ -1,0 +1,24 @@
+schema_version: "0.7.0"
+name: "3d-tools/meshlab"
+version: "1.0.0"
+description: "MeshLab headless mesh processing, cleaning, and format conversion CLI ('QT_QPA_PLATFORM=offscreen meshlab -i in -o out')"
+category: "media"
+license: "GPL-3.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "meshlab"
+
+runtime:
+    dependencies:
+        - "3d-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "QT_QPA_PLATFORM=offscreen meshlab --help 2>&1"
+    expected_output_contains: "meshlab"

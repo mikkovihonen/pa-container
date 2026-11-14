@@ -75,20 +75,10 @@ def verify_package(
         )
 
     manifest = load_package_manifest(manifest_file)
-    active_feats = sorted(features) if features else []
     v_cmd = manifest.verification.command.strip()
     expected_contains_list = (
         [manifest.verification.expected_output_contains] if manifest.verification.expected_output_contains else []
     )
-
-    for feat_name in active_feats:
-        if feat_name in manifest.features:
-            f = manifest.features[feat_name]
-            f_cmd = f.verification.command.strip()
-            if f_cmd:
-                v_cmd = f"{v_cmd} && {f_cmd}" if v_cmd else f_cmd
-            if f.verification.expected_output_contains:
-                expected_contains_list.append(f.verification.expected_output_contains)
 
     if not v_cmd:
         return PackageVerificationResult(
@@ -100,18 +90,14 @@ def verify_package(
             error=None,
         )
 
-    deps = list(manifest.runtime.dependencies)
-    for feat_name in active_feats:
-        if feat_name in manifest.features:
-            deps.extend(manifest.features[feat_name].runtime.dependencies)
-
-    deps = sorted(set(deps))
+    deps = sorted(set(manifest.runtime.dependencies))
     packages_to_ensure: dict[str, list[str]] = {dep: [] for dep in deps}
-    packages_to_ensure[package_name] = active_feats
+    packages_to_ensure[package_name] = []
 
     start_time = time.perf_counter()
-    temp_dir = Path(tempfile.mkdtemp(prefix=f"pa-smoke-{package_name}-"))
-    test_tag = f"localhost/pa-container-smoke-{package_name}-{uuid.uuid4().hex[:8]}:local"
+    clean_name = package_name.replace("/", "-")
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"pa-smoke-{clean_name}-"))
+    test_tag = f"localhost/pa-container-smoke-{clean_name}-{uuid.uuid4().hex[:8]}:local"
 
     try:
         ensure_base_image(runtime=runtime)
@@ -406,7 +392,7 @@ def verify_package_integration(
             if p_manifest_file.is_file():
                 manifests_to_aggregate.append(load_package_manifest(p_manifest_file))
 
-        privileges = aggregate_runtime_privileges(manifests_to_aggregate, active_features=resolved_pkgs)
+        privileges = aggregate_runtime_privileges(manifests_to_aggregate)
 
         run_args = [
             runtime,

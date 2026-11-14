@@ -1,0 +1,26 @@
+schema_version: "0.7.0"
+name: "document-tools/docling"
+version: "2.0.0"
+description: "AI-native neural document parsing (PDF, DOCX, PPTX to Markdown)"
+category: "devtools"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_packages:
+        - "languages/python"
+
+runtime:
+    dependencies:
+        - "languages/python"
+        - "document-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "docling --version"
+    expected_output_contains: "docling"

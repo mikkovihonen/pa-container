@@ -1,0 +1,28 @@
+schema_version: "0.7.0"
+name: "document-tools/base"
+version: "2.0.0"
+description: "Document conversion and extraction: Pandoc (universal document converter) and Poppler utilities (PDF text/image extraction)"
+category: "devtools"
+license: "GPL-2.0-or-later"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "poppler-utils"
+        - "curl"
+        - "tar"
+        - "gzip"
+    env:
+        PANDOC_VERSION: "3.13"
+        PANDOC_SHA256_X86_64: "38aa33b325a2bc96a4c39409631212db55702f564250bcdbead180b3bf646389"
+        PANDOC_SHA256_AARCH64: "21e1d4ba09bd0b334590d204580fd4f6629b21be4ab6a32b26cc98982e9e0c68"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "pandoc --version && pdftotext -v && pdfinfo -v"
+    expected_output_contains: "pandoc"

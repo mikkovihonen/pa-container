@@ -1,0 +1,24 @@
+schema_version: "0.7.0"
+name: "3d-tools/blender"
+version: "1.0.0"
+description: "Blender headless scripting and rendering (bpy via 'blender -b --python', Cycles CPU)"
+category: "media"
+license: "GPL-2.0-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "blender"
+
+runtime:
+    dependencies:
+        - "3d-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "blender -v"
+    expected_output_contains: "Blender"

@@ -1,0 +1,52 @@
+schema_version: "0.7.0"
+name: "source-control/azure-devops"
+version: "1.0.0"
+description: "Azure DevOps credentials and PAT configuration"
+category: "scm"
+license: "MIT"
+
+config:
+    auto_detect_host_cli: false
+
+secrets:
+    - name: "azure_devops"
+      required: true
+      placeholder: "AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"
+
+payload:
+    type: "none"
+
+runtime:
+    dependencies:
+        - "source-control/base"
+
+egress:
+    allow_hosts:
+        - "dev.azure.com"
+        - "*.visualstudio.com"
+
+token_replacer:
+    - name: "azure-devops-token-inject"
+      hostnames:
+          - "dev.azure.com"
+          - "*.visualstudio.com"
+      content_patterns:
+          - field: "headers"
+            header_name: "Authorization"
+            regex: "AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"
+          - field: "headers"
+            header_name: "Authorization"
+            encoding: "base64"
+            regex: "AZURE_DEVOPS_EXT_PAT_PLACEHOLDER"
+      replace_with:
+          strategy: "static"
+          value: "${ENV:AZURE_DEVOPS_EXT_PAT}"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "git --version"
+    expected_output_contains: "git version"

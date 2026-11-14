@@ -1,97 +1,22 @@
 schema_version: "0.7.0"
 name: "language-servers"
 version: "1.0.0"
-description: "Unified language server capability providing lsp-bridge core and optional language servers"
+description: "Unified language server capability providing lsp-bridge core and language servers"
 category: "devtools"
 license: "Apache-2.0"
 
 payload:
-    type: build_script
-    script: "build.sh"
+    type: "none"
 
 skill:
     enabled: true
     source: "skill/base.md"
     target_agents: ["all"]
 
+runtime:
+    dependencies:
+        - "language-servers/base"
+
 verification:
     command: "lsp-bridge --version"
     expected_output_contains: "lsp-bridge 1.0.0"
-
-features:
-    rust-analyzer:
-        description: "Modular compiler and LSP language server for Rust"
-        default: false
-        payload:
-            type: "build_script"
-            script: "features/rust-analyzer/build.sh"
-            build_deps:
-                - "curl"
-                - "gzip"
-            env:
-                RUST_ANALYZER_VERSION: "2025-02-17"
-                RUST_ANALYZER_SHA256_X86_64: "89fd1698f3e5281a0176ba097aa7acf94f30b63a3370845cf04defd63166b56d"
-                RUST_ANALYZER_SHA256_AARCH64: "fc5bd7e19068b4500093edb5705f2340cf145d77ad0886d13f904196cfa99361"
-        verification:
-            command: "rust-analyzer --version"
-            expected_output_contains: "rust-analyzer"
-
-    zls:
-        description: "Zig language server for completions, definitions, and diagnostics"
-        default: false
-        payload:
-            type: "build_script"
-            script: "features/zls/build.sh"
-            build_deps:
-                - "curl"
-                - "tar"
-                - "xz"
-            env:
-                ZLS_VERSION: "0.17.0"
-                ZLS_SHA256_X86_64: "dfa4514e1868803fdf2ae56832c88b9d400094d70ea6bb136b57bcc91af10258"
-                ZLS_SHA256_AARCH64: "0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873"
-        verification:
-            command: "zls --version"
-            expected_output_contains: "0.17"
-
-    clangd:
-        description: "C/C++ language server providing code completions and indexing"
-        default: false
-        payload:
-            type: "build_script"
-            script: "features/clangd/build.sh"
-            build_deps:
-                - "clang-tools-extra"
-        verification:
-            command: "clangd --version"
-            expected_output_contains: "clangd"
-
-    pyright:
-        description: "Static type checker and LSP language server for Python"
-        default: false
-        payload:
-            type: "build_script"
-            script: "features/pyright/build.sh"
-            build_packages:
-                - "node"
-        runtime:
-            dependencies:
-                - "node"
-        verification:
-            command: "pyright --version"
-            expected_output_contains: "pyright"
-
-    typescript:
-        description: "Language Server Protocol implementation for TypeScript and JavaScript"
-        default: false
-        payload:
-            type: "build_script"
-            script: "features/typescript/build.sh"
-            build_packages:
-                - "node"
-        runtime:
-            dependencies:
-                - "node"
-        verification:
-            command: "typescript-language-server --version"
-            expected_output_contains: "typescript-language-server"

@@ -59,7 +59,7 @@ def test_verify_package_success_mocked(tmp_path: Path):
         "version: 1.0.0\n"
         "runtime:\n"
         "  dependencies:\n"
-        "    - node\n"
+        "    - languages/node\n"
         "verification:\n"
         "    command: mock --version\n"
         "    expected_output_contains: 'mock 1.0.0'\n"

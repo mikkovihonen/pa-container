@@ -1,0 +1,26 @@
+schema_version: "0.7.0"
+name: "agent-orchestrators/agentintercom"
+version: "1.0.0"
+description: "AgentIntercom message bus and native extensions/hooks/MCP adapters for Pi, OpenCode, Claude Code, and Antigravity enabling real-time multi-user and inter-agent collaboration"
+category: "orchestration"
+license: "Apache-2.0"
+
+payload:
+    type: build_script
+    script: "build.sh"
+    build_deps:
+        - "python3"
+        - "jq"
+
+runtime:
+    dependencies:
+        - "agent-orchestrators/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "agentintercom --help && pa-intercom-hook --version && pa-intercom-mcp --version && test -f /usr/local/share/pa-agentintercom/pi/agentintercom.ts"
+    expected_output_contains: "agentintercom"

@@ -64,46 +64,48 @@ class AgentsPlugin(ACPAgentPlugin):
             },
         }
 
-    def _resolve_enabled_agents(self, config: ProjectConfig | None) -> list[str]:
+    def _resolve_enabled_agents(
+        self, config: ProjectConfig | None, active_packages: list[str] | None = None
+    ) -> list[str]:
+        agents: list[str] = []
+        if active_packages:
+            for p in active_packages:
+                if p in ("agents", "agents/pi"):
+                    if "pi" not in agents:
+                        agents.append("pi")
+                elif p.startswith("agents/"):
+                    ag = p.removeprefix("agents/")
+                    if ag not in agents:
+                        agents.append(ag)
+            if agents:
+                return agents
+
         if not config:
             return ["pi"]
         pkgs = config.get("packages")
         if not isinstance(pkgs, list):
             return ["pi"]
 
-        agents: list[str] = []
         for entry in pkgs:
-            if isinstance(entry, str) and entry.strip().lower() == "agents":
+            p_name = ""
+            if isinstance(entry, str):
+                p_name = entry.strip().lower()
+            elif isinstance(entry, dict) and len(entry) == 1:
+                p_name = str(next(iter(entry.keys()))).strip().lower()
+
+            if p_name in ("agents", "agents/pi"):
                 if "pi" not in agents:
                     agents.append("pi")
-            elif isinstance(entry, dict) and "agents" in entry:
-                v = entry["agents"]
-                if isinstance(v, list):
-                    for f in v:
-                        if isinstance(f, str) and f.strip():
-                            s = f.strip().lower()
-                            if s not in agents:
-                                agents.append(s)
-                        elif isinstance(f, dict) and len(f) == 1:
-                            s = str(next(iter(f.keys()))).strip().lower()
-                            if s and s not in agents:
-                                agents.append(s)
-                elif isinstance(v, dict) and isinstance(v.get("features"), list):
-                    for f in v["features"]:
-                        if isinstance(f, str) and f.strip():
-                            s = f.strip().lower()
-                            if s not in agents:
-                                agents.append(s)
-                        elif isinstance(f, dict) and len(f) == 1:
-                            s = str(next(iter(f.keys()))).strip().lower()
-                            if s and s not in agents:
-                                agents.append(s)
+            elif p_name.startswith("agents/"):
+                ag = p_name.removeprefix("agents/")
+                if ag not in agents:
+                    agents.append(ag)
 
         return agents if agents else ["pi"]
 
     def on_run_init(self, context: RunContext) -> None:
         """Resolve active and selected agents, configure drivers, and synthesize configs."""
-        enabled_agents = self._resolve_enabled_agents(context.config)
+        enabled_agents = self._resolve_enabled_agents(context.config, active_packages=context.active_packages)
         agent_sec = context.config.get("agent") if context.config else None
         default_agent = (
             str(agent_sec.get("default")).strip().lower()

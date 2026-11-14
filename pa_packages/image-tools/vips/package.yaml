@@ -1,0 +1,25 @@
+schema_version: "0.7.0"
+name: "image-tools/vips"
+version: "1.0.0"
+description: "libvips streaming image processing (vips CLI) with HEIF support, efficient for very large images"
+category: "media"
+license: "LGPL-2.1-or-later"
+
+payload:
+    type: distro_package
+    packages:
+        - "vips"
+        - "vips-heif"
+
+runtime:
+    dependencies:
+        - "image-tools/base"
+
+skill:
+    enabled: true
+    source: "skill/SKILL.md"
+    target_agents: ["all"]
+
+verification:
+    command: "vips --version"
+    expected_output_contains: "vips"

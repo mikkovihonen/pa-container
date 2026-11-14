@@ -1,0 +1,26 @@
+schema_version: "0.7.0"
+name: "language-servers/zls"
+version: "1.0.0"
+description: "Zig language server for completions, definitions, and diagnostics"
+category: "devtools"
+license: "MIT"
+
+payload:
+    type: "build_script"
+    script: "build.sh"
+    build_deps:
+        - "curl"
+        - "tar"
+        - "xz"
+    env:
+        ZLS_VERSION: "0.17.0"
+        ZLS_SHA256_X86_64: "dfa4514e1868803fdf2ae56832c88b9d400094d70ea6bb136b57bcc91af10258"
+        ZLS_SHA256_AARCH64: "0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873"
+
+runtime:
+    dependencies:
+        - "language-servers/base"
+
+verification:
+    command: "zls --version"
+    expected_output_contains: "0.17"

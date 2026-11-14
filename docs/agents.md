@@ -137,13 +137,13 @@ When agent features are configured:
 
 ---
 
-## Adding Custom Agent Features
+## Adding Custom Agent Packages
 
-New agent engines can be integrated into `pa-container` as modular features under `pa_packages/agents/` or as separate ACP packages:
+New agent engines can be integrated into `pa-container` as canonical subpackages under `pa_packages/agents/<engine>/` or as standalone ACP packages:
 
-1. In `pa_packages/agents/package.yaml`, declare the new feature under `features:`:
-    - Define `payload`, `runtime`, `skill_fragment`, and `verification`.
-2. Add the feature skill fragment at `pa_packages/agents/features/<engine>/skill/SKILL.md` (declare it with `skill_fragment: "features/<engine>/skill/SKILL.md"`).
+1. Create `pa_packages/agents/<engine>/package.yaml`:
+    - Define `name: "agents/<engine>"`, `payload`, `runtime`, `skill`, and `verification`.
+2. Add the agent skill at `pa_packages/agents/<engine>/skill/SKILL.md` (or specify `source` under `skill:`).
 3. In `pa_packages/agents/host/drivers/<engine>.py`, create a driver inheriting from `AgentDriver`:
     - Implement `name`, `get_mounts()`, `get_command()`, `get_environment()`, and `synthesize_config()`.
 4. In `pa_packages/agents/host/registry.py`, register the driver in `AVAILABLE_AGENTS` and `DRIVER_CLASSES`.

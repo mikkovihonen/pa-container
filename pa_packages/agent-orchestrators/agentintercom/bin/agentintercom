@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Durable file-based message bus CLI for AgentIntercom."""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+
+
+def get_intercom_dir() -> Path:
+    base = os.environ.get("PA_INTERCOM_DIR", "/tmp/pa-intercom").strip()
+    p = Path(base)
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "peers").mkdir(parents=True, exist_ok=True)
+    (p / "inbox").mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def git_branch() -> str:
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+        return out.replace("/", "-") if out else "workspace"
+    except Exception:
+        return Path.cwd().name or "workspace"
+
+
+def default_peer_name() -> str:
+    env_peer = os.environ.get("AGENTINTERCOM_PEER", "").strip() or os.environ.get("PA_INTERCOM_PEER", "").strip()
+    if env_peer:
+        return env_peer
+    return f"agent-{git_branch()}"
+
+
+def cmd_register(args: argparse.Namespace) -> int:
+    bus_dir = get_intercom_dir()
+    name = args.name or default_peer_name()
+    worktree = args.worktree or str(Path.cwd().resolve())
+    peer_file = bus_dir / "peers" / f"{name}.json"
+    data = {
+        "name": name,
+        "worktree": worktree,
+        "registered_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "last_seen": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    tmp_file = peer_file.with_suffix(".tmp")
+    tmp_file.write_text(json.dumps(data, indent=2))
+    tmp_file.replace(peer_file)
+    (bus_dir / "inbox" / name).mkdir(parents=True, exist_ok=True)
+    if not args.quiet:
+        print(f"Registered peer '{name}' ({worktree})")
+    return 0
+
+
+def cmd_peers(args: argparse.Namespace) -> int:
+    bus_dir = get_intercom_dir()
+    peers_dir = bus_dir / "peers"
+    peers: list[dict[str, str]] = []
+    if peers_dir.is_dir():
+        for p in sorted(peers_dir.glob("*.json")):
+            try:
+                peers.append(json.loads(p.read_text()))
+            except Exception:
+                peers.append({"name": p.stem, "worktree": "unknown"})
+
+    if args.json:
+        print(json.dumps(peers, indent=2))
+    else:
+        for p in peers:
+            print(f"- {p.get('name', 'unknown')} ({p.get('worktree', '')})")
+    return 0
+
+
+def cmd_send(args: argparse.Namespace) -> int:
+    bus_dir = get_intercom_dir()
+    sender = default_peer_name()
+    recipients: list[str] = []
+    if args.to == "all":
+        peers_dir = bus_dir / "peers"
+        if peers_dir.is_dir():
+            recipients = [p.stem for p in peers_dir.glob("*.json")]
+        if not recipients:
+            recipients = [sender]
+    else:
+        recipients = [args.to]
+
+    msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    msg_payload = {
+        "id": msg_id,
+        "from": sender,
+        "to": args.to,
+        "message": args.message,
+        "topic": args.topic or "",
+        "reply_to": args.reply_to or "",
+        "sent_at": now_iso,
+        "status": "unread",
+    }
+
+    for rcpt in recipients:
+        inbox_dir = bus_dir / "inbox" / rcpt
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        file_path = inbox_dir / f"{msg_id}.json"
+        tmp_path = file_path.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(msg_payload, indent=2))
+        tmp_path.replace(file_path)
+
+    if args.json:
+        print(json.dumps(msg_payload, indent=2))
+    else:
+        print(f"Sent message {msg_id} to {args.to}")
+    return 0
+
+
+def cmd_inbox(args: argparse.Namespace) -> int:
+    bus_dir = get_intercom_dir()
+    peer = default_peer_name()
+    inbox_dir = bus_dir / "inbox" / peer
+    messages: list[dict[str, str]] = []
+    if inbox_dir.is_dir():
+        for f in sorted(inbox_dir.glob("*.json")):
+            try:
+                m = json.loads(f.read_text())
+                if args.unread and m.get("status") != "unread":
+                    continue
+                messages.append(m)
+            except Exception:
+                pass
+
+    if args.json:
+        print(json.dumps(messages, indent=2))
+    else:
+        for m in messages:
+            print(f"[{m.get('id')}] from {m.get('from')}: {m.get('message')}")
+    return 0
+
+
+def cmd_ack(args: argparse.Namespace) -> int:
+    bus_dir = get_intercom_dir()
+    peer = default_peer_name()
+    target_id = args.message_id.strip()
+    inbox_dir = bus_dir / "inbox" / peer
+
+    acked = False
+    if inbox_dir.is_dir():
+        target_file = inbox_dir / f"{target_id}.json"
+        if target_file.is_file():
+            try:
+                m = json.loads(target_file.read_text())
+                m["status"] = "acked"
+                m["acked_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                tmp_path = target_file.with_suffix(".tmp")
+                tmp_path.write_text(json.dumps(m, indent=2))
+                tmp_path.replace(target_file)
+                acked = True
+            except Exception:
+                pass
+
+    if not acked:
+        for path in (bus_dir / "inbox").glob(f"*/{target_id}.json"):
+            try:
+                m = json.loads(path.read_text())
+                m["status"] = "acked"
+                m["acked_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                tmp_path = path.with_suffix(".tmp")
+                tmp_path.write_text(json.dumps(m, indent=2))
+                tmp_path.replace(path)
+                acked = True
+                break
+            except Exception:
+                pass
+
+    if args.json:
+        print(json.dumps({"id": target_id, "status": "acked" if acked else "not_found"}))
+    else:
+        print(f"Acknowledged {target_id}" if acked else f"Message {target_id} not found")
+    return 0 if acked else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="agentintercom", description="AgentIntercom local message bus CLI")
+    parser.add_argument("--version", action="version", version="agentintercom 1.0.0")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_reg = sub.add_parser("register", help="Register current peer on the bus")
+    p_reg.add_argument("--name", help="Peer name")
+    p_reg.add_argument("--worktree", help="Working directory / worktree path")
+    p_reg.add_argument("--quiet", action="store_true", help="Suppress output")
+
+    p_peers = sub.add_parser("peers", help="List registered peers")
+    p_peers.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_send = sub.add_parser("send", help="Send a message to a peer")
+    p_send.add_argument("--to", required=True, help="Recipient peer name or 'all'")
+    p_send.add_argument("--message", required=True, help="Message content")
+    p_send.add_argument("--topic", help="Optional topic")
+    p_send.add_argument("--reply-to", help="Optional reply-to message ID")
+    p_send.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_inbox = sub.add_parser("inbox", help="Fetch messages from inbox")
+    p_inbox.add_argument("--unread", action="store_true", help="Filter unread messages only")
+    p_inbox.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_ack = sub.add_parser("ack", help="Acknowledge a message")
+    p_ack.add_argument("message_id", help="Message ID to acknowledge")
+    p_ack.add_argument("--json", action="store_true", help="Output as JSON")
+
+    args = parser.parse_args()
+    if not args.cmd:
+        parser.print_help()
+        return 0
+
+    if args.cmd == "register":
+        return cmd_register(args)
+    if args.cmd == "peers":
+        return cmd_peers(args)
+    if args.cmd == "send":
+        return cmd_send(args)
+    if args.cmd == "inbox":
+        return cmd_inbox(args)
+    if args.cmd == "ack":
+        return cmd_ack(args)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
