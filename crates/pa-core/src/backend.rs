@@ -75,7 +75,7 @@ static PROXY_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub fn ensure_proxy_server(
     _proxy_ip: &str,
     config_path: &Path,
-    agents: &[AgentSpec],
+    _agents: &[AgentSpec],
 ) -> Result<()> {
     let _lock = PROXY_MUTEX.lock().unwrap();
 
@@ -102,6 +102,10 @@ pub fn ensure_proxy_server(
         }
     }
 
+    if let Ok(_stream) = std::net::TcpStream::connect("127.0.0.1:8080") {
+        return Ok(());
+    }
+
     let podman_check = std::process::Command::new("podman")
         .args(["ps", "-q", "-f", "name=pa-proxy"])
         .output();
@@ -119,11 +123,22 @@ pub fn ensure_proxy_server(
         .args(["rm", "-f", "pa-proxy"])
         .output();
 
+    let admin_password = crate::manifest::TokenRuleSpec {
+        env_var: "ADMIN_PASSWORD".to_string(),
+        keyring_service: Some("pa-container".to_string()),
+        keyring_key: Some("ADMIN_PASSWORD".to_string()),
+        allowed_hosts: Vec::new(),
+    }
+    .resolve_secret()
+    .map(|s| (*s).clone())
+    .unwrap_or_else(|| "pa-factory-session-admin-pass-2026".to_string());
+
     let mut podman_cmd = std::process::Command::new("podman");
     podman_cmd.args([
         "run",
         "-d",
         "--rm",
+        "--cap-add=NET_ADMIN",
         "--name",
         "pa-proxy",
         "-v",
@@ -133,10 +148,8 @@ pub fn ensure_proxy_server(
         ),
         "-v",
         &format!("{}:/home/mitmproxy/sockets:rw", sockets_dir.display()),
-        "-p",
-        "5353:5353/udp",
         "-e",
-        "ADMIN_PASSWORD=CHANGEME",
+        &format!("ADMIN_PASSWORD={}", admin_password),
         "localhost/pa-container-agent-proxy:local",
     ]);
 
@@ -150,21 +163,10 @@ pub fn ensure_proxy_server(
     if let Ok(cwd) = std::env::current_dir() {
         let proxy_dir = cwd.join("coding-agent-proxy");
         if proxy_dir.join("addons").exists() {
-            let mut modes = vec![
-                "--mode".to_string(),
-                format!("regular@{}", sockets_dir.join("admin.sock").display()),
-                "--mode".to_string(),
-                "dns@5353".to_string(),
-            ];
-            for a in agents {
-                if let Some(sock) = &a.socket_path {
-                    modes.push("--mode".to_string());
-                    modes.push(format!("regular@{}", sock.display()));
-                } else {
-                    let agent_sock = sockets_dir.join(format!("{}.sock", a.id));
-                    modes.push("--mode".to_string());
-                    modes.push(format!("regular@{}", agent_sock.display()));
-                }
+            let mut modes = vec!["--mode".to_string(), "regular@127.0.0.1:8080".to_string()];
+            if std::net::UdpSocket::bind("127.0.0.1:5353").is_ok() {
+                modes.push("--mode".to_string());
+                modes.push("dns@5353".to_string());
             }
 
             let mut uv_cmd = std::process::Command::new("uv");
@@ -178,7 +180,7 @@ pub fn ensure_proxy_server(
                 "--set",
                 &format!("multi_agent_config={}", config_path.display()),
                 "--set",
-                "web_password=CHANGEME",
+                &format!("web_password={}", admin_password),
                 "-s",
                 proxy_dir
                     .join("addons/multi_agent_context/multi_agent_context.py")
