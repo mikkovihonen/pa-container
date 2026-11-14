@@ -372,6 +372,7 @@ mod tests {
             id: "agent1".into(),
             uid: 2001,
             driver: "pi".into(),
+            socket_path: None,
             capabilities: vec!["source-control".into()],
             allowlist: vec!["custom.domain".into()],
             tokens: vec!["CUSTOM_TOKEN".into()],

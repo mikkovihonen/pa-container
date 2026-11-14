@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::backend::FactoryBackend;
-use crate::schema::{resolve_agent_ports, AgentSpec, FactoryConfig};
+use crate::schema::{resolve_agent_sockets, AgentSpec, FactoryConfig};
 
 pub const DEFAULT_BRIDGE_IP: &str = "10.240.0.1";
 pub const DEFAULT_VM_NAME: &str = "pa-factory-linux";
@@ -141,7 +141,10 @@ impl IncusLinuxBackend {
 
 impl FactoryBackend for IncusLinuxBackend {
     fn start_proxy(&self, config: &FactoryConfig) -> Result<String> {
-        let agents = resolve_agent_ports(&config.agents, false);
+        let cache_dir = dirs_fallback_cache();
+        let sockets_dir = cache_dir.join("sockets");
+        fs::create_dir_all(&sockets_dir)?;
+        let agents = resolve_agent_sockets(&config.agents, &sockets_dir);
         let nonce = crate::manifest::generate_session_nonce();
         let mut proxy_rules = Vec::new();
 
@@ -163,11 +166,20 @@ impl FactoryBackend for IncusLinuxBackend {
                 }
             }
 
+            let sock_path = a
+                .socket_path
+                .as_ref()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| format!("{}/{}.sock", sockets_dir.display(), a.id));
+            let in_container_socket = format!("/home/mitmproxy/sockets/{}.sock", a.id);
+
             proxy_rules.push(json!({
                 "id": a.id,
                 "agent_id": a.id,
                 "user": a.id,
                 "driver": a.driver,
+                "socket_path": in_container_socket,
+                "host_socket_path": sock_path,
                 "proxy_port": a.proxy_port,
                 "transparent_port": a.transparent_port,
                 "allowed_hosts": a.allowlist,
@@ -176,7 +188,6 @@ impl FactoryBackend for IncusLinuxBackend {
             }));
         }
 
-        let cache_dir = dirs_fallback_cache();
         let proxy_config_path = cache_dir.join("multi_agent_proxy.json");
         fs::create_dir_all(&cache_dir)?;
         fs::write(
@@ -330,11 +341,18 @@ impl FactoryBackend for IncusLinuxBackend {
             }),
         )?;
 
+        let socket_file = agent
+            .socket_path
+            .as_ref()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| format!("{}.sock", agent.id));
+
         let agents_data = vec![json!({
             "id": agent.id,
             "user": agent.id,
-            "proxy_port": agent.proxy_port.unwrap_or(8081),
-            "transparent_port": agent.transparent_port.unwrap_or(8091),
+            "socket_path": socket_file,
+            "proxy_port": agent.proxy_port.unwrap_or(0),
+            "transparent_port": agent.transparent_port,
         })];
 
         self.execute_ssh_rpc(
@@ -371,8 +389,9 @@ impl FactoryBackend for IncusLinuxBackend {
             "command": cmd,
             "user": agent.id,
             "uid": agent.uid,
+            "socket_path": socket_file,
             "proxy_ip": self.bridge_ip,
-            "proxy_port": agent.proxy_port.unwrap_or(8081),
+            "proxy_port": agent.proxy_port.unwrap_or(0),
         });
 
         let nonce = crate::manifest::generate_session_nonce();

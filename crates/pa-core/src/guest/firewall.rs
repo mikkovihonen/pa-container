@@ -46,6 +46,13 @@ pass out quick proto tcp from any to $proxy_ip port 8080 user _pa_daemon keep st
     );
 
     for a in agents {
+        if a.proxy_port == 0 {
+            out.push_str(&format!(
+                "pass out quick proto tcp from any to any port {{ 80, 443 }} user {} keep state\n",
+                a.user
+            ));
+            continue;
+        }
         if let Some(t_port) = a.transparent_port {
             if t_port != a.proxy_port {
                 out.push_str(&format!(
@@ -125,6 +132,13 @@ table ip pa_factory {{
     ));
 
     for a in agents {
+        if a.proxy_port == 0 {
+            out.push_str(&format!(
+                r#"        meta skuid "{}" tcp dport {{ 80, 443 }} accept{}"#,
+                a.user, "\n"
+            ));
+            continue;
+        }
         let t_port = a.transparent_port.unwrap_or(a.proxy_port + 10);
         if t_port != a.proxy_port {
             out.push_str(&format!(
@@ -184,4 +198,35 @@ pub fn apply_firewall(
     }
 
     Ok(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_firewall_zero_port_rules() {
+        let agents = vec![
+            AgentFirewallRule {
+                user: "lead-architect".to_string(),
+                proxy_port: 0,
+                transparent_port: None,
+            },
+            AgentFirewallRule {
+                user: "test-runner".to_string(),
+                proxy_port: 8082,
+                transparent_port: Some(8092),
+            },
+        ];
+
+        let pf = generate_pf_conf("192.168.64.1", 5353, &agents, 2222);
+        assert!(pf.contains("pass out quick proto tcp from any to any port { 80, 443 } user lead-architect keep state"));
+        assert!(pf.contains("pass out quick proto tcp from any to $proxy_ip port { 8082, 8092 } user test-runner keep state"));
+
+        let nft = generate_nftables_conf("192.168.64.1", 5353, &agents, 2222);
+        assert!(nft.contains(r#"meta skuid "lead-architect" tcp dport { 80, 443 } accept"#));
+        assert!(nft.contains(
+            r#"meta skuid "test-runner" ip daddr $PROXY_IP tcp dport { 8082, 8092 } accept"#
+        ));
+    }
 }

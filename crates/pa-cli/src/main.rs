@@ -269,6 +269,7 @@ fn handle_proxy(args: &ProxyArgs) -> Result<()> {
                     "id": a.id,
                     "uid": a.uid,
                     "driver": a.driver,
+                    "socket_path": a.socket_path,
                     "proxy_port": a.proxy_port,
                     "transparent_port": a.transparent_port,
                     "capabilities": a.capabilities,

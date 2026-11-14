@@ -132,6 +132,8 @@ pub struct AgentSpec {
     #[serde(default = "default_uid")]
     pub uid: u32,
     #[serde(default)]
+    pub socket_path: Option<PathBuf>,
+    #[serde(default)]
     pub proxy_port: Option<u16>,
     #[serde(default)]
     pub transparent_port: Option<u16>,
@@ -162,6 +164,7 @@ impl AgentSpec {
             id: id_str.clone(),
             driver: default_driver(),
             uid: default_uid(),
+            socket_path: None,
             proxy_port: None,
             transparent_port: None,
             branch_prefix: format!("pa/{}", id_str),
@@ -282,6 +285,7 @@ pub fn resolve_agent_ports(agents: &[AgentSpec], dynamic: bool) -> Vec<AgentSpec
             id: a.id.clone(),
             driver: a.driver.clone(),
             uid: a.uid,
+            socket_path: a.socket_path.clone(),
             proxy_port: p_port,
             transparent_port: t_port,
             branch_prefix: a.branch_prefix.clone(),
@@ -292,6 +296,21 @@ pub fn resolve_agent_ports(agents: &[AgentSpec], dynamic: bool) -> Vec<AgentSpec
     }
 
     resolved
+}
+
+pub fn resolve_agent_sockets(agents: &[AgentSpec], sockets_dir: &Path) -> Vec<AgentSpec> {
+    agents
+        .iter()
+        .map(|a| {
+            let sock = a
+                .socket_path
+                .clone()
+                .unwrap_or_else(|| sockets_dir.join(format!("{}.sock", a.id)));
+            let mut updated = a.clone();
+            updated.socket_path = Some(sock);
+            updated
+        })
+        .collect()
 }
 
 pub fn load_factory_config(path: Option<&Path>) -> Result<FactoryConfig> {
@@ -322,5 +341,35 @@ pub fn load_factory_config(path: Option<&Path>) -> Result<FactoryConfig> {
             Ok(cfg)
         }
         _ => Ok(FactoryConfig::default()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_agent_sockets() {
+        let base_dir = Path::new("/run/pa-container/sockets");
+        let agents = vec![
+            AgentSpec::new("lead-architect"),
+            AgentSpec {
+                socket_path: Some(PathBuf::from("/custom/special.sock")),
+                ..AgentSpec::new("custom-worker")
+            },
+        ];
+
+        let resolved = resolve_agent_sockets(&agents, base_dir);
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(
+            resolved[0].socket_path,
+            Some(PathBuf::from(
+                "/run/pa-container/sockets/lead-architect.sock"
+            ))
+        );
+        assert_eq!(
+            resolved[1].socket_path,
+            Some(PathBuf::from("/custom/special.sock"))
+        );
     }
 }

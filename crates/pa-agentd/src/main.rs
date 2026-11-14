@@ -223,10 +223,8 @@ impl GuestDaemonService {
                     .and_then(|u| u.as_str())
                     .unwrap_or("agent1")
                     .to_string();
-                let proxy_port = item
-                    .get("proxy_port")
-                    .and_then(|p| p.as_u64())
-                    .unwrap_or(8081) as u16;
+                let proxy_port =
+                    item.get("proxy_port").and_then(|p| p.as_u64()).unwrap_or(0) as u16;
                 let transparent_port = item
                     .get("transparent_port")
                     .and_then(|t| t.as_u64())
@@ -325,7 +323,11 @@ impl GuestDaemonService {
         let proxy_port = params
             .get("proxy_port")
             .and_then(|p| p.as_u64())
-            .unwrap_or(8081) as u16;
+            .unwrap_or(0) as u16;
+        let socket_path = params
+            .get("socket_path")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string());
 
         let mut command: Vec<String> = match params.get("command").and_then(|c| c.as_array()) {
             Some(arr) => arr
@@ -379,7 +381,7 @@ impl GuestDaemonService {
             base.join(user)
         };
 
-        let extra_write_paths: Vec<String> =
+        let mut extra_write_paths: Vec<String> =
             match params.get("write_paths").and_then(|w| w.as_array()) {
                 Some(arr) => arr
                     .iter()
@@ -387,6 +389,11 @@ impl GuestDaemonService {
                     .collect(),
                 None => Vec::new(),
             };
+        if let Some(sp) = socket_path {
+            if !extra_write_paths.contains(&sp) {
+                extra_write_paths.push(sp);
+            }
+        }
         let extra_read_paths: Vec<String> =
             match params.get("read_paths").and_then(|r| r.as_array()) {
                 Some(arr) => arr

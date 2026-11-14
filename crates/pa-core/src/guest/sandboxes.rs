@@ -118,18 +118,26 @@ pub fn build_bwrap_args(
         "--setenv".into(),
         "USER".into(),
         user.into(),
-        "--setenv".into(),
-        "HTTP_PROXY".into(),
-        proxy_url.clone(),
-        "--setenv".into(),
-        "HTTPS_PROXY".into(),
-        proxy_url.clone(),
-        "--setenv".into(),
-        "http_proxy".into(),
-        proxy_url.clone(),
-        "--setenv".into(),
-        "https_proxy".into(),
-        proxy_url,
+    ]);
+
+    if proxy_port > 0 {
+        args.extend([
+            "--setenv".into(),
+            "HTTP_PROXY".into(),
+            proxy_url.clone(),
+            "--setenv".into(),
+            "HTTPS_PROXY".into(),
+            proxy_url.clone(),
+            "--setenv".into(),
+            "http_proxy".into(),
+            proxy_url.clone(),
+            "--setenv".into(),
+            "https_proxy".into(),
+            proxy_url,
+        ]);
+    }
+
+    args.extend([
         "--setenv".into(),
         "SSL_CERT_FILE".into(),
         cert_path.to_str().unwrap_or("").into(),
@@ -241,6 +249,14 @@ pub fn generate_seatbelt_profile(
         ";; 4. GPU Access Disabled"
     };
 
+    let proxy_clause = if proxy_port > 0 {
+        format!(r#"(allow network-outbound (remote tcp "{proxy_ip}:{proxy_port}"))"#)
+    } else {
+        r#"(allow network-outbound (remote tcp "*:80"))
+(allow network-outbound (remote tcp "*:443"))"#
+            .to_string()
+    };
+
     format!(
         r#";; PA-Container 2.0 Agent Seatbelt Profile: {user}
 (version 1)
@@ -248,7 +264,7 @@ pub fn generate_seatbelt_profile(
 
 ;; 1. Strict Network Lockdown
 (deny network*)
-(allow network-outbound (remote tcp "{proxy_ip}:{proxy_port}"))
+{proxy_clause}
 (allow network-outbound (remote udp "{proxy_ip}:{dns_port}"))
 (allow network-outbound (remote tcp "{proxy_ip}:{dns_port}"))
 (allow network-outbound (remote unix-socket))
@@ -309,6 +325,29 @@ mod tests {
         assert!(args.contains(&"/opt/ro".to_string()));
         assert!(args.contains(&"/opt/rw".to_string()));
         assert!(args.contains(&"/dev/dri".to_string()));
+    }
+
+    #[test]
+    fn test_build_bwrap_args_transparent_zero_port() {
+        let home = PathBuf::from("/home/agent1");
+        let cmd = vec!["pi".into(), "-p".into(), "hello".into()];
+        let args = build_bwrap_args(
+            "agent1", &home, "10.0.0.1", 0, &cmd, None, None, None, None, None, false,
+        );
+        assert_eq!(args[0], "bwrap");
+        assert!(!args.contains(&"HTTP_PROXY".to_string()));
+        assert!(!args.contains(&"HTTPS_PROXY".to_string()));
+        assert!(args.contains(&"SSL_CERT_FILE".to_string()));
+    }
+
+    #[test]
+    fn test_generate_seatbelt_profile_transparent_zero_port() {
+        let profile =
+            generate_seatbelt_profile("agent1", "192.168.64.1", 0, 5353, None, None, None, false);
+        assert!(profile.contains("Agent Seatbelt Profile: agent1"));
+        assert!(!profile.contains("remote tcp \"192.168.64.1:0\""));
+        assert!(profile.contains(r#"(allow network-outbound (remote tcp "*:80"))"#));
+        assert!(profile.contains(r#"(allow network-outbound (remote tcp "*:443"))"#));
     }
 
     #[test]

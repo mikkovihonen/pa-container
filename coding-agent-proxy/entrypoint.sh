@@ -175,13 +175,31 @@ if [ -n "$PROXY_STREAM_LARGE_BODIES" ] && [ "$PROXY_STREAM_LARGE_BODIES" != "0" 
     echo "[mitmweb] stream_large_bodies=$PROXY_STREAM_LARGE_BODIES"
 fi
 
+SOCKETS_DIR="${PA_SOCKETS_DIR:-/home/mitmproxy/sockets}"
+mkdir -p "$SOCKETS_DIR"
+chown -R mitmproxy:mitmproxy "$SOCKETS_DIR" 2>/dev/null || true
+
+DEFAULT_MODES=(--mode "regular@${SOCKETS_DIR}/admin.sock" --mode dns@5353)
+if [ -f "${PA_MULTI_AGENT_CONFIG}" ] && command -v jq >/dev/null 2>&1; then
+    for sock in $(jq -r '.agents[]?.socket_path // empty' "${PA_MULTI_AGENT_CONFIG}" 2>/dev/null); do
+        if [ -n "$sock" ]; then
+            DEFAULT_MODES+=(--mode "regular@$sock")
+        fi
+    done
+    for aid in $(jq -r '.agents[]? | select(.socket_path == null) | .agent_id // .id // empty' "${PA_MULTI_AGENT_CONFIG}" 2>/dev/null); do
+        if [ -n "$aid" ]; then
+            DEFAULT_MODES+=(--mode "regular@${SOCKETS_DIR}/${aid}.sock")
+        fi
+    done
+fi
+
 MULTI_AGENT_SCRIPT=""
 if [ -f /home/mitmproxy/scripts/multi_agent_context.py ]; then
     MULTI_AGENT_SCRIPT="-s /home/mitmproxy/scripts/multi_agent_context.py --set multi_agent_config=${PA_MULTI_AGENT_CONFIG}"
 fi
 
 exec gosu mitmproxy /home/mitmproxy/.venv/bin/mitmweb \
-    --mode transparent@8080 --mode dns@5353 --web-host 0.0.0.0 \
+    "${DEFAULT_MODES[@]}" --web-host 127.0.0.1 \
     "${STREAM_FLAGS[@]}" \
     ${MULTI_AGENT_SCRIPT} \
     -s /home/mitmproxy/scripts/allowlist.py \

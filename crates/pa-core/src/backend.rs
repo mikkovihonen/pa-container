@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::ResolvedCapabilities;
@@ -71,17 +72,34 @@ pub fn get_backend(config: &FactoryConfig) -> Result<Box<dyn FactoryBackend>> {
 
 static PROXY_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-pub fn ensure_proxy_server(proxy_ip: &str, config_path: &Path, agents: &[AgentSpec]) -> Result<()> {
+pub fn ensure_proxy_server(
+    _proxy_ip: &str,
+    config_path: &Path,
+    agents: &[AgentSpec],
+) -> Result<()> {
     let _lock = PROXY_MUTEX.lock().unwrap();
 
-    let test_addr = format!("{}:8081", proxy_ip);
-    if let Ok(_stream) = std::net::TcpStream::connect_timeout(
-        &test_addr
-            .parse()
-            .unwrap_or_else(|_| "127.0.0.1:8081".parse().unwrap()),
-        std::time::Duration::from_millis(150),
-    ) {
-        return Ok(());
+    let sockets_dir = config_path
+        .parent()
+        .unwrap_or_else(|| Path::new("/tmp"))
+        .join("sockets");
+    fs::create_dir_all(&sockets_dir)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&sockets_dir, fs::Permissions::from_mode(0o777));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::net::UnixStream;
+        let admin_sock = sockets_dir.join("admin.sock");
+        if admin_sock.exists() {
+            if let Ok(_stream) = UnixStream::connect(&admin_sock) {
+                return Ok(());
+            }
+        }
     }
 
     let podman_check = std::process::Command::new("podman")
@@ -113,16 +131,8 @@ pub fn ensure_proxy_server(proxy_ip: &str, config_path: &Path, agents: &[AgentSp
             "{}:/home/mitmproxy/config/multi_agent_proxy.json:ro",
             config_path.display()
         ),
-        "-p",
-        "8080:8080",
-        "-p",
-        "8081:8081",
-        "-p",
-        "8082:8082",
-        "-p",
-        "8083:8083",
-        "-p",
-        "8084:8084",
+        "-v",
+        &format!("{}:/home/mitmproxy/sockets:rw", sockets_dir.display()),
         "-p",
         "5353:5353/udp",
         "-e",
@@ -142,20 +152,18 @@ pub fn ensure_proxy_server(proxy_ip: &str, config_path: &Path, agents: &[AgentSp
         if proxy_dir.join("addons").exists() {
             let mut modes = vec![
                 "--mode".to_string(),
-                "regular@8081".to_string(),
+                format!("regular@{}", sockets_dir.join("admin.sock").display()),
                 "--mode".to_string(),
                 "dns@5353".to_string(),
             ];
             for a in agents {
-                if let Some(p) = a.proxy_port {
-                    if p != 8081 {
-                        modes.push("--mode".to_string());
-                        modes.push(format!("regular@{}", p));
-                    }
-                }
-                if let Some(t) = a.transparent_port {
+                if let Some(sock) = &a.socket_path {
                     modes.push("--mode".to_string());
-                    modes.push(format!("transparent@{}", t));
+                    modes.push(format!("regular@{}", sock.display()));
+                } else {
+                    let agent_sock = sockets_dir.join(format!("{}.sock", a.id));
+                    modes.push("--mode".to_string());
+                    modes.push(format!("regular@{}", agent_sock.display()));
                 }
             }
 

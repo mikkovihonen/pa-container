@@ -53,12 +53,13 @@ COPY coding-agent-proxy/addons/flow_export/flow_export.py /home/mitmproxy/script
 COPY coding-agent-proxy/addons/allowlist/allowlist_config.yaml /home/mitmproxy/config/allowlist.yaml
 COPY coding-agent-proxy/addons/token_replacer/token_replacer.yaml /home/mitmproxy/config/token_replacer.yaml
 RUN chmod -R a+rX /home/mitmproxy/scripts /home/mitmproxy/config
-RUN mkdir -p /home/mitmproxy/exports && chown mitmproxy:mitmproxy /home/mitmproxy/exports
+RUN mkdir -p /home/mitmproxy/exports /home/mitmproxy/sockets && chown -R mitmproxy:mitmproxy /home/mitmproxy/exports /home/mitmproxy/sockets
 
 ENV ALLOWLIST_CONFIG_PATH=/home/mitmproxy/config/allowlist.yaml
 ENV TOKEN_REPLACER_CONFIG_PATH=/home/mitmproxy/config/token_replacer.yaml
 ENV PA_MULTI_AGENT_CONFIG=/home/mitmproxy/config/multi_agent_proxy.json
+ENV PA_SOCKETS_DIR=/home/mitmproxy/sockets
 
-EXPOSE 8080 8081 8082 8083 8084 8091 8092 8093 8094 5353/udp
+EXPOSE 5353/udp
 
 ENTRYPOINT ["/entrypoint.sh"]
