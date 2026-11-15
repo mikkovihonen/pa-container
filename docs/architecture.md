@@ -68,8 +68,8 @@ flowchart TB
 ### Layer 2: MicroVM Hypervisor Isolation
 - **Role:** Hard virtualization boundary preventing guest breakouts from reaching host memory or filesystem.
 - **Backends:**
-    - **macOS (`macos-tart`):** Automates Tart virtualization on Apple Silicon. Network traffic routes over the `Softnet` bridge.
-    - **Linux (`linux-incus`):** Automates Incus system containers and KVM virtual machines with native network bridges.
+    - **macOS (`macos-tart`):** Automates Tart virtualization on Apple Silicon using official Apple IPSW restore images (`pa-factory-macos`). Network traffic routes over the `Softnet` bridge.
+    - **Linux (`linux-incus`):** Automates Incus system containers and KVM virtual machines using Fedora 45 (`images:fedora/45/cloud`) with native network bridges.
 
 ### Layer 3: In-Guest Daemon (`crates/pa-agentd`)
 - **Role:** Statically compiled, single-binary daemon running inside the Factory VM.

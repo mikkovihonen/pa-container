@@ -30,6 +30,7 @@ Before getting started, ensure your host has the following tools installed:
       sudo usermod -aG incus-admin "$USER"
       newgrp incus-admin
       ```
+      The Linux factory VM (`pa-factory-linux`) is automatically provisioned using the latest **Fedora 45** cloud image (`images:fedora/45/cloud`) on `pa factory up`.
 - **Python & uv:**
     - Install [uv](https://docs.astral.sh/uv/) (used to run `mitmproxy` and proxy addons):
       ```bash

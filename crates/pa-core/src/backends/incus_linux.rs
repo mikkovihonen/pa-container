@@ -10,6 +10,7 @@ use crate::schema::{resolve_agent_sockets, AgentSpec, FactoryConfig};
 
 pub const DEFAULT_BRIDGE_IP: &str = "10.240.0.1";
 pub const DEFAULT_VM_NAME: &str = "pa-factory-linux";
+pub const DEFAULT_INCUS_IMAGE: &str = "images:fedora/45/cloud";
 
 pub struct IncusLinuxBackend {
     pub config: Option<FactoryConfig>,
@@ -213,7 +214,7 @@ impl FactoryBackend for IncusLinuxBackend {
             let launch_status = Command::new("incus")
                 .args([
                     "launch",
-                    "images:fedora/41/cloud",
+                    DEFAULT_INCUS_IMAGE,
                     &self.vm_name,
                     "--vm",
                     "-c",
