@@ -86,7 +86,6 @@ pa-container/
 │   ├── pa-agentd/              # Static in-guest daemon & iOS Simulator bridge
 │   └── pa-landlock/            # Native Linux Landlock ABI v4+ sandbox restrictor
 ├── coding-agent-proxy/         # Mitmproxy stack (allowlist, token replacer, flow export)
-├── defaults/                   # Default configs, chat templates, and model definitions
 ├── vm-images/                  # Guest VM provisioning templates (macOS Tart, Fedora Incus)
 └── pa_packages/                # Declarative capability packages
     ├── agents/                 # Pluggable agent drivers (Pi, Claude, OpenCode, Antigravity)

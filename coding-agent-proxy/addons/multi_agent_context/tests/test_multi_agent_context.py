@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -167,7 +168,7 @@ class TestMultiAgentContext:
         assert addon.socket_map[str(tmp_path / "architect.sock")].agent_id == "lead-architect"
 
         # Derived default socket path loaded
-        default_path = "/home/mitmproxy/sockets/test-runner.sock"
+        default_path = os.path.expanduser("~/.cache/pa-container/sockets/test-runner.sock")
         assert default_path in addon.socket_map
         assert addon.socket_map[default_path].agent_id == "test-runner"
         assert "test-runner.sock" in addon.socket_map

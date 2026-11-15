@@ -117,13 +117,15 @@ def main() -> int:
         else:
             _info(f"Target version matches workspace ({target_ver})")
 
-    # Check 4: Defaults directory exists
-    defaults_dir = REPO_ROOT / "defaults"
-    if not (defaults_dir / "config.yaml").is_file():
-        _error(f"Missing required defaults config: {defaults_dir / 'config.yaml'}")
-        all_pass = False
-    else:
-        _info("defaults/config.yaml is present")
+    # Check 4: Crates exist in workspace
+    crates = ["pa-core", "pa-cli", "pa-agentd", "pa-landlock"]
+    for crate_name in crates:
+        crate_manifest = REPO_ROOT / "crates" / crate_name / "Cargo.toml"
+        if not crate_manifest.is_file():
+            _error(f"Missing crate manifest: {crate_manifest}")
+            all_pass = False
+        else:
+            _info(f"Crate {crate_name} manifest is present")
 
     print()
     if all_pass:

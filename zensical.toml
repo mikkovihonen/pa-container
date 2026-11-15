@@ -14,6 +14,7 @@ nav = [
   { "Architecture Plan" = "design/pa_container_next_generation_software_factory_architecture_plan.md" },
   { "Configuration" = "configuration.md" },
   { "Multi-Agent Support" = "agents.md" },
+  { "Platform Parity" = "platform-parity.md" },
   { "T3 Code Integration" = "t3-code.md" },
   { "Development" = "development.md" },
   { "Releases" = "releases.md" },

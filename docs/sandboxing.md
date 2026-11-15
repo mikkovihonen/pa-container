@@ -103,49 +103,75 @@ Local CLI agents increasingly use lightweight, in-process host-level sandboxing:
 
 ---
 
-## 4. Why `pa-container` Uses Containers as Its Sandboxing Technology
+## 4. Why PA-Container 2.0 Uses a Dual-Layer MicroVM & Kernel Sandboxing Architecture
 
-While cloud systems trend toward MicroVMs and lightweight CLI agents trend toward host-level filtering, **`pa-container` uses container-based sandboxing specifically for two fundamental architectural advantages**:
-
-1. **Ease of Orchestrating the Traffic-Intercepting Auditing Proxy**:
-   Transparent network auditing and domain allowlisting require isolating the agent's network stack so that traffic cannot escape uninspected. OCI container networks provide this out-of-the-box:
-    - The agent runs inside an isolated, gateway-less container network (`--internal`).
-    - L3/L4 routing rules redirect all HTTP, HTTPS, and DNS traffic transparently through a companion `mitmproxy` proxy container.
-    - Domain allowlists, secret substitution, and flow logging operate reliably without needing complex host-level packet filters, root-level firewall rules, or host OS-specific network hooks.
-
-2. **Standardized and Reproducible Project Workspaces**:
-   Rather than relying on whatever tools happen to be installed on the host machine, containerization provides a hermetic, predictable environment:
-    - Packages an audited base toolchain (Node, Python, `uv`, rootless Podman, netavark) compiled from source.
-    - Protects the developer's host machine from accidental global package installs, state drift, or configuration pollution.
-    - Allows each project workspace to define its own persistent volume mounts and project-specific dependencies without impacting other workspaces or the host system.
-
-3. **The macOS & Windows VM Reality: Implicit Hardware Isolation**:
-   macOS is the platform of choice for many AI developers due to Apple Silicon's unified memory architecture. On macOS (and Windows), Linux containers **do not run directly on the host kernel**; they execute inside a lightweight Linux virtual machine managed by the container runtime (e.g., Apple's `Virtualization.framework` / `applehv` or WSL2/Hyper-V).
-
-   This introduces a critical security advantage:
-    - **Hypervisor Boundary**: Even if a malicious exploit achieved a Linux container breakout, the attacker would still be trapped inside the guest Linux VM, unable to compromise the host macOS Darwin or Windows kernel.
-    - **Hybrid Host/Container Topology for Local LLMs**: Heavy LLM inference (`llama-server`) runs natively as a host process to leverage Apple Metal GPU acceleration and high-bandwidth unified memory at native speed. Meanwhile, the untrusted agent and auditing proxy run securely inside the container runtime, with the proxy routing authenticated inference requests to the host over `host.containers.internal`.
+Rather than relying on legacy container runtimes or vulnerable shared-kernel architectures, **PA-Container 2.0 implements a defense-in-depth model** combining hardware microVM isolation with in-guest kernel sandboxing:
 
 ```mermaid
 flowchart TB
-    subgraph Host["Host Machine (macOS / Windows)"]
+    subgraph Host["Host Workstation (macOS / Linux)"]
         direction TB
-        metal["Native Hardware Acceleration<br/>(Apple Metal / CUDA / ROCm)"]
-        llama["llama-server (Host Process)<br/>Zero-virtualization overhead"]
-        llama --- metal
+        Dev["Developer / Human Operator"]
+        CLI["pa CLI Binary"]
+        Worktree["Isolated Review Worktree\n(~/.cache/pa-container/worktrees/)"]
+        Proxy["coding-agent-proxy (Mitmproxy over UDS)\nZero Open Host TCP Ports"]
+        RealSecrets["Host Keyring / Env\n(Real API Credentials)"]
 
-        subgraph VM["Linux Container VM (applehv / Hyper-V / WSL2)"]
-            direction TB
-            subgraph Isolated["Isolated Container Network"]
-                agent["pa-container-agent<br/>(Sandboxed Code Execution)"]
-                proxy["pa-container-agent-proxy<br/>(mitmproxy Traffic Auditing)"]
-                agent -->|L3 Routed| proxy
-            end
+        Proxy --- RealSecrets
+    end
+
+    subgraph VM["Factory MicroVM Boundary (Tart / Incus)"]
+        direction TB
+        Vault["CoW Git Vault (/var/pa-vault)\nACL Pre-Receive Hook"]
+
+        subgraph Tenant1["Tenant: agent1 (UID 2001)"]
+            A1["Driver: Pi / Claude"]
+            H1["Home: /home/agent1 (0700)"]
+            S1["Seatbelt / Landlock Sandbox"]
         end
 
-        proxy -.->|host.containers.internal / gvproxy| llama
+        subgraph Tenant2["Tenant: agent2 (UID 2002)"]
+            A2["Driver: Antigravity / OpenCode"]
+            H2["Home: /home/agent2 (0700)"]
+            S2["Seatbelt / Landlock Sandbox"]
+        end
     end
+
+    Dev -->|pa run / pa review| CLI
+    CLI -->|Review Worktree| Worktree
+    Tenant1 -->|Git push pa/agent1/*| Vault
+    Tenant2 -->|Git push pa/agent2/*| Vault
+    Tenant1 -->|UDS Egress (Placeholder Tokens)| Proxy
+    Tenant2 -->|UDS Egress (Placeholder Tokens)| Proxy
+    Proxy -->|Real Secret Injection| External["Allowed Remote APIs"]
 ```
+
+### The Five Security Layers of PA-Container 2.0
+
+1. **Hardware MicroVM Boundary**:
+    - **macOS:** Tart orchestrates dedicated Apple Silicon virtual machines via Apple's native `Virtualization.framework` (`pa-factory-macos`).
+    - **Linux:** Incus orchestrates lightweight KVM microVMs (`pa-factory-linux`) using modern Fedora cloud images.
+    - Untrusted code executes inside a dedicated guest operating system. Even if an agent gains root privileges inside the guest kernel, it cannot escape the hardware hypervisor boundary to compromise the host.
+
+2. **In-Guest POSIX User Isolation ($\text{UID} \ge 2001$)**:
+    - Agents never execute as `root`.
+    - Every active agent tenant is allocated an unprivileged POSIX user account (`agent1` = 2001, `agent2` = 2002, etc.).
+    - Home directories are locked down (`0700`), preventing cross-agent process snooping or filesystem tampering.
+
+3. **Kernel-Level Sandboxing (Seatbelt & Landlock ABI v4+)**:
+    - **Linux:** Native Landlock rules restrict filesystem access, file descriptor inheritance, and network syscalls, while Bubblewrap isolates namespaces.
+    - **macOS:** Dynamic Apple Seatbelt (`sandbox-exec`) profiles restrict I/O to designated paths while permitting paravirtualized GPU access.
+
+4. **CoW Git Vault & Pre-Receive Branch Protection**:
+    - The host working directory is never directly mounted inside the guest VM.
+    - Instead, the host repository state is synced into a bare Git repository (`/var/pa-vault`).
+    - A strict POSIX pre-receive ACL hook rejects any attempts to push to `main` or to another agent's branch namespace (`refs/heads/pa/$AGENT_ID/*`).
+    - Developers review agent changes in clean, isolated worktrees on the host using `pa review <agent_id>`.
+
+5. **Zero-Port Auditable Proxy & HMAC Credential Injection**:
+    - Egress traffic traverses dedicated per-agent Unix Domain Sockets (`~/.cache/pa-container/sockets/<agent_id>.sock`).
+    - The host opens zero public or listening TCP ports.
+    - Real API credentials never enter the VM; agents only hold synthetic HMAC placeholder tokens (`pa-tok-agent1-...`). The proxy dynamically validates destination hostnames against `factory.toml` allowlists and injects real secrets on the fly.
 
 ---
 
@@ -153,46 +179,47 @@ flowchart TB
 
 Ultimately, **no sandbox is more secure than the vigilance of the operator configuring and overseeing it.**
 
-A sandbox confines runtime execution while the container is running. However, the primary goal of an AI coding agent is to produce artifacts—source code, build scripts, dependencies, configuration files, and git commits—that are intended to be reviewed, built, deployed, and executed on host machines and production infrastructure.
+A sandbox confines runtime execution while an agent is active. However, the primary goal of an AI coding agent is to produce artifacts—source code, build scripts, dependencies, configuration files, and git commits—that are intended to be reviewed, built, deployed, and executed on host machines and production infrastructure.
 
 Understanding where the sandbox boundary ends and where the human operator becomes the primary line of defense is essential.
 
 ```mermaid
 flowchart LR
-    subgraph Sandbox["pa-container Sandbox (Isolated)"]
-        agent["AI Agent<br/>(Prompt Injection / Malicious Code)"]
-        proxy["Transparent Proxy<br/>(mitmproxy)"]
+    subgraph Sandbox["Factory MicroVM Sandbox (Isolated)"]
+        agent["AI Agent\n(Prompt Injection / Compromised Driver)"]
+        proxy["Transparent UDS Proxy\n(coding-agent-proxy)"]
+        vault["CoW Git Vault\n(refs/heads/pa/agent1/*)"]
+
         agent -->|Intercepted & Filtered| proxy
-        agent -->|Writes files| ws["Workspace<br/>(Poisoned Code / Build Hooks)"]
+        agent -->|Isolated Commits| vault
     end
 
     subgraph Host["Host Developer Machine (Full Privileges)"]
         user["Developer / Operator"]
-        host_exec["Native Host Execution<br/>(npm test, make, git push, deployment)"]
-        ws -.->|Checked out / Run natively| host_exec
-        user -->|Blindly approves allowlist / diffs| host_exec
+        worktree["Review Worktree\n(pa review agent1)"]
+        host_exec["Native Host Execution\n(cargo test, npm build, git push)"]
+
+        vault -.->|pa review| worktree
+        user -->|Thoroughly Inspects Diffs| worktree
+        worktree -->|Approved Merge| host_exec
     end
 ```
 
 ### The Primary Attack Vectors
 
-From a threat-modeling perspective, the most realistic attack vectors against `pa-container`, the host computer, and the developer include:
+From a threat-modeling perspective, the most realistic attack vectors against the software factory and the developer include:
 
 #### 1. The "Delayed Execution" Trojan Workspace (Host Infiltration)
-* **The Attack**: Malicious instructions (introduced via prompt injection in a repository issue, a poisoned web page scraped by the agent, or a malicious dependency) instruct the agent to plant obfuscated payloads into local project files. These might take the form of malicious `Makefile` targets, `package.json` `postinstall` scripts, Python `setup.py` / `pyproject.toml` entry points, or hidden pre-commit git hooks.
-* **The Danger**: While inside `pa-container`, the malicious code is confined by user namespaces and network proxying. However, once the developer exits the sandbox and runs `npm test`, `make build`, or pushes the code to CI/CD on their native host, the payload executes with **full host privileges**, completely bypassing the container sandbox.
+- **The Attack**: Malicious instructions (introduced via prompt injection in a repository issue, a poisoned web page scraped by the agent, or a malicious dependency) instruct the agent to plant obfuscated payloads into local project files. These might take the form of malicious `Makefile` targets, `package.json` `postinstall` scripts, Python `pyproject.toml` entry points, or hidden pre-commit git hooks.
+- **The Danger**: While inside the Factory VM, the malicious code is confined by user namespaces, hypervisor isolation, and kernel sandboxes. However, if the developer merges changes without inspection and runs `cargo test` or `npm test` on their host, the payload executes with **full host privileges**.
 
 #### 2. Allowlist Dilution & Confirmation Fatigue (Social Engineering the User)
-* **The Attack**: When the proxy blocks unauthorized network requests with a `403 Forbidden`, the agent is halted from fetching remote resources. A compromised or misbehaving agent can prompt the operator: *"Please add `*.jsdelivr.net`, `raw.githubusercontent.com`, or `api.third-party-service.com` to `allowlist.yaml` to continue."*
-* **The Danger**: Developers experiencing confirmation fatigue may blindly approve broad wildcard domain patterns. This punches an egress tunnel through the proxy allowlist, enabling secondary payload downloads or command-and-control (C2) communication.
+- **The Attack**: When the proxy blocks unauthorized network requests with a `403 Forbidden`, the agent is halted from fetching remote resources. A compromised or misbehaving agent can prompt the operator: *"Please add `*.jsdelivr.net`, `raw.githubusercontent.com`, or `api.third-party-service.com` to `factory.toml` to continue."*
+- **The Danger**: Developers experiencing confirmation fatigue may approve overly broad wildcard domain patterns. This punches an egress tunnel through the proxy allowlist, enabling secondary payload downloads or command-and-control (C2) communication.
 
 #### 3. Covert Data Exfiltration over Legitimate Channels
-* **The Attack**: The agent is legitimately permitted to communicate with LLM providers (e.g., Anthropic, OpenAI, OpenRouter) or remote Git repositories. Prompt injection can instruct the agent to stealthily encode private source code, internal system information, or unredacted credentials into prompt queries, telemetry headers, or commit metadata.
-* **The Danger**: While `pa-container`'s `token_replacer` addon substitutes the tokens configured in `token_replacer.yaml` (redacting secrets or injecting real credentials for placeholders), it cannot detect arbitrary proprietary text or unconfigured credentials. If sensitive data is embedded within normal natural-language prompt flows, it passes through the proxy to allowed endpoints.
-
-#### 4. Persistent Cache & Shadow Volume Poisoning
-* **The Attack**: `pa-container` supports persistent shadow volumes (`.venv`, `node_modules`, `target/`) to accelerate build and dependency resolution across sessions without RAM overhead.
-* **The Danger**: If malicious code installs a poisoned package or compromises a shared binary within a shadow volume, that artifact persists across subsequent container runs. Future sessions in the same workspace remain compromised until the shadow volume is explicitly pruned or deleted.
+- **The Attack**: The agent is legitimately permitted to communicate with LLM providers (e.g. Anthropic, OpenAI, Gemini) or remote Git repositories. Prompt injection can instruct the agent to stealthily encode private source code, internal system information, or unredacted credentials into prompt queries, telemetry headers, or commit metadata.
+- **The Danger**: While the proxy's `token_replacer` addon substitutes configured tokens (swapping HMAC placeholders for real keys), it cannot detect arbitrary proprietary text or unconfigured credentials. If sensitive data is embedded within normal natural-language prompt flows, it passes through the proxy to allowed endpoints.
 
 ---
 
@@ -200,13 +227,17 @@ From a threat-modeling perspective, the most realistic attack vectors against `p
 
 To maintain security, operators should treat the sandbox as one layer in a defense-in-depth model:
 
-1. **Relentlessly Review Diffs**: Never execute, test, or commit agent-generated code natively on the host without thoroughly reviewing `git diff`.
-2. **Lock Project Configuration & Git Hooks**: Keep `agent.read_only_pa_container: true` and `security.read_only_git_hooks: true` enabled (both defaults). This locks configuration, dependency scripts, and `/workspace/.git/hooks` as read-only inside the container so the agent cannot plant backdoor hooks that trigger on the host.
-3. **Guard Host Mounts & Git Config**: Rely on `security.blocked_mount_paths` to prevent sensitive credentials (`~/.ssh`, `~/.aws`, Docker sockets) from being mounted, and `security.git_config_allowlist` to ensure only safe Git identity keys are shared into the container without execution hooks (`core.sshCommand`, `core.fsmonitor`).
-4. **Scrutinize Allowlist Additions & SSRF Protections**: Never add broad domain wildcards (`*`) to `allowlist.yaml`. `security.blocked_ip_ranges` strictly blocks connections to internal RFC 1918 subnets, loopback interfaces, and cloud metadata services (`169.254.169.254`).
-5. **Register All Secrets in `token_replacer.yaml`**: Ensure any sensitive API tokens, database passwords, or private keys used in the workspace are explicitly defined so the proxy applies the configured substitution before traffic leaves the container.
-6. **Audit Flow Exports**: Use the `mitmweb` UI or inspect export flow logs via `pa logs --agent <agent_id>` to periodically verify the volume and destination of outbound agent traffic.
-7. **Privilege Hardening**: `pa-container` automatically enforces `--security-opt no-new-privileges` and mounts persistent shadow volumes and `tmpfs` RAM disks with `nodev,nosuid` to prevent setuid privilege escalation.
+1. **Relentlessly Review Diffs via Isolated Worktrees**:
+    - Never merge or run agent-generated code natively on the host without inspecting the worktree diff. Use `pa review <agent_id> --open` to inspect the code in your IDE before merging.
+2. **Enforce CoW Git Vault Isolation**:
+    - Keep agent changes isolated in `refs/heads/pa/{agent_id}/*`. Never allow direct host directory bind-mounts or direct pushes to `main`.
+3. **Scrutinize Allowlist Additions & SSRF Protections**:
+    - Keep `allowlist` definitions in `factory.toml` minimal and host-specific. Avoid broad wildcard domain patterns (`*`).
+    - The proxy strictly blocks connections to internal RFC 1918 subnets, loopback interfaces, and cloud metadata services (`169.254.169.254`).
+4. **Register All Secrets in `factory.toml` Tokens**:
+    - Ensure any sensitive API tokens or passwords used in agent workflows are explicitly declared in `tokens`. The proxy replaces real credentials with ephemeral HMAC tokens so agents never observe raw secrets.
+5. **Audit Flow Exports Regularly**:
+    - Inspect real-time network traffic with `pa proxy --open` (mitmweb) or examine per-agent flow logs via `pa logs --agent <agent_id>`.
 
 ---
 
@@ -214,7 +245,7 @@ To maintain security, operators should treat the sandbox as one layer in a defen
 
 The architecture of AI coding sandboxes is defined by the trust model and operational goals:
 
-* **Cloud multi-tenant platforms** require **MicroVMs** (Firecracker, Kata) for hardware-level kernel isolation against untrusted tenant workloads.
-* **Local CLI coding assistants** often use **host-level kernel filtering** (Landlock, bubblewrap, Seatbelt) for lightweight, zero-latency execution against existing host tools.
-* **Auditable, isolated Software Factories** (like `PA-Container 2.0`) combine **dedicated hypervisor microVMs** (Tart on macOS, Incus on Linux) with **in-guest process sandboxing** (Landlock ABI v4+ / Seatbelt) and **multi-port egress proxy auditing**. This delivers true hardware-level isolation, per-agent POSIX UID confinement, and zero-knowledge secret token injection.
-* **Human Vigilance is the Final Boundary**: Sandboxes isolate active processes and restrict network leaks, but human code review (`pa review <agent>`) and strict egress management remain indispensable for protecting the host and supply chain from poisoned workspace artifacts.
+- **Cloud multi-tenant platforms** require **MicroVMs** (Firecracker, Kata) for hardware-level kernel isolation against untrusted tenant workloads.
+- **Local CLI coding assistants** often use **host-level kernel filtering** (Landlock, bubblewrap, Seatbelt) for lightweight, zero-latency execution against existing host tools.
+- **Auditable, isolated Software Factories** (like **PA-Container 2.0**) combine **dedicated hypervisor microVMs** (Tart on macOS, Incus on Linux) with **in-guest process sandboxing** (Landlock ABI v4+ / Seatbelt), **zero-port UDS egress proxy auditing**, and **CoW Git Vault branch isolation**. This delivers hardware-level isolation, per-agent POSIX UID confinement, and zero-knowledge secret token injection.
+- **Human Vigilance is the Final Boundary**: Sandboxes isolate active processes and restrict network leaks, but human code review (`pa review <agent>`) and strict egress management remain indispensable for protecting the host and supply chain from poisoned workspace artifacts.

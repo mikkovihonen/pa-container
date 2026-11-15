@@ -1,7 +1,5 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -247,93 +245,6 @@ impl Default for FactoryConfig {
             agents: vec![AgentSpec::new("agent1")],
         }
     }
-}
-
-pub fn find_free_port() -> Result<u16> {
-    let listener = TcpListener::bind("127.0.0.1:0").context("Failed to bind ephemeral port")?;
-    let port = listener.local_addr()?.port();
-    Ok(port)
-}
-
-pub fn resolve_agent_ports(agents: &[AgentSpec], dynamic: bool) -> Vec<AgentSpec> {
-    let mut used_ports = HashSet::new();
-
-    for a in agents {
-        if let Some(p) = a.proxy_port {
-            used_ports.insert(p);
-        }
-        if let Some(t) = a.transparent_port {
-            used_ports.insert(t);
-        }
-    }
-
-    let mut resolved = Vec::with_capacity(agents.len());
-
-    for (idx, a) in agents.iter().enumerate() {
-        let mut p_port = a.proxy_port;
-        let mut t_port = a.transparent_port;
-
-        if p_port.is_none() {
-            if dynamic {
-                loop {
-                    if let Ok(cand) = find_free_port() {
-                        if !used_ports.contains(&cand) {
-                            used_ports.insert(cand);
-                            p_port = Some(cand);
-                            break;
-                        }
-                    }
-                }
-            } else {
-                let offset = if a.uid >= 2000 {
-                    (a.uid - 2000) as u16
-                } else {
-                    (idx + 1) as u16
-                };
-                let cand = 8080 + offset;
-                used_ports.insert(cand);
-                p_port = Some(cand);
-            }
-        }
-
-        if t_port.is_none() {
-            if dynamic {
-                loop {
-                    if let Ok(cand) = find_free_port() {
-                        if !used_ports.contains(&cand) {
-                            used_ports.insert(cand);
-                            t_port = Some(cand);
-                            break;
-                        }
-                    }
-                }
-            } else {
-                let offset = if a.uid >= 2000 {
-                    (a.uid - 2000) as u16
-                } else {
-                    (idx + 1) as u16
-                };
-                let cand = 8090 + offset;
-                used_ports.insert(cand);
-                t_port = Some(cand);
-            }
-        }
-
-        resolved.push(AgentSpec {
-            id: a.id.clone(),
-            driver: a.driver.clone(),
-            uid: a.uid,
-            socket_path: a.socket_path.clone(),
-            proxy_port: p_port,
-            transparent_port: t_port,
-            branch_prefix: a.branch_prefix.clone(),
-            capabilities: a.capabilities.clone(),
-            allowlist: a.allowlist.clone(),
-            tokens: a.tokens.clone(),
-        });
-    }
-
-    resolved
 }
 
 pub fn resolve_agent_sockets(agents: &[AgentSpec], sockets_dir: &Path) -> Vec<AgentSpec> {

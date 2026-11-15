@@ -151,12 +151,10 @@ class MultiAgentContextAddon:
         targets: dict[str, AgentPolicy] = {}
         for sock_path, policy in list(self.socket_map.items()):
             if sock_path.endswith(".sock") and os.path.isabs(sock_path):
-                if sock_path.startswith("/home/mitmproxy/") and not os.path.exists("/home/mitmproxy"):
-                    continue
                 targets[sock_path] = policy
 
         # Ensure admin.sock is always included for health checks
-        sockets_dir = os.environ.get("PA_SOCKETS_DIR", "/home/mitmproxy/sockets")
+        sockets_dir = os.environ.get("PA_SOCKETS_DIR", os.path.expanduser("~/.cache/pa-container/sockets"))
         if targets:
             first_path = next(iter(targets.keys()))
             sockets_dir = os.path.dirname(first_path)
@@ -207,10 +205,10 @@ class MultiAgentContextAddon:
 
                 if sockets_dir:
                     sock_path = os.path.join(sockets_dir, f"{agent_id}.sock")
-                elif host_sock and not os.path.exists("/home/mitmproxy"):
+                elif host_sock:
                     sock_path = host_sock
                 elif not sock_path and agent_id != "unknown":
-                    sock_path = f"/home/mitmproxy/sockets/{agent_id}.sock"
+                    sock_path = os.path.expanduser(f"~/.cache/pa-container/sockets/{agent_id}.sock")
 
                 policy = AgentPolicy(
                     agent_id=agent_id,

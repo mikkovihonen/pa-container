@@ -172,20 +172,20 @@ impl FactoryBackend for IncusLinuxBackend {
                 .as_ref()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| format!("{}/{}.sock", sockets_dir.display(), a.id));
-            let in_container_socket = format!("/home/mitmproxy/sockets/{}.sock", a.id);
+            let flow_log_path = cache_dir.join(format!("flows-agent-{}.jsonl", a.id));
 
             proxy_rules.push(json!({
                 "id": a.id,
                 "agent_id": a.id,
                 "user": a.id,
                 "driver": a.driver,
-                "socket_path": in_container_socket,
+                "socket_path": sock_path,
                 "host_socket_path": sock_path,
                 "proxy_port": a.proxy_port,
                 "transparent_port": a.transparent_port,
                 "allowed_hosts": a.allowlist,
                 "token_placeholders": placeholders,
-                "flow_log_path": format!("/exports/flows-agent-{}.jsonl", a.id),
+                "flow_log_path": flow_log_path.to_string_lossy().to_string(),
             }));
         }
 
