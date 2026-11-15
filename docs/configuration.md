@@ -14,12 +14,25 @@ The root `factory.toml` file declares the multi-agent topology, hypervisor backe
 schema_version = "2.0"
 
 [factory]
+name = "pa-factory"
+description = "Software Factory VM for multi-agent workflows"
+
+[compute]
 # Hypervisor backend: "auto", "macos-tart", "linux-incus", or "linux-cloud"
 backend = "auto"
-vm_name = "pa-factory-vm"
-cpus = 4
-memory_mb = 8192
-disk_gb = 50
+cpus = 8
+memory_mb = 16384
+gpu = "optional"
+
+[compute.metal]
+# Explicit opt-in for macOS Apple Silicon paravirtualized Metal capabilities
+enabled = true
+# Host preference lifecycle: "ephemeral" (default, reverts on factory down), "persistent", or "none"
+host_mode = "ephemeral"
+# Target Apple GPU family ceiling (1001-1999, default 1009 = Apple Family 9 / M3/M4)
+apple_family_max = 1009
+# Threadgroup memory floor in bytes (default 65536 = 64 KiB)
+max_threadgroup_memory = 65536
 
 [proxy]
 base_proxy_port = 8081
@@ -52,11 +65,23 @@ tokens = ["ANTHROPIC_API_KEY"]
 ### Configuration Sections
 
 #### `[factory]`
+- **`name`**: Descriptive label for the software factory.
+- **`description`**: Optional textual description.
+
+#### `[compute]`
 - **`backend`**: Hypervisor orchestration engine. Defaults to `"auto"`, which detects Tart on macOS Apple Silicon and Incus on Linux.
-- **`vm_name`**: Name of the target microVM instance.
 - **`cpus`**: Number of virtual CPU cores allocated to the factory VM.
 - **`memory_mb`**: RAM allocated in megabytes (minimum 4096 recommended).
-- **`disk_gb`**: Disk size in gigabytes.
+- **`gpu`**: GPU allocation policy (`"optional"`, `"required"`, or `"disabled"`).
+
+#### `[compute.metal]`
+- **`enabled`**: Explicit opt-in boolean (defaults to `false`). When `false`, zero host preferences are touched and guest processes run stock virtual graphics.
+- **`host_mode`**: Host hypervisor preference lifecycle:
+    - `"ephemeral"` *(Default)*: Automatically sets `defaults write com.apple.gpusw.ParavirtualizedGraphics ForceUnrestrictedDeviceFeatureLevel -bool true` on the host prior to Tart execution, and cleanly deletes it upon factory teardown (`pa factory down`). Leaves zero persistent host changes.
+    - `"persistent"`: Sets the host preference permanently.
+    - `"none"`: Never modifies host settings (assumes external out-of-band management).
+- **`apple_family_max`**: Maximum Apple GPU feature tier to expose via the interposer shim (defaults to `1009` for Apple Family 9 / M3/M4).
+- **`max_threadgroup_memory`**: Memory ceiling in bytes (defaults to `65536` for 64 KiB, overcoming stock 32 KiB restriction).
 
 #### `[proxy]`
 - **`base_proxy_port`**: Starting port number for dedicated agent HTTP/HTTPS proxy listeners (defaults to `8081`).

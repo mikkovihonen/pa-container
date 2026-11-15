@@ -51,6 +51,24 @@ ensure_command_line_tools() {
 }
 ensure_command_line_tools || true
 
+# 6. Build & install Tart Metal capability shim for GPU & local LLM acceleration
+if [ -f "$(dirname "$0")/data/tart-metal-capabilities/Sources/TartMetalCapabilities.m" ]; then
+    echo "==> Compiling Tart Metal capability shim..."
+    mkdir -p /usr/local/lib /usr/local/share/licenses/tart-metal-capabilities
+    xcrun clang \
+        -arch arm64 \
+        -O3 -Wall -Wextra -Werror -fobjc-arc -fblocks -fvisibility=hidden \
+        -dynamiclib -install_name /usr/local/lib/TartMetalCapabilities.dylib \
+        -framework Foundation -framework Metal \
+        "$(dirname "$0")/data/tart-metal-capabilities/Sources/TartMetalCapabilities.m" \
+        -o /usr/local/lib/TartMetalCapabilities.dylib || true
+    if [ -f /usr/local/lib/TartMetalCapabilities.dylib ]; then
+        codesign --force --sign - /usr/local/lib/TartMetalCapabilities.dylib || true
+        chmod 644 /usr/local/lib/TartMetalCapabilities.dylib
+        cp "$(dirname "$0")/data/tart-metal-capabilities/LICENSE" /usr/local/share/licenses/tart-metal-capabilities/LICENSE || true
+    fi
+fi
+
 if [ -f "$(dirname "$0")/../pa-agent-entrypoint" ]; then
     cp "$(dirname "$0")/../pa-agent-entrypoint" /opt/pa/bin/pa-agent-entrypoint
     chmod 755 /opt/pa/bin/pa-agent-entrypoint

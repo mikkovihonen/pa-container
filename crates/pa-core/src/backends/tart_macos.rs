@@ -38,6 +38,82 @@ impl TartMacOSBackend {
         }
     }
 
+    pub fn apply_host_metal_config(metal: &crate::schema::MetalSpec) -> Result<()> {
+        if !metal.enabled {
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            match metal.host_mode.to_lowercase().as_str() {
+                "ephemeral" => {
+                    let check = Command::new("defaults")
+                        .args([
+                            "read",
+                            "com.apple.gpusw.ParavirtualizedGraphics",
+                            "ForceUnrestrictedDeviceFeatureLevel",
+                        ])
+                        .output();
+                    let already_enabled = match check {
+                        Ok(out) => String::from_utf8_lossy(&out.stdout).trim() == "1",
+                        Err(_) => false,
+                    };
+                    if !already_enabled {
+                        let res = Command::new("defaults")
+                            .args([
+                                "write",
+                                "com.apple.gpusw.ParavirtualizedGraphics",
+                                "ForceUnrestrictedDeviceFeatureLevel",
+                                "-bool",
+                                "true",
+                            ])
+                            .status()
+                            .context("Failed to write host ParavirtualizedGraphics preference")?;
+                        if res.success() {
+                            let marker = dirs_fallback_cache().join("ephemeral_host_metal");
+                            let _ = fs::write(marker, "true");
+                        }
+                    }
+                }
+                "persistent" => {
+                    let _ = Command::new("defaults")
+                        .args([
+                            "write",
+                            "com.apple.gpusw.ParavirtualizedGraphics",
+                            "ForceUnrestrictedDeviceFeatureLevel",
+                            "-bool",
+                            "true",
+                        ])
+                        .status();
+                    let marker = dirs_fallback_cache().join("ephemeral_host_metal");
+                    let _ = fs::remove_file(marker);
+                }
+                "none" | "manual" => {}
+                other => {
+                    eprintln!("Warning: Unknown compute.metal.host_mode '{}'", other);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn revert_host_metal_if_needed() -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            let marker = dirs_fallback_cache().join("ephemeral_host_metal");
+            if marker.exists() {
+                let _ = Command::new("defaults")
+                    .args([
+                        "delete",
+                        "com.apple.gpusw.ParavirtualizedGraphics",
+                        "ForceUnrestrictedDeviceFeatureLevel",
+                    ])
+                    .status();
+                let _ = fs::remove_file(marker);
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_vm_ip(&self) -> Result<String> {
         let out = Command::new("tart")
             .args(["ip", &self.vm_name])
@@ -204,7 +280,10 @@ impl FactoryBackend for TartMacOSBackend {
         Ok(self.proxy_host_ip.clone())
     }
 
-    fn ensure_factory_vm(&self, _config: &FactoryConfig, _proxy_ip: &str) -> Result<()> {
+    fn ensure_factory_vm(&self, config: &FactoryConfig, _proxy_ip: &str) -> Result<()> {
+        if config.compute.metal.enabled {
+            Self::apply_host_metal_config(&config.compute.metal)?;
+        }
         let ip_check = self.get_vm_ip();
         if ip_check.is_err() {
             let get_out = Command::new("tart").args(["get", &self.vm_name]).output();
@@ -501,6 +580,16 @@ impl FactoryBackend for TartMacOSBackend {
         }
         payload["extra_env"] = json!(env_map);
 
+        let metal_spec = self.config.as_ref().map(|c| &c.compute.metal);
+        let metal_enabled = metal_spec.map(|m| m.enabled).unwrap_or(false);
+        if metal_enabled {
+            payload["metal"] = json!({
+                "enabled": true,
+                "apple_family_max": metal_spec.map(|m| m.apple_family_max).unwrap_or(1009),
+                "max_threadgroup_memory": metal_spec.map(|m| m.max_threadgroup_memory).unwrap_or(65536),
+            });
+        }
+
         let res = self.execute_ssh_rpc("launch_agent", payload)?;
 
         if res.get("result").is_some() {
@@ -576,6 +665,7 @@ impl FactoryBackend for TartMacOSBackend {
 
     fn stop_factory(&self) -> Result<()> {
         let _ = crate::backend::stop_proxy_server();
+        let _ = Self::revert_host_metal_if_needed();
         if self.get_vm_ip().is_ok() {
             let _ = self.execute_ssh_rpc("prune_caches", json!({}));
             let status = Command::new("tart")
@@ -627,5 +717,32 @@ mod tests {
         let cfg = FactoryConfig::default();
         let ip = backend.start_proxy(&cfg).unwrap();
         assert_eq!(ip, DEFAULT_TART_GATEWAY);
+    }
+
+    #[test]
+    fn test_apply_host_metal_config_disabled() {
+        let metal = crate::schema::MetalSpec {
+            enabled: false,
+            host_mode: "ephemeral".to_string(),
+            apple_family_max: 1009,
+            max_threadgroup_memory: 65536,
+        };
+        let res = TartMacOSBackend::apply_host_metal_config(&metal);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_revert_host_metal_marker_handling() {
+        let marker = dirs_fallback_cache().join("ephemeral_host_metal");
+        let _ = fs::create_dir_all(dirs_fallback_cache());
+        let _ = fs::remove_file(&marker);
+
+        assert!(TartMacOSBackend::revert_host_metal_if_needed().is_ok());
+
+        let _ = fs::write(&marker, "true");
+        assert!(marker.exists());
+
+        assert!(TartMacOSBackend::revert_host_metal_if_needed().is_ok());
+        assert!(!marker.exists());
     }
 }

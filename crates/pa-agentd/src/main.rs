@@ -448,7 +448,38 @@ impl GuestDaemonService {
                 allow_gpu,
             );
             let _ = fs::write(&pfile, content);
-            build_sandbox_exec_command(&pfile, &command)
+
+            let mut final_cmd = command.clone();
+            let metal_opt = params.get("metal");
+            let metal_enabled = metal_opt
+                .and_then(|m| m.get("enabled"))
+                .and_then(|e| e.as_bool())
+                .unwrap_or(false);
+            if allow_gpu && metal_enabled {
+                let apple_family_max = metal_opt
+                    .and_then(|m| m.get("apple_family_max"))
+                    .and_then(|f| f.as_u64())
+                    .unwrap_or(1009);
+                let max_threadgroup_memory = metal_opt
+                    .and_then(|m| m.get("max_threadgroup_memory"))
+                    .and_then(|t| t.as_u64())
+                    .unwrap_or(65536);
+                let shim_path = PathBuf::from("/usr/local/lib/TartMetalCapabilities.dylib");
+                if shim_path.exists() {
+                    let mut env_wrapped = vec![
+                        "/usr/bin/env".to_string(),
+                        format!("DYLD_INSERT_LIBRARIES={}", shim_path.display()),
+                        format!("TART_METAL_APPLE_FAMILY_MAX={}", apple_family_max),
+                        format!(
+                            "TART_METAL_MAX_THREADGROUP_MEMORY={}",
+                            max_threadgroup_memory
+                        ),
+                    ];
+                    env_wrapped.extend(final_cmd);
+                    final_cmd = env_wrapped;
+                }
+            }
+            build_sandbox_exec_command(&pfile, &final_cmd)
         } else {
             let mut env_map = BTreeMap::new();
             if let Some(obj) = params.get("extra_env").and_then(|e| e.as_object()) {
@@ -1060,5 +1091,21 @@ mod tests {
         let res = service.dispatch(&req);
         assert_eq!(res["id"], 48);
         assert_eq!(res["result"]["status"], "tuned");
+    }
+
+    #[test]
+    fn test_guest_daemon_launch_agent_missing_id() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 49,
+            "method": "launch_agent",
+            "params": {
+                "command": ["echo", "test"]
+            }
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 49);
+        assert!(res["error"].is_object());
     }
 }

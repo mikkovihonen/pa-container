@@ -26,6 +26,41 @@ impl Default for FactoryMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetalSpec {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_metal_host_mode")]
+    pub host_mode: String,
+    #[serde(default = "default_apple_family_max")]
+    pub apple_family_max: u32,
+    #[serde(default = "default_max_threadgroup_memory")]
+    pub max_threadgroup_memory: u64,
+}
+
+fn default_metal_host_mode() -> String {
+    "ephemeral".to_string()
+}
+
+fn default_apple_family_max() -> u32 {
+    1009
+}
+
+fn default_max_threadgroup_memory() -> u64 {
+    65536
+}
+
+impl Default for MetalSpec {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host_mode: default_metal_host_mode(),
+            apple_family_max: default_apple_family_max(),
+            max_threadgroup_memory: default_max_threadgroup_memory(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeSpec {
     #[serde(default = "default_backend")]
     pub backend: String,
@@ -35,6 +70,8 @@ pub struct ComputeSpec {
     pub memory_mb: u32,
     #[serde(default = "default_gpu")]
     pub gpu: String,
+    #[serde(default)]
+    pub metal: MetalSpec,
 }
 
 fn default_backend() -> String {
@@ -57,6 +94,7 @@ impl Default for ComputeSpec {
             cpus: default_cpus(),
             memory_mb: default_memory(),
             gpu: default_gpu(),
+            metal: MetalSpec::default(),
         }
     }
 }
@@ -371,5 +409,45 @@ mod tests {
             resolved[1].socket_path,
             Some(PathBuf::from("/custom/special.sock"))
         );
+    }
+
+    #[test]
+    fn test_metal_spec_defaults() {
+        let default_metal = MetalSpec::default();
+        assert!(!default_metal.enabled);
+        assert_eq!(default_metal.host_mode, "ephemeral");
+        assert_eq!(default_metal.apple_family_max, 1009);
+        assert_eq!(default_metal.max_threadgroup_memory, 65536);
+
+        let default_compute = ComputeSpec::default();
+        assert!(!default_compute.metal.enabled);
+        assert_eq!(default_compute.metal.host_mode, "ephemeral");
+    }
+
+    #[test]
+    fn test_metal_spec_toml_deserialization() {
+        let toml_str = r#"
+schema_version = "2.0"
+
+[compute]
+backend = "macos-tart"
+cpus = 6
+memory_mb = 12288
+gpu = "required"
+
+[compute.metal]
+enabled = true
+host_mode = "persistent"
+apple_family_max = 1008
+max_threadgroup_memory = 32768
+"#;
+        let config: FactoryConfig = toml::from_str(toml_str).expect("Failed to parse TOML");
+        assert_eq!(config.compute.backend, "macos-tart");
+        assert_eq!(config.compute.cpus, 6);
+        assert_eq!(config.compute.gpu, "required");
+        assert!(config.compute.metal.enabled);
+        assert_eq!(config.compute.metal.host_mode, "persistent");
+        assert_eq!(config.compute.metal.apple_family_max, 1008);
+        assert_eq!(config.compute.metal.max_threadgroup_memory, 32768);
     }
 }
