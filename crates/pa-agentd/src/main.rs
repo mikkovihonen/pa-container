@@ -81,6 +81,7 @@ impl GuestDaemonService {
             "resize_disk" => self.rpc_resize_disk(),
             "prune_caches" => self.rpc_prune_caches(),
             "apply_tuning" => self.rpc_apply_tuning(),
+            "dispatch_feature_stage" => self.rpc_dispatch_feature_stage(&params),
             _ => {
                 return json!({
                     "jsonrpc": "2.0",
@@ -321,6 +322,83 @@ impl GuestDaemonService {
         }))
     }
 
+    fn rpc_dispatch_feature_stage(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let slug = params
+            .get("slug")
+            .and_then(|s| s.as_str())
+            .context("Missing required parameter 'slug'")?;
+        let stage = params
+            .get("stage")
+            .and_then(|s| s.as_str())
+            .unwrap_or("plan");
+        let project_name = params
+            .get("project_name")
+            .and_then(|p| p.as_str())
+            .unwrap_or("default");
+
+        let (username, uid) = match stage {
+            "plan" => ("pa-architect", 2001),
+            "red" => ("pa-tester", 2002),
+            "green" => ("pa-coder", 2003),
+            "verify" => ("pa-verifier", 2004),
+            other => anyhow::bail!(
+                "Unknown feature stage '{}'. Must be 'plan', 'red', 'green', or 'verify'",
+                other
+            ),
+        };
+
+        let mock_cow = params
+            .get("mock")
+            .and_then(|m| m.as_bool())
+            .unwrap_or(false);
+
+        let home_dir = ensure_agent_user(username, uid, None, mock_cow)?;
+
+        let branch = format!("pa/{}/{}", slug, stage);
+
+        let ws_dir = home_dir.join("workspace");
+        if !mock_cow {
+            if ws_dir.exists() {
+                let _ = fs::remove_dir_all(&ws_dir);
+            }
+            let _ = self.vault_manager.cow_clone_workspace(
+                project_name,
+                &ws_dir,
+                username,
+                Some(&branch),
+                false,
+            );
+
+            #[cfg(unix)]
+            {
+                let _ = Command::new("chown")
+                    .args(["-R", username, ws_dir.to_str().unwrap_or("")])
+                    .status();
+            }
+        } else {
+            let _ = fs::create_dir_all(&ws_dir);
+        }
+
+        let mut test_paths = Vec::new();
+        if stage == "green" {
+            let tests_dir = ws_dir.join("tests");
+            if tests_dir.is_dir() {
+                test_paths.push(tests_dir.to_string_lossy().to_string());
+            }
+        }
+
+        Ok(json!({
+            "status": "staged",
+            "slug": slug,
+            "stage": stage,
+            "user": username,
+            "uid": uid,
+            "branch": branch,
+            "workspace": ws_dir.to_string_lossy(),
+            "assertion_locked_paths": test_paths,
+        }))
+    }
+
     fn rpc_launch_agent(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
         let agent_id = params
             .get("agent_id")
@@ -428,6 +506,14 @@ impl GuestDaemonService {
                 .collect(),
             None => Vec::new(),
         };
+        let denied_write_paths: Vec<String> =
+            match params.get("denied_write_paths").and_then(|d| d.as_array()) {
+                Some(arr) => arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect(),
+                None => Vec::new(),
+            };
 
         let wrapped_cmd = if cfg!(target_os = "macos") {
             let profile_dir = PathBuf::from("/etc/pa/profiles");
@@ -446,6 +532,11 @@ impl GuestDaemonService {
                     Some(&extra_write_paths)
                 },
                 allow_gpu,
+                if denied_write_paths.is_empty() {
+                    None
+                } else {
+                    Some(&denied_write_paths)
+                },
             );
             let _ = fs::write(&pfile, content);
 
@@ -504,6 +595,9 @@ impl GuestDaemonService {
                 PathBuf::from("/opt/pa"),
             ];
             for p in &extra_read_paths {
+                ro_paths.push(PathBuf::from(p));
+            }
+            for p in &denied_write_paths {
                 ro_paths.push(PathBuf::from(p));
             }
 
@@ -1206,6 +1300,38 @@ mod tests {
         let res = service.dispatch(&req);
         assert_eq!(res["id"], 49);
         assert!(res["error"].is_object());
+    }
+
+    #[test]
+    fn test_guest_daemon_dispatch_feature_stage() {
+        let service = GuestDaemonService::new(None);
+        let stages = vec![
+            ("plan", "pa-architect", 2001),
+            ("red", "pa-tester", 2002),
+            ("green", "pa-coder", 2003),
+            ("verify", "pa-verifier", 2004),
+        ];
+
+        for (stage, expected_user, expected_uid) in stages {
+            let req = json!({
+                "jsonrpc": "2.0",
+                "id": 100,
+                "method": "dispatch_feature_stage",
+                "params": {
+                    "slug": "auth-jwt",
+                    "stage": stage,
+                    "mock": true
+                }
+            });
+            let res = service.dispatch(&req);
+            assert_eq!(res["id"], 100);
+            assert_eq!(res["result"]["status"], "staged");
+            assert_eq!(res["result"]["slug"], "auth-jwt");
+            assert_eq!(res["result"]["stage"], stage);
+            assert_eq!(res["result"]["user"], expected_user);
+            assert_eq!(res["result"]["uid"], expected_uid);
+            assert_eq!(res["result"]["branch"], format!("pa/auth-jwt/{}", stage));
+        }
     }
 
     #[test]

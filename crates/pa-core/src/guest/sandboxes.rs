@@ -210,6 +210,7 @@ pub fn generate_seatbelt_profile(
     vault_path: Option<&str>,
     extra_write_paths: Option<&[String]>,
     allow_gpu: bool,
+    denied_write_paths: Option<&[String]>,
 ) -> String {
     let mut denied_reads = Vec::new();
     let users = other_users.unwrap_or(&["admin"]);
@@ -240,6 +241,23 @@ pub fn generate_seatbelt_profile(
         }
     }
     let allowed_writes_clause = allowed_writes.join("\n");
+
+    let locked_clause = if let Some(locked) = denied_write_paths {
+        let entries: Vec<String> = locked
+            .iter()
+            .map(|p| format!("    (subpath \"{}\")", p))
+            .collect();
+        if entries.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n;; 3b. Anti-Tamper Test Assertion Locking (Read-Only Test Suite)\n(deny file-write*\n{})\n",
+                entries.join("\n")
+            )
+        }
+    } else {
+        String::new()
+    };
 
     let gpu_clause = if allow_gpu {
         r#";; 4. Allow Paravirtualized Metal GPU, CoreML, and IOKit Compute Access
@@ -281,7 +299,7 @@ pub fn generate_seatbelt_profile(
 ;; 3. Filesystem Write Jail
 (deny file-write*)
 (allow file-write*
-{allowed_writes_clause})
+{allowed_writes_clause}){locked_clause}
 
 {gpu_clause}
 "#
@@ -345,8 +363,17 @@ mod tests {
 
     #[test]
     fn test_generate_seatbelt_profile_transparent_zero_port() {
-        let profile =
-            generate_seatbelt_profile("agent1", "192.168.64.1", 0, 5353, None, None, None, false);
+        let profile = generate_seatbelt_profile(
+            "agent1",
+            "192.168.64.1",
+            0,
+            5353,
+            None,
+            None,
+            None,
+            false,
+            None,
+        );
         assert!(profile.contains("Agent Seatbelt Profile: agent1"));
         assert!(!profile.contains("remote tcp \"192.168.64.1:0\""));
         assert!(profile.contains(r#"(allow network-outbound (remote tcp "*:80"))"#));
@@ -365,6 +392,7 @@ mod tests {
             Some("/custom/vault"),
             Some(&extras),
             true,
+            None,
         );
         assert!(profile.contains("Agent Seatbelt Profile: agent1"));
         assert!(profile.contains(r#"remote tcp "*:8081""#));
@@ -373,6 +401,25 @@ mod tests {
         assert!(profile.contains(r#"(subpath "/Users/agent1")"#));
         assert!(profile.contains(r#"(subpath "/opt/pa/extra")"#));
         assert!(profile.contains("AGXDeviceUserClient"));
+    }
+
+    #[test]
+    fn test_generate_seatbelt_profile_assertion_locking() {
+        let locked_tests = vec!["/Users/pa-coder/workspace/tests".to_string()];
+        let profile = generate_seatbelt_profile(
+            "pa-coder",
+            "192.168.64.1",
+            8081,
+            5353,
+            None,
+            None,
+            None,
+            false,
+            Some(&locked_tests),
+        );
+        assert!(profile.contains("Anti-Tamper Test Assertion Locking"));
+        assert!(profile.contains(r#"(deny file-write*"#));
+        assert!(profile.contains(r#"(subpath "/Users/pa-coder/workspace/tests")"#));
     }
 
     #[test]

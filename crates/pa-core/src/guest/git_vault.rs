@@ -24,7 +24,7 @@ while read -r oldrev newrev refname; do
         refs/heads/*)
             branch="${refname#refs/heads/}"
             case "$branch" in
-                pa/"$AGENT_ID"/*)
+                pa/"$AGENT_ID"/*|"$ALLOWED_PREFIX"*)
                     ;;
                 *)
                     echo "PA-Git-Vault: Access Denied. Agent '$AGENT_ID' can only push to '$ALLOWED_PREFIX*', but attempted push to '$branch'." >&2
