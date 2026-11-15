@@ -79,10 +79,11 @@ pub fn ensure_proxy_server(
 ) -> Result<()> {
     let _lock = PROXY_MUTEX.lock().unwrap();
 
-    let sockets_dir = config_path
+    let cache_dir = config_path
         .parent()
-        .unwrap_or_else(|| Path::new("/tmp"))
-        .join("sockets");
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(dirs_fallback_cache);
+    let sockets_dir = cache_dir.join("sockets");
     fs::create_dir_all(&sockets_dir)?;
 
     #[cfg(unix)]
@@ -150,6 +151,10 @@ pub fn ensure_proxy_server(
             ),
             "-v",
             &format!("{}:/home/mitmproxy/sockets:rw", sockets_dir.display()),
+            "-v",
+            &format!("{}:/home/mitmproxy/exports:rw", cache_dir.display()),
+            "-e",
+            "FLOW_EXPORT_ENABLED=true",
             "-e",
             &format!("ADMIN_PASSWORD={}", admin_password),
             "localhost/pa-container-agent-proxy:local",
@@ -223,6 +228,8 @@ pub fn ensure_proxy_server(
             ]);
             uv_cmd.args(&modes);
             uv_cmd.env("PA_SOCKETS_DIR", &sockets_dir);
+            uv_cmd.env("FLOW_EXPORT_ENABLED", "true");
+            uv_cmd.env("FLOW_EXPORT_DIR", &cache_dir);
             uv_cmd.env(
                 "ALLOWLIST_CONFIG_PATH",
                 proxy_dir.join("addons/allowlist/allowlist_config.yaml"),
@@ -271,4 +278,12 @@ pub fn stop_proxy_server() -> Result<()> {
         .args(["-f", "mitmweb.*multi_agent_config"])
         .status();
     Ok(())
+}
+
+pub fn dirs_fallback_cache() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".cache").join("pa-container")
+    } else {
+        std::env::temp_dir().join("pa-container")
+    }
 }

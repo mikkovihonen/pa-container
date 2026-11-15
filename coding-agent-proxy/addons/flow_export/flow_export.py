@@ -244,6 +244,8 @@ class FlowExporter:
             agent_path = getattr(policy, "flow_log_path", None)
             if not agent_path and agent_id:
                 agent_path = os.path.join(self.export_dir, f"flows-agent-{agent_id}.jsonl")
+            elif agent_path and not os.path.exists(os.path.dirname(agent_path)):
+                agent_path = os.path.join(self.export_dir, os.path.basename(agent_path))
 
             if agent_path:
                 agent_mode = "a" if agent_id in self._truncated else "w"
