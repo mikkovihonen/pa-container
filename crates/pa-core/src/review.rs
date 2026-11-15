@@ -30,15 +30,24 @@ pub fn review_agent_workspace(
             fs::create_dir_all(parent)?;
         }
         if !worktree_path.exists() {
-            let _ = Command::new("git")
-                .args([
-                    "worktree",
-                    "add",
-                    worktree_path.to_str().unwrap_or(""),
-                    &format!("pa/{}/task", agent_id),
-                ])
+            let branch = format!("pa/{}/task", agent_id);
+            let branch_exists = Command::new("git")
+                .args(["rev-parse", "--verify", &branch])
                 .current_dir(repo)
-                .output();
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            let mut add_cmd = Command::new("git");
+            add_cmd.args(["worktree", "add"]);
+            if !branch_exists {
+                add_cmd.args(["-b", &branch]);
+            }
+            add_cmd.arg(worktree_path.to_str().unwrap_or(""));
+            if branch_exists {
+                add_cmd.arg(&branch);
+            }
+            let _ = add_cmd.current_dir(repo).output();
         }
     }
 

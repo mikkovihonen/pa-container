@@ -641,13 +641,25 @@ impl FactoryBackend for TartMacOSBackend {
             if let Some(p) = worktree_path.parent() {
                 let _ = fs::create_dir_all(p);
             }
-            let add_out = Command::new("git")
-                .args([
-                    "worktree",
-                    "add",
-                    worktree_path.to_str().unwrap_or(""),
-                    &format!("pa/{}/task", agent_id),
-                ])
+            let branch = format!("pa/{}/task", agent_id);
+            let branch_exists = Command::new("git")
+                .args(["rev-parse", "--verify", &branch])
+                .current_dir(host_repo)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            let mut add_cmd = Command::new("git");
+            add_cmd.args(["worktree", "add"]);
+            if !branch_exists {
+                add_cmd.args(["-b", &branch]);
+            }
+            add_cmd.arg(worktree_path.to_str().unwrap_or(""));
+            if branch_exists {
+                add_cmd.arg(&branch);
+            }
+
+            let add_out = add_cmd
                 .current_dir(host_repo)
                 .output()
                 .context("Failed to add git worktree")?;
