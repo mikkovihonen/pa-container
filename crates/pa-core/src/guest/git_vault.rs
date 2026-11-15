@@ -93,6 +93,10 @@ impl GitVaultManager {
             let _ = Command::new("git")
                 .args(["config", "--system", "--add", "safe.directory", "*"])
                 .status();
+            let _ = Command::new("git")
+                .args(["config", "receive.denyNonFastforwards", "false"])
+                .current_dir(&repo_path)
+                .status();
         }
 
         Ok(repo_path)

@@ -309,7 +309,7 @@ impl FactoryBackend for TartMacOSBackend {
                 "push",
                 "-f",
                 &vault_git_url,
-                &format!("{}:refs/heads/main", commit_to_push),
+                &format!("+{}:refs/heads/main", commit_to_push),
             ])
             .current_dir(host_repo)
             .output()
