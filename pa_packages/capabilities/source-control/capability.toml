@@ -4,14 +4,14 @@ schema_version = "1.0"
 name = "source-control"
 category = "source-control"
 version = "1.0.0"
-description = "Source control automation and Git workflows for autonomous agents"
+description = "Multi-platform source control automation and PR/MR workflows across GitHub, GitLab, Bitbucket, and Azure DevOps"
 requires = ["git"]
 
 [staging]
 install_prefix = "/opt/pa/packs/source-control"
 bin_dirs = ["bin"]
-fedora_packages = ["git", "git-lfs", "gh"]
-macos_brew_packages = ["git", "git-lfs", "gh"]
+fedora_packages = []
+macos_brew_packages = []
 
 [entitlements]
 read_paths = ["/opt/pa/packs/source-control"]
@@ -19,8 +19,23 @@ write_paths = ["/tmp/pa-git"]
 allow_gpu = false
 
 [proxy]
-allowlist = ["github.com", "api.github.com", "*.githubusercontent.com"]
+allowlist = [
+    "github.com",
+    "api.github.com",
+    "*.githubusercontent.com",
+    "gitlab.com",
+    "bitbucket.org",
+    "dev.azure.com"
+]
 
 [[proxy.tokens]]
 env_var = "GITHUB_TOKEN"
 allowed_hosts = ["github.com", "api.github.com"]
+
+[[proxy.tokens]]
+env_var = "GITLAB_TOKEN"
+allowed_hosts = ["gitlab.com"]
+
+[[proxy.tokens]]
+env_var = "AZURE_DEVOPS_EXT_PAT"
+allowed_hosts = ["dev.azure.com"]

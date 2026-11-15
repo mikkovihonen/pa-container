@@ -4,14 +4,32 @@ schema_version = "1.0"
 name = "image-tools"
 category = "media"
 version = "1.0.0"
-description = "Image processing capability: ImageMagick conversion and effects, ExifTool/exiv2 metadata, WebP/JPEG/TIFF/PNG codec utilities"
+description = "Comprehensive image processing capability: ImageMagick 7, ExifTool, WebP, OxiPNG, Potrace vectorization, libvips streaming, JPEG-XL, and HEIF/AVIF tools"
 requires = []
 
 [staging]
 install_prefix = "/opt/pa/packs/image-tools"
 bin_dirs = ["bin"]
-fedora_packages = ["ImageMagick", "libwebp-tools", "oxipng", "perl-Image-ExifTool", "potrace"]
-macos_brew_packages = ["imagemagick", "webp", "oxipng", "exiftool", "potrace"]
+fedora_packages = [
+    "ImageMagick",
+    "libwebp-tools",
+    "oxipng",
+    "perl-Image-ExifTool",
+    "potrace",
+    "vips-tools",
+    "libjxl-utils",
+    "libheif-tools"
+]
+macos_brew_packages = [
+    "imagemagick",
+    "webp",
+    "oxipng",
+    "exiftool",
+    "potrace",
+    "vips",
+    "jpeg-xl",
+    "libheif"
+]
 
 [entitlements]
 read_paths = ["/opt/pa/packs/image-tools"]
@@ -19,7 +37,7 @@ write_paths = ["/tmp/pa-media"]
 allow_gpu = false
 
 [env]
-MAGICK_TEMPORARY_PATH = "/tmp/pa-media"
+MAGICK_MEMORY_LIMIT = "1GiB"
 
 [proxy]
 allowlist = ["api.openai.com", "generativelanguage.googleapis.com", "api.stability.ai"]

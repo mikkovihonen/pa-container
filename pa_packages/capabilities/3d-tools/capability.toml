@@ -4,7 +4,7 @@ schema_version = "1.0"
 name = "3d-tools"
 category = "media"
 version = "1.0.0"
-description = "3D model processing capability: assimp format conversion, admesh STL repair, Draco mesh compression, OpenVDB volume inspection, and Blender/MeshLab/OpenSCAD utilities"
+description = "3D model inspection, format conversion, and mesh topology repair using Assimp and ADMesh"
 requires = []
 
 [staging]
@@ -16,7 +16,7 @@ macos_brew_packages = ["assimp", "admesh"]
 [entitlements]
 read_paths = ["/opt/pa/packs/3d-tools"]
 write_paths = ["/tmp/pa-3d"]
-allow_gpu = true
+allow_gpu = false
 
 [proxy]
 allowlist = []

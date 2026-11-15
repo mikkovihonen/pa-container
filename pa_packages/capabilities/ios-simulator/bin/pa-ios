@@ -1,0 +1,116 @@
+#!/bin/bash
+# pa-ios: Command-line interface for iOS Simulator lifecycle, app deployment, and visual observation.
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: pa-ios <command> [args...]
+
+Lifecycle Commands:
+  list                          List available simulator devices and runtimes
+  boot [device]                 Boot target simulator (default: "iPhone 16 Pro" or active device)
+  shutdown [device]             Shut down simulator device (default: booted)
+
+App Management Commands:
+  install <app_bundle_path>     Install built .app bundle onto the booted simulator
+  launch <bundle_id>            Launch application by bundle identifier on the booted simulator
+  terminate <bundle_id>         Terminate running application by bundle identifier
+  openurl <url>                 Open URL or deep link inside the booted simulator
+
+Observation Commands:
+  screenshot [output_path.png]  Capture simulator display screenshot to PNG (default: /tmp/ios_screen.png)
+  logs [bundle_id]              Stream or dump application system logs from simulator
+EOF
+    exit 1
+}
+
+if [ "$(uname -s)" != "Darwin" ]; then
+    echo "ERROR: iOS Simulator capability requires macOS Apple Silicon host with Xcode." >&2
+    exit 1
+fi
+
+if ! command -v xcrun >/dev/null 2>&1; then
+    echo "ERROR: Xcode command-line tools ('xcrun') are not installed." >&2
+    exit 1
+fi
+
+[ $# -gt 0 ] || usage
+CMD="$1"
+shift
+
+resolve_booted_udid() {
+    xcrun simctl list devices | grep "(Booted)" | head -n1 | grep -oE '[0-9A-F-]{36}' || true
+}
+
+case "$CMD" in
+    list)
+        xcrun simctl list devices available
+        ;;
+
+    boot)
+        TARGET="${1:-iPhone 16 Pro}"
+        BOOTED=$(resolve_booted_udid)
+        if [ -n "$BOOTED" ]; then
+            echo "Simulator is already booted (UDID: $BOOTED)"
+            exit 0
+        fi
+        echo "Booting simulator '$TARGET'..."
+        xcrun simctl boot "$TARGET"
+        echo "Simulator booted successfully."
+        ;;
+
+    shutdown)
+        TARGET="${1:-booted}"
+        echo "Shutting down simulator '$TARGET'..."
+        xcrun simctl shutdown "$TARGET" 2>/dev/null || true
+        echo "Simulator shut down."
+        ;;
+
+    install)
+        [ $# -gt 0 ] || { echo "Usage: pa-ios install <app_path.app>" >&2; exit 1; }
+        APP_PATH="$1"
+        [ -d "$APP_PATH" ] || { echo "ERROR: App bundle not found: $APP_PATH" >&2; exit 1; }
+        echo "Installing '$APP_PATH' onto booted simulator..."
+        xcrun simctl install booted "$APP_PATH"
+        echo "Installation complete."
+        ;;
+
+    launch)
+        [ $# -gt 0 ] || { echo "Usage: pa-ios launch <bundle_id>" >&2; exit 1; }
+        BUNDLE_ID="$1"
+        echo "Launching '$BUNDLE_ID'..."
+        xcrun simctl launch booted "$BUNDLE_ID"
+        ;;
+
+    terminate)
+        [ $# -gt 0 ] || { echo "Usage: pa-ios terminate <bundle_id>" >&2; exit 1; }
+        BUNDLE_ID="$1"
+        xcrun simctl terminate booted "$BUNDLE_ID" 2>/dev/null || true
+        echo "Terminated '$BUNDLE_ID'."
+        ;;
+
+    openurl)
+        [ $# -gt 0 ] || { echo "Usage: pa-ios openurl <url>" >&2; exit 1; }
+        xcrun simctl openurl booted "$1"
+        ;;
+
+    screenshot)
+        OUT_FILE="${1:-/tmp/ios_screen.png}"
+        mkdir -p "$(dirname "$OUT_FILE")"
+        xcrun simctl io booted screenshot "$OUT_FILE"
+        echo "Simulator screenshot saved: $OUT_FILE"
+        ;;
+
+    logs)
+        BUNDLE_ID="${1:-}"
+        if [ -n "$BUNDLE_ID" ]; then
+            xcrun simctl spawn booted log show --predicate "subsystem == '$BUNDLE_ID'" --last 5m
+        else
+            xcrun simctl spawn booted log show --last 2m
+        fi
+        ;;
+
+    *)
+        usage
+        ;;
+esac

@@ -4,22 +4,19 @@ schema_version = "1.0"
 name = "ocr-tools"
 category = "media"
 version = "1.0.0"
-description = "OCR capability: tesseract text extraction from images and scanned pages, English baseline data, and optional ocrmypdf and language packs"
+description = "Optical Character Recognition (OCR) capability: Tesseract CLI text extraction, language models, and OCRmyPDF searchable PDF generation"
 requires = ["image-tools"]
 
 [staging]
 install_prefix = "/opt/pa/packs/ocr-tools"
 bin_dirs = ["bin"]
-fedora_packages = ["tesseract", "tesseract-osd", "tesseract-langpack-eng"]
-macos_brew_packages = ["tesseract", "tesseract-lang"]
+fedora_packages = ["tesseract", "tesseract-osd", "tesseract-langpack-eng", "ocrmypdf"]
+macos_brew_packages = ["tesseract", "tesseract-lang", "ocrmypdf"]
 
 [entitlements]
 read_paths = ["/opt/pa/packs/ocr-tools", "/usr/share/tesseract", "/opt/homebrew/share/tessdata"]
 write_paths = ["/tmp/pa-media"]
 allow_gpu = false
-
-[env]
-TESSDATA_PREFIX = "/usr/share/tesseract/tessdata"
 
 [proxy]
 allowlist = []

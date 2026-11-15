@@ -4,14 +4,14 @@ schema_version = "1.0"
 name = "sound-tools"
 category = "media"
 version = "1.0.0"
-description = "Audio processing capability: SoX effects, spectrograms, FAAD2 AAC/M4A decode, FLAC/Ogg/Opus codecs, LAME/twolame MP3"
+description = "Audio processing capability: SoX effects, spectrograms, FAAD2 AAC/M4A decode, FLAC/Opus/Ogg codecs, and offline speech-to-text with whisper-cpp"
 requires = []
 
 [staging]
 install_prefix = "/opt/pa/packs/sound-tools"
 bin_dirs = ["bin"]
-fedora_packages = ["sox", "faad2", "flac", "opus-tools"]
-macos_brew_packages = ["sox", "faad2", "flac", "opus-tools"]
+fedora_packages = ["sox", "faad2", "flac", "opus-tools", "whisper-cpp"]
+macos_brew_packages = ["sox", "faad2", "flac", "opus-tools", "whisper-cpp"]
 
 [entitlements]
 read_paths = ["/opt/pa/packs/sound-tools"]

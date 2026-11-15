@@ -4,14 +4,14 @@ schema_version = "1.0"
 name = "reverse-engineering"
 category = "security"
 version = "1.0.0"
-description = "Reverse engineering and binary analysis suite (radare2, binutils)"
+description = "Reverse engineering and firmware/binary analysis suite: Ghidra headless decompiler, OpenJDK 21, radare2, and MCP analysis tools"
 requires = []
 
 [staging]
 install_prefix = "/opt/pa/packs/reverse-engineering"
 bin_dirs = ["bin"]
-fedora_packages = ["radare2", "binutils"]
-macos_brew_packages = ["radare2", "binutils"]
+fedora_packages = ["java-21-openjdk-headless", "radare2", "binutils", "file"]
+macos_brew_packages = ["openjdk@21", "radare2", "binutils"]
 
 [entitlements]
 read_paths = ["/opt/pa/packs/reverse-engineering"]

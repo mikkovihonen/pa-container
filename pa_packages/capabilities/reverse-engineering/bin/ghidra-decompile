@@ -1,0 +1,63 @@
+#!/bin/bash
+# ghidra-decompile: Fast one-shot headless decompilation wrapper for Ghidra.
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: ghidra-decompile <binary_path> [function_name_or_address]
+
+Arguments:
+  binary_path                  Target binary or firmware image to analyze
+  function_name_or_address     Function name (e.g. main) or hex address (e.g. 0x00401122).
+                               If omitted, lists all functions and entry points.
+
+Examples:
+  ghidra-decompile /path/to/firmware.bin
+  ghidra-decompile /path/to/app.exe main
+  ghidra-decompile /path/to/app.exe 0x00402a10
+EOF
+    exit 1
+}
+
+[ $# -gt 0 ] || usage
+BINARY="$1"
+TARGET="${2:-}"
+
+[ -f "$BINARY" ] || { echo "ERROR: Binary not found: $BINARY" >&2; exit 1; }
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+SCRIPTS_PATH="${SCRIPT_DIR}/scripts"
+
+GHIDRA_HEADLESS=""
+for cand in "analyzeHeadless" "/opt/ghidra/support/analyzeHeadless" "/usr/local/bin/analyzeHeadless" "/usr/share/ghidra/support/analyzeHeadless"; do
+    if command -v "$cand" >/dev/null 2>&1; then
+        GHIDRA_HEADLESS="$cand"
+        break
+    fi
+done
+
+if [ -z "$GHIDRA_HEADLESS" ]; then
+    echo "ERROR: Ghidra headless analyzer ('analyzeHeadless') not found on system." >&2
+    echo "Ensure Ghidra is installed and OpenJDK 21 is available." >&2
+    exit 1
+fi
+
+TEMP_PROJ_DIR="/tmp/ghidra_proj_$$"
+mkdir -p "$TEMP_PROJ_DIR"
+trap 'rm -rf "$TEMP_PROJ_DIR"' EXIT
+
+if [ -z "$TARGET" ]; then
+    "$GHIDRA_HEADLESS" "$TEMP_PROJ_DIR" TempProj \
+        -import "$BINARY" \
+        -scriptPath "$SCRIPTS_PATH" \
+        -postScript export_symbols.py \
+        -deleteProject \
+        -readOnly
+else
+    "$GHIDRA_HEADLESS" "$TEMP_PROJ_DIR" TempProj \
+        -import "$BINARY" \
+        -scriptPath "$SCRIPTS_PATH" \
+        -postScript decompile_function.py "$TARGET" \
+        -deleteProject \
+        -readOnly
+fi

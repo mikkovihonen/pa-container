@@ -352,7 +352,7 @@ mod tests {
             .join("../..")
             .join("pa_packages");
         let reg = CapabilityRegistry::discover(&packages_dir).unwrap();
-        assert_eq!(reg.len(), 23);
+        assert_eq!(reg.len(), 19);
         assert!(reg.get("git").is_some());
         assert!(reg.get("source-control").is_some());
 

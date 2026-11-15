@@ -4,7 +4,7 @@ schema_version = "1.0"
 name = "ios-simulator"
 category = "mobile"
 version = "1.0.0"
-description = "iOS Simulator bridge and automation tool for macOS Factory VMs"
+description = "Hardware-accelerated iOS Simulator runtime and observation on Apple Silicon (Xcode, Metal, xcrun simctl)"
 requires = []
 
 [staging]

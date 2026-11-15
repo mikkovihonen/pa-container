@@ -4,14 +4,14 @@ schema_version = "1.0"
 name = "virtual-desktop"
 category = "desktop"
 version = "1.0.0"
-description = "Headless virtual desktop with selectable Wayland (labwc, wayvnc) and X11 (Xvfb, x11vnc) display backends"
+description = "Headless virtual desktop and graphical application inspection: Wayland/X11 on Linux and native Quartz/Metal display automation on macOS"
 requires = []
 
 [staging]
 install_prefix = "/opt/pa/packs/virtual-desktop"
 bin_dirs = ["bin"]
-fedora_packages = ["labwc", "wayvnc", "xorg-x11-server-Xvfb", "x11vnc"]
-macos_brew_packages = []
+fedora_packages = ["labwc", "wayvnc", "xorg-x11-server-Xvfb", "x11vnc", "xdotool", "grim"]
+macos_brew_packages = ["cliclick"]
 
 [entitlements]
 read_paths = ["/opt/pa/packs/virtual-desktop"]
