@@ -592,7 +592,13 @@ impl FactoryBackend for TartMacOSBackend {
 
         let res = self.execute_ssh_rpc("launch_agent", payload)?;
 
-        if res.get("result").is_some() {
+        if let Some(code) = res
+            .get("result")
+            .and_then(|r| r.get("exit_code"))
+            .and_then(|c| c.as_i64())
+        {
+            Ok(code as i32)
+        } else if res.get("result").is_some() {
             Ok(0)
         } else {
             anyhow::bail!("Failed to launch agent '{}': {:?}", agent.id, res);
@@ -637,7 +643,21 @@ impl FactoryBackend for TartMacOSBackend {
             anyhow::bail!("git fetch failed: {}", String::from_utf8_lossy(&out.stderr));
         }
 
-        if !worktree_path.exists() {
+        if worktree_path.exists() {
+            let branch = format!("pa/{}/task", agent_id);
+            let _ = Command::new("git")
+                .args(["checkout", &branch])
+                .current_dir(&worktree_path)
+                .output();
+            let _ = Command::new("git")
+                .args([
+                    "reset",
+                    "--hard",
+                    &format!("refs/remotes/pa/{}/task", agent_id),
+                ])
+                .current_dir(&worktree_path)
+                .output();
+        } else {
             if let Some(p) = worktree_path.parent() {
                 let _ = fs::create_dir_all(p);
             }
