@@ -9,6 +9,7 @@ repo_url = "https://github.com/mikkovihonen/pa-container"
 nav = [
   { "Home" = "index.md" },
   { "Getting Started" = "getting-started.md" },
+  { "Feature Workflow" = "features.md" },
   { "Sandboxing 101" = "sandboxing.md" },
   { "Architecture" = "architecture.md" },
   { "Architecture Plan" = "design/pa_container_next_generation_software_factory_architecture_plan.md" },
