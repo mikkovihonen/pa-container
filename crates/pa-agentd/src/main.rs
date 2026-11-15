@@ -698,6 +698,24 @@ impl GuestDaemonService {
             )
         })?;
 
+        let wait_for_completion = params
+            .get("wait")
+            .and_then(|w| w.as_bool())
+            .unwrap_or(true);
+
+        if wait_for_completion {
+            let mut child = child;
+            let status = child
+                .wait()
+                .with_context(|| "Failed to wait for agent process")?;
+            let code = status.code().unwrap_or(0);
+            return Ok(json!({
+                "status": "completed",
+                "exit_code": code,
+                "command": wrapped_cmd,
+            }));
+        }
+
         let pid = child.id();
         self.active_processes
             .lock()

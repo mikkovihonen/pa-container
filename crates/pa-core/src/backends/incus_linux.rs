@@ -453,7 +453,21 @@ impl FactoryBackend for IncusLinuxBackend {
             anyhow::bail!("git fetch failed: {}", String::from_utf8_lossy(&out.stderr));
         }
 
-        if !worktree_path.exists() {
+        if worktree_path.exists() {
+            let branch = format!("pa/{}/task", agent_id);
+            let _ = Command::new("git")
+                .args(["checkout", &branch])
+                .current_dir(&worktree_path)
+                .output();
+            let _ = Command::new("git")
+                .args([
+                    "reset",
+                    "--hard",
+                    &format!("refs/remotes/pa/{}/task", agent_id),
+                ])
+                .current_dir(&worktree_path)
+                .output();
+        } else {
             if let Some(p) = worktree_path.parent() {
                 let _ = fs::create_dir_all(p);
             }
