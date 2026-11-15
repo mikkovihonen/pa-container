@@ -24,7 +24,7 @@ pub fn review_agent_workspace(
 
     let config = load_factory_config(Some(&repo.join("factory.toml")))?;
     if let Ok(backend) = get_backend(&config) {
-        let _ = backend.fetch_agent_branch(agent_id, repo);
+        backend.fetch_agent_branch(agent_id, repo)?;
     } else {
         if let Some(parent) = worktree_path.parent() {
             fs::create_dir_all(parent)?;

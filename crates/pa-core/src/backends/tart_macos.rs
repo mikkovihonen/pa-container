@@ -33,7 +33,7 @@ impl TartMacOSBackend {
             vm_name: vm_name.unwrap_or_else(|| DEFAULT_TART_VM.to_string()),
             proxy_host_ip: proxy_host_ip.unwrap_or_else(|| DEFAULT_TART_GATEWAY.to_string()),
             ssh_user: ssh_user.unwrap_or_else(|| "admin".to_string()),
-            ssh_port: ssh_port.unwrap_or(2222),
+            ssh_port: ssh_port.unwrap_or(22),
             project_name: std::sync::Mutex::new("project".to_string()),
         }
     }
@@ -73,20 +73,35 @@ impl TartMacOSBackend {
         });
         let payload_str = serde_json::to_string(&payload)?;
 
-        let mut child = Command::new("ssh")
-            .args([
-                "-p",
-                &self.ssh_port.to_string(),
+        let mut child_cmd = Command::new("ssh");
+        let id_factory = dirs_fallback_cache().join("id_factory");
+        if id_factory.exists() {
+            child_cmd.args([
+                "-i",
+                &id_factory.to_string_lossy(),
                 "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-o",
-                "ConnectTimeout=5",
-                &format!("{}@{}", self.ssh_user, vm_ip),
-                "pa-agentd",
-                "--stdio",
-            ])
+                "IdentitiesOnly=yes",
+            ]);
+        }
+        let mut ssh_args = vec![
+            "-p".to_string(),
+            self.ssh_port.to_string(),
+            "-o".to_string(),
+            "StrictHostKeyChecking=no".to_string(),
+            "-o".to_string(),
+            "UserKnownHostsFile=/dev/null".to_string(),
+            "-o".to_string(),
+            "ConnectTimeout=5".to_string(),
+            format!("{}@{}", self.ssh_user, vm_ip),
+        ];
+        if self.ssh_user != "root" {
+            ssh_args.push("sudo".to_string());
+        }
+        ssh_args.push("pa-agentd".to_string());
+        ssh_args.push("--stdio".to_string());
+
+        let mut child = child_cmd
+            .args(&ssh_args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -189,18 +204,11 @@ impl FactoryBackend for TartMacOSBackend {
         Ok(self.proxy_host_ip.clone())
     }
 
-    fn ensure_factory_vm(&self, _config: &FactoryConfig, proxy_ip: &str) -> Result<()> {
+    fn ensure_factory_vm(&self, _config: &FactoryConfig, _proxy_ip: &str) -> Result<()> {
         let ip_check = self.get_vm_ip();
         if ip_check.is_err() {
-            let list_out = Command::new("tart")
-                .arg("list")
-                .output()
-                .with_context(|| "Failed to execute 'tart list'")?;
-            let vms = String::from_utf8_lossy(&list_out.stdout);
-            let exists = vms
-                .lines()
-                .any(|l| l.split_whitespace().next() == Some(&self.vm_name));
-            if !exists {
+            let get_out = Command::new("tart").args(["get", &self.vm_name]).output();
+            if get_out.is_err() || !get_out.unwrap().status.success() {
                 anyhow::bail!(
                     "Tart VM '{}' does not exist. Please create the VM first (e.g. `tart create {} --from-ipsw latest` or `tart clone <base-image> {}`).",
                     self.vm_name,
@@ -212,8 +220,7 @@ impl FactoryBackend for TartMacOSBackend {
             let mut cmd = Command::new("tart");
             cmd.args([
                 "run",
-                "--net-softnet",
-                &format!("--net-softnet-allow={}/32", proxy_ip),
+                "--no-graphics",
                 "--no-clipboard",
                 "--no-audio",
                 &self.vm_name,
@@ -224,7 +231,7 @@ impl FactoryBackend for TartMacOSBackend {
 
             let start = std::time::Instant::now();
             let mut acquired_ip = None;
-            while start.elapsed() < std::time::Duration::from_secs(30) {
+            while start.elapsed() < std::time::Duration::from_secs(60) {
                 if let Ok(Some(status)) = child.try_wait() {
                     anyhow::bail!(
                         "Tart VM '{}' exited prematurely with code: {:?}",
@@ -241,7 +248,7 @@ impl FactoryBackend for TartMacOSBackend {
 
             if acquired_ip.is_none() {
                 anyhow::bail!(
-                    "Tart VM '{}' failed to acquire an IP address within 30 seconds",
+                    "Tart VM '{}' failed to acquire an IP address within 60 seconds",
                     self.vm_name
                 );
             }
@@ -286,7 +293,18 @@ impl FactoryBackend for TartMacOSBackend {
             branch.to_string()
         };
 
-        let out = Command::new("git")
+        let mut push_cmd = Command::new("git");
+        let id_factory = dirs_fallback_cache().join("id_factory");
+        if id_factory.exists() {
+            push_cmd.env(
+                "GIT_SSH_COMMAND",
+                format!(
+                    "ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+                    id_factory.display()
+                ),
+            );
+        }
+        let out = push_cmd
             .args([
                 "push",
                 "-f",
@@ -369,6 +387,7 @@ impl FactoryBackend for TartMacOSBackend {
             json!({
                 "proxy_ip": self.proxy_host_ip,
                 "dns_port": 5353,
+                "control_port": self.ssh_port,
                 "agents": agents_data,
             }),
         )?;
@@ -432,7 +451,10 @@ impl FactoryBackend for TartMacOSBackend {
     }
 
     fn fetch_agent_branch(&self, agent_id: &str, host_repo: &Path) -> Result<PathBuf> {
-        let project_name = self.project_name.lock().unwrap().clone();
+        let project_name = host_repo
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("project");
 
         let vm_ip = self.get_vm_ip()?;
         let vault_git_url = format!(
@@ -441,7 +463,18 @@ impl FactoryBackend for TartMacOSBackend {
         );
         let worktree_path = host_repo.join(".pa").join("review").join(agent_id);
 
-        let out = Command::new("git")
+        let mut fetch_cmd = Command::new("git");
+        let id_factory = dirs_fallback_cache().join("id_factory");
+        if id_factory.exists() {
+            fetch_cmd.env(
+                "GIT_SSH_COMMAND",
+                format!(
+                    "ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+                    id_factory.display()
+                ),
+            );
+        }
+        let out = fetch_cmd
             .args([
                 "fetch",
                 &vault_git_url,

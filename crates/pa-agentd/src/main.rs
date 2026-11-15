@@ -295,6 +295,13 @@ impl GuestDaemonService {
             false,
         )?;
 
+        #[cfg(unix)]
+        {
+            let _ = Command::new("chown")
+                .args(["-R", agent_id, cloned.to_str().unwrap_or("")])
+                .status();
+        }
+
         let branch = branch_name
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("pa/{}/task", agent_id));

@@ -424,7 +424,10 @@ impl FactoryBackend for IncusLinuxBackend {
     }
 
     fn fetch_agent_branch(&self, agent_id: &str, host_repo: &Path) -> Result<PathBuf> {
-        let project_name = self.project_name.lock().unwrap().clone();
+        let project_name = host_repo
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("project");
 
         let vm_ip = self.get_vm_ip()?;
         let vault_git_url = format!(

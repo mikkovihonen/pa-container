@@ -68,6 +68,9 @@ pub fn ensure_agent_user(
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&home, fs::Permissions::from_mode(0o700));
+        let _ = Command::new("chown")
+            .args(["-R", username, home.to_str().unwrap_or("")])
+            .status();
     }
 
     Ok(home)

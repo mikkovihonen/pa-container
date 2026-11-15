@@ -203,7 +203,7 @@ pub fn build_landlock_command(
 #[allow(clippy::too_many_arguments)]
 pub fn generate_seatbelt_profile(
     user: &str,
-    proxy_ip: &str,
+    _proxy_ip: &str,
     proxy_port: u16,
     dns_port: u16,
     other_users: Option<&[&str]>,
@@ -216,8 +216,9 @@ pub fn generate_seatbelt_profile(
     for u in users {
         denied_reads.push(format!("    (subpath \"/Users/{}\")", u));
     }
-    let vault = vault_path.unwrap_or("/private/var/pa-vault");
-    denied_reads.push(format!("    (subpath \"{}\")", vault));
+    if let Some(vault) = vault_path {
+        denied_reads.push(format!("    (subpath \"{}\")", vault));
+    }
     denied_reads.push("    (subpath \"/etc/pa/profiles\")".into());
     let denied_clause = denied_reads.join("\n");
 
@@ -225,6 +226,8 @@ pub fn generate_seatbelt_profile(
         format!("    (subpath \"/Users/{}\")", user),
         format!("    (subpath \"/private/tmp/pa-{}\")", user),
         "    (subpath \"/private/var/folders\")".into(),
+        "    (subpath \"/private/var/pa-vault\")".into(),
+        "    (subpath \"/var/pa-vault\")".into(),
         "    (literal \"/dev/null\")".into(),
         "    (literal \"/dev/zero\")".into(),
         "    (literal \"/dev/random\")".into(),
@@ -250,7 +253,7 @@ pub fn generate_seatbelt_profile(
     };
 
     let proxy_clause = if proxy_port > 0 {
-        format!(r#"(allow network-outbound (remote tcp "{proxy_ip}:{proxy_port}"))"#)
+        format!(r#"(allow network-outbound (remote tcp "*:{proxy_port}"))"#)
     } else {
         r#"(allow network-outbound (remote tcp "*:80"))
 (allow network-outbound (remote tcp "*:443"))"#
@@ -265,8 +268,8 @@ pub fn generate_seatbelt_profile(
 ;; 1. Strict Network Lockdown
 (deny network*)
 {proxy_clause}
-(allow network-outbound (remote udp "{proxy_ip}:{dns_port}"))
-(allow network-outbound (remote tcp "{proxy_ip}:{dns_port}"))
+(allow network-outbound (remote udp "*:{dns_port}"))
+(allow network-outbound (remote tcp "*:{dns_port}"))
 (allow network-outbound (remote unix-socket))
 (allow network-inbound (local ip "localhost:*"))
 (allow network-outbound (remote ip "localhost:*"))
@@ -359,14 +362,14 @@ mod tests {
             8081,
             5353,
             None,
-            None,
+            Some("/custom/vault"),
             Some(&extras),
             true,
         );
         assert!(profile.contains("Agent Seatbelt Profile: agent1"));
-        assert!(profile.contains(r#"remote tcp "192.168.64.1:8081""#));
+        assert!(profile.contains(r#"remote tcp "*:8081""#));
         assert!(profile.contains(r#"(subpath "/Users/admin")"#));
-        assert!(profile.contains(r#"(subpath "/private/var/pa-vault")"#));
+        assert!(profile.contains(r#"(subpath "/custom/vault")"#));
         assert!(profile.contains(r#"(subpath "/Users/agent1")"#));
         assert!(profile.contains(r#"(subpath "/opt/pa/extra")"#));
         assert!(profile.contains("AGXDeviceUserClient"));

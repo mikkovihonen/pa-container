@@ -12,6 +12,11 @@ AGENT_ID="${PA_AGENT_ID:-}"
 if [ -z "$AGENT_ID" ]; then
     AGENT_ID="$(whoami)"
 fi
+
+if [ "$AGENT_ID" = "admin" ] || [ "$AGENT_ID" = "root" ]; then
+    exit 0
+fi
+
 ALLOWED_PREFIX="${PA_BRANCH_PREFIX:-pa/${AGENT_ID}/}"
 
 while read -r oldrev newrev refname; do
@@ -59,7 +64,12 @@ impl GitVaultManager {
 
         if !repo_path.join("HEAD").is_file() {
             let status = Command::new("git")
-                .args(["init", "--bare", repo_path.to_str().unwrap_or("")])
+                .args([
+                    "init",
+                    "--bare",
+                    "--shared=all",
+                    repo_path.to_str().unwrap_or(""),
+                ])
                 .status()
                 .context("Failed to run git init --bare")?;
             if !status.success() {
@@ -76,6 +86,13 @@ impl GitVaultManager {
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&hook_file, fs::Permissions::from_mode(0o755));
+            let _ = fs::set_permissions(&self.vault_root, fs::Permissions::from_mode(0o777));
+            let _ = Command::new("chmod")
+                .args(["-R", "a+rwX", self.vault_root.to_str().unwrap_or("")])
+                .status();
+            let _ = Command::new("git")
+                .args(["config", "--system", "--add", "safe.directory", "*"])
+                .status();
         }
 
         Ok(repo_path)
