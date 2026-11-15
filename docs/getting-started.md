@@ -131,3 +131,28 @@ All agent changes are recorded in the CoW Git Vault on dedicated branches (`refs
 # Open the review worktree in your IDE (e.g. VS Code, Cursor, Zed)
 ./pa review agent1 --open --ide code
 ```
+
+---
+
+## 6. The Feature Implementation Lifecycle (`pa feature`)
+
+For production feature development, use the structured **Feature Implementation Process**:
+
+```bash
+# 1. Interactive Architect interview & specification (Gate 1)
+./pa feature plan user-auth
+
+# 2. Inspect status and acceptance criteria
+./pa feature status user-auth
+
+# 3. Run the staged Red-Green-Verify pipeline with assertion locking
+./pa feature run user-auth
+
+# 4. Review worktree diffs, test logs, and visual evidence (Gate 2)
+./pa feature review user-auth
+
+# 5. Approve and merge into main
+./pa feature review user-auth --approve
+```
+
+See [Feature Implementation Workflow](features.md) for full details on multi-tenant pipelines and assertion locking.
