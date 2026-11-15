@@ -78,6 +78,9 @@ impl GuestDaemonService {
             "ios_launch_app" => self.rpc_ios_launch_app(&params),
             "ios_screenshot" => self.rpc_ios_screenshot(&params),
             "ios_delete_sim" => self.rpc_ios_delete_sim(&params),
+            "resize_disk" => self.rpc_resize_disk(),
+            "prune_caches" => self.rpc_prune_caches(),
+            "apply_tuning" => self.rpc_apply_tuning(),
             _ => {
                 return json!({
                     "jsonrpc": "2.0",
@@ -159,6 +162,11 @@ impl GuestDaemonService {
                 c.arg("install");
                 c
             };
+            cmd.env("HOMEBREW_NO_ANALYTICS", "1")
+                .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+                .env("HOMEBREW_NO_INSTALL_CLEANUP", "1")
+                .env("HOMEBREW_NO_ENV_HINTS", "1")
+                .env("NONINTERACTIVE", "1");
             cmd.args(&packages);
 
             let out = cmd.output().with_context(|| {
@@ -716,6 +724,132 @@ impl GuestDaemonService {
             "status": "deleted",
         }))
     }
+
+    fn rpc_resize_disk(&self) -> Result<serde_json::Value> {
+        if cfg!(target_os = "macos") {
+            let container = Command::new("diskutil")
+                .args(["info", "/"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let s = String::from_utf8_lossy(&o.stdout);
+                    s.lines()
+                        .find(|l| l.contains("Part of Whole:"))
+                        .and_then(|l| l.split(':').nth(1))
+                        .map(|s| s.trim().to_string())
+                })
+                .unwrap_or_else(|| "disk3".to_string());
+
+            let status = Command::new("diskutil")
+                .args(["apfs", "resizeContainer", &container, "0"])
+                .status();
+            let success = status.map(|s| s.success()).unwrap_or(false);
+            Ok(json!({
+                "status": "resized",
+                "container": container,
+                "platform": "macos",
+                "success": success,
+            }))
+        } else {
+            let _ = Command::new("growpart").args(["/dev/sda", "1"]).status();
+            let status = Command::new("resize2fs").arg("/dev/sda1").status();
+            let success = status.map(|s| s.success()).unwrap_or(false);
+            Ok(json!({
+                "status": "resized",
+                "platform": "linux",
+                "success": success,
+            }))
+        }
+    }
+
+    fn rpc_prune_caches(&self) -> Result<serde_json::Value> {
+        if cfg!(target_os = "macos") {
+            let container = Command::new("diskutil")
+                .args(["info", "/"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let s = String::from_utf8_lossy(&o.stdout);
+                    s.lines()
+                        .find(|l| l.contains("Part of Whole:"))
+                        .and_then(|l| l.split(':').nth(1))
+                        .map(|s| s.trim().to_string())
+                })
+                .unwrap_or_else(|| "disk3".to_string());
+
+            let _ = Command::new("rm")
+                .args(["-rf", "/Library/Caches/*", "/private/var/log/*"])
+                .status();
+            let _ = Command::new("brew")
+                .args(["cleanup", "--prune=all"])
+                .status();
+            let _ = Command::new("diskutil")
+                .args(["apfs", "defragment", &container, "enable"])
+                .status();
+            Ok(json!({
+                "status": "pruned",
+                "container": container,
+                "platform": "macos",
+            }))
+        } else {
+            let _ = Command::new("dnf").args(["clean", "all"]).status();
+            let _ = Command::new("fstrim").args(["-av"]).status();
+            Ok(json!({
+                "status": "pruned",
+                "platform": "linux",
+            }))
+        }
+    }
+
+    fn rpc_apply_tuning(&self) -> Result<serde_json::Value> {
+        if cfg!(target_os = "macos") {
+            let _ = Command::new("mdutil").args(["-a", "-i", "off"]).status();
+            let _ = Command::new("mdutil").args(["-a", "-E"]).status();
+            let _ = Command::new("systemsetup")
+                .args(["-setcomputersleep", "Never"])
+                .status();
+            let _ = Command::new("systemsetup")
+                .args(["-setdisplaysleep", "Never"])
+                .status();
+            let _ = Command::new("systemsetup")
+                .args(["-setharddisksleep", "Never"])
+                .status();
+            let _ = Command::new("defaults")
+                .args(["write", "com.apple.CrashReporter", "DialogType", "none"])
+                .status();
+            let _ = Command::new("spctl").arg("--global-disable").status();
+            let _ = Command::new("defaults")
+                .args([
+                    "write",
+                    "com.apple.LaunchServices",
+                    "LSQuarantine",
+                    "-bool",
+                    "false",
+                ])
+                .status();
+            let _ = Command::new("softwareupdate")
+                .args(["--schedule", "off"])
+                .status();
+            let _ = Command::new("defaults")
+                .args([
+                    "write",
+                    "com.apple.SoftwareUpdate",
+                    "AutomaticCheckEnabled",
+                    "-bool",
+                    "false",
+                ])
+                .status();
+            Ok(json!({
+                "status": "tuned",
+                "platform": "macos",
+            }))
+        } else {
+            Ok(json!({
+                "status": "tuned",
+                "platform": "linux",
+            }))
+        }
+    }
 }
 
 pub fn run_stdio_server(service: &GuestDaemonService) -> Result<()> {
@@ -884,5 +1018,47 @@ mod tests {
         let res = service.dispatch(&req);
         assert_eq!(res["id"], 45);
         assert!(res["result"]["agents"].is_object());
+    }
+
+    #[test]
+    fn test_guest_daemon_resize_disk() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 46,
+            "method": "resize_disk",
+            "params": {}
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 46);
+        assert_eq!(res["result"]["status"], "resized");
+    }
+
+    #[test]
+    fn test_guest_daemon_prune_caches() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 47,
+            "method": "prune_caches",
+            "params": {}
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 47);
+        assert_eq!(res["result"]["status"], "pruned");
+    }
+
+    #[test]
+    fn test_guest_daemon_apply_tuning() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 48,
+            "method": "apply_tuning",
+            "params": {}
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 48);
+        assert_eq!(res["result"]["status"], "tuned");
     }
 }

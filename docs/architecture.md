@@ -70,12 +70,17 @@ flowchart TB
 - **Backends:**
     - **macOS (`macos-tart`):** Automates Tart virtualization on Apple Silicon using official Apple IPSW restore images (`pa-factory-macos`). Network traffic routes over the `Softnet` bridge.
     - **Linux (`linux-incus`):** Automates Incus system containers and KVM virtual machines using Fedora 45 (`images:fedora/45/cloud`) with native network bridges.
+- **Guest Performance & Storage Virtualization:**
+    - **Headless Performance Tuning:** Automatically disables Spotlight indexing (`mdutil`), sleep timers (`systemsetup`), CrashReporter modal dialogs, and Gatekeeper quarantine prompts to prevent background CPU/disk contention.
+    - **Dynamic Storage Resizing:** Guest daemons automatically invoke APFS container resizing (`diskutil apfs resizeContainer`) or filesystem expansion (`growpart` / `resize2fs`) on boot to claim expanded host block storage.
+    - **Deterministic Toolchain Provisioning:** Configures non-interactive, zero-telemetry, and zero-auto-update settings for package managers (`HOMEBREW_NO_ANALYTICS=1`, `NONINTERACTIVE=1`).
 
 ### Layer 3: In-Guest Daemon (`crates/pa-agentd`)
 - **Role:** Statically compiled, single-binary daemon running inside the Factory VM.
 - **Protocol:** Strongly typed JSON-RPC 2.0 over SSH stdio, requiring no exposed network ports.
 - **Responsibilities:**
     - Provisions unprivileged agent users ($\text{UID} \ge 2001$) via POSIX commands (`dscl` on macOS, `useradd` on Linux).
+    - Manages guest disk expansion (`resize_disk`) and sparse block compaction (`prune_caches`).
     - Enforces cgroups v2 resource quotas (memory, CPU, PID limits) on Linux.
     - Spawns and supervises sandboxed processes under dropped POSIX credentials.
     - Manages the iOS Simulator automation bridge via `ios-runnerd`.

@@ -217,14 +217,25 @@ impl FactoryBackend for TartMacOSBackend {
                 );
             }
 
-            let mut cmd = Command::new("tart");
+            let mut cmd = Command::new("nohup");
             cmd.args([
+                "tart",
                 "run",
                 "--no-graphics",
                 "--no-clipboard",
                 "--no-audio",
                 &self.vm_name,
-            ]);
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                cmd.process_group(0);
+            }
+
             let mut child = cmd
                 .spawn()
                 .with_context(|| format!("Failed to spawn Tart VM '{}'", self.vm_name))?;
@@ -253,6 +264,55 @@ impl FactoryBackend for TartMacOSBackend {
                 );
             }
         }
+
+        // Wait for SSH readiness (up to 60s for cold boot)
+        let vm_ip = self.get_vm_ip()?;
+        let id_factory = dirs_fallback_cache().join("id_factory");
+        let start_ssh = std::time::Instant::now();
+        let mut ssh_ready = false;
+        while start_ssh.elapsed() < std::time::Duration::from_secs(60) {
+            let mut test_cmd = Command::new("ssh");
+            if id_factory.exists() {
+                test_cmd.args([
+                    "-i",
+                    &id_factory.to_string_lossy(),
+                    "-o",
+                    "IdentitiesOnly=yes",
+                ]);
+            }
+            let res = test_cmd
+                .args([
+                    "-p",
+                    &self.ssh_port.to_string(),
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "UserKnownHostsFile=/dev/null",
+                    "-o",
+                    "ConnectTimeout=2",
+                    &format!("{}@{}", self.ssh_user, vm_ip),
+                    "echo",
+                    "ready",
+                ])
+                .output();
+            if let Ok(out) = res {
+                if out.status.success() {
+                    ssh_ready = true;
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+
+        if !ssh_ready {
+            anyhow::bail!(
+                "Tart VM '{}' failed to accept SSH connections",
+                self.vm_name
+            );
+        }
+
+        let _ = self.execute_ssh_rpc("apply_tuning", json!({}));
+        let _ = self.execute_ssh_rpc("resize_disk", json!({}));
 
         Ok(())
     }
@@ -517,6 +577,7 @@ impl FactoryBackend for TartMacOSBackend {
     fn stop_factory(&self) -> Result<()> {
         let _ = crate::backend::stop_proxy_server();
         if self.get_vm_ip().is_ok() {
+            let _ = self.execute_ssh_rpc("prune_caches", json!({}));
             let status = Command::new("tart")
                 .args(["stop", &self.vm_name])
                 .status()

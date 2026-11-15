@@ -236,6 +236,9 @@ impl FactoryBackend for IncusLinuxBackend {
             }
         }
 
+        let _ = self.execute_ssh_rpc("apply_tuning", json!({}));
+        let _ = self.execute_ssh_rpc("resize_disk", json!({}));
+
         Ok(())
     }
 
@@ -479,6 +482,7 @@ impl FactoryBackend for IncusLinuxBackend {
     fn stop_factory(&self) -> Result<()> {
         let _ = crate::backend::stop_proxy_server();
         if self.get_vm_ip().is_ok() {
+            let _ = self.execute_ssh_rpc("prune_caches", json!({}));
             let status = Command::new("incus")
                 .args(["stop", &self.vm_name])
                 .status()
