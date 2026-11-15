@@ -7,10 +7,24 @@ echo "=== Provisioning Fedora Factory VM ==="
 # Install required system packages
 dnf install -y bubblewrap nftables git
 
-# Prepare directories
+# Prepare directories & Git Vault
 mkdir -p /opt/pa/bin /opt/pa/certs /opt/pa/packages /var/pa-vault
 chmod 755 /opt/pa
-chmod 700 /var/pa-vault
+chmod 777 /var/pa-vault
+git config --system --add safe.directory '*' || true
+
+# Performance & Headless Virtualization Tuning
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target || true
+systemctl disable --now packagekit.service || true
+sysctl -w vm.swappiness=10 || true
+mkdir -p /etc/cloud && touch /etc/cloud/cloud-init.disabled || true
+
+# Deterministic non-interactive shell profile
+cat << 'EOF' > /etc/profile.d/pa-env.sh
+export PATH="/opt/pa/bin:$PATH"
+export NONINTERACTIVE=1
+export CI=true
+EOF
 
 if [ -f "$(dirname "$0")/../pa-agent-entrypoint" ]; then
     cp "$(dirname "$0")/../pa-agent-entrypoint" /opt/pa/bin/pa-agent-entrypoint

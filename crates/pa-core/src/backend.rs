@@ -287,3 +287,13 @@ pub fn dirs_fallback_cache() -> PathBuf {
         std::env::temp_dir().join("pa-container")
     }
 }
+
+pub fn assert_backend_proxy_conformance<B: FactoryBackend + ?Sized>(
+    backend: &B,
+    config: &crate::schema::FactoryConfig,
+) {
+    let proxy_ip = backend
+        .start_proxy(config)
+        .expect("Proxy start must succeed");
+    assert!(!proxy_ip.is_empty(), "Proxy gateway IP must not be empty");
+}

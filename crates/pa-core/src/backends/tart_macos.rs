@@ -717,6 +717,7 @@ mod tests {
         let cfg = FactoryConfig::default();
         let ip = backend.start_proxy(&cfg).unwrap();
         assert_eq!(ip, DEFAULT_TART_GATEWAY);
+        crate::backend::assert_backend_proxy_conformance(&backend, &cfg);
     }
 
     #[test]

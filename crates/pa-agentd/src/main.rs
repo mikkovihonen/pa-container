@@ -782,12 +782,35 @@ impl GuestDaemonService {
                 "success": success,
             }))
         } else {
-            let _ = Command::new("growpart").args(["/dev/sda", "1"]).status();
-            let status = Command::new("resize2fs").arg("/dev/sda1").status();
-            let success = status.map(|s| s.success()).unwrap_or(false);
+            let (device, fstype) = detect_linux_root_mount();
+            let success = match fstype.as_str() {
+                "btrfs" => Command::new("btrfs")
+                    .args(["filesystem", "resize", "max", "/"])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false),
+                "xfs" => Command::new("xfs_growfs")
+                    .arg("/")
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false),
+                _ => {
+                    if let Some((disk, part)) = split_linux_disk_and_part(&device) {
+                        let _ = Command::new("growpart").args([&disk, &part]).status();
+                    }
+                    Command::new("resize2fs")
+                        .arg(&device)
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false)
+                }
+            };
+
             Ok(json!({
                 "status": "resized",
                 "platform": "linux",
+                "device": device,
+                "fstype": fstype,
                 "success": success,
             }))
         }
@@ -824,6 +847,10 @@ impl GuestDaemonService {
             }))
         } else {
             let _ = Command::new("dnf").args(["clean", "all"]).status();
+            let _ = Command::new("apt-get").args(["clean"]).status();
+            let _ = Command::new("rm")
+                .args(["-rf", "/var/cache/*", "/var/log/*.log", "/tmp/*"])
+                .status();
             let _ = Command::new("fstrim").args(["-av"]).status();
             Ok(json!({
                 "status": "pruned",
@@ -875,11 +902,83 @@ impl GuestDaemonService {
                 "platform": "macos",
             }))
         } else {
+            let _ = Command::new("systemctl")
+                .args([
+                    "mask",
+                    "sleep.target",
+                    "suspend.target",
+                    "hibernate.target",
+                    "hybrid-sleep.target",
+                ])
+                .status();
+            let _ = Command::new("systemctl")
+                .args(["disable", "--now", "packagekit.service"])
+                .status();
+            let _ = Command::new("sysctl")
+                .args(["-w", "vm.swappiness=10"])
+                .status();
+            let _ = fs::create_dir_all("/etc/cloud");
+            let _ = fs::write("/etc/cloud/cloud-init.disabled", "disabled\n");
+
             Ok(json!({
                 "status": "tuned",
                 "platform": "linux",
             }))
         }
+    }
+}
+
+pub fn detect_linux_root_mount() -> (String, String) {
+    if let Ok(out) = Command::new("findmnt")
+        .args(["-n", "-o", "SOURCE,FSTYPE", "/"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<&str> = s.split_whitespace().collect();
+            if parts.len() >= 2 {
+                return (parts[0].to_string(), parts[1].to_string());
+            }
+        }
+    }
+
+    if let Ok(content) = fs::read_to_string("/proc/mounts") {
+        for line in content.lines() {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 3 && fields[1] == "/" {
+                return (fields[0].to_string(), fields[2].to_string());
+            }
+        }
+    }
+
+    ("/dev/sda1".to_string(), "ext4".to_string())
+}
+
+pub fn split_linux_disk_and_part(device: &str) -> Option<(String, String)> {
+    let dev = device.trim();
+    if dev.is_empty() {
+        return None;
+    }
+
+    // NVMe, eMMC, or loop partition: e.g. /dev/nvme0n1p1 or /dev/mmcblk0p1
+    if let Some(pos) = dev.rfind('p') {
+        let (prefix, suffix) = dev.split_at(pos);
+        let part_num = &suffix[1..];
+        if !part_num.is_empty()
+            && part_num.chars().all(|c| c.is_ascii_digit())
+            && prefix.ends_with(|c: char| c.is_ascii_digit())
+        {
+            return Some((prefix.to_string(), part_num.to_string()));
+        }
+    }
+
+    // Standard block partition: e.g. /dev/sda1, /dev/vda2, /dev/hda1
+    let split_idx = dev.rfind(|c: char| !c.is_ascii_digit())?;
+    let (disk, part) = dev.split_at(split_idx + 1);
+    if !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()) {
+        Some((disk.to_string(), part.to_string()))
+    } else {
+        None
     }
 }
 
@@ -1107,5 +1206,34 @@ mod tests {
         let res = service.dispatch(&req);
         assert_eq!(res["id"], 49);
         assert!(res["error"].is_object());
+    }
+
+    #[test]
+    fn test_split_linux_disk_and_part() {
+        assert_eq!(
+            split_linux_disk_and_part("/dev/sda1"),
+            Some(("/dev/sda".to_string(), "1".to_string()))
+        );
+        assert_eq!(
+            split_linux_disk_and_part("/dev/vda2"),
+            Some(("/dev/vda".to_string(), "2".to_string()))
+        );
+        assert_eq!(
+            split_linux_disk_and_part("/dev/nvme0n1p1"),
+            Some(("/dev/nvme0n1".to_string(), "1".to_string()))
+        );
+        assert_eq!(
+            split_linux_disk_and_part("/dev/mmcblk0p3"),
+            Some(("/dev/mmcblk0".to_string(), "3".to_string()))
+        );
+        assert_eq!(split_linux_disk_and_part("/dev/sda"), None);
+        assert_eq!(split_linux_disk_and_part(""), None);
+    }
+
+    #[test]
+    fn test_detect_linux_root_mount() {
+        let (dev, fstype) = detect_linux_root_mount();
+        assert!(!dev.is_empty());
+        assert!(!fstype.is_empty());
     }
 }
