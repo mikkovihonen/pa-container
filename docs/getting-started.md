@@ -14,9 +14,13 @@ Before getting started, ensure your host has the following tools installed:
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
       ```
 - **Virtualization Hypervisor:**
-    - **macOS (Apple Silicon):** Install [Tart](https://tart.run):
+    - **macOS (Apple Silicon):** Install [Tart](https://tart.run) and initialize the Factory VM:
       ```bash
+      # Install Tart
       brew install cirruslabs/cli/tart
+
+      # Create the Factory VM directly from Apple's official IPSW restore image
+      tart create pa-factory-macos --from-ipsw latest
       ```
     - **Linux:** Install [Incus](https://linuxcontainers.org/incus/):
       ```bash
@@ -84,31 +88,33 @@ When you launch an agent:
 1. The host CLI synchronizes any uncommitted or committed Git changes to `/var/pa-vault` inside the VM.
 2. An isolated POSIX user ($\text{UID} \ge 2001$) is provisioned with a private home and workspace.
 3. The in-guest daemon (`pa-agentd`) applies the kernel sandbox (Landlock ABI v4+ on Linux, Seatbelt on macOS).
-4. Outbound network traffic is routed through the agent's dedicated proxy port (`8081`, `8082`, etc.).
+4. Outbound network traffic is routed transparently through the agent's dedicated Unix Domain Socket (`~/.cache/pa-container/sockets/<agent_id>.sock`).
 
 ---
 
-## 4. Multi-Agent Port Table & Traffic Auditing
+## 4. Multi-Agent Socket Table & Traffic Auditing
 
-PA-Container allocates a distinct proxy port for each active agent:
+PA-Container allocates a distinct Unix Domain Socket for each active agent:
 
 ```bash
 # View the live proxy routing table
 ./pa proxy
 
-# Output proxy port mappings in JSON format
+# Output proxy socket mappings in JSON format
 ./pa proxy --json
 
 # Open the mitmweb auditing UI in your browser
 ./pa proxy --open
+
+# Inspect live flow audit logs for an agent
+./pa logs --agent agent1
 ```
 
 Sample output:
 ```text
-AGENT ID        UID      DRIVER     PROXY PORT   TRANSPARENT PORT   ALLOWLIST      
-----------------------------------------------------------------------------------
-agent1          2001     pi         8081         8091               api.openai.com,github.com
-agent2          2002     claude     8082         8092               api.anthropic.com
+AGENT ID        UID      DRIVER     SOCKET PATH                                   ALLOWLIST      
+-----------------------------------------------------------------------------------------------
+agent1          2001     pi         ~/.cache/pa-container/sockets/agent1.sock      *              
 ```
 
 ---

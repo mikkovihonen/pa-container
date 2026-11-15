@@ -202,7 +202,8 @@ impl FactoryBackend for TartMacOSBackend {
                 .any(|l| l.split_whitespace().next() == Some(&self.vm_name));
             if !exists {
                 anyhow::bail!(
-                    "Tart VM '{}' does not exist. Please create or clone the VM first (e.g. `tart clone <base-image> {}`).",
+                    "Tart VM '{}' does not exist. Please create the VM first (e.g. `tart create {} --from-ipsw latest` or `tart clone <base-image> {}`).",
+                    self.vm_name,
                     self.vm_name,
                     self.vm_name
                 );
