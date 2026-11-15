@@ -501,6 +501,7 @@ impl FactoryBackend for IncusLinuxBackend {
         Ok(json!({
             "backend": "linux-incus",
             "vm_name": self.vm_name,
+            "proxy_host_ip": self.bridge_ip,
             "bridge_ip": self.bridge_ip,
             "guest": guest_data,
         }))
@@ -532,6 +533,6 @@ mod tests {
         let cfg = FactoryConfig::default();
         let ip = backend.start_proxy(&cfg).unwrap();
         assert_eq!(ip, DEFAULT_BRIDGE_IP);
-        crate::backend::assert_backend_proxy_conformance(&backend, &cfg);
+        crate::backend::assert_backend_conformance(&backend, &cfg);
     }
 }

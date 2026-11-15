@@ -288,7 +288,7 @@ pub fn dirs_fallback_cache() -> PathBuf {
     }
 }
 
-pub fn assert_backend_proxy_conformance<B: FactoryBackend + ?Sized>(
+pub fn assert_backend_conformance<B: FactoryBackend + ?Sized>(
     backend: &B,
     config: &crate::schema::FactoryConfig,
 ) {
@@ -296,4 +296,27 @@ pub fn assert_backend_proxy_conformance<B: FactoryBackend + ?Sized>(
         .start_proxy(config)
         .expect("Proxy start must succeed");
     assert!(!proxy_ip.is_empty(), "Proxy gateway IP must not be empty");
+
+    let cache_dir = dirs_fallback_cache();
+    let proxy_cfg_path = cache_dir.join("multi_agent_proxy.json");
+    assert!(
+        proxy_cfg_path.exists(),
+        "Proxy configuration file must be generated"
+    );
+    let cfg_content = std::fs::read_to_string(&proxy_cfg_path).expect("Read proxy config");
+    let json_val: serde_json::Value =
+        serde_json::from_str(&cfg_content).expect("Parse proxy config JSON");
+    let agents_arr = json_val
+        .get("agents")
+        .and_then(|a| a.as_array())
+        .expect("Proxy config must contain 'agents' array");
+    assert_eq!(
+        agents_arr.len(),
+        config.agents.len(),
+        "Agent proxy rules count must match config"
+    );
+
+    let nonce = b"test_session_nonce_32_bytes_len";
+    let token = crate::manifest::derive_placeholder_token(nonce, "agent1", "API_KEY");
+    assert!(token.starts_with("pa-tok-agent1-"));
 }
