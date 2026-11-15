@@ -192,6 +192,22 @@ impl FactoryBackend for TartMacOSBackend {
     fn ensure_factory_vm(&self, _config: &FactoryConfig, proxy_ip: &str) -> Result<()> {
         let ip_check = self.get_vm_ip();
         if ip_check.is_err() {
+            let list_out = Command::new("tart")
+                .arg("list")
+                .output()
+                .with_context(|| "Failed to execute 'tart list'")?;
+            let vms = String::from_utf8_lossy(&list_out.stdout);
+            let exists = vms
+                .lines()
+                .any(|l| l.split_whitespace().next() == Some(&self.vm_name));
+            if !exists {
+                anyhow::bail!(
+                    "Tart VM '{}' does not exist. Please create or clone the VM first (e.g. `tart clone <base-image> {}`).",
+                    self.vm_name,
+                    self.vm_name
+                );
+            }
+
             let mut cmd = Command::new("tart");
             cmd.args([
                 "run",
@@ -201,9 +217,33 @@ impl FactoryBackend for TartMacOSBackend {
                 "--no-audio",
                 &self.vm_name,
             ]);
-            let _ = cmd
+            let mut child = cmd
                 .spawn()
                 .with_context(|| format!("Failed to spawn Tart VM '{}'", self.vm_name))?;
+
+            let start = std::time::Instant::now();
+            let mut acquired_ip = None;
+            while start.elapsed() < std::time::Duration::from_secs(30) {
+                if let Ok(Some(status)) = child.try_wait() {
+                    anyhow::bail!(
+                        "Tart VM '{}' exited prematurely with code: {:?}",
+                        self.vm_name,
+                        status.code()
+                    );
+                }
+                if let Ok(ip) = self.get_vm_ip() {
+                    acquired_ip = Some(ip);
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+
+            if acquired_ip.is_none() {
+                anyhow::bail!(
+                    "Tart VM '{}' failed to acquire an IP address within 30 seconds",
+                    self.vm_name
+                );
+            }
         }
 
         Ok(())
