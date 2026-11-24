@@ -115,6 +115,10 @@ impl TartMacOSBackend {
     }
 
     pub fn get_vm_ip(&self) -> Result<String> {
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            return Ok(self.proxy_host_ip.clone());
+        }
+
         let out = Command::new("tart")
             .args(["ip", &self.vm_name])
             .output()
@@ -140,6 +144,10 @@ impl TartMacOSBackend {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            return Ok(json!({ "result": "mock_success" }));
+        }
+
         let vm_ip = self.get_vm_ip()?;
         let payload = json!({
             "jsonrpc": "2.0",
@@ -412,6 +420,15 @@ impl FactoryBackend for TartMacOSBackend {
 
         *self.project_name.lock().unwrap() = project_name.to_string();
 
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            let rev_out = Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(host_repo)
+                .output()
+                .context("Failed to get HEAD commit in test mode")?;
+            return Ok(String::from_utf8_lossy(&rev_out.stdout).trim().to_string());
+        }
+
         let vm_ip = self.get_vm_ip()?;
         self.execute_ssh_rpc("init_vault", json!({ "project_name": project_name }))?;
 
@@ -507,6 +524,10 @@ impl FactoryBackend for TartMacOSBackend {
         task_prompt: Option<&str>,
         capabilities: Option<&crate::manifest::ResolvedCapabilities>,
     ) -> Result<i32> {
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            return Ok(0);
+        }
+
         self.execute_ssh_rpc(
             "provision_user",
             json!({
@@ -614,6 +635,12 @@ impl FactoryBackend for TartMacOSBackend {
     }
 
     fn fetch_agent_branch(&self, agent_id: &str, host_repo: &Path) -> Result<PathBuf> {
+        let worktree_path = host_repo.join(".pa").join("review").join(agent_id);
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            let _ = fs::create_dir_all(&worktree_path);
+            return Ok(worktree_path);
+        }
+
         let project_name = host_repo
             .file_name()
             .and_then(|s| s.to_str())

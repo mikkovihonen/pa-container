@@ -1990,6 +1990,15 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
                         promoted_tier,
                         reason.as_deref().unwrap_or("rolling FPY/CFR stats")
                     );
+                    let _ = pa_core::telemetry::emit_escalation_span(
+                        &task_ctx,
+                        "proactive_promotion",
+                        &current_tier,
+                        &promoted_tier,
+                        reason.as_deref().unwrap_or("rolling FPY/CFR stats"),
+                        &config.telemetry.otlp,
+                        Some(&cwd.join(".pa/telemetry")),
+                    );
                     current_tier = promoted_tier;
                 }
             }
@@ -2123,6 +2132,15 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
                                 "==> [ESCALATION] Quality gate failure triggered upward model escalation: {} -> {} (require_verifier: {})",
                                 current_tier, next_tier, require_verifier
                             );
+                            let _ = pa_core::telemetry::emit_escalation_span(
+                                &task_ctx,
+                                failure_kind,
+                                &current_tier,
+                                &next_tier,
+                                err_msg,
+                                &config.telemetry.otlp,
+                                Some(&cwd.join(".pa/telemetry")),
+                            );
                         }
                         pa_core::governance::EscalationDecision::Halt { reason, .. } => {
                             if !args.force {
@@ -2155,6 +2173,9 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             )?;
         }
 
+        let mut sca_report_opt: Option<pa_core::sca::ScaGateReport> = None;
+        let mut eval_verdicts_opt: Vec<pa_core::evals::EvalVerdict> = Vec::new();
+
         // Evaluate Software Composition Analysis (SCA) Gate
         if config.governance.sca.enabled {
             println!(
@@ -2169,6 +2190,18 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
                 sca_report.blocking_vulnerabilities.len(),
                 sca_report.is_compliant
             );
+
+            // Record SCA gate results in analytical store and emit OTLP child span
+            if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+                let _ = store.record_sca_gate_report(Some(&task_ctx.task_id), &sca_report);
+            }
+            let _ = pa_core::telemetry::emit_sca_gate_span(
+                &task_ctx,
+                &sca_report,
+                &config.telemetry.otlp,
+                Some(&cwd.join(".pa/telemetry")),
+            );
+            sca_report_opt = Some(sca_report.clone());
 
             if !sca_report.is_compliant {
                 eprintln!(
@@ -2290,6 +2323,7 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
 
             let eval_verdicts =
                 pa_core::evals::evaluate_task(&config.evals, &eval_state, &rubrics)?;
+            eval_verdicts_opt = eval_verdicts.clone();
             let mut all_evals_passed = true;
             let mut eval_failure_rationale = String::new();
 
@@ -2395,13 +2429,37 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             ("OBJ-OPS-MAINTENANCE".to_string(), Vec::new())
         };
 
+        let (eval_verdict, eval_score) =
+            pa_core::git_trailers::format_eval_verdicts_trailer(&eval_verdicts_opt);
+        let sca_summary = sca_report_opt
+            .as_ref()
+            .map(pa_core::git_trailers::format_sca_gate_trailer);
+        let trace_summary = Some(pa_core::git_trailers::format_traceability_trailer(
+            &trace_report,
+        ));
+        let design_summary = Some(pa_core::git_trailers::format_design_gate_trailer(
+            &design_report,
+        ));
+
         // Generate and sign Factory DBOM for the feature implementation
         let signing_key = pa_core::bom::load_or_create_signing_key(None).ok();
         let (bom_id, bom_digest, bom_signature, bom_key_id) = if let Some(ref sk) = signing_key {
-            let builder = pa_core::bom::BomBuilder::new("feature-build", "2.0.0")
+            let mut builder = pa_core::bom::BomBuilder::new("feature-build", "2.0.0")
                 .with_root_dir(&cwd)
                 .with_task_id(&task_ctx.task_id)
                 .with_trace_id(&task_ctx.trace_id);
+            if let Some(ref t) = trace_summary {
+                builder = builder.with_traceability_summary(t);
+            }
+            if let Some(ref s) = sca_summary {
+                builder = builder.with_sca_summary(s);
+            }
+            if let Some(ref d) = design_summary {
+                builder = builder.with_design_gate_summary(d);
+            }
+            if let Some(ref e) = eval_verdict {
+                builder = builder.with_eval_summary(e);
+            }
             if let Ok((bom, sig, dig)) = builder.build_and_sign(sk) {
                 let kid = bom
                     .signature_info
@@ -2425,17 +2483,17 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             objective_id: Some(resolved_obj),
             kr_ids: resolved_krs,
             req_ids: task_ctx.req_ids.clone(),
-            traceability: Some(pa_core::git_trailers::format_traceability_trailer(
-                &trace_report,
-            )),
+            traceability: trace_summary,
             design_system: Some(format!("{}:default", config.design_system.provider)),
             design_refs: task_ctx.design_refs.clone(),
             design_platforms: config.design_system.platforms.clone(),
-            design_gate: Some(pa_core::git_trailers::format_design_gate_trailer(
-                &design_report,
-            )),
+            design_gate: design_summary,
+            sca_gate: sca_summary,
+            eval_verdict,
+            eval_score,
             agent_role: Some("verifier".to_string()),
             model: task_ctx.model_profile.clone(),
+            model_tier: Some(current_tier.clone()),
             cost_usd: task_ctx.cost_usd,
             bom_id,
             bom_digest,
@@ -3736,6 +3794,10 @@ fn handle_sca_check(args: &ScaCheckArgs) -> Result<()> {
 
     println!("==> Evaluating Software Composition Analysis (SCA) Gate...");
     let report = pa_core::sca::evaluate_sca_gate(&cwd, &config.governance.sca)?;
+
+    if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+        let _ = store.record_sca_gate_report(None, &report);
+    }
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);

@@ -118,7 +118,7 @@ pub struct ProxySupplyChain {
     pub allowlist_ruleset_hash: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct SpecStrategySupplyChain {
     pub git_tree_sha: Option<String>,
     pub git_commit_sha: Option<String>,
@@ -129,6 +129,12 @@ pub struct SpecStrategySupplyChain {
     pub design_contract_hashes: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub traceability_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sca_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design_gate_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eval_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

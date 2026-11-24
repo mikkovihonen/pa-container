@@ -30,6 +30,10 @@ pub struct BomBuilder {
     pub model: Option<String>,
     pub backend: String,
     pub artifact_paths: Vec<PathBuf>,
+    pub traceability_summary: Option<String>,
+    pub sca_summary: Option<String>,
+    pub design_gate_summary: Option<String>,
+    pub eval_summary: Option<String>,
 }
 
 impl BomBuilder {
@@ -46,6 +50,10 @@ impl BomBuilder {
             model: None,
             backend: "auto".to_string(),
             artifact_paths: Vec::new(),
+            traceability_summary: None,
+            sca_summary: None,
+            design_gate_summary: None,
+            eval_summary: None,
         }
     }
 
@@ -94,6 +102,26 @@ impl BomBuilder {
         self
     }
 
+    pub fn with_traceability_summary(mut self, summary: impl Into<String>) -> Self {
+        self.traceability_summary = Some(summary.into());
+        self
+    }
+
+    pub fn with_sca_summary(mut self, summary: impl Into<String>) -> Self {
+        self.sca_summary = Some(summary.into());
+        self
+    }
+
+    pub fn with_design_gate_summary(mut self, summary: impl Into<String>) -> Self {
+        self.design_gate_summary = Some(summary.into());
+        self
+    }
+
+    pub fn with_eval_summary(mut self, summary: impl Into<String>) -> Self {
+        self.eval_summary = Some(summary.into());
+        self
+    }
+
     pub fn build(self) -> Result<FactoryBom> {
         let bom_id = format!(
             "bom-{}-{}",
@@ -125,7 +153,19 @@ impl BomBuilder {
             self.model.as_deref(),
         );
         let plane_proxy = collectors::proxy::collect_proxy_supply_chain(&self.root_dir);
-        let plane_specs = collectors::specs::collect_spec_strategy_supply_chain(&self.root_dir);
+        let mut plane_specs = collectors::specs::collect_spec_strategy_supply_chain(&self.root_dir);
+        if let Some(t) = self.traceability_summary {
+            plane_specs.traceability_summary = Some(t);
+        }
+        if let Some(s) = self.sca_summary {
+            plane_specs.sca_summary = Some(s);
+        }
+        if let Some(d) = self.design_gate_summary {
+            plane_specs.design_gate_summary = Some(d);
+        }
+        if let Some(e) = self.eval_summary {
+            plane_specs.eval_summary = Some(e);
+        }
         let artifacts = collectors::artifacts::collect_artifacts(&self.artifact_paths);
 
         Ok(FactoryBom {

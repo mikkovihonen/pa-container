@@ -279,6 +279,18 @@ pub struct RecurringFailureClassRecord {
     pub sample_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScaGateRecord {
+    pub result_id: String,
+    pub task_id: Option<String>,
+    pub scanner: String,
+    pub is_compliant: bool,
+    pub vulnerabilities_found: usize,
+    pub blocking_count: usize,
+    pub summary: String,
+    pub created_at: String,
+}
+
 pub trait FactoryAnalyticsStore: Send + Sync {
     fn record_task(&self, task_ctx: &TaskContext, status: &str) -> Result<()>;
     fn record_traceability(&self, task_id: &str, report: &TraceabilityReport) -> Result<()>;
@@ -288,6 +300,12 @@ pub trait FactoryAnalyticsStore: Send + Sync {
         report: &crate::design::DesignGateReport,
     ) -> Result<()>;
     fn get_task_design_gate_results(&self, task_id: &str) -> Result<Vec<DesignGateResultRecord>>;
+    fn record_sca_gate_report(
+        &self,
+        task_id: Option<&str>,
+        report: &crate::sca::ScaGateReport,
+    ) -> Result<()>;
+    fn get_sca_gate_report(&self, task_id: &str) -> Result<Option<ScaGateRecord>>;
     fn insert_requirement_links(
         &self,
         task_id: Option<&str>,
@@ -691,7 +709,19 @@ impl SqliteAnalyticsStore {
                  created_at TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_opt_events_fingerprint ON optimization_events(fingerprint);
-             CREATE INDEX IF NOT EXISTS idx_opt_events_created ON optimization_events(created_at);",
+             CREATE INDEX IF NOT EXISTS idx_opt_events_created ON optimization_events(created_at);
+
+             CREATE TABLE IF NOT EXISTS sca_gate_results (
+                 result_id TEXT PRIMARY KEY,
+                 task_id TEXT,
+                 scanner TEXT NOT NULL,
+                 is_compliant INTEGER NOT NULL,
+                 vulnerabilities_found INTEGER NOT NULL,
+                 blocking_count INTEGER NOT NULL,
+                 summary TEXT,
+                 created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_sca_gate_results_task ON sca_gate_results(task_id);",
         )
         .context("Failed to initialize telemetry sync, BOM, supervisor queue, and eval tables")?;
 
@@ -998,6 +1028,71 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
             results.push(r?);
         }
         Ok(results)
+    }
+
+    fn record_sca_gate_report(
+        &self,
+        task_id: Option<&str>,
+        report: &crate::sca::ScaGateReport,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now_iso = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default();
+        let result_id = format!("{}:sca", task_id.unwrap_or("global"));
+
+        conn.execute(
+            "INSERT INTO sca_gate_results (
+                result_id, task_id, scanner, is_compliant, vulnerabilities_found,
+                blocking_count, summary, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(result_id) DO UPDATE SET
+                scanner = excluded.scanner,
+                is_compliant = excluded.is_compliant,
+                vulnerabilities_found = excluded.vulnerabilities_found,
+                blocking_count = excluded.blocking_count,
+                summary = excluded.summary,
+                created_at = excluded.created_at;",
+            params![
+                result_id,
+                task_id,
+                report.scanner,
+                if report.is_compliant { 1 } else { 0 },
+                report.vulnerabilities_found as i64,
+                report.blocking_vulnerabilities.len() as i64,
+                report.summary,
+                now_iso,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn get_sca_gate_report(&self, task_id: &str) -> Result<Option<ScaGateRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT result_id, task_id, scanner, is_compliant, vulnerabilities_found,
+                    blocking_count, summary, created_at
+             FROM sca_gate_results WHERE task_id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![task_id], |row| {
+            Ok(ScaGateRecord {
+                result_id: row.get(0)?,
+                task_id: row.get(1)?,
+                scanner: row.get(2)?,
+                is_compliant: row.get::<_, i64>(3)? != 0,
+                vulnerabilities_found: row.get::<_, i64>(4)? as usize,
+                blocking_count: row.get::<_, i64>(5)? as usize,
+                summary: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?;
+
+        if let Some(r) = rows.next() {
+            Ok(Some(r?))
+        } else {
+            Ok(None)
+        }
     }
 
     fn insert_requirement_links(
@@ -3803,5 +3898,40 @@ mod tests {
         assert_eq!(results[0].new_components_count, 1);
         assert!(results[0].needs_design_review);
         assert_eq!(results[0].status, "passed");
+    }
+
+    #[test]
+    fn test_sca_gate_results_storage() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("factory.db");
+        let store = SqliteAnalyticsStore::open_or_create(&db_path).unwrap();
+
+        let mut report = crate::sca::ScaGateReport::empty("cargo-audit");
+        report.vulnerabilities_found = 1;
+        report
+            .blocking_vulnerabilities
+            .push(crate::sca::ScaVulnerability {
+                id: "RUSTSEC-2026-0001".to_string(),
+                package: "vulnerable-pkg".to_string(),
+                installed_version: "0.1.0".to_string(),
+                patched_versions: vec!["0.2.0".to_string()],
+                severity: crate::sca::ScaSeverity::High,
+                title: "Memory safety issue".to_string(),
+                url: None,
+                advisory_source: "rustsec".to_string(),
+            });
+        report.is_compliant = false;
+        report.summary = "1 blocking vulnerability detected.".to_string();
+
+        store
+            .record_sca_gate_report(Some("task-sca-1"), &report)
+            .unwrap();
+
+        let res = store.get_sca_gate_report("task-sca-1").unwrap().unwrap();
+        assert_eq!(res.scanner, "cargo-audit");
+        assert!(!res.is_compliant);
+        assert_eq!(res.vulnerabilities_found, 1);
+        assert_eq!(res.blocking_count, 1);
+        assert_eq!(res.summary, "1 blocking vulnerability detected.");
     }
 }

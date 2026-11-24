@@ -1,0 +1,147 @@
+schema_version = "2.0"
+
+[factory]
+name = "pa-factory"
+description = "Software Factory VM for multi-agent workflows"
+
+[compute]
+backend = "auto"
+cpus = 8
+memory_mb = 16384
+gpu = "optional"
+
+[compute.metal]
+enabled = true
+host_mode = "ephemeral"
+apple_family_max = 1009
+max_threadgroup_memory = 65536
+
+[compute.llama_server]
+enabled = false
+managed_lifecycle = true
+host = "127.0.0.1"
+port = 8081
+ctx_size = 32768
+gpu_layers = -1
+extra_args = ["--metrics"]
+startup_timeout_sec = 120
+on_missing_binary = "skip"
+
+[proxy]
+base_proxy_port = 8081
+base_transparent_port = 8091
+dns_port = 5353
+default_allowlist = ["github.com", "pypi.org", "registry.npmjs.org"]
+
+[git]
+default_branch = "main"
+vault_path = "/var/pa-vault"
+branch_pattern = "refs/heads/pa/{agent_id}/*"
+
+[telemetry.otlp]
+enabled = true
+provider = "phoenix"
+endpoint = "http://127.0.0.1:4318"
+ui_endpoint = "http://127.0.0.1:6006"
+service_name = "pa-factory"
+sample_rate = 1.0
+scrub_secrets = true
+export_prompts = true
+
+[storage]
+provider = "sqlite"
+path = ".pa/factory.db"
+
+[traceability]
+engine = "openfasttrace"
+spec_dir = "docs/specs"
+min_coverage_pct = 95.0
+enforce_test_linkage = true
+junit_report_paths = [".pa/reports/junit.xml"]
+coverage_report_path = ".pa/reports/lcov.info"
+require_test_execution = false
+min_line_coverage_pct = 80.0
+on_missing_tool = "skip"
+
+[design_system]
+enabled = true
+provider = "git_only"
+tokens_path = "design/tokens/tokens.json"
+contracts_path = "design/contracts"
+platforms = ["web", "ios", "android"]
+on_missing_platform = "skip"
+
+[design_system.drift]
+enabled = true
+engine = "native"
+flag_new_primitives = true
+on_raw_primitive = "warn"
+on_new_primitive = "needs_design_review"
+
+[design_system.compiler]
+tool = "style_dictionary"
+config_path = "design/tokens/sd.config.json"
+check_freshness_in_gate = true
+on_missing_tool = "skip"
+
+[design_system.compiler.outputs]
+web = "src/styles/tokens.css"
+ios = "Sources/DesignSystem/Tokens.swift"
+android = "app/src/main/java/com/example/ui/Tokens.kt"
+
+[design_system.penpot]
+base_url = "http://127.0.0.1:9001"
+keyring_token = "PENPOT_ACCESS_TOKEN"
+cache_dir = ".pa/cache/design"
+on_unavailable = "skip"
+
+[governance]
+max_wip_prs = 5
+on_wip_breach = "warn"
+slo_defense_error_budget_min = 0.95
+on_slo_breach = "warn"
+defense_mode_allowed_roles = ["bugfix", "triage"]
+
+[governance.sca]
+enabled = true
+provider = "cargo_audit"
+min_severity = "high"
+on_missing_tool = "skip"
+ignore_ids = []
+
+[governance.self_optimization]
+enabled = true
+min_rolling_fpy = 0.80
+cfr_spike_threshold = 0.15
+lead_time_p95_sec = 86400.0
+cooldown_hours = 24
+auto_harden = false
+
+[routing.escalation]
+enabled = true
+min_first_pass_yield = 0.85
+max_change_failure_rate = 0.10
+min_eval_score = 0.75
+tiers = ["local", "fast", "reasoning"]
+
+[supervisor]
+max_concurrent_agents = 4
+slot_uid_start = 2001
+slot_proxy_port_start = 8081
+lease_ttl_sec = 1800
+reclaim_interval_sec = 60
+
+[evals]
+enabled = true
+mode = "cascade"
+rubrics_dir = "docs/evals/rubrics"
+min_pass_score = 0.70
+block_on_fail = false
+
+[[agents]]
+id = "agent1"
+uid = 2001
+driver = "pi"
+capabilities = ["git", "source-control"]
+allowlist = ["github.com", "pypi.org"]
+tokens = []

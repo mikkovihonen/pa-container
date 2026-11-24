@@ -246,6 +246,10 @@ def handle_get_factory_health(ctx: TelemetryContext, args: dict[str, Any]) -> di
     failed_tasks = 0
     open_prs = 0
     merged_prs = 0
+    total_evals = 0
+    passed_evals = 0
+    escalated_evals = 0
+    mean_eval_score = 0.0
 
     conn = ctx.get_db_connection()
     if conn:
@@ -293,6 +297,20 @@ def handle_get_factory_health(ctx: TelemetryContext, args: dict[str, Any]) -> di
             cur.execute("SELECT COUNT(*) FROM tasks WHERE status = 'success'")
             successful_tasks = cur.fetchone()[0]
             failed_tasks = total_tasks - successful_tasks
+
+            # Evals summary
+            try:
+                cur.execute(
+                    "SELECT COUNT(*), SUM(passed), SUM(escalated), AVG(score) FROM eval_results"
+                )
+                eval_row = cur.fetchone()
+                if eval_row and eval_row[0]:
+                    total_evals = eval_row[0]
+                    passed_evals = eval_row[1] or 0
+                    escalated_evals = eval_row[2] or 0
+                    mean_eval_score = round(eval_row[3] or 0.0, 4)
+            except Exception:
+                pass
         except Exception as e:
             sys.stderr.write(f"Warning: DB error in get_factory_health: {e}\n")
         finally:
@@ -312,6 +330,15 @@ def handle_get_factory_health(ctx: TelemetryContext, args: dict[str, Any]) -> di
             "successful_tasks": successful_tasks,
             "failed_tasks": failed_tasks,
             "success_rate_pct": success_rate,
+        },
+        "eval_metrics": {
+            "total_evals": total_evals,
+            "passed_evals": passed_evals,
+            "pass_rate": round(passed_evals / total_evals, 4) if total_evals > 0 else 1.0,
+            "mean_score": mean_eval_score,
+            "escalation_rate": (
+                round(escalated_evals / total_evals, 4) if total_evals > 0 else 0.0
+            ),
         },
         "wip_pipeline": {
             "open_prs": open_prs,

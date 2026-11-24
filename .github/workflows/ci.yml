@@ -38,6 +38,15 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace
 
+      - name: Run E2E lifecycle tests
+        run: |
+          export PA_TEST_MODE=1
+          export PA_DISABLE_KEYRING=1
+          for t in tests/e2e/test_*.sh; do
+            echo "==> Running $t"
+            bash "$t"
+          done
+
   proxy-and-docs:
     name: Proxy & Docs Validation
     runs-on: ubuntu-latest
@@ -78,8 +87,8 @@ jobs:
       - name: Run mypy
         run: uv run mypy
 
-      - name: Run proxy addon tests
-        run: uv run pytest coding-agent-proxy/addons
+      - name: Run proxy and MCP tests
+        run: uv run pytest
 
       - name: Validate version consistency
         run: uv run python3 .github/workflows/scripts/validate_versions.py

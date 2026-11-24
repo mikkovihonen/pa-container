@@ -86,6 +86,10 @@ contracts_path = "design/contracts"
 platforms = ["web", "ios", "android"]
 on_missing_platform = "skip"
 
+[design_system.compiler]
+tool = "none"
+check_freshness_in_gate = false
+
 [design_system.drift]
 enabled = true
 engine = "native"

@@ -24,9 +24,17 @@ pub struct GitProvenanceMetadata {
     #[serde(default)]
     pub design_gate: Option<String>,
     #[serde(default)]
+    pub sca_gate: Option<String>,
+    #[serde(default)]
+    pub eval_verdict: Option<String>,
+    #[serde(default)]
+    pub eval_score: Option<f64>,
+    #[serde(default)]
     pub agent_role: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub model_tier: Option<String>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
     #[serde(default)]
@@ -75,11 +83,23 @@ impl GitProvenanceMetadata {
         if let Some(ref gate) = self.design_gate {
             lines.push(format!("X-PA-Design-Gate: {}", gate));
         }
+        if let Some(ref sca) = self.sca_gate {
+            lines.push(format!("X-PA-SCA-Gate: {}", sca));
+        }
+        if let Some(ref ev) = self.eval_verdict {
+            lines.push(format!("X-PA-Eval-Verdict: {}", ev));
+        }
+        if let Some(score) = self.eval_score {
+            lines.push(format!("X-PA-Eval-Score: {:.2}", score));
+        }
         if let Some(ref role) = self.agent_role {
             lines.push(format!("X-PA-Agent: {}", role));
         }
         if let Some(ref model) = self.model {
             lines.push(format!("X-PA-Model: {}", model));
+        }
+        if let Some(ref tier) = self.model_tier {
+            lines.push(format!("X-PA-Model-Tier: {}", tier));
         }
         if let Some(cost) = self.cost_usd {
             lines.push(format!("X-PA-Cost-USD: {:.4}", cost));
@@ -143,8 +163,12 @@ impl GitProvenanceMetadata {
                             .collect();
                     }
                     "X-PA-Design-Gate" => meta.design_gate = Some(val.to_string()),
+                    "X-PA-SCA-Gate" => meta.sca_gate = Some(val.to_string()),
+                    "X-PA-Eval-Verdict" => meta.eval_verdict = Some(val.to_string()),
+                    "X-PA-Eval-Score" => meta.eval_score = val.parse::<f64>().ok(),
                     "X-PA-Agent" => meta.agent_role = Some(val.to_string()),
                     "X-PA-Model" => meta.model = Some(val.to_string()),
+                    "X-PA-Model-Tier" => meta.model_tier = Some(val.to_string()),
                     "X-PA-Cost-USD" => meta.cost_usd = val.parse::<f64>().ok(),
                     "X-PA-BOM-ID" => meta.bom_id = Some(val.to_string()),
                     "X-PA-BOM-Digest" => meta.bom_digest = Some(val.to_string()),
@@ -211,6 +235,49 @@ pub fn format_design_gate_trailer(report: &crate::design::DesignGateReport) -> S
     }
 }
 
+pub fn format_sca_gate_trailer(report: &crate::sca::ScaGateReport) -> String {
+    if !report.is_compliant {
+        format!(
+            "fail ({} blocking, {} total, scanner: {})",
+            report.blocking_vulnerabilities.len(),
+            report.vulnerabilities_found,
+            report.scanner
+        )
+    } else if report.vulnerabilities_found > 0 {
+        format!(
+            "pass ({} advisories, scanner: {})",
+            report.vulnerabilities_found, report.scanner
+        )
+    } else {
+        format!("pass (scanner: {})", report.scanner)
+    }
+}
+
+pub fn format_eval_verdicts_trailer(
+    verdicts: &[crate::evals::EvalVerdict],
+) -> (Option<String>, Option<f64>) {
+    let active_verdicts: Vec<_> = verdicts.iter().filter(|v| !v.skipped).collect();
+    if active_verdicts.is_empty() {
+        return (None, None);
+    }
+
+    let all_passed = active_verdicts.iter().all(|v| v.passed);
+    let avg_score =
+        active_verdicts.iter().map(|v| v.score).sum::<f64>() / active_verdicts.len() as f64;
+    let verdict_str = if all_passed {
+        format!(
+            "pass ({}/{} passed)",
+            active_verdicts.len(),
+            active_verdicts.len()
+        )
+    } else {
+        let failed_count = active_verdicts.iter().filter(|v| !v.passed).count();
+        format!("fail ({}/{} failed)", failed_count, active_verdicts.len())
+    };
+
+    (Some(verdict_str), Some(avg_score))
+}
+
 pub fn stamp_head_commit(repo_path: &Path, meta: &GitProvenanceMetadata) -> Result<()> {
     // Get existing commit message
     let out = Command::new("git")
@@ -260,8 +327,12 @@ mod tests {
             design_refs: vec!["web:button-primary".to_string()],
             design_platforms: vec!["web".to_string(), "ios".to_string()],
             design_gate: Some("passed".to_string()),
+            sca_gate: Some("pass (scanner: cargo-audit)".to_string()),
+            eval_verdict: Some("pass (2/2 passed)".to_string()),
+            eval_score: Some(0.95),
             agent_role: Some("design_engineer".to_string()),
             model: Some("claude-3-7-sonnet".to_string()),
+            model_tier: Some("fast".to_string()),
             cost_usd: Some(0.1420),
             bom_id: Some("bom-abc-123".to_string()),
             bom_digest: Some("sha256:digest-abc".to_string()),
@@ -273,6 +344,10 @@ mod tests {
         assert!(formatted.contains("X-PA-Task-ID: feat-auth-001"));
         assert!(formatted.contains("X-PA-Key-Results: KR-AUTH-01,KR-AUTH-02"));
         assert!(formatted.contains("X-PA-Design-Platforms: web,ios"));
+        assert!(formatted.contains("X-PA-SCA-Gate: pass (scanner: cargo-audit)"));
+        assert!(formatted.contains("X-PA-Eval-Verdict: pass (2/2 passed)"));
+        assert!(formatted.contains("X-PA-Eval-Score: 0.95"));
+        assert!(formatted.contains("X-PA-Model-Tier: fast"));
         assert!(formatted.contains("X-PA-BOM-ID: bom-abc-123"));
         assert!(formatted.contains("X-PA-BOM-Digest: sha256:digest-abc"));
 
@@ -287,6 +362,13 @@ mod tests {
         assert_eq!(parsed.bom_key_id.as_deref(), Some("pa-factory-ed25519-123"));
         assert_eq!(parsed.kr_ids, vec!["KR-AUTH-01", "KR-AUTH-02"]);
         assert_eq!(parsed.design_gate.as_deref(), Some("passed"));
+        assert_eq!(
+            parsed.sca_gate.as_deref(),
+            Some("pass (scanner: cargo-audit)")
+        );
+        assert_eq!(parsed.eval_verdict.as_deref(), Some("pass (2/2 passed)"));
+        assert_eq!(parsed.eval_score, Some(0.95));
+        assert_eq!(parsed.model_tier.as_deref(), Some("fast"));
         assert_eq!(parsed.cost_usd, Some(0.1420));
     }
 

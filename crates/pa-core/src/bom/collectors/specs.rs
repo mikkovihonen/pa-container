@@ -100,6 +100,9 @@ pub fn collect_spec_strategy_supply_chain(root_dir: &Path) -> SpecStrategySupply
         design_token_hash,
         design_contract_hashes,
         traceability_summary: None,
+        sca_summary: None,
+        design_gate_summary: None,
+        eval_summary: None,
     }
 }
 

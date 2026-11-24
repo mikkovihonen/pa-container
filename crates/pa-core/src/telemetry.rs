@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
@@ -736,6 +737,187 @@ pub fn emit_design_gate_span(
         Err(e) => {
             eprintln!(
                 "[WARN] OTLP design gate span export to {} failed ({}). Degrading to local JSONL: {}",
+                config.endpoint,
+                e,
+                fallback_path.display()
+            );
+            append_local_event_jsonl(&payload, &fallback_path)
+        }
+    }
+}
+
+pub fn build_otlp_sca_span_payload(
+    task_ctx: &TaskContext,
+    report: &crate::sca::ScaGateReport,
+    service_name: &str,
+) -> serde_json::Value {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let span_id = format!("{:016x}", rand::random::<u64>());
+    let parent_span_id = task_ctx.parent_span_id.clone().unwrap_or_default();
+
+    json!({
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [
+                    { "key": "service.name", "value": { "stringValue": service_name } }
+                ]
+            },
+            "scopeSpans": [{
+                "scope": { "name": "pa-container.sca", "version": "2.0.0" },
+                "spans": [{
+                    "traceId": task_ctx.trace_id,
+                    "spanId": span_id,
+                    "parentSpanId": parent_span_id,
+                    "name": "gate.sca",
+                    "kind": 1,
+                    "startTimeUnixNano": now_nanos.saturating_sub(10_000_000).to_string(),
+                    "endTimeUnixNano": now_nanos.to_string(),
+                    "attributes": [
+                        { "key": "pa.task_id", "value": { "stringValue": task_ctx.task_id } },
+                        { "key": "pa.gate.type", "value": { "stringValue": "sca" } },
+                        { "key": "pa.sca.scanner", "value": { "stringValue": report.scanner } },
+                        { "key": "pa.sca.is_compliant", "value": { "boolValue": report.is_compliant } },
+                        { "key": "pa.sca.vulnerabilities_found", "value": { "intValue": report.vulnerabilities_found as i64 } },
+                        { "key": "pa.sca.blocking_count", "value": { "intValue": report.blocking_vulnerabilities.len() as i64 } },
+                        { "key": "pa.sca.status", "value": { "stringValue": report.status } }
+                    ],
+                    "status": {
+                        "code": if report.is_compliant { 1 } else { 2 },
+                        "message": if report.is_compliant { "PASSED" } else { "FAILED" }
+                    }
+                }]
+            }]
+        }]
+    })
+}
+
+pub fn emit_sca_gate_span(
+    task_ctx: &TaskContext,
+    report: &crate::sca::ScaGateReport,
+    config: &OtlpTelemetrySpec,
+    fallback_dir: Option<&Path>,
+) -> Result<()> {
+    let payload = build_otlp_sca_span_payload(task_ctx, report, "pa-container");
+    let fallback_path = fallback_dir
+        .map(|d| d.join("events.jsonl"))
+        .unwrap_or_else(|| PathBuf::from(".pa/telemetry/events.jsonl"));
+
+    if config.provider.to_lowercase() == "none" {
+        append_local_event_jsonl(&payload, &fallback_path)?;
+        return Ok(());
+    }
+
+    let post_result = ureq::post(&config.endpoint)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_millis(
+            config.batch_timeout_ms.max(500),
+        ))
+        .send_json(&payload);
+
+    match post_result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!(
+                "[WARN] OTLP SCA gate span export to {} failed ({}). Degrading to local JSONL: {}",
+                config.endpoint,
+                e,
+                fallback_path.display()
+            );
+            append_local_event_jsonl(&payload, &fallback_path)
+        }
+    }
+}
+
+pub fn build_otlp_escalation_span_payload(
+    task_ctx: &TaskContext,
+    trigger: &str,
+    previous_tier: &str,
+    promoted_tier: &str,
+    reason: &str,
+    service_name: &str,
+) -> serde_json::Value {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let span_id = format!("{:016x}", rand::random::<u64>());
+    let parent_span_id = task_ctx.parent_span_id.clone().unwrap_or_default();
+
+    json!({
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [
+                    { "key": "service.name", "value": { "stringValue": service_name } }
+                ]
+            },
+            "scopeSpans": [{
+                "scope": { "name": "pa-container.governance", "version": "2.0.0" },
+                "spans": [{
+                    "traceId": task_ctx.trace_id,
+                    "spanId": span_id,
+                    "parentSpanId": parent_span_id,
+                    "name": "governance.escalation",
+                    "kind": 1,
+                    "startTimeUnixNano": now_nanos.saturating_sub(5_000_000).to_string(),
+                    "endTimeUnixNano": now_nanos.to_string(),
+                    "attributes": [
+                        { "key": "pa.task_id", "value": { "stringValue": task_ctx.task_id } },
+                        { "key": "pa.escalation.trigger", "value": { "stringValue": trigger } },
+                        { "key": "pa.escalation.previous_tier", "value": { "stringValue": previous_tier } },
+                        { "key": "pa.escalation.promoted_tier", "value": { "stringValue": promoted_tier } },
+                        { "key": "pa.escalation.reason", "value": { "stringValue": reason } }
+                    ],
+                    "status": {
+                        "code": 1,
+                        "message": "PROMOTED"
+                    }
+                }]
+            }]
+        }]
+    })
+}
+
+pub fn emit_escalation_span(
+    task_ctx: &TaskContext,
+    trigger: &str,
+    previous_tier: &str,
+    promoted_tier: &str,
+    reason: &str,
+    config: &OtlpTelemetrySpec,
+    fallback_dir: Option<&Path>,
+) -> Result<()> {
+    let payload = build_otlp_escalation_span_payload(
+        task_ctx,
+        trigger,
+        previous_tier,
+        promoted_tier,
+        reason,
+        "pa-container",
+    );
+    let fallback_path = fallback_dir
+        .map(|d| d.join("events.jsonl"))
+        .unwrap_or_else(|| PathBuf::from(".pa/telemetry/events.jsonl"));
+
+    if config.provider.to_lowercase() == "none" {
+        append_local_event_jsonl(&payload, &fallback_path)?;
+        return Ok(());
+    }
+
+    let post_result = ureq::post(&config.endpoint)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_millis(
+            config.batch_timeout_ms.max(500),
+        ))
+        .send_json(&payload);
+
+    match post_result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!(
+                "[WARN] OTLP escalation span export to {} failed ({}). Degrading to local JSONL: {}",
                 config.endpoint,
                 e,
                 fallback_path.display()

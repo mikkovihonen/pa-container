@@ -239,3 +239,144 @@ External tools can act as skill compilers by implementing the canonical JSON pro
 - **Input (stdin):** `CompiledSkillBundle` JSON (`schema_version = 1`, `role`, `skills`, `mcp_servers`).
 - **Output (stdout):** Array of `EmittedFile` JSON objects (`[{"path": "...", "content": "...", "executable": false}]`).
 - Path-containment validation automatically rejects any emitted file attempting path traversal (`..` or root escaping).
+
+---
+
+## 8. Concurrent Host Supervisor (`pa supervisor`)
+
+The Concurrent Host Supervisor daemon orchestrates asynchronous multi-agent execution inside the shared Factory VM. It automatically pulls work from the persistent work queue, provisions isolated tenant environments, enforces rolling concurrency limits, and reclaims dead or expired worker leases.
+
+### 8.1 Architecture & Lease Management
+
+The supervisor manages concurrency using dynamic slot allocations:
+- **Tenant UID Allocation:** Assigns unique POSIX UIDs starting from `[supervisor].slot_uid_start` (default `2001`).
+- **Proxy Port Allocation:** Dynamically maps dedicated proxy egress ports starting from `[supervisor].slot_proxy_port_start` (default `8081`).
+- **Heartbeat & Lease Reclamation:** Each worker receives a lease with a configured time-to-live (`lease_ttl_sec`, e.g., 1800s). A periodic sweep (`reclaim_interval_sec`, default 60s) detects worker crashes, releases abandoned slots, and resets failed tasks for retry or escalation.
+
+```mermaid
+flowchart TD
+    Queue[("Factory Work Queue (SQLite)")]
+    Sup["Host Supervisor Daemon"]
+    Slot1["Worker Slot 1 (UID 2001, Port 8081)"]
+    Slot2["Worker Slot 2 (UID 2002, Port 8082)"]
+    Reclaim["Lease Reclamation Timer (60s)"]
+
+    Queue -->|Claim next task| Sup
+    Sup -->|Spawn worker| Slot1
+    Sup -->|Spawn worker| Slot2
+    Reclaim -->|Scan expired leases| Sup
+    Slot1 -->|Release slot on complete| Sup
+    Slot2 -->|Release slot on complete| Sup
+```
+
+### 8.2 Supervisor CLI Subcommands
+
+```bash
+# Start supervisor in background daemon mode
+pa supervisor start --daemon
+
+# Start supervisor in foreground interactive mode with custom concurrency
+pa supervisor start --foreground --concurrency 4
+
+# Query running supervisor daemon status and active worker leases
+pa supervisor status
+
+# Gracefully stop the supervisor daemon (allows active leases to finish or reclaim)
+pa supervisor stop
+```
+
+---
+
+## 9. Factory Work Queue & Task Management (`pa task`)
+
+PA-Container 2.0 provides an asynchronous, priority-ordered work queue backed by SQLite (`.pa/factory.db`). Tasks can be enqueued by CI triggers, human developers, or upstream autonomous processes.
+
+### 9.1 Task Lifecycle & States
+
+Tasks transition through explicit lifecycle states:
+- `queued`: Waiting in queue, sorted by `priority ASC, created_at ASC`.
+- `running`: Actively executing in an allocated worker slot.
+- `awaiting_human`: Paused pending human review, clarification, or gate approval.
+- `completed`: Successfully passed all quality gates, evals, and merged/pushed.
+- `failed`: Terminated due to unrecoverable errors, gate failures, or exhausted retries.
+- `cancelled`: Manually cancelled via CLI or API.
+
+### 9.2 Task Management Subcommands
+
+```bash
+# Enqueue a new feature task with priority and initial model tier
+pa task enqueue --role feature --req REQ-AUTH-01 --kr KR-AUTH-01 --priority 50 --tier local
+
+# List queued and running tasks
+pa task list
+
+# Filter tasks by status (e.g., awaiting human review)
+pa task list --status awaiting_human --limit 10
+
+# Output task list as structured JSON for automation
+pa task list --json
+
+# Resume a task paused for human input
+pa task resume task-20261124-001 --response "Proceed with JWT token authentication"
+
+# Cancel a pending or runaway task
+pa task cancel task-20261124-001
+```
+
+---
+
+## 10. Autonomous Model Escalation Chain
+
+PA-Container 2.0 implements closed-loop model routing and escalation, ensuring cost efficiency by default while dynamically escalating to more capable models when complexity demands it.
+
+### 10.1 Escalation Tiers & Configuration
+
+The model chain is declared under `[routing.escalation]` in `factory.toml`:
+
+```toml
+[routing.escalation]
+enabled = true
+min_first_pass_yield = 0.85
+max_change_failure_rate = 0.10
+min_eval_score = 0.75
+tiers = ["local", "fast", "reasoning"]
+```
+
+The progression moves upwards along three tiers:
+1. **`local`:** Low-latency, cost-free local models (e.g., Qwen 2.5 Coder 32B running on Apple Metal or Incus vGPU via `llama-server`).
+2. **`fast`:** High-throughput frontier models for moderate complexity (e.g., Claude 3.5 Haiku, Gemini 2.0 Flash).
+3. **`reasoning`:** Deep-thinking frontier models for complex multi-file architectural refactoring (e.g., Claude 3.5 Sonnet, o1/o3-mini).
+
+### 10.2 Escalation Triggers
+
+- **Proactive Promotion:**
+    - Before task execution begins, `GovernanceEngine::resolve_initial_tier` checks historical rolling FPY and CFR for the role and Key Result.
+    - If the rolling FPY falls below `min_first_pass_yield` (e.g., 0.85) or CFR exceeds `max_change_failure_rate` (e.g., 0.10), the task is proactively promoted from `local` to `fast` or `reasoning`.
+- **Reactive Gate Failure Escalation:**
+    - If a task fails automated quality gates (OpenFastTrace traceability, design token freshness/drift, cargo-audit SCA, or LLM eval rubrics), `GovernanceEngine::evaluate_escalation` triggers upward escalation.
+    - Emits an OTLP child span `emit_escalation_span` attached to the root task trace.
+    - Records the final model tier in commit Git trailers (`X-PA-Model-Tier: <tier>`).
+
+---
+
+## 11. Extensible Skill Emitter Drivers
+
+The Skill Compiler supports five driver architectures in `crates/pa-core/src/skills/emitters.rs`:
+
+- **`PiEmitter` (`driver = "pi"`):**
+    - Emits per-skill markdown files to `.pi/skills/{name}/SKILL.md`.
+    - Generates Model Context Protocol (MCP) tool configurations in `.pi/mcp.json`.
+- **`ClaudeEmitter` (`driver = "claude"`):**
+    - Generates centralized instructions in `CLAUDE.md`.
+    - Emits individual tool skills into `.claude/skills/{name}/SKILL.md`.
+    - Produces Claude Code MCP configurations in `.claude.json`.
+- **`OpenCodeEmitter` (`driver = "opencode"`):**
+    - Writes skill definitions to `.opencode/skills/`.
+    - Writes tool configurations to `.config/opencode/opencode.json`.
+- **`AntigravityEmitter` (`driver = "antigravity"`):**
+    - Staged under `.gemini/antigravity/skills/{name}/SKILL.md`.
+    - Emits lazy and eager MCP server registrations into `.gemini/antigravity/mcp/`.
+- **`DeclarativeEmitter` (Custom Drivers via `emitter.toml`):**
+    - Allows adding new IDE and agent drivers (Cursor, Windsurf, Roo, etc.) with zero Rust code changes.
+    - Declarative path patterns (`{name}.md`, `{name}.mdc`) and configurable MCP schema wrappers.
+
