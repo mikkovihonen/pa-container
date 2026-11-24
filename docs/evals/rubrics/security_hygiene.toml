@@ -1,0 +1,28 @@
+id = "security_hygiene"
+title = "Security Hygiene and Vulnerability Prevention"
+description = "Evaluates against OWASP top risks, secret leaks, unvalidated inputs, insecure deserialization, and path traversal vulnerabilities."
+target = "security"
+version = "1.0"
+
+[[items]]
+id = "input_validation_and_sanitization"
+prompt = "Are all external inputs, CLI arguments, HTTP parameters, and file contents validated and sanitized before use?"
+kind = "noul"
+weight = 1.5
+
+[[items]]
+id = "secret_and_credential_safety"
+prompt = "Is the diff entirely free of hardcoded API keys, tokens, passwords, or sensitive credentials, delegating to environment or host keyring?"
+kind = "noul"
+weight = 1.5
+
+[[items]]
+id = "safe_concurrency_and_memory"
+prompt = "Are lock acquisitions, asynchronous concurrency primitives, and resource lifetimes free of deadlocks, data races, and leaks?"
+kind = "score"
+weight = 1.0
+levels = [
+    { score = 0.0, description = "Unsafe locking patterns or obvious data race risks detected." },
+    { score = 0.5, description = "Basic thread safety observed with potential bottleneck or contention." },
+    { score = 1.0, description = "Robust, deadlock-free, and idiomatic concurrency semantics." }
+]

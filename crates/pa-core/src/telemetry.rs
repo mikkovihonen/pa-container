@@ -294,6 +294,172 @@ pub fn emit_root_span(
     }
 }
 
+pub fn build_otlp_eval_span_payload(
+    task_ctx: &TaskContext,
+    verdict: &crate::evals::EvalVerdict,
+    service_name: &str,
+) -> serde_json::Value {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let start_nanos = now_nanos.to_string();
+    let end_nanos = (now_nanos + 1_000_000).to_string();
+    let child_span_id = generate_span_id();
+
+    let mut attrs = vec![
+        serde_json::json!({
+            "key": "pa.task_id",
+            "value": { "stringValue": task_ctx.task_id }
+        }),
+        serde_json::json!({
+            "key": "openinference.span.kind",
+            "value": { "stringValue": "EVALUATOR" }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.rubric_id",
+            "value": { "stringValue": verdict.rubric_id }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.stage",
+            "value": { "stringValue": verdict.stage }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.judge_model",
+            "value": { "stringValue": verdict.judge_model }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.score",
+            "value": { "doubleValue": verdict.score }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.confidence",
+            "value": { "doubleValue": verdict.confidence }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.passed",
+            "value": { "boolValue": verdict.passed }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.escalated",
+            "value": { "boolValue": verdict.escalated }
+        }),
+        serde_json::json!({
+            "key": "pa.eval.cost_usd",
+            "value": { "doubleValue": verdict.cost_usd }
+        }),
+    ];
+
+    if let Some(ref rationale) = verdict.rationale {
+        attrs.push(serde_json::json!({
+            "key": "pa.eval.rationale",
+            "value": { "stringValue": rationale }
+        }));
+    }
+
+    serde_json::json!({
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [
+                        {
+                            "key": "service.name",
+                            "value": { "stringValue": service_name }
+                        },
+                        {
+                            "key": "pa.task_id",
+                            "value": { "stringValue": task_ctx.task_id }
+                        }
+                    ]
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {
+                            "name": "pa.eval.engine",
+                            "version": "2.0.0"
+                        },
+                        "spans": [
+                            {
+                                "traceId": task_ctx.trace_id,
+                                "spanId": child_span_id,
+                                "parentSpanId": task_ctx.span_id,
+                                "name": "pa.eval.run",
+                                "kind": 1, // SPAN_KIND_INTERNAL
+                                "startTimeUnixNano": start_nanos,
+                                "endTimeUnixNano": end_nanos,
+                                "attributes": attrs,
+                                "status": {
+                                    "code": if verdict.passed { 1 } else { 2 },
+                                    "message": if verdict.passed { "OK" } else { "Eval Failed" }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    })
+}
+
+pub fn emit_eval_span(
+    task_ctx: &TaskContext,
+    verdict: &crate::evals::EvalVerdict,
+    config: &OtlpTelemetrySpec,
+    fallback_dir: Option<&Path>,
+) -> Result<()> {
+    let payload = build_otlp_eval_span_payload(task_ctx, verdict, "pa-container");
+    let fallback_path = fallback_dir
+        .map(|d| d.join("events.jsonl"))
+        .unwrap_or_else(|| PathBuf::from(".pa/telemetry/events.jsonl"));
+
+    if config.provider.to_lowercase() == "none" {
+        append_local_event_jsonl(&payload, &fallback_path)?;
+        return Ok(());
+    }
+
+    let post_result = ureq::post(&config.endpoint)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_millis(
+            config.batch_timeout_ms.max(500),
+        ))
+        .send_json(&payload);
+
+    match post_result {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!(
+                "[WARN] OTLP eval span export to {} failed ({}). Degrading to local JSONL: {}",
+                config.endpoint,
+                e,
+                fallback_path.display()
+            );
+            let _ = append_local_event_jsonl(&payload, &fallback_path);
+        }
+    }
+
+    // Optional direct Phoenix REST evaluation export
+    if config.provider.to_lowercase() == "phoenix" {
+        let base_url = config.endpoint.trim_end_matches("/v1/traces");
+        let eval_url = format!("{}/v1/evaluations", base_url);
+        let eval_payload = serde_json::json!({
+            "dataframe": {
+                "name": verdict.rubric_id,
+                "score": verdict.score,
+                "label": if verdict.passed { "pass" } else { "fail" },
+                "explanation": verdict.rationale.as_deref().unwrap_or(""),
+                "trace_id": task_ctx.trace_id,
+                "span_id": task_ctx.span_id,
+            }
+        });
+        let _ = ureq::post(&eval_url)
+            .set("Content-Type", "application/json")
+            .timeout(std::time::Duration::from_millis(500))
+            .send_json(&eval_payload);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +524,43 @@ mod tests {
         let content = fs::read_to_string(events_file).unwrap();
         assert!(content.contains("pa.task.run"));
         assert!(content.contains(&ctx.trace_id));
+    }
+
+    #[test]
+    fn test_build_and_emit_eval_span() {
+        let td = tempdir().unwrap();
+        let ctx = TaskContext::new("feat-eval-task");
+        let verdict = crate::evals::EvalVerdict {
+            rubric_id: "spec_adherence".to_string(),
+            stage: "cascade".to_string(),
+            judge_model: "qwen2.5-coder-32b".to_string(),
+            score: 0.95,
+            confidence: 0.90,
+            passed: true,
+            escalated: false,
+            checklist_results: Vec::new(),
+            rationale: Some("All requirements met".to_string()),
+            cost_usd: 0.002,
+            skipped: false,
+            skip_reason: None,
+        };
+
+        let payload = build_otlp_eval_span_payload(&ctx, &verdict, "test-service");
+        let span = &payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0];
+        assert_eq!(span["name"], "pa.eval.run");
+        assert_eq!(span["traceId"], ctx.trace_id);
+        assert_eq!(span["parentSpanId"], ctx.span_id);
+
+        let spec = OtlpTelemetrySpec {
+            provider: "none".to_string(),
+            ..OtlpTelemetrySpec::default()
+        };
+        emit_eval_span(&ctx, &verdict, &spec, Some(td.path())).unwrap();
+        let events_file = td.path().join("events.jsonl");
+        assert!(events_file.is_file());
+        let content = fs::read_to_string(events_file).unwrap();
+        assert!(content.contains("pa.eval.run"));
+        assert!(content.contains("spec_adherence"));
+        assert!(content.contains("qwen2.5-coder-32b"));
     }
 }

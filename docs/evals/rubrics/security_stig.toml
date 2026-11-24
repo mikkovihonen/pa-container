@@ -1,0 +1,34 @@
+id = "security_stig"
+title = "Security Technical Implementation Guide (DISA STIG) Hardening"
+description = "Evaluates compliance with DISA STIG benchmarks: principle of least privilege, audit trail integrity, cryptographic standard enforcement, and sensitive error suppression."
+target = "stig"
+version = "1.0"
+
+[[items]]
+id = "least_privilege_enforcement"
+prompt = "Does the implementation enforce the principle of least privilege, preventing unnecessary root/elevated access and isolating worker boundaries?"
+kind = "noul"
+weight = 1.2
+
+[[items]]
+id = "audit_logging_and_provenance"
+prompt = "Are security-relevant state changes, authentication events, and administrative actions logged with structured, tamper-evident audit records?"
+kind = "score"
+weight = 1.0
+levels = [
+    { score = 0.0, description = "No audit logging for sensitive operations." },
+    { score = 0.5, description = "Partial logging lacking correlation IDs or timestamps." },
+    { score = 1.0, description = "Structured, correlated audit logging with timestamps and task correlation." }
+]
+
+[[items]]
+id = "cryptographic_integrity"
+prompt = "Are modern, standard cryptographic algorithms (e.g. Ed25519, SHA-256) used without deprecated or weak ciphers?"
+kind = "noul"
+weight = 1.2
+
+[[items]]
+id = "error_information_disclosure"
+prompt = "Do user-facing and external error messages suppress stack traces, system paths, and internal secrets?"
+kind = "noul"
+weight = 1.0

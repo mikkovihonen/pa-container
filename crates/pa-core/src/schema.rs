@@ -818,7 +818,11 @@ fn default_max_retries_per_tier() -> u32 {
 }
 
 fn default_escalate_on() -> Vec<String> {
-    vec!["test_failure".to_string(), "gate_failure".to_string()]
+    vec![
+        "test_failure".to_string(),
+        "gate_failure".to_string(),
+        "eval_failure".to_string(),
+    ]
 }
 
 fn default_min_first_pass_yield() -> f64 {
@@ -919,6 +923,140 @@ impl Default for SupervisorConfig {
             reallocate_roles: default_reallocate_roles(),
             intercom_dir: default_intercom_dir(),
             socket_path: default_supervisor_socket_path(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct System1EvalConfig {
+    #[serde(default = "default_provider_none")]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub keyring_token: Option<String>,
+    #[serde(default = "default_eval_timeout_sec")]
+    pub timeout_sec: u64,
+}
+
+fn default_eval_timeout_sec() -> u64 {
+    30
+}
+
+impl Default for System1EvalConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_provider_none(),
+            endpoint: String::new(),
+            model: String::new(),
+            keyring_token: None,
+            timeout_sec: default_eval_timeout_sec(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct System2EvalConfig {
+    #[serde(default = "default_provider_none")]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub keyring_token: Option<String>,
+    #[serde(default = "default_eval_temperature")]
+    pub temperature: f64,
+    #[serde(default = "default_system2_eval_timeout_sec")]
+    pub timeout_sec: u64,
+}
+
+fn default_eval_temperature() -> f64 {
+    0.0
+}
+
+fn default_system2_eval_timeout_sec() -> u64 {
+    60
+}
+
+impl Default for System2EvalConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_provider_none(),
+            endpoint: String::new(),
+            model: String::new(),
+            keyring_token: None,
+            temperature: default_eval_temperature(),
+            timeout_sec: default_system2_eval_timeout_sec(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_eval_mode")]
+    pub mode: String,
+    #[serde(default = "default_rubrics_dir")]
+    pub rubrics_dir: PathBuf,
+    #[serde(default = "default_min_pass_score")]
+    pub min_pass_score: f64,
+    #[serde(default = "default_true")]
+    pub block_on_fail: bool,
+    #[serde(default = "default_on_eval_unavailable")]
+    pub on_eval_unavailable: String,
+    #[serde(default = "default_escalate_to_system2_below_confidence")]
+    pub escalate_to_system2_below_confidence: f64,
+    #[serde(default = "default_true")]
+    pub escalate_on_fail_for_rationale: bool,
+    #[serde(default = "default_true")]
+    pub fence_untrusted_diffs: bool,
+    #[serde(default = "default_true")]
+    pub enforce_distinct_model_family: bool,
+    #[serde(default)]
+    pub system1: System1EvalConfig,
+    #[serde(default)]
+    pub system2: System2EvalConfig,
+}
+
+fn default_eval_mode() -> String {
+    "cascade".to_string()
+}
+
+fn default_rubrics_dir() -> PathBuf {
+    PathBuf::from("docs/evals/rubrics")
+}
+
+fn default_min_pass_score() -> f64 {
+    0.80
+}
+
+fn default_on_eval_unavailable() -> String {
+    "skip".to_string()
+}
+
+fn default_escalate_to_system2_below_confidence() -> f64 {
+    0.80
+}
+
+impl Default for EvalsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: default_eval_mode(),
+            rubrics_dir: default_rubrics_dir(),
+            min_pass_score: default_min_pass_score(),
+            block_on_fail: true,
+            on_eval_unavailable: default_on_eval_unavailable(),
+            escalate_to_system2_below_confidence: default_escalate_to_system2_below_confidence(),
+            escalate_on_fail_for_rationale: true,
+            fence_untrusted_diffs: true,
+            enforce_distinct_model_family: true,
+            system1: System1EvalConfig::default(),
+            system2: System2EvalConfig::default(),
         }
     }
 }
@@ -1056,6 +1194,8 @@ pub struct FactoryConfig {
     pub routing: RoutingConfig,
     #[serde(default)]
     pub supervisor: SupervisorConfig,
+    #[serde(default)]
+    pub evals: EvalsConfig,
     #[serde(default = "default_factory_roles")]
     pub roles: HashMap<String, RoleSpec>,
 }
@@ -1081,6 +1221,7 @@ impl Default for FactoryConfig {
             governance: GovernanceConfig::default(),
             routing: RoutingConfig::default(),
             supervisor: SupervisorConfig::default(),
+            evals: EvalsConfig::default(),
             roles: default_factory_roles(),
         }
     }
@@ -1310,5 +1451,54 @@ capabilities = ["git"]
         assert_eq!(config.supervisor.slot_proxy_port_start, 9081);
         assert!(config.roles.contains_key("custom_role"));
         assert_eq!(config.roles.get("custom_role").unwrap().driver, "claude");
+    }
+
+    #[test]
+    fn test_evals_config_defaults_and_customization() {
+        let default_cfg = EvalsConfig::default();
+        assert!(!default_cfg.enabled);
+        assert_eq!(default_cfg.mode, "cascade");
+        assert_eq!(default_cfg.min_pass_score, 0.80);
+        assert!(default_cfg.block_on_fail);
+        assert_eq!(default_cfg.on_eval_unavailable, "skip");
+        assert_eq!(default_cfg.escalate_to_system2_below_confidence, 0.80);
+        assert!(default_cfg.escalate_on_fail_for_rationale);
+        assert!(default_cfg.fence_untrusted_diffs);
+        assert!(default_cfg.enforce_distinct_model_family);
+        assert_eq!(default_cfg.system1.provider, "none");
+        assert_eq!(default_cfg.system2.provider, "none");
+
+        let toml_str = r#"
+schema_version = "2.1"
+
+[evals]
+enabled = true
+mode = "cascade"
+min_pass_score = 0.85
+block_on_fail = true
+escalate_to_system2_below_confidence = 0.75
+fence_untrusted_diffs = true
+enforce_distinct_model_family = true
+
+[evals.system1]
+provider = "decision_http"
+endpoint = "http://127.0.0.1:8000/v1/decide"
+model = "typesafe-jev-v1"
+
+[evals.system2]
+provider = "llama_server"
+endpoint = "http://127.0.0.1:8080/v1/chat/completions"
+model = "qwen2.5-coder-32b"
+temperature = 0.0
+"#;
+        let config: FactoryConfig = toml::from_str(toml_str).expect("Failed to parse evals TOML");
+        assert!(config.evals.enabled);
+        assert_eq!(config.evals.mode, "cascade");
+        assert_eq!(config.evals.min_pass_score, 0.85);
+        assert_eq!(config.evals.system1.provider, "decision_http");
+        assert_eq!(config.evals.system1.model, "typesafe-jev-v1");
+        assert_eq!(config.evals.system2.provider, "llama_server");
+        assert_eq!(config.evals.system2.model, "qwen2.5-coder-32b");
+        assert_eq!(config.evals.system2.temperature, 0.0);
     }
 }

@@ -1,0 +1,28 @@
+id = "api_compatibility"
+title = "API and Schema Backwards Compatibility"
+description = "Evaluates whether public APIs, CLI flags, serialization contracts, and database migrations maintain backwards compatibility."
+target = "api"
+version = "1.0"
+
+[[items]]
+id = "schema_and_migration_safety"
+prompt = "Are schema changes and database migrations additive, non-breaking, and idempotent (e.g. IF NOT EXISTS)?"
+kind = "noul"
+weight = 1.3
+
+[[items]]
+id = "cli_and_interface_stability"
+prompt = "Do existing CLI subcommands, arguments, and configuration keys continue to function with default fallbacks?"
+kind = "noul"
+weight = 1.2
+
+[[items]]
+id = "deprecation_and_contract_hygiene"
+prompt = "Are any removed or modified fields properly documented with deprecation notices rather than abrupt breaking deletions?"
+kind = "score"
+weight = 1.0
+levels = [
+    { score = 0.0, description = "Abrupt breaking removal of public APIs or configuration keys." },
+    { score = 0.5, description = "Backwards compatibility maintained but deprecations undocumented." },
+    { score = 1.0, description = "Full backwards compatibility with graceful fallbacks and clear notices." }
+]

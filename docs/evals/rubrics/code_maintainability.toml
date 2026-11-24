@@ -1,0 +1,28 @@
+id = "code_maintainability"
+title = "Code Maintainability and Architecture"
+description = "Evaluates code cleanliness, modularity, readability, absence of dead code, and idiom conformance."
+target = "code"
+version = "1.0"
+
+[[items]]
+id = "modularity"
+prompt = "Is the code properly modularized with single responsibility and clean separation of concerns?"
+kind = "score"
+weight = 1.0
+levels = [
+    { score = 0.0, description = "Tightly coupled monolithic blocks with high complexity." },
+    { score = 0.5, description = "Moderately separated modules with some leaky abstractions." },
+    { score = 1.0, description = "Cleanly structured, highly cohesive, loosely coupled interfaces." }
+]
+
+[[items]]
+id = "naming_and_readability"
+prompt = "Are variable names, functions, and structs descriptive, unambiguous, and idiomatically aligned with the repository?"
+kind = "noul"
+weight = 1.0
+
+[[items]]
+id = "dead_code_absence"
+prompt = "Is the change free of commented-out code, orphaned debug logs, or unused internal symbols?"
+kind = "noul"
+weight = 0.8

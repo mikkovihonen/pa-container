@@ -255,9 +255,16 @@ impl GovernanceEngine {
 
         if requested_tier.to_lowercase().contains("local") {
             let (sample_size, fpy, cfr) = store.get_model_tier_stats(Some(role), requested_tier)?;
+            let rolling_eval = store
+                .get_rolling_eval_score(14, None, Some(requested_tier))
+                .unwrap_or(1.0);
+            let eval_breached = sample_size >= escalation_cfg.min_sample_size
+                && rolling_eval < escalation_cfg.min_first_pass_yield;
+
             if sample_size >= escalation_cfg.min_sample_size
                 && (fpy < escalation_cfg.min_first_pass_yield
-                    || cfr > escalation_cfg.max_change_failure_rate)
+                    || cfr > escalation_cfg.max_change_failure_rate
+                    || eval_breached)
             {
                 let kr_spend = if let Some(kr) = kr_id {
                     store.get_kr_spend(kr).unwrap_or(0.0)
@@ -282,17 +289,29 @@ impl GovernanceEngine {
                     ));
                 }
 
-                let reason = format!(
-                    "Proactive tier promotion: rolling FPY {:.1}% (< {:.1}%) / CFR {:.1}% (> {:.1}%) over {} tasks for role '{}' on '{}'. Promoted to '{}'.",
-                    fpy * 100.0,
-                    escalation_cfg.min_first_pass_yield * 100.0,
-                    cfr * 100.0,
-                    escalation_cfg.max_change_failure_rate * 100.0,
-                    sample_size,
-                    role,
-                    requested_tier,
-                    next_tier
-                );
+                let reason = if eval_breached && fpy >= escalation_cfg.min_first_pass_yield {
+                    format!(
+                        "Proactive tier promotion: rolling eval score {:.1}% (< {:.1}%) over {} tasks for role '{}' on '{}'. Promoted to '{}'.",
+                        rolling_eval * 100.0,
+                        escalation_cfg.min_first_pass_yield * 100.0,
+                        sample_size,
+                        role,
+                        requested_tier,
+                        next_tier
+                    )
+                } else {
+                    format!(
+                        "Proactive tier promotion: rolling FPY {:.1}% (< {:.1}%) / CFR {:.1}% (> {:.1}%) over {} tasks for role '{}' on '{}'. Promoted to '{}'.",
+                        fpy * 100.0,
+                        escalation_cfg.min_first_pass_yield * 100.0,
+                        cfr * 100.0,
+                        escalation_cfg.max_change_failure_rate * 100.0,
+                        sample_size,
+                        role,
+                        requested_tier,
+                        next_tier
+                    )
+                };
                 return Ok((next_tier, Some(reason)));
             }
         }

@@ -1,0 +1,28 @@
+id = "test_meaningfulness"
+title = "Test Meaningfulness and Verification Quality"
+description = "Evaluates whether accompanying unit, integration, and E2E tests are substantive, non-tautological, and properly assert expected behaviors."
+target = "tests"
+version = "1.0"
+
+[[items]]
+id = "substantive_assertions"
+prompt = "Do tests make meaningful assertions against output values, state changes, or error conditions rather than trivial or tautological checks (e.g. assert!(true))?"
+kind = "noul"
+weight = 1.5
+
+[[items]]
+id = "failure_mode_coverage"
+prompt = "Are negative test paths, error conditions, and edge-case inputs tested alongside the happy path?"
+kind = "score"
+weight = 1.0
+levels = [
+    { score = 0.0, description = "Only nominal happy-path scenario tested." },
+    { score = 0.5, description = "Some error handling checked, but major failure branches untested." },
+    { score = 1.0, description = "Both happy path and negative failure paths thoroughly exercised." }
+]
+
+[[items]]
+id = "isolation_and_determinism"
+prompt = "Are tests deterministic, free of race conditions, and independent of external unmocked network services?"
+kind = "noul"
+weight = 1.0

@@ -197,6 +197,45 @@ tokens = ["ANTHROPIC_API_KEY"]
 - **`fallback_model`**: Offline model name to use when throttled (e.g. `qwen2.5-coder-7b-instruct`).
 - **`fallback_base_url`**: Offline API endpoint for throttled tasks (e.g. `http://127.0.0.1:11434/v1`).
 
+#### `[routing.escalation]`
+- **`enabled`**: Enables dynamic upward model tier escalation upon test or gate failures (defaults to `true`).
+- **`chain`**: Ordered list of model tiers to escalate through (e.g. `["local", "frontier", "frontier+verifier"]`).
+- **`max_retries_per_tier`**: Maximum retries on the current tier before escalating upward (defaults to `2`).
+- **`escalate_on`**: Failure triggers that qualify for upward escalation (`["test_failure", "gate_failure", "eval_failure"]`).
+- **`respect_kr_budget`**: Enforces Key Result budget guardrail, blocking paid frontier escalation when exhausted unless overridden with `--force`.
+
+#### `[supervisor]`
+- **`daemon`**: Runs host supervisor in background daemon mode with Unix socket IPC (defaults to `false`).
+- **`max_concurrent_agents`**: Maximum parallel agent tasks and allocated sandbox slots (defaults to `4`).
+- **`slot_uid_start`**: Starting guest POSIX UID allocated for concurrent sandboxes (defaults to `2001`).
+- **`slot_proxy_port_start`**: Starting egress proxy listener port for concurrent sandboxes (defaults to `8081`).
+- **`reallocate_roles`**: Specialized remediation roles dispatched when WIP limits are reached (e.g. `review_assist`, `verifier`, `traceability_auditor`, `design_steward`).
+
+#### `[evals]`
+- **`enabled`**: Enables automated LLM evals and rubrics evaluation (defaults to `false`).
+- **`mode`**: Evaluation mode (`"cascade"` [default], `"system1"`, `"system2"`).
+- **`rubrics_dir`**: Directory containing Git-versioned TOML rubrics (defaults to `docs/evals/rubrics`).
+- **`min_pass_score`**: Minimum aggregate score required to pass quality gate (defaults to `0.80`).
+- **`block_on_fail`**: Blocks feature verification and triggers escalation on eval failure (defaults to `true`).
+- **`on_eval_unavailable`**: Behavior when judge endpoints are unreachable (`"skip"` [default] or `"block"`).
+- **`escalate_to_system2_below_confidence`**: System 1 confidence threshold below which System 2 generative judge is invoked (defaults to `0.80`).
+- **`escalate_on_fail_for_rationale`**: Automatically invokes System 2 generative judge on failing verdicts to generate remediation rationale (defaults to `true`).
+- **`fence_untrusted_diffs`**: Encloses untrusted agent diffs in XML boundary delimiters with anti-injection instructions (defaults to `true`).
+- **`enforce_distinct_model_family`**: Checks that judge model family is distinct from generator model family to mitigate self-evaluation bias (defaults to `true`).
+
+#### `[evals.system1]`
+- **`provider`**: System 1 decision model adapter (`"decision_http"`, `"local_decision"`, `"none"`).
+- **`endpoint`**: HTTP endpoint accepting structured state and typed question checklists.
+- **`model`**: Decision model name (e.g. `typesafe-jev-v1`).
+- **`keyring_token`**: Optional secret token key resolved from host keyring or environment.
+
+#### `[evals.system2]`
+- **`provider`**: System 2 generative LLM judge (`"openai_compat"`, `"anthropic"`, `"gemini"`, `"llama_server"`, `"none"`).
+- **`endpoint`**: Chat completions API endpoint (e.g. `http://127.0.0.1:8080/v1/chat/completions`).
+- **`model`**: Generative judge model name (e.g. `qwen2.5-coder-32b`, `claude-3-5-sonnet`).
+- **`temperature`**: Generation temperature (defaults strictly to `0.0` for determinism).
+- **`keyring_token`**: Optional secret token key resolved from host keyring or environment.
+
 #### `[roles.<name>]`
 - **`description`**: Human-readable explanation of the role's responsibilities.
 - **`capabilities`**: Granular capability permissions granted to the role (e.g. `traceability:read`, `design_system:write`).

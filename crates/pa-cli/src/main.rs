@@ -81,6 +81,9 @@ pub enum Commands {
 
     #[command(about = "Enqueue and manage tasks in the Factory Work Queue")]
     Task(TaskCliArgs),
+
+    #[command(about = "Run and inspect automated LLM evals and calibration reports")]
+    Eval(EvalArgs),
 }
 
 #[derive(Args, Debug)]
@@ -636,6 +639,56 @@ pub struct TaskResumeArgs {
 pub struct TaskCancelArgs {
     #[arg(help = "Task ID to cancel")]
     pub task_id: String,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct EvalArgs {
+    #[command(subcommand)]
+    pub command: EvalCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum EvalCommands {
+    #[command(about = "Run automated LLM evals against a task git diff and specification")]
+    Run(EvalRunArgs),
+
+    #[command(about = "Generate evaluation metrics and calibration reports")]
+    Report(EvalReportArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct EvalRunArgs {
+    #[arg(short, long, help = "Task ID to evaluate (e.g. feat-auth)")]
+    pub task: String,
+
+    #[arg(short, long, help = "Optional specific rubric ID to evaluate")]
+    pub rubric: Option<String>,
+
+    #[arg(short, long, help = "Evaluation mode: system1 | system2 | cascade")]
+    pub mode: Option<String>,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct EvalReportArgs {
+    #[arg(
+        short,
+        long,
+        default_value = "14d",
+        help = "Time window (e.g. 14d, 30d, 0)"
+    )]
+    pub window: String,
+
+    #[arg(long, help = "Group report breakdown by: rubric | model")]
+    pub by: Option<String>,
+
+    #[arg(long, help = "Output report as formatted JSON")]
+    pub json: bool,
 
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
@@ -1823,6 +1876,119 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
                 "gate_failure",
                 "Design system gate failed compliance check. Run 'pa design check' for details.",
             )?;
+        }
+
+        // Evaluate Automated LLM Evals (System 1 + System 2 Cascade)
+        if config.evals.enabled {
+            println!(
+                "==> Evaluating Automated LLM Evals (Mode: {}, Min Pass Score: {:.2})...",
+                config.evals.mode, config.evals.min_pass_score
+            );
+
+            let rubrics_dir = cwd.join(&config.evals.rubrics_dir);
+            let rubrics = pa_core::evals::load_rubrics_from_dir(&rubrics_dir)?;
+
+            let git_diff = std::process::Command::new("git")
+                .args(["diff", "HEAD~1..HEAD"])
+                .current_dir(&cwd)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                .unwrap_or_default();
+
+            let eval_state = pa_core::evals::EvalState {
+                task_id: task_ctx.task_id.clone(),
+                role: args.role.clone(),
+                model: current_tier.clone(),
+                spec_text: format!("{}: {}", feature.title, feature.intent),
+                git_diff,
+                test_summary: Some("Deterministic tests passed in Phase 4".to_string()),
+                ui_screenshot_b64: None,
+                ui_reference_b64: None,
+            };
+
+            let eval_verdicts =
+                pa_core::evals::evaluate_task(&config.evals, &eval_state, &rubrics)?;
+            let mut all_evals_passed = true;
+            let mut eval_failure_rationale = String::new();
+
+            if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+                let now_ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs().to_string())
+                    .unwrap_or_default();
+
+                for v in &eval_verdicts {
+                    if v.skipped {
+                        println!(
+                            "    - [SKIP] Rubric '{}' skipped ({})",
+                            v.rubric_id,
+                            v.skip_reason.as_deref().unwrap_or("not configured")
+                        );
+                        continue;
+                    }
+
+                    let status_str = if v.passed { "PASS" } else { "FAIL" };
+                    println!(
+                        "    - [{}] Rubric '{}' [{}] Score: {:.2}, Conf: {:.2}, Escalated: {}",
+                        status_str, v.rubric_id, v.stage, v.score, v.confidence, v.escalated
+                    );
+
+                    let eval_record = pa_core::storage::EvalResultRecord {
+                        eval_id: format!("eval-{}-{}", task_ctx.task_id, v.rubric_id),
+                        task_id: task_ctx.task_id.clone(),
+                        trace_id: task_ctx.trace_id.clone(),
+                        rubric_id: v.rubric_id.clone(),
+                        stage: v.stage.clone(),
+                        judge_model: v.judge_model.clone(),
+                        score: v.score,
+                        confidence: v.confidence,
+                        passed: v.passed,
+                        escalated: v.escalated,
+                        rationale: v.rationale.clone(),
+                        checklist_json: serde_json::to_string(&v.checklist_results)
+                            .unwrap_or_default(),
+                        cost_usd: v.cost_usd,
+                        evaluated_at: now_ts.clone(),
+                    };
+                    let _ = store.insert_eval_result(&eval_record);
+
+                    let _ = pa_core::telemetry::emit_eval_span(
+                        &task_ctx,
+                        v,
+                        &config.telemetry.otlp,
+                        Some(&cache_dir),
+                    );
+
+                    if !v.passed {
+                        all_evals_passed = false;
+                        if let Some(ref r) = v.rationale {
+                            eval_failure_rationale.push_str(&format!("[{}] {}; ", v.rubric_id, r));
+                        }
+                    }
+                }
+            }
+
+            if !all_evals_passed {
+                eprintln!(
+                    "[ERROR] Automated LLM Evals failed quality threshold (min score: {:.2})",
+                    config.evals.min_pass_score
+                );
+                if config.evals.block_on_fail && !args.force {
+                    evaluate_escalation_on_failure(
+                        "eval_failure",
+                        &format!(
+                            "Automated LLM evals failed. Remediation rationale: {}",
+                            if eval_failure_rationale.is_empty() {
+                                "Score below threshold"
+                            } else {
+                                &eval_failure_rationale
+                            }
+                        ),
+                    )?;
+                } else if args.force {
+                    println!("[WARN] Evals failed but proceeding due to --force flag.");
+                }
+            }
         }
 
         // Record into Analytical Store (factory.db)
@@ -3644,6 +3810,179 @@ fn handle_task_cancel(args: &TaskCancelArgs) -> Result<()> {
     Ok(())
 }
 
+fn handle_eval(args: &EvalArgs) -> Result<()> {
+    match &args.command {
+        EvalCommands::Run(r) => handle_eval_run(r),
+        EvalCommands::Report(p) => handle_eval_report(p),
+    }
+}
+
+fn handle_eval_run(args: &EvalRunArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = load_factory_config(args.config.as_deref())?;
+    let rubrics_dir = cwd.join(&config.evals.rubrics_dir);
+    let mut rubrics = pa_core::evals::load_rubrics_from_dir(&rubrics_dir)?;
+
+    if let Some(ref target_rubric) = args.rubric {
+        rubrics.retain(|r| r.id == *target_rubric);
+        if rubrics.is_empty() {
+            anyhow::bail!(
+                "Rubric '{}' not found in {}",
+                target_rubric,
+                rubrics_dir.display()
+            );
+        }
+    }
+
+    let mut evals_cfg = config.evals.clone();
+    if let Some(ref m) = args.mode {
+        evals_cfg.mode = m.clone();
+    }
+
+    // Try to load task git diff from git
+    let git_diff = std::process::Command::new("git")
+        .args(["diff", "HEAD~1..HEAD"])
+        .current_dir(&cwd)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let task_ctx = pa_core::telemetry::TaskContext::new(&args.task);
+    let eval_state = pa_core::evals::EvalState {
+        task_id: args.task.clone(),
+        role: "feature".to_string(),
+        model: "local".to_string(),
+        spec_text: format!("Task evaluation for {}", args.task),
+        git_diff,
+        test_summary: Some("Manual CLI eval invocation".to_string()),
+        ui_screenshot_b64: None,
+        ui_reference_b64: None,
+    };
+
+    println!(
+        "==> Running Automated LLM Evals for task '{}' (Mode: {}, Rubrics: {})...",
+        args.task,
+        evals_cfg.mode,
+        rubrics.len()
+    );
+    let verdicts = pa_core::evals::evaluate_task(&evals_cfg, &eval_state, &rubrics)?;
+
+    let cache_dir = dirs_fallback_cache();
+    let store = pa_core::storage::get_analytics_store(&config.storage.path).ok();
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default();
+
+    for v in &verdicts {
+        if v.skipped {
+            println!(
+                "  [-] [SKIPPED] Rubric '{}': {}",
+                v.rubric_id,
+                v.skip_reason.as_deref().unwrap_or("disabled")
+            );
+            continue;
+        }
+
+        let status_str = if v.passed { "PASS" } else { "FAIL" };
+        println!(
+            "  [{}] Rubric '{}' [{}] Score: {:.2}, Conf: {:.2}, Escalated: {}",
+            status_str, v.rubric_id, v.stage, v.score, v.confidence, v.escalated
+        );
+        if let Some(ref r) = v.rationale {
+            println!("      Rationale: {}", r);
+        }
+
+        if let Some(ref s) = store {
+            let record = pa_core::storage::EvalResultRecord {
+                eval_id: format!("eval-{}-{}", args.task, v.rubric_id),
+                task_id: args.task.clone(),
+                trace_id: task_ctx.trace_id.clone(),
+                rubric_id: v.rubric_id.clone(),
+                stage: v.stage.clone(),
+                judge_model: v.judge_model.clone(),
+                score: v.score,
+                confidence: v.confidence,
+                passed: v.passed,
+                escalated: v.escalated,
+                rationale: v.rationale.clone(),
+                checklist_json: serde_json::to_string(&v.checklist_results).unwrap_or_default(),
+                cost_usd: v.cost_usd,
+                evaluated_at: now_ts.clone(),
+            };
+            let _ = s.insert_eval_result(&record);
+        }
+
+        let _ = pa_core::telemetry::emit_eval_span(
+            &task_ctx,
+            v,
+            &config.telemetry.otlp,
+            Some(&cache_dir),
+        );
+    }
+
+    Ok(())
+}
+
+fn handle_eval_report(args: &EvalReportArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    let days: u32 = args.window.trim_end_matches('d').parse().unwrap_or(14);
+    let summary = store.get_eval_summary(days)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+        return Ok(());
+    }
+
+    println!("============================================================");
+    println!("      AUTOMATED LLM EVALS CALIBRATION & ACCURACY REPORT     ");
+    println!("============================================================");
+    println!("Time Window:          {} days", days);
+    println!("Total Evaluations:    {}", summary.total_evals);
+    println!(
+        "Passed Evaluations:   {} ({:.1}%)",
+        summary.passed_count,
+        summary.pass_rate * 100.0
+    );
+    println!("Mean Score:           {:.2}", summary.mean_score);
+    println!("Mean Confidence:      {:.2}", summary.mean_confidence);
+    println!(
+        "System 2 Escalations: {:.1}%",
+        summary.escalation_rate * 100.0
+    );
+    println!("Total Eval Cost:      ${:.4}", summary.total_cost_usd);
+    println!("------------------------------------------------------------");
+    println!("Breakdown by Rubric:");
+    for (rubric_id, stat) in &summary.by_rubric {
+        let pass_pct = if stat.count > 0 {
+            (stat.passed as f64 / stat.count as f64) * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "  * {:<24} count: {:<4} passed: {:<4} ({:.1}%) mean_score: {:.2}",
+            rubric_id, stat.count, stat.passed, pass_pct, stat.mean_score
+        );
+    }
+    println!("------------------------------------------------------------");
+    println!("Breakdown by Judge Model:");
+    for (model, stat) in &summary.by_model {
+        let pass_pct = if stat.count > 0 {
+            (stat.passed as f64 / stat.count as f64) * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "  * {:<24} count: {:<4} passed: {:<4} ({:.1}%) mean_score: {:.2}",
+            model, stat.count, stat.passed, pass_pct, stat.mean_score
+        );
+    }
+    println!("============================================================");
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -3663,6 +4002,7 @@ fn main() -> Result<()> {
         Commands::Acp(args) => handle_acp(args),
         Commands::Supervisor(args) => handle_supervisor(args),
         Commands::Task(args) => handle_task(args),
+        Commands::Eval(args) => handle_eval(args),
     }
 }
 
@@ -4262,6 +4602,44 @@ mod tests {
                 assert_eq!(c.task_id, "task-custom-1");
             }
             _ => panic!("Expected Task Cancel command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_eval() {
+        let run_args = vec![
+            "pa",
+            "eval",
+            "run",
+            "--task",
+            "feat-test-1",
+            "--rubric",
+            "spec_adherence",
+            "--mode",
+            "cascade",
+        ];
+        let cli_run = Cli::parse_from(run_args);
+        match cli_run.command {
+            Commands::Eval(EvalArgs {
+                command: EvalCommands::Run(r),
+            }) => {
+                assert_eq!(r.task, "feat-test-1");
+                assert_eq!(r.rubric.as_deref(), Some("spec_adherence"));
+                assert_eq!(r.mode.as_deref(), Some("cascade"));
+            }
+            _ => panic!("Expected Eval Run command"),
+        }
+
+        let report_args = vec!["pa", "eval", "report", "--window", "30d", "--json"];
+        let cli_report = Cli::parse_from(report_args);
+        match cli_report.command {
+            Commands::Eval(EvalArgs {
+                command: EvalCommands::Report(p),
+            }) => {
+                assert_eq!(p.window, "30d");
+                assert!(p.json);
+            }
+            _ => panic!("Expected Eval Report command"),
         }
     }
 }

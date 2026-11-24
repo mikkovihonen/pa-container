@@ -186,6 +186,51 @@ pub struct WorkerLeaseRecord {
     pub expires_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalResultRecord {
+    pub eval_id: String,
+    pub task_id: String,
+    pub trace_id: String,
+    pub rubric_id: String,
+    pub stage: String,
+    pub judge_model: String,
+    pub score: f64,
+    pub confidence: f64,
+    pub passed: bool,
+    pub escalated: bool,
+    pub rationale: Option<String>,
+    pub checklist_json: String,
+    pub cost_usd: f64,
+    pub evaluated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RubricSummaryStat {
+    pub count: usize,
+    pub passed: usize,
+    pub mean_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelSummaryStat {
+    pub count: usize,
+    pub passed: usize,
+    pub mean_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalSummaryReport {
+    pub total_evals: usize,
+    pub passed_count: usize,
+    pub pass_rate: f64,
+    pub mean_score: f64,
+    pub mean_confidence: f64,
+    pub escalation_rate: f64,
+    pub total_cost_usd: f64,
+    pub by_rubric: HashMap<String, RubricSummaryStat>,
+    pub by_model: HashMap<String, ModelSummaryStat>,
+}
+
 pub trait FactoryAnalyticsStore: Send + Sync {
     fn record_task(&self, task_ctx: &TaskContext, status: &str) -> Result<()>;
     fn record_traceability(&self, task_id: &str, report: &TraceabilityReport) -> Result<()>;
@@ -284,6 +329,17 @@ pub trait FactoryAnalyticsStore: Send + Sync {
         role: Option<&str>,
         model_tier: &str,
     ) -> Result<(usize, f64, f64)>;
+
+    // Evals capabilities
+    fn insert_eval_result(&self, record: &EvalResultRecord) -> Result<()>;
+    fn get_task_evals(&self, task_id: &str) -> Result<Vec<EvalResultRecord>>;
+    fn get_rolling_eval_score(
+        &self,
+        window_days: u32,
+        rubric_id: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<f64>;
+    fn get_eval_summary(&self, window_days: u32) -> Result<EvalSummaryReport>;
 }
 
 pub struct SqliteAnalyticsStore {
@@ -499,9 +555,29 @@ impl SqliteAnalyticsStore {
                  task_id TEXT,
                  leased_at INTEGER,
                  expires_at INTEGER
-             );",
+             );
+
+             CREATE TABLE IF NOT EXISTS eval_results (
+                 eval_id TEXT PRIMARY KEY,
+                 task_id TEXT NOT NULL,
+                 trace_id TEXT NOT NULL,
+                 rubric_id TEXT NOT NULL,
+                 stage TEXT NOT NULL,
+                 judge_model TEXT NOT NULL,
+                 score REAL NOT NULL,
+                 confidence REAL NOT NULL,
+                 passed INTEGER NOT NULL,
+                 escalated INTEGER NOT NULL,
+                 rationale TEXT,
+                 checklist_json TEXT NOT NULL,
+                 cost_usd REAL DEFAULT 0.0,
+                 evaluated_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_eval_results_task ON eval_results(task_id);
+             CREATE INDEX IF NOT EXISTS idx_eval_results_rubric ON eval_results(rubric_id);
+             CREATE INDEX IF NOT EXISTS idx_eval_results_evaluated_at ON eval_results(evaluated_at);",
         )
-        .context("Failed to initialize telemetry sync, BOM, and supervisor queue tables")?;
+        .context("Failed to initialize telemetry sync, BOM, supervisor queue, and eval tables")?;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -2375,6 +2451,286 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
         let cfr = failed as f64 / total as f64;
         Ok((total, fpy, cfr))
     }
+
+    fn insert_eval_result(&self, record: &EvalResultRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO eval_results (
+                eval_id, task_id, trace_id, rubric_id, stage, judge_model,
+                score, confidence, passed, escalated, rationale, checklist_json,
+                cost_usd, evaluated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                record.eval_id,
+                record.task_id,
+                record.trace_id,
+                record.rubric_id,
+                record.stage,
+                record.judge_model,
+                record.score,
+                record.confidence,
+                if record.passed { 1 } else { 0 },
+                if record.escalated { 1 } else { 0 },
+                record.rationale,
+                record.checklist_json,
+                record.cost_usd,
+                record.evaluated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn get_task_evals(&self, task_id: &str) -> Result<Vec<EvalResultRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT eval_id, task_id, trace_id, rubric_id, stage, judge_model,
+                    score, confidence, passed, escalated, rationale, checklist_json,
+                    cost_usd, evaluated_at
+             FROM eval_results
+             WHERE task_id = ?1
+             ORDER BY evaluated_at ASC",
+        )?;
+        let rows = stmt.query_map(params![task_id], |row| {
+            Ok(EvalResultRecord {
+                eval_id: row.get(0)?,
+                task_id: row.get(1)?,
+                trace_id: row.get(2)?,
+                rubric_id: row.get(3)?,
+                stage: row.get(4)?,
+                judge_model: row.get(5)?,
+                score: row.get(6)?,
+                confidence: row.get(7)?,
+                passed: row.get::<_, i64>(8)? != 0,
+                escalated: row.get::<_, i64>(9)? != 0,
+                rationale: row.get(10)?,
+                checklist_json: row.get(11)?,
+                cost_usd: row.get(12)?,
+                evaluated_at: row.get(13)?,
+            })
+        })?;
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    fn get_rolling_eval_score(
+        &self,
+        window_days: u32,
+        rubric_id: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<f64> {
+        let conn = self.conn.lock().unwrap();
+        let now_sec = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0) as i64;
+        let cutoff_sec = if window_days > 0 {
+            Some(now_sec - (window_days as i64 * 86400))
+        } else {
+            None
+        };
+
+        let mut stmt = conn.prepare(
+            "SELECT score, evaluated_at, rubric_id, judge_model
+             FROM eval_results",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let score: f64 = row.get(0)?;
+            let evaluated_at: String = row.get(1)?;
+            let r_id: String = row.get(2)?;
+            let j_model: String = row.get(3)?;
+            Ok((score, evaluated_at, r_id, j_model))
+        })?;
+
+        let mut count = 0;
+        let mut sum_score = 0.0;
+        for r in rows {
+            let (score, evaluated_at, r_id, j_model) = r?;
+            if let Some(cutoff) = cutoff_sec {
+                if let Some(ts_sec) = parse_timestamp_epoch_sec(&evaluated_at) {
+                    if ts_sec < cutoff {
+                        continue;
+                    }
+                }
+            }
+            if let Some(target_rubric) = rubric_id {
+                if r_id != target_rubric {
+                    continue;
+                }
+            }
+            if let Some(target_model) = model {
+                if j_model != target_model {
+                    continue;
+                }
+            }
+            count += 1;
+            sum_score += score;
+        }
+
+        if count == 0 {
+            Ok(1.0)
+        } else {
+            Ok(sum_score / count as f64)
+        }
+    }
+
+    fn get_eval_summary(&self, window_days: u32) -> Result<EvalSummaryReport> {
+        let conn = self.conn.lock().unwrap();
+        let now_sec = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0) as i64;
+        let cutoff_sec = if window_days > 0 {
+            Some(now_sec - (window_days as i64 * 86400))
+        } else {
+            None
+        };
+
+        let mut stmt = conn.prepare(
+            "SELECT eval_id, task_id, rubric_id, stage, judge_model,
+                    score, confidence, passed, escalated, cost_usd, evaluated_at
+             FROM eval_results
+             ORDER BY evaluated_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, f64>(5)?,
+                row.get::<_, f64>(6)?,
+                row.get::<_, i64>(7)? != 0,
+                row.get::<_, i64>(8)? != 0,
+                row.get::<_, f64>(9)?,
+                row.get::<_, String>(10)?,
+            ))
+        })?;
+
+        let mut total_evals = 0;
+        let mut passed_count = 0;
+        let mut total_score = 0.0;
+        let mut total_confidence = 0.0;
+        let mut escalated_count = 0;
+        let mut total_cost = 0.0;
+
+        let mut by_rubric: HashMap<String, (usize, usize, f64)> = HashMap::new();
+        let mut by_model: HashMap<String, (usize, usize, f64)> = HashMap::new();
+
+        for r in rows {
+            let (
+                _eid,
+                _tid,
+                rubric_id,
+                _stage,
+                judge_model,
+                score,
+                confidence,
+                passed,
+                escalated,
+                cost,
+                evaluated_at,
+            ) = r?;
+            if let Some(cutoff) = cutoff_sec {
+                if let Some(ts_sec) = parse_timestamp_epoch_sec(&evaluated_at) {
+                    if ts_sec < cutoff {
+                        continue;
+                    }
+                }
+            }
+
+            total_evals += 1;
+            if passed {
+                passed_count += 1;
+            }
+            if escalated {
+                escalated_count += 1;
+            }
+            total_score += score;
+            total_confidence += confidence;
+            total_cost += cost;
+
+            let r_entry = by_rubric.entry(rubric_id).or_insert((0, 0, 0.0));
+            r_entry.0 += 1;
+            if passed {
+                r_entry.1 += 1;
+            }
+            r_entry.2 += score;
+
+            let m_entry = by_model.entry(judge_model).or_insert((0, 0, 0.0));
+            m_entry.0 += 1;
+            if passed {
+                m_entry.1 += 1;
+            }
+            m_entry.2 += score;
+        }
+
+        let pass_rate = if total_evals > 0 {
+            passed_count as f64 / total_evals as f64
+        } else {
+            1.0
+        };
+        let mean_score = if total_evals > 0 {
+            total_score / total_evals as f64
+        } else {
+            1.0
+        };
+        let mean_confidence = if total_evals > 0 {
+            total_confidence / total_evals as f64
+        } else {
+            1.0
+        };
+        let escalation_rate = if total_evals > 0 {
+            escalated_count as f64 / total_evals as f64
+        } else {
+            0.0
+        };
+
+        let rubric_stats = by_rubric
+            .into_iter()
+            .map(|(k, (cnt, pass, sum_s))| {
+                (
+                    k,
+                    RubricSummaryStat {
+                        count: cnt,
+                        passed: pass,
+                        mean_score: if cnt > 0 { sum_s / cnt as f64 } else { 0.0 },
+                    },
+                )
+            })
+            .collect();
+
+        let model_stats = by_model
+            .into_iter()
+            .map(|(k, (cnt, pass, sum_s))| {
+                (
+                    k,
+                    ModelSummaryStat {
+                        count: cnt,
+                        passed: pass,
+                        mean_score: if cnt > 0 { sum_s / cnt as f64 } else { 0.0 },
+                    },
+                )
+            })
+            .collect();
+
+        Ok(EvalSummaryReport {
+            total_evals,
+            passed_count,
+            pass_rate,
+            mean_score,
+            mean_confidence,
+            escalation_rate,
+            total_cost_usd: total_cost,
+            by_rubric: rubric_stats,
+            by_model: model_stats,
+        })
+    }
 }
 
 pub fn get_analytics_store(db_path: &Path) -> Result<Box<dyn FactoryAnalyticsStore>> {
@@ -2721,5 +3077,75 @@ mod tests {
         assert_eq!(sample, 3);
         assert!((fpy - 2.0 / 3.0).abs() < 1e-6);
         assert!((cfr - 1.0 / 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_eval_results_storage() {
+        let td = tempdir().unwrap();
+        let db_path = td.path().join("factory.db");
+        let store = SqliteAnalyticsStore::open_or_create(&db_path).unwrap();
+
+        let rec1 = EvalResultRecord {
+            eval_id: "eval-001".to_string(),
+            task_id: "task-feat-1".to_string(),
+            trace_id: "trace-abc".to_string(),
+            rubric_id: "spec_adherence".to_string(),
+            stage: "system1".to_string(),
+            judge_model: "typesafe-jev-v1".to_string(),
+            score: 0.95,
+            confidence: 0.90,
+            passed: true,
+            escalated: false,
+            rationale: None,
+            checklist_json: "{}".to_string(),
+            cost_usd: 0.001,
+            evaluated_at: "1700000000".to_string(),
+        };
+
+        let rec2 = EvalResultRecord {
+            eval_id: "eval-002".to_string(),
+            task_id: "task-feat-1".to_string(),
+            trace_id: "trace-abc".to_string(),
+            rubric_id: "security_hygiene".to_string(),
+            stage: "cascade".to_string(),
+            judge_model: "qwen2.5-coder-32b".to_string(),
+            score: 0.60,
+            confidence: 0.85,
+            passed: false,
+            escalated: true,
+            rationale: Some("Found unescaped SQL parameter".to_string()),
+            checklist_json: "{}".to_string(),
+            cost_usd: 0.005,
+            evaluated_at: "1700000010".to_string(),
+        };
+
+        store.insert_eval_result(&rec1).unwrap();
+        store.insert_eval_result(&rec2).unwrap();
+
+        let evals = store.get_task_evals("task-feat-1").unwrap();
+        assert_eq!(evals.len(), 2);
+        assert_eq!(evals[0].eval_id, "eval-001");
+        assert_eq!(evals[1].eval_id, "eval-002");
+        assert!(evals[0].passed);
+        assert!(!evals[1].passed);
+        assert!(evals[1].escalated);
+        assert_eq!(
+            evals[1].rationale.as_deref(),
+            Some("Found unescaped SQL parameter")
+        );
+
+        let rolling_score = store
+            .get_rolling_eval_score(0, Some("spec_adherence"), None)
+            .unwrap();
+        assert!((rolling_score - 0.95).abs() < 1e-6);
+
+        let summary = store.get_eval_summary(0).unwrap();
+        assert_eq!(summary.total_evals, 2);
+        assert_eq!(summary.passed_count, 1);
+        assert_eq!(summary.pass_rate, 0.5);
+        assert_eq!(summary.escalation_rate, 0.5);
+        assert_eq!(summary.total_cost_usd, 0.006);
+        assert!(summary.by_rubric.contains_key("spec_adherence"));
+        assert!(summary.by_rubric.contains_key("security_hygiene"));
     }
 }

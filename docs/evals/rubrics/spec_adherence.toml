@@ -1,0 +1,28 @@
+id = "spec_adherence"
+title = "Specification and Requirements Adherence"
+description = "Evaluates whether the git diff fully satisfies the functional requirements and specifications without regressions."
+target = "code"
+version = "1.0"
+
+[[items]]
+id = "req_completeness"
+prompt = "Does the implementation address all functional requirements and acceptance criteria specified in the task?"
+kind = "noul"
+weight = 1.5
+
+[[items]]
+id = "scope_fidelity"
+prompt = "Does the code stay strictly within the task scope without introducing unsolicited features or architectural drift?"
+kind = "noul"
+weight = 1.0
+
+[[items]]
+id = "edge_cases_handled"
+prompt = "Are boundary conditions, error paths, and invalid inputs explicitly handled?"
+kind = "score"
+weight = 1.0
+levels = [
+    { score = 0.0, description = "Edge cases and errors completely ignored." },
+    { score = 0.5, description = "Basic error handling present but boundary edge cases missing." },
+    { score = 1.0, description = "Comprehensive handling of edge cases, invalid inputs, and error states." }
+]

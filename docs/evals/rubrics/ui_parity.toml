@@ -1,0 +1,28 @@
+id = "ui_parity"
+title = "Design System and UI Visual Parity"
+description = "Evaluates visual fidelity, design token usage, and layout adherence against contracts and reference mockups."
+target = "ui"
+version = "1.0"
+
+[[items]]
+id = "design_token_compliance"
+prompt = "Are colors, spacing, typography, and borders derived from canonical design tokens rather than hardcoded magic numbers?"
+kind = "noul"
+weight = 1.2
+
+[[items]]
+id = "visual_hierarchy_and_layout"
+prompt = "Does the rendered layout preserve the spatial hierarchy, alignment, and responsiveness specified in the design contracts?"
+kind = "score"
+weight = 1.0
+levels = [
+    { score = 0.0, description = "Major layout regression or broken component alignment." },
+    { score = 0.5, description = "Minor spacing, font-size, or margin discrepancy." },
+    { score = 1.0, description = "Pixel-accurate layout alignment and hierarchy." }
+]
+
+[[items]]
+id = "interactive_states_coverage"
+prompt = "Are interactive states (hover, focus, disabled, active) properly styled and accessible?"
+kind = "noul"
+weight = 1.0
