@@ -3962,8 +3962,8 @@ fn handle_design_check(args: &DesignCheckArgs) -> Result<()> {
         for a in &report.a11y_violations {
             let target_str = a.target.as_deref().unwrap_or("-");
             println!(
-                "  [!] [{}] {}: {} (Impact: {})",
-                a.id, a.description, target_str, a.impact
+                "  [!] [{}] [{}]: {} ({}) - Impact: {}",
+                a.platform, a.id, a.description, target_str, a.impact
             );
         }
     }
@@ -3974,10 +3974,18 @@ fn handle_design_check(args: &DesignCheckArgs) -> Result<()> {
             report.visual_diff_failures.len()
         );
         for v in &report.visual_diff_failures {
+            let art_str = v
+                .diff_artifact_path
+                .as_deref()
+                .map(|p| format!(" (artifact: {})", p))
+                .unwrap_or_default();
             println!(
-                "  [!] {}: diff {:.2}% exceeds max threshold",
+                "  [!] [{}] {}: diff {:.2}% exceeds max threshold {:.2}%{}",
+                v.platform,
                 v.snapshot_name,
-                v.diff_pct * 100.0
+                v.diff_pct * 100.0,
+                v.max_allowed_pct * 100.0,
+                art_str
             );
         }
     }

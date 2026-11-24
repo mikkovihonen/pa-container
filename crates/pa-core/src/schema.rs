@@ -593,8 +593,6 @@ pub struct WebPlatformSpec {
     pub catalog: String,
     #[serde(default = "default_web_a11y")]
     pub a11y_engine: String,
-    #[serde(default = "default_web_visual")]
-    pub visual_regression: String,
     #[serde(default = "default_wcag_level")]
     pub wcag_level: String,
     #[serde(default)]
@@ -617,9 +615,6 @@ fn default_web_catalog() -> String {
 fn default_web_a11y() -> String {
     "axe_core".to_string()
 }
-fn default_web_visual() -> String {
-    "lost_pixel".to_string()
-}
 fn default_wcag_level() -> String {
     "AA".to_string()
 }
@@ -627,7 +622,7 @@ fn default_visual_diff_tool() -> String {
     "playwright".to_string()
 }
 fn default_max_visual_diff_pct() -> f64 {
-    0.05
+    0.005
 }
 fn default_baseline_dir() -> PathBuf {
     PathBuf::from("design/baselines")
@@ -641,7 +636,6 @@ impl Default for WebPlatformSpec {
         Self {
             catalog: default_web_catalog(),
             a11y_engine: default_web_a11y(),
-            visual_regression: default_web_visual(),
             wcag_level: default_wcag_level(),
             a11y_command: None,
             visual_diff_tool: default_visual_diff_tool(),
@@ -752,8 +746,6 @@ pub struct IosPlatformSpec {
     pub a11y_engine: String,
     #[serde(default)]
     pub a11y_command: Option<String>,
-    #[serde(default = "default_ios_visual")]
-    pub visual_regression: String,
     #[serde(default = "default_ios_visual_tool")]
     pub visual_diff_tool: String,
     #[serde(default)]
@@ -784,9 +776,6 @@ fn default_ios_runner() -> String {
 fn default_ios_a11y() -> String {
     "xctest_a11y".to_string()
 }
-fn default_ios_visual() -> String {
-    "swift_snapshot".to_string()
-}
 fn default_ios_visual_tool() -> String {
     "swift_snapshot".to_string()
 }
@@ -806,7 +795,6 @@ impl Default for IosPlatformSpec {
             runner: default_ios_runner(),
             a11y_engine: default_ios_a11y(),
             a11y_command: None,
-            visual_regression: default_ios_visual(),
             visual_diff_tool: default_ios_visual_tool(),
             visual_diff_command: None,
             baseline_dir: default_ios_baseline_dir(),
@@ -831,8 +819,6 @@ pub struct AndroidPlatformSpec {
     pub a11y_engine: String,
     #[serde(default)]
     pub a11y_command: Option<String>,
-    #[serde(default = "default_android_visual")]
-    pub visual_regression: String,
     #[serde(default = "default_android_visual_tool")]
     pub visual_diff_tool: String,
     #[serde(default)]
@@ -863,9 +849,6 @@ fn default_android_runner() -> String {
 fn default_android_a11y() -> String {
     "espresso_a11y".to_string()
 }
-fn default_android_visual() -> String {
-    "paparazzi".to_string()
-}
 fn default_android_visual_tool() -> String {
     "paparazzi".to_string()
 }
@@ -885,7 +868,6 @@ impl Default for AndroidPlatformSpec {
             runner: default_android_runner(),
             a11y_engine: default_android_a11y(),
             a11y_command: None,
-            visual_regression: default_android_visual(),
             visual_diff_tool: default_android_visual_tool(),
             visual_diff_command: None,
             baseline_dir: default_android_baseline_dir(),
@@ -1888,7 +1870,7 @@ on_missing_platform = "fail"
 [design_system.web]
 catalog = "storybook"
 a11y_engine = "axe_core"
-visual_regression = "lost_pixel"
+visual_diff_tool = "lost_pixel"
 
 [governance]
 max_wip_prs = 3

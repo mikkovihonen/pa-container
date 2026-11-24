@@ -216,23 +216,65 @@ pub fn format_traceability_trailer(report: &crate::traceability::TraceabilityRep
 }
 
 pub fn format_design_gate_trailer(report: &crate::design::DesignGateReport) -> String {
-    if !report.is_compliant {
-        let raw_count = report
-            .violations
-            .iter()
-            .filter(|v| v.rule == "raw_primitive_violation")
-            .count();
+    if report.provider == "none" {
+        return "tokens=skip, drift=skip, a11y=skip, visual-diff=skip".to_string();
+    }
+
+    let tokens_status = if report.violations.iter().any(|v| {
+        v.rule == "unresolved_contract_token"
+            || v.rule == "stale_compiled_tokens"
+            || v.rule == "missing_token_compiler"
+    }) {
+        "fail"
+    } else {
+        "pass"
+    };
+
+    let drift_status = if report
+        .violations
+        .iter()
+        .any(|v| v.rule == "raw_primitive_violation")
+    {
+        "drift-detected"
+    } else {
+        "pass"
+    };
+
+    let blocking_a11y = report
+        .a11y_violations
+        .iter()
+        .filter(|a| a.is_blocking())
+        .count();
+    let a11y_part = if blocking_a11y > 0 {
         format!(
-            "fail (drift={}, a11y={}, visual={})",
-            raw_count,
-            report.a11y_violations.len(),
+            "a11y=fail ({} blocking, {} total)",
+            blocking_a11y,
+            report.a11y_violations.len()
+        )
+    } else {
+        format!("a11y=pass ({} violations)", report.a11y_violations.len())
+    };
+
+    let visual_part = if !report.visual_diff_failures.is_empty() {
+        format!(
+            "visual-diff={:.2}% ({} failed)",
+            report.visual_diff_pct * 100.0,
             report.visual_diff_failures.len()
         )
-    } else if report.needs_design_review {
-        "pass (needs-design-review)".to_string()
     } else {
-        "pass".to_string()
-    }
+        format!("visual-diff={:.2}%", report.visual_diff_pct * 100.0)
+    };
+
+    let review_part = if report.needs_design_review {
+        ", needs-design-review"
+    } else {
+        ""
+    };
+
+    format!(
+        "tokens={}, drift={}, {}, {}{}",
+        tokens_status, drift_status, a11y_part, visual_part, review_part
+    )
 }
 
 pub fn format_sca_gate_trailer(report: &crate::sca::ScaGateReport) -> String {
@@ -375,12 +417,15 @@ mod tests {
     #[test]
     fn test_format_design_gate_trailer() {
         let mut report = crate::design::DesignGateReport::empty("git_only");
-        assert_eq!(format_design_gate_trailer(&report), "pass");
+        assert_eq!(
+            format_design_gate_trailer(&report),
+            "tokens=pass, drift=pass, a11y=pass (0 violations), visual-diff=0.00%"
+        );
 
         report.needs_design_review = true;
         assert_eq!(
             format_design_gate_trailer(&report),
-            "pass (needs-design-review)"
+            "tokens=pass, drift=pass, a11y=pass (0 violations), visual-diff=0.00%, needs-design-review"
         );
 
         report.is_compliant = false;
@@ -393,7 +438,7 @@ mod tests {
         });
         assert_eq!(
             format_design_gate_trailer(&report),
-            "fail (drift=1, a11y=0, visual=0)"
+            "tokens=pass, drift=drift-detected, a11y=pass (0 violations), visual-diff=0.00%, needs-design-review"
         );
     }
 }

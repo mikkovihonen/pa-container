@@ -668,8 +668,12 @@ pub fn build_otlp_design_span_payload(
             "value": { "intValue": report.a11y_violations.len() as i64 }
         }),
         serde_json::json!({
-            "key": "pa.design.visual_diff_failures",
+            "key": "pa.design.failed_snapshots",
             "value": { "intValue": report.visual_diff_failures.len() as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.design.visual_diff_pct",
+            "value": { "doubleValue": report.visual_diff_pct }
         }),
     ];
 

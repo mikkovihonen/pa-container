@@ -23,6 +23,7 @@ keyring = { version = "3.6", features = ["apple-native", "sync-secret-service"] 
 zeroize = { version = "1.8", features = ["derive"] }
 ureq = { version = "2.10", features = ["json"] }
 rusqlite = { version = "0.43.0", features = ["bundled"] }
+image.workspace = true
 
 
 [dev-dependencies]

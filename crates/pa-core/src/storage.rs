@@ -255,6 +255,7 @@ pub struct DesignGateResultRecord {
     pub needs_design_review: bool,
     pub a11y_violations: usize,
     pub visual_diff_pct: f64,
+    pub failed_snapshots: usize,
     pub status: String,
     pub created_at: String,
 }
@@ -667,6 +668,7 @@ impl SqliteAnalyticsStore {
                  needs_design_review INTEGER NOT NULL DEFAULT 0,
                  a11y_violations INTEGER NOT NULL DEFAULT 0,
                  visual_diff_pct REAL NOT NULL DEFAULT 0.0,
+                 failed_snapshots INTEGER NOT NULL DEFAULT 0,
                  status TEXT NOT NULL,
                  created_at TEXT NOT NULL
              );
@@ -864,13 +866,20 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
 
         if report.platform_results.is_empty() {
             let result_id = format!("{}:workspace", task_id.unwrap_or("global"));
+            let max_diff_pct = report
+                .visual_diff_failures
+                .iter()
+                .map(|f| f.diff_pct)
+                .fold(0.0f64, f64::max);
+            let failed_snapshots = report.visual_diff_failures.len();
+
             conn.execute(
                 "INSERT INTO design_gate_results (
                      result_id, task_id, platform, token_violations, raw_primitive_violations,
                      new_components_count, needs_design_review, a11y_violations, visual_diff_pct,
-                     status, created_at
+                     failed_snapshots, status, created_at
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(result_id) DO UPDATE SET
                      token_violations = excluded.token_violations,
                      raw_primitive_violations = excluded.raw_primitive_violations,
@@ -878,6 +887,7 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
                      needs_design_review = excluded.needs_design_review,
                      a11y_violations = excluded.a11y_violations,
                      visual_diff_pct = excluded.visual_diff_pct,
+                     failed_snapshots = excluded.failed_snapshots,
                      status = excluded.status,
                      created_at = excluded.created_at;",
                 params![
@@ -889,7 +899,8 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
                     new_components_count as i64,
                     if needs_design_review { 1 } else { 0 },
                     report.a11y_violations.len() as i64,
-                    0.0f64,
+                    max_diff_pct,
+                    failed_snapshots as i64,
                     if report.is_compliant {
                         "passed"
                     } else {
@@ -905,23 +916,30 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
                     .a11y_violations
                     .iter()
                     .filter(|a| {
-                        a.id.contains(platform)
-                            || a.target.as_deref().unwrap_or("").contains(platform)
+                        a.platform == *platform
+                            || (a.platform.is_empty()
+                                && (a.id.contains(platform)
+                                    || a.target.as_deref().unwrap_or("").contains(platform)))
                     })
                     .count();
-                let plat_diff_pct = report
+                let plat_failures: Vec<_> = report
                     .visual_diff_failures
+                    .iter()
+                    .filter(|f| f.platform == *platform || f.platform.is_empty())
+                    .collect();
+                let plat_diff_pct = plat_failures
                     .iter()
                     .map(|f| f.diff_pct)
                     .fold(0.0f64, f64::max);
+                let failed_snapshots = plat_failures.len();
 
                 conn.execute(
                     "INSERT INTO design_gate_results (
                          result_id, task_id, platform, token_violations, raw_primitive_violations,
                          new_components_count, needs_design_review, a11y_violations, visual_diff_pct,
-                         status, created_at
+                         failed_snapshots, status, created_at
                      )
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                      ON CONFLICT(result_id) DO UPDATE SET
                          token_violations = excluded.token_violations,
                          raw_primitive_violations = excluded.raw_primitive_violations,
@@ -929,6 +947,7 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
                          needs_design_review = excluded.needs_design_review,
                          a11y_violations = excluded.a11y_violations,
                          visual_diff_pct = excluded.visual_diff_pct,
+                         failed_snapshots = excluded.failed_snapshots,
                          status = excluded.status,
                          created_at = excluded.created_at;",
                     params![
@@ -941,6 +960,7 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
                         if needs_design_review { 1 } else { 0 },
                         plat_a11y as i64,
                         plat_diff_pct,
+                        failed_snapshots as i64,
                         pres.status,
                         now_iso,
                     ],
@@ -956,7 +976,7 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
         let mut stmt = conn.prepare(
             "SELECT result_id, task_id, platform, token_violations, raw_primitive_violations,
                     new_components_count, needs_design_review, a11y_violations, visual_diff_pct,
-                    status, created_at
+                    failed_snapshots, status, created_at
              FROM design_gate_results WHERE task_id = ?1 ORDER BY platform ASC",
         )?;
 
@@ -971,8 +991,9 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
                 needs_design_review: row.get::<_, i64>(6)? != 0,
                 a11y_violations: row.get::<_, i64>(7)? as usize,
                 visual_diff_pct: row.get(8)?,
-                status: row.get(9)?,
-                created_at: row.get(10)?,
+                failed_snapshots: row.get::<_, i64>(9)? as usize,
+                status: row.get(10)?,
+                created_at: row.get(11)?,
             })
         })?;
 
@@ -3850,6 +3871,8 @@ mod tests {
         assert_eq!(results[0].raw_primitive_violations, 1);
         assert_eq!(results[0].new_components_count, 1);
         assert!(results[0].needs_design_review);
+        assert_eq!(results[0].failed_snapshots, 0);
+        assert_eq!(results[0].a11y_violations, 0);
         assert_eq!(results[0].status, "passed");
     }
 
