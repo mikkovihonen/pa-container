@@ -259,6 +259,26 @@ pub struct DesignGateResultRecord {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OptimizationEventRecord {
+    pub event_id: String,
+    pub signal_tier: String,
+    pub trigger_kind: String,
+    pub fingerprint: String,
+    pub details_json: String,
+    pub action_taken: String,
+    pub linked_task_id: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecurringFailureClassRecord {
+    pub failure_class: String,
+    pub count: usize,
+    pub signal_tier: String,
+    pub sample_ids: Vec<String>,
+}
+
 pub trait FactoryAnalyticsStore: Send + Sync {
     fn record_task(&self, task_ctx: &TaskContext, status: &str) -> Result<()>;
     fn record_traceability(&self, task_id: &str, report: &TraceabilityReport) -> Result<()>;
@@ -382,6 +402,17 @@ pub trait FactoryAnalyticsStore: Send + Sync {
         model: Option<&str>,
     ) -> Result<f64>;
     fn get_eval_summary(&self, window_days: u32) -> Result<EvalSummaryReport>;
+
+    // Self-optimization and anomaly capabilities
+    fn record_optimization_event(&self, record: &OptimizationEventRecord) -> Result<()>;
+    fn has_recent_optimization_event(&self, fingerprint: &str, cooldown_hours: u32)
+        -> Result<bool>;
+    fn list_optimization_events(&self, limit: usize) -> Result<Vec<OptimizationEventRecord>>;
+    fn detect_recurring_failure_classes(
+        &self,
+        window_days: u32,
+        min_count: usize,
+    ) -> Result<Vec<RecurringFailureClassRecord>>;
 }
 
 pub struct SqliteAnalyticsStore {
@@ -647,7 +678,20 @@ impl SqliteAnalyticsStore {
                  created_at TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_design_gate_results_task ON design_gate_results(task_id);
-             CREATE INDEX IF NOT EXISTS idx_design_gate_results_platform ON design_gate_results(platform);",
+             CREATE INDEX IF NOT EXISTS idx_design_gate_results_platform ON design_gate_results(platform);
+
+             CREATE TABLE IF NOT EXISTS optimization_events (
+                 event_id TEXT PRIMARY KEY,
+                 signal_tier TEXT NOT NULL,
+                 trigger_kind TEXT NOT NULL,
+                 fingerprint TEXT NOT NULL,
+                 details_json TEXT NOT NULL,
+                 action_taken TEXT NOT NULL,
+                 linked_task_id TEXT,
+                 created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_opt_events_fingerprint ON optimization_events(fingerprint);
+             CREATE INDEX IF NOT EXISTS idx_opt_events_created ON optimization_events(created_at);",
         )
         .context("Failed to initialize telemetry sync, BOM, supervisor queue, and eval tables")?;
 
@@ -3083,6 +3127,223 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
             by_rubric: rubric_stats,
             by_model: model_stats,
         })
+    }
+
+    fn record_optimization_event(&self, record: &OptimizationEventRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO optimization_events (
+                event_id, signal_tier, trigger_kind, fingerprint, details_json, action_taken, linked_task_id, created_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(event_id) DO UPDATE SET
+                signal_tier = excluded.signal_tier,
+                trigger_kind = excluded.trigger_kind,
+                fingerprint = excluded.fingerprint,
+                details_json = excluded.details_json,
+                action_taken = excluded.action_taken,
+                linked_task_id = excluded.linked_task_id,
+                created_at = excluded.created_at;",
+            params![
+                record.event_id,
+                record.signal_tier,
+                record.trigger_kind,
+                record.fingerprint,
+                record.details_json,
+                record.action_taken,
+                record.linked_task_id,
+                record.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn has_recent_optimization_event(
+        &self,
+        fingerprint: &str,
+        cooldown_hours: u32,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        if cooldown_hours == 0 {
+            return Ok(false);
+        }
+        let now_sec = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0) as i64;
+        let cutoff_sec = now_sec - (cooldown_hours as i64 * 3600);
+
+        let mut stmt = conn.prepare(
+            "SELECT created_at FROM optimization_events WHERE fingerprint = ?1 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(params![fingerprint], |row| row.get::<_, String>(0))?;
+        for created_at_res in rows {
+            let created_at = created_at_res?;
+            if let Some(sec) = parse_timestamp_epoch_sec(&created_at) {
+                if sec >= cutoff_sec {
+                    return Ok(true);
+                }
+            } else {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn list_optimization_events(&self, limit: usize) -> Result<Vec<OptimizationEventRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT event_id, signal_tier, trigger_kind, fingerprint, details_json, action_taken, linked_task_id, created_at
+             FROM optimization_events
+             ORDER BY created_at DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(OptimizationEventRecord {
+                event_id: row.get(0)?,
+                signal_tier: row.get(1)?,
+                trigger_kind: row.get(2)?,
+                fingerprint: row.get(3)?,
+                details_json: row.get(4)?,
+                action_taken: row.get(5)?,
+                linked_task_id: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    fn detect_recurring_failure_classes(
+        &self,
+        window_days: u32,
+        min_count: usize,
+    ) -> Result<Vec<RecurringFailureClassRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let now_sec = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0) as i64;
+        let cutoff_sec = if window_days > 0 {
+            Some(now_sec - (window_days as i64 * 86400))
+        } else {
+            None
+        };
+
+        let mut aggregated: HashMap<(String, String), (usize, Vec<String>)> = HashMap::new();
+
+        // 1. Query prod_signals
+        let mut stmt_prod = conn.prepare(
+            "SELECT signal_id, task_id, environment, observed_at, failure_class
+             FROM prod_signals
+             WHERE failure_class IS NOT NULL AND trim(failure_class) != ''",
+        )?;
+        let prod_rows = stmt_prod.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })?;
+
+        for r in prod_rows {
+            let (signal_id, task_id, env, observed_at, failure_class) = r?;
+            if let Some(cutoff) = cutoff_sec {
+                if let Some(ts_sec) = parse_timestamp_epoch_sec(&observed_at) {
+                    if ts_sec < cutoff {
+                        continue;
+                    }
+                }
+            }
+            let tier = match env.to_lowercase().as_str() {
+                "local" | "vcs" | "ci" | "test" => "tier1_local_vcs",
+                _ => "tier2_prod",
+            }
+            .to_string();
+
+            let entry = aggregated
+                .entry((failure_class, tier))
+                .or_insert((0, Vec::new()));
+            entry.0 += 1;
+            let id = task_id.unwrap_or(signal_id);
+            if !entry.1.contains(&id) && entry.1.len() < 10 {
+                entry.1.push(id);
+            }
+        }
+
+        // 2. Query failed tasks in task_queue with failure_context
+        let mut stmt_queue = conn.prepare(
+            "SELECT task_id, failure_context, updated_at
+             FROM task_queue
+             WHERE status = 'failed' AND failure_context IS NOT NULL AND trim(failure_context) != ''",
+        )?;
+        let queue_rows = stmt_queue.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+
+        for r in queue_rows {
+            let (task_id, failure_context, updated_at) = r?;
+            if let Some(cutoff) = cutoff_sec {
+                if let Some(ts_sec) = parse_timestamp_epoch_sec(&updated_at) {
+                    if ts_sec < cutoff {
+                        continue;
+                    }
+                }
+            }
+
+            let failure_class =
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&failure_context) {
+                    val.get("failure_class")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                } else {
+                    failure_context
+                        .strip_prefix("failure_class:")
+                        .map(|stripped| {
+                            stripped
+                                .split([' ', '\n', ';', ','])
+                                .next()
+                                .unwrap_or("")
+                                .trim()
+                                .to_string()
+                        })
+                };
+
+            if let Some(fc) = failure_class {
+                if !fc.is_empty() {
+                    let entry = aggregated
+                        .entry((fc, "tier1_local_vcs".to_string()))
+                        .or_insert((0, Vec::new()));
+                    entry.0 += 1;
+                    if !entry.1.contains(&task_id) && entry.1.len() < 10 {
+                        entry.1.push(task_id);
+                    }
+                }
+            }
+        }
+
+        let mut results = Vec::new();
+        for ((failure_class, signal_tier), (count, sample_ids)) in aggregated {
+            if count >= min_count {
+                results.push(RecurringFailureClassRecord {
+                    failure_class,
+                    count,
+                    signal_tier,
+                    sample_ids,
+                });
+            }
+        }
+
+        results.sort_by_key(|a| std::cmp::Reverse(a.count));
+        Ok(results)
     }
 }
 

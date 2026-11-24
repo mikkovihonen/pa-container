@@ -146,3 +146,29 @@ pa telemetry sync --source vcs --since 7d
 pa telemetry sync --source jsonl
 pa telemetry sync --record-kr KR-AUTH-01 85.0
 ```
+
+---
+
+## 7. Closed-Loop Self-Optimization & Gate Hardening
+
+PA-Container 2.0 closes the loop between telemetry observations and build verification by automatically identifying performance regressions, Change Failure Rate (CFR) spikes, and recurring failure classes, hardening dormant verification gates in `factory.toml`.
+
+### Self-Optimization CLI Commands
+
+```bash
+# Preview recurring anomalies and proposed quality gate activations (dry-run)
+pa telemetry harden
+
+# Inspect self-optimization recommendations as structured JSON
+pa telemetry harden --json
+
+# Apply gate activations directly to factory.toml and record audit events in SQLite
+pa telemetry harden --apply
+
+# Record an operational or staging/production signal manually or via CI/CD webhook
+pa telemetry record-signal --failure-class db_lock --incident --environment prod
+
+# Generate executive OKR progress, FinOps spend, and budget-risk brief
+pa okr brief
+pa okr brief --json
+```

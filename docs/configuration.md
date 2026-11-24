@@ -109,6 +109,25 @@ budget_usd_per_kr = 100.0
 fallback_model = "qwen2.5-coder-7b-instruct"
 fallback_base_url = "http://127.0.0.1:11434/v1"
 
+[governance.self_optimization]
+enabled = true
+window_days = 30
+min_failure_class_count = 2
+cfr_spike_threshold = 0.15
+min_rolling_fpy = 0.70
+min_eval_score = 0.75
+kr_budget_warn_pct = 0.85
+cooldown_hours = 24
+auto_enqueue_diagnostician = true
+auto_enqueue_okr_analyst = true
+
+[[quality_gates]]
+name = "db-lock-gate"
+command = "cargo test -p pa-core test_db"
+trigger = "failure_class:db_lock"
+enabled = false
+description = "Dormant gate automatically activated by pa telemetry harden when db_lock recurs"
+
 [roles.spec_author]
 description = "Drafts and refines functional specs and OKR links"
 capabilities = ["traceability:read", "traceability:write"]
@@ -256,6 +275,27 @@ tokens = ["ANTHROPIC_API_KEY"]
 - **`budget_usd_per_kr`**: Spending ceiling in USD per Key Result. When reached, task dispatch routes to local offline inference.
 - **`fallback_model`**: Offline model name to use when throttled (e.g. `qwen2.5-coder-7b-instruct`).
 - **`fallback_base_url`**: Offline API endpoint for throttled tasks (e.g. `http://127.0.0.1:11434/v1`).
+
+#### `[governance.self_optimization]`
+- **`enabled`**: Enables automated anomaly detection and self-optimization evaluation (defaults to `true`).
+- **`window_days`**: Lookback analysis window in days for rolling metrics and recurring failure classes (defaults to `30`).
+- **`min_failure_class_count`**: Minimum recurring occurrences within `window_days` before gate hardening or diagnostic dispatch triggers (defaults to `2`).
+- **`cfr_spike_threshold`**: Change Failure Rate threshold above which an anomaly trigger fires (defaults to `0.15` or 15%).
+- **`min_rolling_fpy`**: First Pass Yield floor below which an anomaly trigger fires (defaults to `0.70` or 70%).
+- **`min_eval_score`**: LLM eval rubric mean score floor below which an anomaly trigger fires (defaults to `0.75`).
+- **`kr_budget_warn_pct`**: Key Result budget consumption ratio at which an executive risk warning fires (defaults to `0.85` or 85%).
+- **`cooldown_hours`**: Cooldown window in hours preventing duplicate events or tasks for the same fingerprint (defaults to `24`).
+- **`auto_enqueue_diagnostician`**: Automatically enqueues `factory_diagnostician` upon unmatched failure classes or performance drops (defaults to `true`).
+- **`auto_enqueue_okr_analyst`**: Automatically enqueues `okr_analyst` or generates executive briefs upon KR budget warnings (defaults to `true`).
+- **`in_place_apply`**: Governs whether `pa telemetry harden --apply` directly modifies `factory.toml` in-place on the working branch (defaults to `true`).
+- **`git_branch_prefix`**: Branch name prefix for autonomous diagnostic PR proposals (defaults to `"factory/harden"`).
+
+#### `[[quality_gates]]`
+- **`name`**: Identifier for the verification gate (e.g. `"db-lock-gate"`).
+- **`command`**: Execution command for the gate test or check (e.g. `"cargo test -p pa-core test_db"`).
+- **`trigger`**: Trigger activation condition (`"always"` or `"failure_class:<name>"`).
+- **`enabled`**: Whether the gate is active or dormant (`true` or `false`).
+- **`description`**: Human-readable documentation for the gate's intent.
 
 #### `[routing.escalation]`
 - **`enabled`**: Enables dynamic upward model tier escalation upon test or gate failures (defaults to `true`).

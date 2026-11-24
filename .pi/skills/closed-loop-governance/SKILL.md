@@ -27,23 +27,31 @@ The Software Factory employs a closed-loop control system joining runtime teleme
 ## 2. Analytical Meta-Roles
 
 ### 2.1 Factory Diagnostician (`factory_diagnostician`)
-- **Mission:** Investigate broken builds, gate failures, and OTLP trace anomalies.
+- **Mission:** Investigate broken builds, gate failures, OTLP trace anomalies, and recurring production failure classes.
 - **Workflow:**
     - Query task failure logs via `pa logs` and inspect span attributes via `pa telemetry trace <TASK-ID>`.
-    - Classify failure root causes (e.g., missing test tags, hardcoded colors, or sandbox timeout).
-    - Dispatch targeted `test_hardening` or `traceability_auditor` agents.
+    - Access read-only operational telemetry through `telemetry_acp` tools (`telemetry.query_recent_failures`, `telemetry.get_factory_health`, `telemetry.get_slo_status`).
+    - Classify failure root causes across Tier 1 (local build/eval/revert anomalies) and Tier 2 (`prod_signals` production incidents).
+    - Author new dormant `[[quality_gates]]` entries in `factory.toml` for recurring failure classes.
+    - Author diagnostic runbooks under `docs/runbooks/<failure_class>.md` detailing failure conditions and mitigation commands.
 
 ### 2.2 OKR Analyst (`okr_analyst`)
 - **Mission:** Evaluate technical execution progress against Key Result metric baselines and targets.
 - **Workflow:**
-    - Ingest operational metrics via `pa telemetry report`.
+    - Ingest operational metrics via `pa telemetry report` and `pa okr brief`.
     - Compare baseline, current, and target values in `docs/okrs/*.toml`.
-    - Verify FinOps burn rates stay within allocated `budget_usd` guardrails.
+    - Correlate technical DORA flow outcomes with business Key Result metrics.
+    - Generate structured executive OKR briefs saved to `docs/okrs/reports/` and recorded in SQLite `optimization_events`.
+    - Verify FinOps burn rates stay within allocated `budget_usd` guardrails and flag budget overruns.
 
 ---
 
-## 3. Operational Outcome Commands
+## 3. Operational Outcome & Self-Optimization Commands
 
 - `pa telemetry report`: Outputs summary of tasks, pass/fail rates, DORA outcomes, and KR spend.
 - `pa telemetry sync`: Ingests offline logs and syncs analytical database.
+- `pa telemetry harden`: Evaluates recurring anomalies across Tier 1 and Tier 2, proposing dormant gate activations.
+- `pa telemetry harden --apply`: Formats and activates matching dormant quality gates directly in `factory.toml` via `toml_edit`.
+- `pa telemetry record-signal`: Records operational or production signals (`failure_class`, incident flag, error/latency delta).
 - `pa okr status`: Visualizes Objectives, Key Results, metric targets, and linked specifications.
+- `pa okr brief`: Generates executive OKR progress, FinOps spend, and budget-risk brief.

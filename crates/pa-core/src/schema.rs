@@ -923,6 +923,94 @@ impl Default for ScaConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SelfOptimizationConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_opt_window_days")]
+    pub window_days: u32,
+    #[serde(default = "default_min_failure_class_count")]
+    pub min_failure_class_count: usize,
+    #[serde(default = "default_cfr_spike_threshold")]
+    pub cfr_spike_threshold: f64,
+    #[serde(default = "default_min_rolling_fpy")]
+    pub min_rolling_fpy: f64,
+    #[serde(default = "default_min_eval_score")]
+    pub min_eval_score: f64,
+    #[serde(default = "default_kr_budget_warn_pct")]
+    pub kr_budget_warn_pct: f64,
+    #[serde(default = "default_cooldown_hours")]
+    pub cooldown_hours: u32,
+    #[serde(default = "default_true")]
+    pub auto_enqueue_diagnostician: bool,
+    #[serde(default = "default_true")]
+    pub auto_enqueue_okr_analyst: bool,
+    #[serde(default = "default_true")]
+    pub in_place_apply: bool,
+    #[serde(default = "default_git_branch_prefix")]
+    pub git_branch_prefix: String,
+}
+
+fn default_opt_window_days() -> u32 {
+    30
+}
+fn default_min_failure_class_count() -> usize {
+    2
+}
+fn default_cfr_spike_threshold() -> f64 {
+    0.15
+}
+fn default_min_rolling_fpy() -> f64 {
+    0.70
+}
+fn default_min_eval_score() -> f64 {
+    0.75
+}
+fn default_kr_budget_warn_pct() -> f64 {
+    0.85
+}
+fn default_cooldown_hours() -> u32 {
+    24
+}
+fn default_git_branch_prefix() -> String {
+    "factory/harden".to_string()
+}
+
+impl Default for SelfOptimizationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            window_days: default_opt_window_days(),
+            min_failure_class_count: default_min_failure_class_count(),
+            cfr_spike_threshold: default_cfr_spike_threshold(),
+            min_rolling_fpy: default_min_rolling_fpy(),
+            min_eval_score: default_min_eval_score(),
+            kr_budget_warn_pct: default_kr_budget_warn_pct(),
+            cooldown_hours: default_cooldown_hours(),
+            auto_enqueue_diagnostician: true,
+            auto_enqueue_okr_analyst: true,
+            in_place_apply: true,
+            git_branch_prefix: default_git_branch_prefix(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QualityGateSpec {
+    pub name: String,
+    pub command: String,
+    #[serde(default = "default_gate_trigger")]
+    pub trigger: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+fn default_gate_trigger() -> String {
+    "always".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GovernanceConfig {
     #[serde(default = "default_max_wip_prs")]
     pub max_wip_prs: usize,
@@ -938,6 +1026,8 @@ pub struct GovernanceConfig {
     pub defense_mode_allowed_roles: Vec<String>,
     #[serde(default)]
     pub sca: ScaConfig,
+    #[serde(default)]
+    pub self_optimization: SelfOptimizationConfig,
 }
 
 fn default_max_wip_prs() -> usize {
@@ -973,6 +1063,7 @@ impl Default for GovernanceConfig {
             on_slo_breach: default_on_slo_breach(),
             defense_mode_allowed_roles: default_defense_mode_allowed_roles(),
             sca: ScaConfig::default(),
+            self_optimization: SelfOptimizationConfig::default(),
         }
     }
 }
@@ -1388,6 +1479,8 @@ pub struct FactoryConfig {
     pub supervisor: SupervisorConfig,
     #[serde(default)]
     pub evals: EvalsConfig,
+    #[serde(default)]
+    pub quality_gates: Vec<QualityGateSpec>,
     #[serde(default = "default_factory_roles")]
     pub roles: HashMap<String, RoleSpec>,
 }
@@ -1414,6 +1507,7 @@ impl Default for FactoryConfig {
             routing: RoutingConfig::default(),
             supervisor: SupervisorConfig::default(),
             evals: EvalsConfig::default(),
+            quality_gates: Vec::new(),
             roles: default_factory_roles(),
         }
     }

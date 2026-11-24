@@ -151,6 +151,82 @@ pub enum TelemetryCommands {
 
     #[command(about = "Synchronize local analytical store with external telemetry")]
     Sync(TelemetrySyncArgs),
+
+    #[command(about = "Evaluate recurring anomalies and harden quality gates in factory.toml")]
+    Harden(TelemetryHardenArgs),
+
+    #[command(about = "Record an operational or production telemetry signal")]
+    RecordSignal(TelemetryRecordSignalArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryHardenArgs {
+    #[arg(long, help = "Analysis window in days (default: 30)")]
+    pub window: Option<u32>,
+
+    #[arg(
+        long,
+        help = "Apply gate activations to factory.toml (dry-run if omitted)"
+    )]
+    pub apply: bool,
+
+    #[arg(long, help = "Output evaluation as JSON")]
+    pub json: bool,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryRecordSignalArgs {
+    #[arg(
+        long,
+        help = "Failure class identifier (e.g. db_lock, oom, auth_timeout)"
+    )]
+    pub failure_class: String,
+
+    #[arg(long, help = "Associated task ID")]
+    pub task_id: Option<String>,
+
+    #[arg(long, help = "Git deploy commit SHA")]
+    pub deploy_sha: Option<String>,
+
+    #[arg(
+        long,
+        default_value = "prod",
+        help = "Environment (prod, staging, local)"
+    )]
+    pub environment: String,
+
+    #[arg(long, help = "Flag if this signal triggered an incident/page")]
+    pub incident: bool,
+
+    #[arg(
+        long,
+        default_value_t = 0.0,
+        help = "Error rate delta (e.g. 0.05 for +5%)"
+    )]
+    pub error_delta: f64,
+
+    #[arg(
+        long,
+        default_value_t = 0.0,
+        help = "P95 latency delta in milliseconds"
+    )]
+    pub latency_delta: f64,
+
+    #[arg(
+        long,
+        default_value_t = 0.0,
+        help = "SLO error budget burn percentage (0.0 to 1.0)"
+    )]
+    pub burn_pct: f64,
+
+    #[arg(long, help = "Mean time to recovery in seconds")]
+    pub mttr_sec: Option<f64>,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -250,6 +326,9 @@ pub struct OkrArgs {
 pub enum OkrCommands {
     #[command(about = "List objectives, key results, and linked requirements")]
     Status(OkrStatusArgs),
+
+    #[command(about = "Generate an executive OKR progress, FinOps spend, and budget-risk brief")]
+    Brief(OkrBriefArgs),
 }
 
 #[derive(Args, Debug)]
@@ -264,6 +343,29 @@ pub struct OkrStatusArgs {
 
     #[arg(long, help = "Output status as JSON")]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct OkrBriefArgs {
+    #[arg(
+        short,
+        long,
+        help = "Path to OKR manifests directory",
+        default_value = "docs/okrs"
+    )]
+    pub dir: PathBuf,
+
+    #[arg(long, help = "Output brief as JSON")]
+    pub json: bool,
+
+    #[arg(
+        long,
+        help = "Custom output path for markdown brief (default: docs/okrs/reports/YYYY-MM-DD_brief.md)"
+    )]
+    pub out: Option<PathBuf>,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -2267,6 +2369,8 @@ fn handle_telemetry(args: &TelemetryArgs) -> Result<()> {
         TelemetryCommands::Trace(t) => handle_telemetry_trace(t),
         TelemetryCommands::Report(r) => handle_telemetry_report(r),
         TelemetryCommands::Sync(y) => handle_telemetry_sync(y),
+        TelemetryCommands::Harden(h) => handle_telemetry_harden(h),
+        TelemetryCommands::RecordSignal(rs) => handle_telemetry_record_signal(rs),
     }
 }
 
@@ -2418,6 +2522,170 @@ fn handle_telemetry_sync(args: &TelemetrySyncArgs) -> Result<()> {
         config.storage.path.display()
     );
     println!("==> Telemetry sync complete. Factory analytics store up to date.");
+    Ok(())
+}
+
+fn handle_telemetry_harden(args: &TelemetryHardenArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config_path = args
+        .config
+        .clone()
+        .unwrap_or_else(|| cwd.join("factory.toml"));
+    if !config_path.exists() {
+        anyhow::bail!("factory.toml not found at {}", config_path.display());
+    }
+
+    let config_content = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("Failed to read {}", config_path.display()))?;
+    let mut config = load_factory_config(Some(&config_path))?;
+
+    if let Some(w) = args.window {
+        config.governance.self_optimization.window_days = w;
+    }
+
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    let plan = pa_core::harden::evaluate_hardening_plan(
+        &config_content,
+        store.as_ref(),
+        &config.governance,
+    )?;
+
+    if args.json {
+        let val = json!({
+            "has_changes": plan.has_changes,
+            "activated_gates": plan.activated_gates,
+            "unmatched_failure_classes": plan.unmatched_failure_classes,
+            "triggers_count": plan.triggers.len(),
+            "triggers": plan.triggers,
+            "diff": plan.diff,
+            "applied": args.apply && plan.has_changes,
+        });
+        println!("{}", serde_json::to_string_pretty(&val)?);
+        if args.apply && plan.has_changes {
+            pa_core::harden::apply_hardening_plan(&config_path, &plan, store.as_ref())?;
+        }
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Telemetry Hardening & Quality Gates     ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Config File:     {}", config_path.display());
+    println!(
+        "Analysis Window: {} days",
+        config.governance.self_optimization.window_days
+    );
+    println!("Active Triggers: {}", plan.triggers.len());
+
+    for trigger in &plan.triggers {
+        println!(
+            "  • [{}] {} - {}",
+            trigger.tier, trigger.trigger_kind, trigger.description
+        );
+    }
+
+    println!(
+        "\nProposed Gate Activations: {}",
+        plan.activated_gates.len()
+    );
+    for gate in &plan.activated_gates {
+        println!(
+            "  ✔ [{}] Activate gate '{}' (cmd: '{}') for '{}' ({} occurrences)",
+            gate.signal_tier, gate.gate_name, gate.command, gate.failure_class, gate.occurrences
+        );
+    }
+
+    if !plan.unmatched_failure_classes.is_empty() {
+        println!(
+            "\nUnmatched Recurring Failure Classes (Flagged for Diagnostician): {}",
+            plan.unmatched_failure_classes.len()
+        );
+        for un in &plan.unmatched_failure_classes {
+            println!(
+                "  ⚠ [{}] '{}' ({} occurrences, samples: {:?})",
+                un.signal_tier, un.failure_class, un.count, un.sample_ids
+            );
+        }
+    }
+
+    if !plan.diff.is_empty() {
+        println!("\nProposed factory.toml Diff:\n{}", plan.diff);
+    }
+
+    if args.apply {
+        if plan.has_changes {
+            let count = pa_core::harden::apply_hardening_plan(&config_path, &plan, store.as_ref())?;
+            println!(
+                "==> Successfully applied hardening plan: {} gate(s) activated in {}",
+                count,
+                config_path.display()
+            );
+        } else {
+            println!("==> No dormant gates to activate. Config is already hardened.");
+        }
+    } else if plan.has_changes {
+        println!("==> Dry-run complete. Re-run with '--apply' to persist gate activations.");
+    } else {
+        println!("==> Analysis complete. No gate activations required.");
+    }
+
+    println!();
+    Ok(())
+}
+
+fn handle_telemetry_record_signal(args: &TelemetryRecordSignalArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+
+    let now_micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or(0);
+    let now_sec = (now_micros / 1_000_000) as u64;
+    let now_iso = format!("{}", now_sec);
+
+    let deploy_sha = if let Some(ref s) = args.deploy_sha {
+        s.clone()
+    } else {
+        std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "0000000000000000000000000000000000000000".to_string())
+    };
+
+    let signal_id = format!("sig-{}-{}", args.failure_class, now_micros);
+    let record = pa_core::storage::ProdSignalRecord {
+        signal_id: signal_id.clone(),
+        task_id: args.task_id.clone(),
+        deploy_sha,
+        environment: args.environment.clone(),
+        observed_at: now_iso,
+        error_rate_delta: args.error_delta,
+        p95_latency_delta_ms: args.latency_delta,
+        slo_budget_burn_pct: args.burn_pct,
+        incident_triggered: args.incident,
+        mttr_sec: args.mttr_sec,
+        failure_class: Some(args.failure_class.clone()),
+    };
+
+    store.insert_prod_signal(&record)?;
+    println!(
+        "==> Recorded operational signal '{}' (class: '{}', env: '{}', incident: {}) in {}",
+        signal_id,
+        args.failure_class,
+        args.environment,
+        args.incident,
+        config.storage.path.display()
+    );
+
     Ok(())
 }
 
@@ -2580,10 +2848,264 @@ fn handle_traceability_check(args: &TraceabilityCheckArgs) -> Result<()> {
     Ok(())
 }
 
+fn format_epoch_date(epoch_sec: u64) -> String {
+    let z = (epoch_sec / 86400) as i64 + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1024 + doe / 1461 - doe / 36524) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
 fn handle_okr(args: &OkrArgs) -> Result<()> {
     match &args.command {
         OkrCommands::Status(s) => handle_okr_status(s),
+        OkrCommands::Brief(b) => handle_okr_brief(b),
     }
+}
+
+fn handle_okr_brief(args: &OkrBriefArgs) -> Result<()> {
+    let okr_store = pa_core::okr::OkrStore::load_from_dir(&args.dir)?;
+    let config = load_factory_config(args.config.as_deref())?;
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+
+    let now_sec = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let date_str = format_epoch_date(now_sec);
+
+    let dora = store.get_dora_flow_report(30, None).ok();
+    let default_kr_budget = config.governance.budget_usd_per_kr;
+
+    struct KrBriefItem {
+        id: String,
+        title: String,
+        baseline: f64,
+        target: f64,
+        current: f64,
+        progress_pct: f64,
+        budget_usd: f64,
+        spend_usd: f64,
+        spend_pct: f64,
+        at_risk: bool,
+    }
+
+    struct ObjBriefItem {
+        id: String,
+        title: String,
+        owner: String,
+        budget_usd: f64,
+        total_spend_usd: f64,
+        krs: Vec<KrBriefItem>,
+    }
+
+    let mut obj_items = Vec::new();
+    let mut total_spend = 0.0;
+    let mut total_budget = 0.0;
+    let mut at_risk_count = 0;
+
+    for (obj_id, obj) in &okr_store.objectives {
+        let mut kr_items = Vec::new();
+        let mut obj_spend = 0.0;
+
+        let krs: Vec<_> = okr_store
+            .kr_to_objective
+            .iter()
+            .filter(|(_, parent)| *parent == obj_id)
+            .filter_map(|(kr_id, _)| okr_store.key_results.get(kr_id))
+            .collect();
+
+        for kr in krs {
+            let snapshots = store.list_kr_snapshots(Some(&kr.id), 1).unwrap_or_default();
+            let (current_val, progress_pct) = if let Some(latest) = snapshots.first() {
+                (latest.value, latest.progress_pct)
+            } else {
+                let prog = if (kr.target - kr.baseline).abs() > 0.001 {
+                    ((kr.current - kr.baseline) / (kr.target - kr.baseline) * 100.0)
+                        .clamp(0.0, 100.0)
+                } else {
+                    0.0
+                };
+                (kr.current, prog)
+            };
+
+            let spend = store.get_kr_spend(&kr.id).unwrap_or(0.0);
+            let kr_budget = if kr.budget_usd > 0.0 {
+                kr.budget_usd
+            } else {
+                default_kr_budget
+            };
+            let spend_pct = if kr_budget > 0.0 {
+                (spend / kr_budget) * 100.0
+            } else {
+                0.0
+            };
+            let at_risk = spend_pct >= 85.0 || (spend_pct > 75.0 && progress_pct < 50.0);
+            if at_risk {
+                at_risk_count += 1;
+            }
+
+            obj_spend += spend;
+            kr_items.push(KrBriefItem {
+                id: kr.id.clone(),
+                title: kr.title.clone(),
+                baseline: kr.baseline,
+                target: kr.target,
+                current: current_val,
+                progress_pct,
+                budget_usd: kr_budget,
+                spend_usd: spend,
+                spend_pct,
+                at_risk,
+            });
+        }
+
+        total_spend += obj_spend;
+        total_budget += obj.budget_usd;
+        obj_items.push(ObjBriefItem {
+            id: obj_id.clone(),
+            title: obj.title.clone(),
+            owner: obj.owner.clone(),
+            budget_usd: obj.budget_usd,
+            total_spend_usd: obj_spend,
+            krs: kr_items,
+        });
+    }
+
+    // Build markdown report respecting strict 4-space markdown list indentation per AGENTS.md
+    let mut md = String::new();
+    md.push_str(&format!(
+        "# OKR Progress & FinOps Risk Brief - {}\n\n",
+        date_str
+    ));
+    md.push_str("## Executive Summary\n");
+    md.push_str(&format!("- Date: {}\n", date_str));
+    md.push_str(&format!("- Total Objectives: {}\n", obj_items.len()));
+    md.push_str(&format!(
+        "- Total FinOps Spend: ${:.2} / Budget: ${:.2}\n",
+        total_spend, total_budget
+    ));
+    md.push_str(&format!("- Key Results At Risk: {}\n", at_risk_count));
+
+    if let Some(d) = &dora {
+        md.push_str(&format!(
+            "- 30-Day DORA: FPY {:.1}% | CFR {:.1}% | Merged PRs: {}\n",
+            d.first_pass_yield * 100.0,
+            d.change_failure_rate * 100.0,
+            d.total_merged_prs
+        ));
+    }
+
+    md.push_str("\n## Objectives & Key Results Health\n");
+    for obj in &obj_items {
+        md.push_str(&format!("\n### {} ({})\n", obj.title, obj.id));
+        md.push_str(&format!("- Owner: {}\n", obj.owner));
+        md.push_str(&format!(
+            "- Allocated Budget: ${:.2} | Spend: ${:.2}\n",
+            obj.budget_usd, obj.total_spend_usd
+        ));
+        for kr in &obj.krs {
+            md.push_str(&format!("    - Key Result: {} ({})\n", kr.title, kr.id));
+            md.push_str(&format!(
+                "        - Baseline: {:.1} | Current: {:.1} | Target: {:.1}\n",
+                kr.baseline, kr.current, kr.target
+            ));
+            md.push_str(&format!("        - Progress: {:.1}%\n", kr.progress_pct));
+            md.push_str(&format!(
+                "        - Spend: ${:.2} / ${:.2} ({:.1}% of budget)\n",
+                kr.spend_usd, kr.budget_usd, kr.spend_pct
+            ));
+            md.push_str(&format!(
+                "        - Risk Status: {}\n",
+                if kr.at_risk {
+                    "AT RISK (Budget Burn)"
+                } else {
+                    "HEALTHY"
+                }
+            ));
+        }
+    }
+
+    // Determine output file path
+    let report_path = if let Some(ref p) = args.out {
+        p.clone()
+    } else {
+        args.dir
+            .join("reports")
+            .join(format!("{}_brief.md", date_str))
+    };
+
+    if let Some(parent) = report_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&report_path, &md)?;
+
+    // Persist optimization event
+    let event = pa_core::storage::OptimizationEventRecord {
+        event_id: format!("okr-brief-{}", now_sec),
+        signal_tier: "tier1_local_vcs".to_string(),
+        trigger_kind: "kr_budget_overrun".to_string(),
+        fingerprint: "okr_brief:executive".to_string(),
+        details_json: json!({
+            "report_path": report_path.display().to_string(),
+            "total_spend": total_spend,
+            "total_budget": total_budget,
+            "at_risk_count": at_risk_count,
+        })
+        .to_string(),
+        action_taken: "okr_brief_generated".to_string(),
+        linked_task_id: None,
+        created_at: format!("{}", now_sec),
+    };
+    let _ = store.record_optimization_event(&event);
+
+    if args.json {
+        let json_val = json!({
+            "date": date_str,
+            "report_file": report_path.display().to_string(),
+            "total_objectives": obj_items.len(),
+            "total_spend_usd": total_spend,
+            "total_budget_usd": total_budget,
+            "at_risk_krs": at_risk_count,
+            "objectives": obj_items.iter().map(|o| json!({
+                "id": o.id,
+                "title": o.title,
+                "owner": o.owner,
+                "spend": o.total_spend_usd,
+                "budget": o.budget_usd,
+                "krs": o.krs.iter().map(|k| json!({
+                    "id": k.id,
+                    "title": k.title,
+                    "progress_pct": k.progress_pct,
+                    "spend_usd": k.spend_usd,
+                    "budget_usd": k.budget_usd,
+                    "at_risk": k.at_risk,
+                })).collect::<Vec<_>>()
+            })).collect::<Vec<_>>()
+        });
+        println!("{}", serde_json::to_string_pretty(&json_val)?);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 OKR Executive Brief & FinOps Status     ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Report File:       {}", report_path.display());
+    println!(
+        "Total Spend:       ${:.2} / ${:.2}",
+        total_spend, total_budget
+    );
+    println!("KRs At Risk:       {}", at_risk_count);
+    println!();
+    println!("{}", md);
+
+    Ok(())
 }
 
 fn handle_okr_status(args: &OkrStatusArgs) -> Result<()> {
@@ -4481,6 +5003,74 @@ mod tests {
                 command: TelemetryCommands::Sync(_),
             }) => {}
             _ => panic!("Expected Telemetry Sync command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_telemetry_harden_and_record_signal() {
+        let harden_args = vec![
+            "pa",
+            "telemetry",
+            "harden",
+            "--window",
+            "45",
+            "--apply",
+            "--json",
+        ];
+        let cli_harden = Cli::parse_from(harden_args);
+        match cli_harden.command {
+            Commands::Telemetry(TelemetryArgs {
+                command: TelemetryCommands::Harden(h),
+            }) => {
+                assert_eq!(h.window, Some(45));
+                assert!(h.apply);
+                assert!(h.json);
+            }
+            _ => panic!("Expected Telemetry Harden command"),
+        }
+
+        let record_args = vec![
+            "pa",
+            "telemetry",
+            "record-signal",
+            "--failure-class",
+            "db_deadlock",
+            "--incident",
+            "--environment",
+            "staging",
+        ];
+        let cli_record = Cli::parse_from(record_args);
+        match cli_record.command {
+            Commands::Telemetry(TelemetryArgs {
+                command: TelemetryCommands::RecordSignal(rs),
+            }) => {
+                assert_eq!(rs.failure_class, "db_deadlock");
+                assert!(rs.incident);
+                assert_eq!(rs.environment, "staging");
+            }
+            _ => panic!("Expected Telemetry RecordSignal command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_okr_brief() {
+        let args = vec![
+            "pa",
+            "okr",
+            "brief",
+            "--json",
+            "--out",
+            "docs/okrs/reports/custom.md",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Okr(OkrArgs {
+                command: OkrCommands::Brief(b),
+            }) => {
+                assert!(b.json);
+                assert_eq!(b.out, Some(PathBuf::from("docs/okrs/reports/custom.md")));
+            }
+            _ => panic!("Expected Okr Brief command"),
         }
     }
 

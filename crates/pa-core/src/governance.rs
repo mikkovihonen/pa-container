@@ -1,8 +1,62 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::schema::{EscalationConfig, GovernanceConfig};
 use crate::storage::FactoryAnalyticsStore;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SignalTier {
+    #[serde(rename = "tier1_local_vcs")]
+    Tier1LocalVcs,
+    #[serde(rename = "tier2_prod")]
+    Tier2Prod,
+}
+
+impl std::fmt::Display for SignalTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SignalTier::Tier1LocalVcs => write!(f, "tier1_local_vcs"),
+            SignalTier::Tier2Prod => write!(f, "tier2_prod"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum OptimizationTriggerKind {
+    #[serde(rename = "failure_class")]
+    FailureClass,
+    #[serde(rename = "cfr_spike")]
+    CfrSpike,
+    #[serde(rename = "low_fpy")]
+    LowFpy,
+    #[serde(rename = "low_eval_score")]
+    LowEvalScore,
+    #[serde(rename = "kr_budget_overrun")]
+    KrBudgetOverrun,
+}
+
+impl std::fmt::Display for OptimizationTriggerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OptimizationTriggerKind::FailureClass => write!(f, "failure_class"),
+            OptimizationTriggerKind::CfrSpike => write!(f, "cfr_spike"),
+            OptimizationTriggerKind::LowFpy => write!(f, "low_fpy"),
+            OptimizationTriggerKind::LowEvalScore => write!(f, "low_eval_score"),
+            OptimizationTriggerKind::KrBudgetOverrun => write!(f, "kr_budget_overrun"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OptimizationTrigger {
+    pub tier: SignalTier,
+    pub trigger_kind: OptimizationTriggerKind,
+    pub fingerprint: String,
+    pub description: String,
+    pub details: serde_json::Value,
+    pub sample_task_ids: Vec<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GovernanceDecision {
@@ -317,6 +371,205 @@ impl GovernanceEngine {
         }
 
         Ok((requested_tier.to_string(), None))
+    }
+
+    pub fn evaluate_self_optimization(
+        store: &dyn FactoryAnalyticsStore,
+        gov_config: &GovernanceConfig,
+        _factory_config: Option<&crate::schema::FactoryConfig>,
+    ) -> Result<Vec<OptimizationTrigger>> {
+        let opt_cfg = &gov_config.self_optimization;
+        if !opt_cfg.enabled {
+            return Ok(Vec::new());
+        }
+
+        let window_days = opt_cfg.window_days;
+        let cooldown_hours = opt_cfg.cooldown_hours;
+        let mut triggers = Vec::new();
+
+        // 1. Recurring failure classes (Tier 1 local & Tier 2 prod)
+        let recurring =
+            store.detect_recurring_failure_classes(window_days, opt_cfg.min_failure_class_count)?;
+        for rec in recurring {
+            let tier = match rec.signal_tier.as_str() {
+                "tier1_local_vcs" => SignalTier::Tier1LocalVcs,
+                _ => SignalTier::Tier2Prod,
+            };
+            let fp = format!("failure_class:{}", rec.failure_class);
+            if !store
+                .has_recent_optimization_event(&fp, cooldown_hours)
+                .unwrap_or(false)
+            {
+                triggers.push(OptimizationTrigger {
+                    tier,
+                    trigger_kind: OptimizationTriggerKind::FailureClass,
+                    fingerprint: fp,
+                    description: format!(
+                        "Recurring failure class '{}' detected ({} occurrences in {} days, tier: {})",
+                        rec.failure_class, rec.count, window_days, rec.signal_tier
+                    ),
+                    details: json!({
+                        "failure_class": rec.failure_class,
+                        "count": rec.count,
+                        "signal_tier": rec.signal_tier,
+                        "sample_ids": rec.sample_ids,
+                    }),
+                    sample_task_ids: rec.sample_ids,
+                });
+            }
+        }
+
+        // 2. DORA metrics: CFR spike and low FPY
+        if let Ok(dora) = store.get_dora_flow_report(window_days, None) {
+            if dora.total_merged_prs > 0 {
+                if dora.change_failure_rate > opt_cfg.cfr_spike_threshold {
+                    let fp = "cfr_spike:dora".to_string();
+                    if !store
+                        .has_recent_optimization_event(&fp, cooldown_hours)
+                        .unwrap_or(false)
+                    {
+                        triggers.push(OptimizationTrigger {
+                            tier: SignalTier::Tier1LocalVcs,
+                            trigger_kind: OptimizationTriggerKind::CfrSpike,
+                            fingerprint: fp,
+                            description: format!(
+                                "Change Failure Rate spike: {:.1}% exceeds threshold of {:.1}% ({} merged PRs)",
+                                dora.change_failure_rate * 100.0,
+                                opt_cfg.cfr_spike_threshold * 100.0,
+                                dora.total_merged_prs
+                            ),
+                            details: json!({
+                                "change_failure_rate": dora.change_failure_rate,
+                                "threshold": opt_cfg.cfr_spike_threshold,
+                                "total_merged_prs": dora.total_merged_prs,
+                            }),
+                            sample_task_ids: Vec::new(),
+                        });
+                    }
+                }
+
+                if dora.first_pass_yield < opt_cfg.min_rolling_fpy {
+                    let fp = "low_fpy:dora".to_string();
+                    if !store
+                        .has_recent_optimization_event(&fp, cooldown_hours)
+                        .unwrap_or(false)
+                    {
+                        triggers.push(OptimizationTrigger {
+                            tier: SignalTier::Tier1LocalVcs,
+                            trigger_kind: OptimizationTriggerKind::LowFpy,
+                            fingerprint: fp,
+                            description: format!(
+                                "Low First Pass Yield: {:.1}% is below threshold of {:.1}% ({} merged PRs)",
+                                dora.first_pass_yield * 100.0,
+                                opt_cfg.min_rolling_fpy * 100.0,
+                                dora.total_merged_prs
+                            ),
+                            details: json!({
+                                "first_pass_yield": dora.first_pass_yield,
+                                "threshold": opt_cfg.min_rolling_fpy,
+                                "total_merged_prs": dora.total_merged_prs,
+                            }),
+                            sample_task_ids: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // 3. Eval summary: aggregate or per-rubric low score
+        if let Ok(evals) = store.get_eval_summary(window_days) {
+            if evals.total_evals > 0 && evals.mean_score < opt_cfg.min_eval_score {
+                let fp = "low_eval_score:aggregate".to_string();
+                if !store
+                    .has_recent_optimization_event(&fp, cooldown_hours)
+                    .unwrap_or(false)
+                {
+                    triggers.push(OptimizationTrigger {
+                        tier: SignalTier::Tier1LocalVcs,
+                        trigger_kind: OptimizationTriggerKind::LowEvalScore,
+                        fingerprint: fp,
+                        description: format!(
+                            "Low overall evaluation score: {:.2} is below threshold {:.2} across {} evaluations",
+                            evals.mean_score, opt_cfg.min_eval_score, evals.total_evals
+                        ),
+                        details: json!({
+                            "mean_score": evals.mean_score,
+                            "threshold": opt_cfg.min_eval_score,
+                            "total_evals": evals.total_evals,
+                            "pass_rate": evals.pass_rate,
+                        }),
+                        sample_task_ids: Vec::new(),
+                    });
+                }
+            }
+
+            for (rubric_id, stat) in &evals.by_rubric {
+                if stat.count >= 2 && stat.mean_score < opt_cfg.min_eval_score {
+                    let fp = format!("low_eval_score:{}", rubric_id);
+                    if !store
+                        .has_recent_optimization_event(&fp, cooldown_hours)
+                        .unwrap_or(false)
+                    {
+                        triggers.push(OptimizationTrigger {
+                            tier: SignalTier::Tier1LocalVcs,
+                            trigger_kind: OptimizationTriggerKind::LowEvalScore,
+                            fingerprint: fp,
+                            description: format!(
+                                "Eval rubric '{}' mean score {:.2} is below threshold {:.2} ({} evaluations)",
+                                rubric_id, stat.mean_score, opt_cfg.min_eval_score, stat.count
+                            ),
+                            details: json!({
+                                "rubric_id": rubric_id,
+                                "mean_score": stat.mean_score,
+                                "threshold": opt_cfg.min_eval_score,
+                                "count": stat.count,
+                            }),
+                            sample_task_ids: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // 4. KR Budget overruns
+        if let Ok(snapshots) = store.list_kr_snapshots(None, 100) {
+            let mut seen_krs = std::collections::HashSet::new();
+            for s in snapshots {
+                if seen_krs.insert(s.kr_id.clone()) {
+                    let spend = store.get_kr_spend(&s.kr_id).unwrap_or(0.0);
+                    let budget = gov_config.budget_usd_per_kr;
+                    if budget > 0.0 && spend >= budget * opt_cfg.kr_budget_warn_pct {
+                        let fp = format!("kr_budget_overrun:{}", s.kr_id);
+                        if !store
+                            .has_recent_optimization_event(&fp, cooldown_hours)
+                            .unwrap_or(false)
+                        {
+                            triggers.push(OptimizationTrigger {
+                                tier: SignalTier::Tier1LocalVcs,
+                                trigger_kind: OptimizationTriggerKind::KrBudgetOverrun,
+                                fingerprint: fp,
+                                description: format!(
+                                    "KR '{}' spend ${:.2} reached {:.1}% of budget ${:.2}",
+                                    s.kr_id,
+                                    spend,
+                                    (spend / budget) * 100.0,
+                                    budget
+                                ),
+                                details: json!({
+                                    "kr_id": s.kr_id,
+                                    "spend_usd": spend,
+                                    "budget_usd": budget,
+                                    "spend_pct": (spend / budget) * 100.0,
+                                }),
+                                sample_task_ids: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(triggers)
     }
 }
 
@@ -680,5 +933,136 @@ mod tests {
         .unwrap();
         assert_eq!(tier2, "frontier");
         assert!(reason2.unwrap().contains("Proactive tier promotion"));
+    }
+
+    #[test]
+    fn test_self_optimization_tier1_only() {
+        let td = tempdir().unwrap();
+        let store = SqliteAnalyticsStore::open_or_create(&td.path().join("factory.db")).unwrap();
+        let gov_cfg = GovernanceConfig {
+            self_optimization: crate::schema::SelfOptimizationConfig {
+                enabled: true,
+                min_rolling_fpy: 0.70,
+                cfr_spike_threshold: 0.15,
+                cooldown_hours: 24,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Seed 4 merged PRs: 2 clean first-pass, 2 reverted -> FPY = 50% (< 70%), CFR = 50% (> 15%)
+        for i in 0..4 {
+            let pr = crate::storage::VcsOutcomeRecord {
+                pr_id: format!("pr-{}", i),
+                task_id: Some(format!("task-{}", i)),
+                repo: "org/repo".to_string(),
+                pr_number: (i + 1) as u64,
+                state: "merged".to_string(),
+                opened_at: "2026-11-20T10:00:00Z".to_string(),
+                first_review_at: None,
+                merged_at: Some("2026-11-20T12:00:00Z".to_string()),
+                human_review_rounds: 0,
+                human_commits_added: 0,
+                ci_runs_count: 1,
+                ci_failed_first_run: i >= 2,
+                reverted: i >= 2,
+                lead_time_sec: Some(7200.0),
+                synced_at: "2026-11-20T12:05:00Z".to_string(),
+            };
+            store.upsert_vcs_outcome(&pr).unwrap();
+        }
+
+        let triggers =
+            GovernanceEngine::evaluate_self_optimization(&store, &gov_cfg, None).unwrap();
+        assert!(!triggers.is_empty());
+        let kinds: Vec<OptimizationTriggerKind> = triggers.iter().map(|t| t.trigger_kind).collect();
+        assert!(kinds.contains(&OptimizationTriggerKind::CfrSpike));
+        assert!(kinds.contains(&OptimizationTriggerKind::LowFpy));
+        assert!(triggers.iter().all(|t| t.tier == SignalTier::Tier1LocalVcs));
+    }
+
+    #[test]
+    fn test_self_optimization_tier2_prod_signals() {
+        let td = tempdir().unwrap();
+        let store = SqliteAnalyticsStore::open_or_create(&td.path().join("factory.db")).unwrap();
+        let gov_cfg = GovernanceConfig {
+            self_optimization: crate::schema::SelfOptimizationConfig {
+                enabled: true,
+                window_days: 30,
+                min_failure_class_count: 2,
+                cooldown_hours: 24,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Insert 2 prod signals with failure_class = "db_lock" within window
+        for i in 1..=2 {
+            let sig = crate::storage::ProdSignalRecord {
+                signal_id: format!("sig-{}", i),
+                task_id: Some(format!("task-{}", i)),
+                deploy_sha: "abcd123".to_string(),
+                environment: "prod".to_string(),
+                observed_at: "2026-11-24T10:00:00Z".to_string(),
+                error_rate_delta: 0.05,
+                p95_latency_delta_ms: 120.0,
+                slo_budget_burn_pct: 0.10,
+                incident_triggered: true,
+                mttr_sec: Some(300.0),
+                failure_class: Some("db_lock".to_string()),
+            };
+            store.insert_prod_signal(&sig).unwrap();
+        }
+
+        // Insert 1 older signal (> 30 days old)
+        let old_sig = crate::storage::ProdSignalRecord {
+            signal_id: "sig-old".to_string(),
+            task_id: None,
+            deploy_sha: "abcd123".to_string(),
+            environment: "prod".to_string(),
+            observed_at: "2026-09-01T10:00:00Z".to_string(),
+            error_rate_delta: 0.05,
+            p95_latency_delta_ms: 120.0,
+            slo_budget_burn_pct: 0.10,
+            incident_triggered: true,
+            mttr_sec: Some(300.0),
+            failure_class: Some("out_of_memory".to_string()),
+        };
+        store.insert_prod_signal(&old_sig).unwrap();
+
+        let triggers =
+            GovernanceEngine::evaluate_self_optimization(&store, &gov_cfg, None).unwrap();
+        let db_lock_trigger = triggers
+            .iter()
+            .find(|t| t.fingerprint == "failure_class:db_lock");
+        assert!(db_lock_trigger.is_some());
+        let t = db_lock_trigger.unwrap();
+        assert_eq!(t.tier, SignalTier::Tier2Prod);
+        assert_eq!(t.trigger_kind, OptimizationTriggerKind::FailureClass);
+
+        // "out_of_memory" only occurred once in 30d window, should not fire
+        assert!(triggers
+            .iter()
+            .all(|t| t.fingerprint != "failure_class:out_of_memory"));
+
+        // Record optimization event for db_lock (cooling down)
+        let evt = crate::storage::OptimizationEventRecord {
+            event_id: "evt-1".to_string(),
+            signal_tier: "tier2_prod".to_string(),
+            trigger_kind: "failure_class".to_string(),
+            fingerprint: "failure_class:db_lock".to_string(),
+            details_json: "{}".to_string(),
+            action_taken: "hardened".to_string(),
+            linked_task_id: None,
+            created_at: "2026-11-24T12:00:00Z".to_string(),
+        };
+        store.record_optimization_event(&evt).unwrap();
+
+        // Second evaluation should deduplicate db_lock due to 24h cooldown
+        let triggers2 =
+            GovernanceEngine::evaluate_self_optimization(&store, &gov_cfg, None).unwrap();
+        assert!(triggers2
+            .iter()
+            .all(|t| t.fingerprint != "failure_class:db_lock"));
     }
 }

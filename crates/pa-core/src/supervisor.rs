@@ -25,6 +25,8 @@ pub struct SupervisorTickSummary {
     pub hitl_paused_tasks: Vec<String>,
     pub wip_reallocation_active: bool,
     pub slo_defense_active: bool,
+    #[serde(default)]
+    pub enqueued_diagnostic_tasks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -131,6 +133,9 @@ impl HostSupervisor {
             }
         }
 
+        // 6. Evaluate self-optimization triggers and dispatch meta-roles
+        let enqueued_diagnostic_tasks = self.dispatch_self_optimization()?;
+
         Ok(SupervisorTickSummary {
             active_workers: active_workers + claimed_tasks.len(),
             idle_slots: idle_slots.len().saturating_sub(claimed_tasks.len()),
@@ -139,7 +144,117 @@ impl HostSupervisor {
             hitl_paused_tasks,
             wip_reallocation_active: wip_limit_reached,
             slo_defense_active,
+            enqueued_diagnostic_tasks,
         })
+    }
+
+    /// Evaluate self-optimization triggers and auto-enqueue factory_diagnostician or okr_analyst
+    pub fn dispatch_self_optimization(&self) -> Result<Vec<String>> {
+        let gov_cfg = &self.config.governance;
+        let opt_cfg = &gov_cfg.self_optimization;
+        if !opt_cfg.enabled {
+            return Ok(Vec::new());
+        }
+
+        let triggers = GovernanceEngine::evaluate_self_optimization(
+            self.store.as_ref(),
+            gov_cfg,
+            Some(&self.config),
+        )?;
+
+        let mut enqueued = Vec::new();
+        let now_micros = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros())
+            .unwrap_or(0);
+        let now_sec = (now_micros / 1_000_000) as u64;
+        let now_iso = format!("{}", now_sec);
+
+        for trigger in triggers {
+            if opt_cfg.auto_enqueue_diagnostician
+                && (trigger.trigger_kind
+                    == crate::governance::OptimizationTriggerKind::FailureClass
+                    || trigger.trigger_kind == crate::governance::OptimizationTriggerKind::CfrSpike
+                    || trigger.trigger_kind == crate::governance::OptimizationTriggerKind::LowFpy
+                    || trigger.trigger_kind
+                        == crate::governance::OptimizationTriggerKind::LowEvalScore)
+            {
+                let task_id = format!("diag-{}-{}", trigger.trigger_kind, now_micros);
+                let failure_context = serde_json::to_string(&trigger).unwrap_or_default();
+
+                let task = QueuedTask {
+                    task_id: task_id.clone(),
+                    role: "factory_diagnostician".to_string(),
+                    req_ids: Vec::new(),
+                    kr_ids: Vec::new(),
+                    priority: 90,
+                    status: "pending".to_string(),
+                    attempt_count: 0,
+                    model_tier: "frontier".to_string(),
+                    assigned_uid: None,
+                    proxy_port: None,
+                    lease_expires_at: None,
+                    failure_context: Some(failure_context),
+                    created_at: now_iso.clone(),
+                    updated_at: now_iso.clone(),
+                };
+
+                self.store.enqueue_task(&task)?;
+
+                let event = crate::storage::OptimizationEventRecord {
+                    event_id: format!("enqueue:diag:{}:{}", trigger.fingerprint, now_micros),
+                    signal_tier: trigger.tier.to_string(),
+                    trigger_kind: trigger.trigger_kind.to_string(),
+                    fingerprint: trigger.fingerprint.clone(),
+                    details_json: serde_json::to_string(&trigger).unwrap_or_default(),
+                    action_taken: "diagnostician_enqueued".to_string(),
+                    linked_task_id: Some(task_id.clone()),
+                    created_at: now_iso.clone(),
+                };
+                self.store.record_optimization_event(&event)?;
+                enqueued.push(task_id);
+            } else if opt_cfg.auto_enqueue_okr_analyst
+                && trigger.trigger_kind
+                    == crate::governance::OptimizationTriggerKind::KrBudgetOverrun
+            {
+                let task_id = format!("okr-analyst-{}", now_micros);
+                let failure_context = serde_json::to_string(&trigger).unwrap_or_default();
+
+                let task = QueuedTask {
+                    task_id: task_id.clone(),
+                    role: "okr_analyst".to_string(),
+                    req_ids: Vec::new(),
+                    kr_ids: Vec::new(),
+                    priority: 85,
+                    status: "pending".to_string(),
+                    attempt_count: 0,
+                    model_tier: "local".to_string(),
+                    assigned_uid: None,
+                    proxy_port: None,
+                    lease_expires_at: None,
+                    failure_context: Some(failure_context),
+                    created_at: now_iso.clone(),
+                    updated_at: now_iso.clone(),
+                };
+
+                self.store.enqueue_task(&task)?;
+
+                let event = crate::storage::OptimizationEventRecord {
+                    event_id: format!("enqueue:okr:{}:{}", trigger.fingerprint, now_micros),
+                    signal_tier: trigger.tier.to_string(),
+                    trigger_kind: trigger.trigger_kind.to_string(),
+                    fingerprint: trigger.fingerprint.clone(),
+                    details_json: serde_json::to_string(&trigger).unwrap_or_default(),
+                    action_taken: "okr_brief_enqueued".to_string(),
+                    linked_task_id: Some(task_id.clone()),
+                    created_at: now_iso.clone(),
+                };
+                self.store.record_optimization_event(&event)?;
+                enqueued.push(task_id);
+            }
+        }
+
+        Ok(enqueued)
     }
 
     /// Provision proxy bindings and context for a claimed worker slot
@@ -596,5 +711,58 @@ mod tests {
             store.get_queued_task("test-task").unwrap().unwrap().status,
             "cancelled"
         );
+    }
+
+    #[test]
+    fn test_supervisor_diagnostician_deduplication() {
+        let td = tempdir().unwrap();
+        let store =
+            Arc::new(SqliteAnalyticsStore::open_or_create(&td.path().join("factory.db")).unwrap());
+        let mut config = FactoryConfig::default();
+        config.supervisor.max_concurrent_agents = 2;
+        config.governance.self_optimization.enabled = true;
+        config.governance.self_optimization.min_failure_class_count = 2;
+        config.governance.self_optimization.cooldown_hours = 24;
+        config
+            .governance
+            .self_optimization
+            .auto_enqueue_diagnostician = true;
+
+        // Seed 2 prod_signals for db_deadlock
+        for i in 1..=2 {
+            let sig = crate::storage::ProdSignalRecord {
+                signal_id: format!("sig-deadlock-{}", i),
+                task_id: Some(format!("task-{}", i)),
+                deploy_sha: "beef".to_string(),
+                environment: "prod".to_string(),
+                observed_at: "2026-11-24T10:00:00Z".to_string(),
+                error_rate_delta: 0.05,
+                p95_latency_delta_ms: 100.0,
+                slo_budget_burn_pct: 0.1,
+                incident_triggered: true,
+                mttr_sec: Some(120.0),
+                failure_class: Some("db_deadlock".to_string()),
+            };
+            store.insert_prod_signal(&sig).unwrap();
+        }
+
+        let sup = HostSupervisor::new(store.clone(), config, td.path().to_path_buf()).unwrap();
+
+        // Tick 1: Should detect recurring db_deadlock and enqueue 1 diagnostician task
+        let summary1 = sup.tick().unwrap();
+        assert_eq!(summary1.enqueued_diagnostic_tasks.len(), 1);
+        let task_id = &summary1.enqueued_diagnostic_tasks[0];
+        let enqueued_task = store.get_queued_task(task_id).unwrap().unwrap();
+        assert_eq!(enqueued_task.role, "factory_diagnostician");
+        assert_eq!(enqueued_task.priority, 90);
+        assert!(enqueued_task
+            .failure_context
+            .as_ref()
+            .unwrap()
+            .contains("db_deadlock"));
+
+        // Tick 2: Cooldown (24h) prevents duplicate enqueuing of db_deadlock
+        let summary2 = sup.tick().unwrap();
+        assert_eq!(summary2.enqueued_diagnostic_tasks.len(), 0);
     }
 }
