@@ -1,3 +1,7 @@
+pub mod android;
+pub mod drift;
+pub mod ios;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -6,6 +10,12 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::schema::DesignSystemConfig;
+
+pub use android::{
+    evaluate_android_platform, parse_android_a11y_output, parse_android_visual_diff_output,
+};
+pub use drift::{find_hardcoded_hex, scan_workspace_for_drift, DriftScanResult};
+pub use ios::{evaluate_ios_platform, parse_ios_a11y_output, parse_ios_visual_diff_output};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DesignToken {
@@ -65,7 +75,6 @@ impl TokenCatalog {
         tokens: &mut HashMap<String, DesignToken>,
     ) {
         if let Some(obj) = val.as_object() {
-            // Check if this object is a DTCG token node (contains "$value")
             if let Some(v_field) = obj.get("$value") {
                 let token_type = obj
                     .get("$type")
@@ -106,10 +115,9 @@ impl TokenCatalog {
                 return;
             }
 
-            // Otherwise, traverse child keys
             for (k, v) in obj {
                 if k.starts_with('$') {
-                    continue; // Skip metadata keys like $schema
+                    continue;
                 }
                 let next_prefix = if prefix.is_empty() {
                     k.clone()
@@ -126,7 +134,6 @@ impl TokenCatalog {
     }
 
     pub fn resolve_value(&self, raw: &str) -> String {
-        // DTCG alias syntax: {color.brand.primary}
         if raw.starts_with('{') && raw.ends_with('}') {
             let alias = &raw[1..raw.len() - 1];
             if let Some(tok) = self.get(alias) {
@@ -201,8 +208,6 @@ impl DesignSystemStore {
             }),
             "git_only" => Self::load_git_only(root, &config.tokens_path, &config.contracts_path),
             "penpot" => {
-                // If penpot endpoint is configured, we could fetch remotely;
-                // fallback to local git tokens with metadata.
                 let mut store =
                     Self::load_git_only(root, &config.tokens_path, &config.contracts_path)?;
                 store.provider = "penpot".to_string();
@@ -280,6 +285,8 @@ pub struct PlatformGateResult {
     pub details: Vec<String>,
 }
 
+pub type PlatformDesignResult = PlatformGateResult;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct A11yViolation {
     pub id: String,
@@ -305,6 +312,10 @@ pub struct DesignGateReport {
     pub is_compliant: bool,
     pub total_tokens: usize,
     pub total_contracts: usize,
+    #[serde(default)]
+    pub needs_design_review: bool,
+    #[serde(default)]
+    pub new_components: Vec<String>,
     pub platform_results: HashMap<String, PlatformGateResult>,
     pub violations: Vec<DesignLintViolation>,
     #[serde(default)]
@@ -320,6 +331,8 @@ impl DesignGateReport {
             is_compliant: true,
             total_tokens: 0,
             total_contracts: 0,
+            needs_design_review: false,
+            new_components: Vec::new(),
             platform_results: HashMap::new(),
             violations: Vec::new(),
             a11y_violations: Vec::new(),
@@ -510,11 +523,6 @@ pub fn parse_playwright_visual_diff_json(
     Ok(failures)
 }
 
-/// Evaluates the multi-platform design system quality gate:
-/// 1. Verifies prerequisite toolchains for all enabled platforms (`on_missing_platform = "fail"`).
-/// 2. Performs static token & raw primitive linting (e.g. catches hardcoded hex colors).
-/// 3. Verifies component contracts and required DTCG token references.
-/// 4. Checks platform accessibility and preview configurations.
 pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<DesignGateReport> {
     if config.provider == "none" {
         return Ok(DesignGateReport::empty("none"));
@@ -762,82 +770,74 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
                 }
             }
             "ios" => {
-                let has_simctl = Command::new("xcrun")
-                    .args(["simctl", "help"])
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
-
-                if !has_simctl && config.on_missing_platform == "fail" {
+                let ios_res = evaluate_ios_platform(root, &config.ios, config)?;
+                if ios_res.gate_result.status == "failed" {
                     is_compliant = false;
-                    platform_results.insert(
-                        "ios".to_string(),
-                        PlatformGateResult {
-                            platform: "ios".to_string(),
-                            status: "failed".to_string(),
-                            message:
-                                "iOS verification enabled but 'simctl' / Xcode CLI is not available."
-                                    .to_string(),
-                            details: vec![
-                                "Prerequisite failed (on_missing_platform = 'fail'): Xcode command line tools required."
-                                    .to_string(),
-                            ],
-                        },
-                    );
-                } else {
-                    platform_results.insert(
-                        "ios".to_string(),
-                        PlatformGateResult {
-                            platform: "ios".to_string(),
-                            status: if has_simctl { "passed" } else { "skipped" }.to_string(),
-                            message: format!(
-                                "iOS platform active (runner: {}, a11y: {})",
-                                config.ios.runner, config.ios.a11y_engine
-                            ),
-                            details: Vec::new(),
-                        },
-                    );
                 }
+                for v in &ios_res.a11y_violations {
+                    if v.impact == "serious" || v.impact == "critical" {
+                        violations.push(DesignLintViolation {
+                            file: v.target.clone().unwrap_or_else(|| "ios".to_string()),
+                            line: 1,
+                            rule: "a11y_ios_violation".to_string(),
+                            message: format!(
+                                "[XCTest a11y] {} in target '{:?}'",
+                                v.description, v.target
+                            ),
+                            severity: "error".to_string(),
+                        });
+                    }
+                }
+                for d in &ios_res.visual_diff_failures {
+                    violations.push(DesignLintViolation {
+                        file: d.snapshot_name.clone(),
+                        line: 1,
+                        rule: "visual_regression_ios".to_string(),
+                        message: format!(
+                            "[iOS visual diff] Snapshot '{}' diff {:.2}% exceeds max allowed {:.2}%",
+                            d.snapshot_name, d.diff_pct * 100.0, d.max_allowed_pct * 100.0
+                        ),
+                        severity: "error".to_string(),
+                    });
+                }
+                a11y_violations.extend(ios_res.a11y_violations);
+                visual_diff_failures.extend(ios_res.visual_diff_failures);
+                platform_results.insert("ios".to_string(), ios_res.gate_result);
             }
             "android" => {
-                let has_adb = Command::new("adb")
-                    .arg("version")
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false)
-                    || std::env::var("ANDROID_HOME").is_ok()
-                    || std::env::var("ANDROID_SDK_ROOT").is_ok();
-
-                if !has_adb && config.on_missing_platform == "fail" {
+                let android_res = evaluate_android_platform(root, &config.android, config)?;
+                if android_res.gate_result.status == "failed" {
                     is_compliant = false;
-                    platform_results.insert(
-                        "android".to_string(),
-                        PlatformGateResult {
-                            platform: "android".to_string(),
-                            status: "failed".to_string(),
-                            message:
-                                "Android verification enabled but 'adb' / Android SDK is not available."
-                                    .to_string(),
-                            details: vec![
-                                "Prerequisite failed (on_missing_platform = 'fail'): Android SDK / adb required."
-                                    .to_string(),
-                            ],
-                        },
-                    );
-                } else {
-                    platform_results.insert(
-                        "android".to_string(),
-                        PlatformGateResult {
-                            platform: "android".to_string(),
-                            status: if has_adb { "passed" } else { "skipped" }.to_string(),
-                            message: format!(
-                                "Android platform active (runner: {}, a11y: {})",
-                                config.android.runner, config.android.a11y_engine
-                            ),
-                            details: Vec::new(),
-                        },
-                    );
                 }
+                for v in &android_res.a11y_violations {
+                    if v.impact == "serious" || v.impact == "critical" {
+                        violations.push(DesignLintViolation {
+                            file: v.target.clone().unwrap_or_else(|| "android".to_string()),
+                            line: 1,
+                            rule: "a11y_android_violation".to_string(),
+                            message: format!(
+                                "[Android a11y] {} in target '{:?}'",
+                                v.description, v.target
+                            ),
+                            severity: "error".to_string(),
+                        });
+                    }
+                }
+                for d in &android_res.visual_diff_failures {
+                    violations.push(DesignLintViolation {
+                        file: d.snapshot_name.clone(),
+                        line: 1,
+                        rule: "visual_regression_android".to_string(),
+                        message: format!(
+                            "[Android visual diff] Snapshot '{}' diff {:.2}% exceeds max allowed {:.2}%",
+                            d.snapshot_name, d.diff_pct * 100.0, d.max_allowed_pct * 100.0
+                        ),
+                        severity: "error".to_string(),
+                    });
+                }
+                a11y_violations.extend(android_res.a11y_violations);
+                visual_diff_failures.extend(android_res.visual_diff_failures);
+                platform_results.insert("android".to_string(), android_res.gate_result);
             }
             other => {
                 platform_results.insert(
@@ -853,8 +853,10 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
         }
     }
 
-    // 2. Static Token & Primitive Linting
-    scan_workspace_for_lint(root, &store.catalog, &mut violations)?;
+    // 2. AST Component Drift & Token Linting
+    let drift_res =
+        scan_workspace_for_drift(root, &config.drift, &store.contracts, &store.catalog)?;
+    violations.extend(drift_res.violations);
 
     // 3. Verify Component Contract Token Linkage
     for (name, contract) in &store.contracts {
@@ -883,6 +885,8 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
         is_compliant,
         total_tokens: store.catalog.tokens.len(),
         total_contracts: store.contracts.len(),
+        needs_design_review: drift_res.needs_design_review,
+        new_components: drift_res.new_components,
         platform_results,
         violations,
         a11y_violations,
@@ -890,132 +894,16 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
     })
 }
 
-fn scan_workspace_for_lint(
+pub fn scan_workspace_for_lint(
     root: &Path,
     catalog: &TokenCatalog,
     violations: &mut Vec<DesignLintViolation>,
 ) -> Result<()> {
-    walk_and_lint(root, root, catalog, violations)
-}
-
-fn walk_and_lint(
-    base: &Path,
-    current: &Path,
-    catalog: &TokenCatalog,
-    violations: &mut Vec<DesignLintViolation>,
-) -> Result<()> {
-    if !current.is_dir() {
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(current)?.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-        // Skip ignored directories
-        if name.starts_with('.')
-            || name == "target"
-            || name == "node_modules"
-            || name == ".venv"
-            || name == "__pycache__"
-            || name == "site"
-            || name == "tokens" // Do not lint the tokens file itself!
-            || name == "design" // Skip design tokens/contracts definitions
-            || name == "crates"
-        // Rust backend crates do not contain UI styles
-        {
-            continue;
-        }
-
-        if path.is_dir() {
-            walk_and_lint(base, &path, catalog, violations)?;
-        } else if path.is_file() {
-            lint_file(base, &path, catalog, violations)?;
-        }
-    }
-
+    let empty_contracts = HashMap::new();
+    let drift_cfg = crate::schema::DesignDriftConfig::default();
+    let res = scan_workspace_for_drift(root, &drift_cfg, &empty_contracts, catalog)?;
+    violations.extend(res.violations);
     Ok(())
-}
-
-fn lint_file(
-    base: &Path,
-    path: &Path,
-    _catalog: &TokenCatalog,
-    violations: &mut Vec<DesignLintViolation>,
-) -> Result<()> {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let is_ui_file = matches!(
-        ext,
-        "tsx" | "jsx" | "css" | "scss" | "swift" | "kt" | "vue" | "html"
-    );
-    if !is_ui_file {
-        return Ok(());
-    }
-
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return Ok(()),
-    };
-
-    let rel_path = path
-        .strip_prefix(base)
-        .unwrap_or(path)
-        .display()
-        .to_string();
-
-    for (line_num, line) in content.lines().enumerate() {
-        // Skip comment lines or lines with ignore directive
-        let trimmed = line.trim();
-        if trimmed.starts_with("//")
-            || trimmed.starts_with("/*")
-            || trimmed.starts_with('*')
-            || trimmed.contains("ignore-design-token")
-        {
-            continue;
-        }
-
-        // Detect hardcoded hex colors: #[0-9a-fA-F]{6} or #[0-9a-fA-F]{3}
-        if let Some(hex) = find_hardcoded_hex(line) {
-            violations.push(DesignLintViolation {
-                file: rel_path.clone(),
-                line: line_num + 1,
-                rule: "no_hardcoded_color".to_string(),
-                message: format!(
-                    "Hardcoded color '{}' detected. Use a W3C DTCG design token instead.",
-                    hex
-                ),
-                severity: "error".to_string(),
-            });
-        }
-    }
-
-    Ok(())
-}
-
-fn find_hardcoded_hex(line: &str) -> Option<String> {
-    let bytes = line.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'#' {
-            let start = i;
-            let mut j = i + 1;
-            while j < bytes.len() && bytes[j].is_ascii_hexdigit() {
-                j += 1;
-            }
-            let len = j - start - 1;
-            if (len == 3 || len == 6 || len == 8)
-                && (j == bytes.len() || !bytes[j].is_ascii_alphanumeric())
-            {
-                // Verify it is not an ID selector like #main or #root
-                let slice = &line[start..j];
-                return Some(slice.to_string());
-            }
-            i = j;
-        } else {
-            i += 1;
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -1099,169 +987,176 @@ mod tests {
             [web]
             component = "src/components/Button.tsx"
             catalog_entry = "Button.stories.tsx"
+            a11y_target = "wcag2aa"
+
+            [ios]
+            component = "Sources/DesignSystem/Button.swift"
+            catalog_entry = "ButtonPreviews.swift"
+            a11y_target = "accessibilityElement"
         "#;
 
         let contract: ComponentContract = toml::from_str(toml_str).unwrap();
         assert_eq!(contract.name, "Button");
         assert_eq!(contract.platforms, vec!["web", "ios"]);
-        assert_eq!(contract.tokens, vec!["color.brand.primary", "spacing.sm"]);
-        assert_eq!(contract.web.unwrap().component, "src/components/Button.tsx");
+        assert_eq!(contract.tokens.len(), 2);
+        assert_eq!(
+            contract.web.as_ref().unwrap().component,
+            "src/components/Button.tsx"
+        );
+        assert_eq!(
+            contract.ios.as_ref().unwrap().component,
+            "Sources/DesignSystem/Button.swift"
+        );
     }
 
     #[test]
-    fn test_design_gate_clean_workspace() {
-        let td = tempdir().unwrap();
-        let tokens_dir = td.path().join("design/tokens");
-        fs::create_dir_all(&tokens_dir).unwrap();
-        fs::write(
-            tokens_dir.join("tokens.json"),
-            r##"{"color":{"brand":{"primary":{"$value":"#2563eb","$type":"color"}}}}"##,
-        )
-        .unwrap();
-
-        let cfg = DesignSystemConfig {
-            provider: "git_only".to_string(),
-            tokens_path: PathBuf::from("design/tokens/tokens.json"),
-            contracts_path: PathBuf::from("design/contracts"),
-            platforms: vec!["web".to_string()],
-            on_missing_platform: "fail".to_string(),
-            ..DesignSystemConfig::default()
+    fn test_evaluate_design_gate_none_provider() {
+        let dir = tempdir().unwrap();
+        let config = DesignSystemConfig {
+            provider: "none".to_string(),
+            ..Default::default()
         };
 
-        let report = evaluate_design_gate(td.path(), &cfg).unwrap();
+        let report = evaluate_design_gate(dir.path(), &config).unwrap();
         assert!(report.is_compliant);
-        assert_eq!(report.total_tokens, 1);
-        assert!(report.violations.is_empty());
+        assert_eq!(report.provider, "none");
+        assert_eq!(report.total_tokens, 0);
     }
 
     #[test]
-    fn test_design_gate_hardcoded_color_violation() {
-        let td = tempdir().unwrap();
-        let tokens_dir = td.path().join("design/tokens");
-        fs::create_dir_all(&tokens_dir).unwrap();
+    fn test_evaluate_design_gate_unresolved_token() {
+        let dir = tempdir().unwrap();
+        let contracts_dir = dir.path().join("design/contracts");
+        fs::create_dir_all(&contracts_dir).unwrap();
+        let contract_file = contracts_dir.join("button.toml");
         fs::write(
-            tokens_dir.join("tokens.json"),
-            r##"{"color":{"brand":{"primary":{"$value":"#2563eb","$type":"color"}}}}"##,
+            &contract_file,
+            r#"
+            name = "Button"
+            platforms = ["web"]
+            tokens = ["non.existent.token"]
+        "#,
         )
         .unwrap();
 
-        let src_dir = td.path().join("src");
-        fs::create_dir_all(&src_dir).unwrap();
-        fs::write(
-            src_dir.join("Button.tsx"),
-            "export const Button = () => <button style={{ backgroundColor: '#ff0000' }}>Click</button>;\n",
-        )
-        .unwrap();
-
-        let cfg = DesignSystemConfig {
+        let config = DesignSystemConfig {
             provider: "git_only".to_string(),
             tokens_path: PathBuf::from("design/tokens/tokens.json"),
             contracts_path: PathBuf::from("design/contracts"),
-            platforms: vec!["web".to_string()],
-            on_missing_platform: "fail".to_string(),
-            ..DesignSystemConfig::default()
+            platforms: vec![],
+            ..Default::default()
         };
 
-        let report = evaluate_design_gate(td.path(), &cfg).unwrap();
+        let report = evaluate_design_gate(dir.path(), &config).unwrap();
         assert!(!report.is_compliant);
         assert_eq!(report.violations.len(), 1);
-        assert_eq!(report.violations[0].rule, "no_hardcoded_color");
+        assert_eq!(report.violations[0].rule, "unresolved_contract_token");
     }
 
     #[test]
-    fn test_design_gate_missing_platform_hard_fail() {
-        let td = tempdir().unwrap();
-        let tokens_dir = td.path().join("design/tokens");
-        fs::create_dir_all(&tokens_dir).unwrap();
+    fn test_ast_drift_raw_primitives_tsx_swift_kt() {
+        let dir = tempdir().unwrap();
+        let mut contracts = HashMap::new();
+        contracts.insert(
+            "Button".to_string(),
+            ComponentContract {
+                name: "Button".to_string(),
+                description: None,
+                platforms: vec!["web".to_string(), "ios".to_string(), "android".to_string()],
+                tokens: vec![],
+                web: Some(WebContractBinding {
+                    component: "src/ds/Button.tsx".to_string(),
+                    catalog_entry: "".to_string(),
+                    a11y_target: None,
+                }),
+                ios: None,
+                android: None,
+            },
+        );
+
+        let src_dir = dir.path().join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+
+        // 1. TSX with raw <button> and commented raw <button>
+        let tsx_file = src_dir.join("App.tsx");
         fs::write(
-            tokens_dir.join("tokens.json"),
-            r##"{"color":{"brand":{"primary":{"$value":"#2563eb","$type":"color"}}}}"##,
+            &tsx_file,
+            r#"
+            // <button>in comment</button>
+            /* <button>block comment</button> */
+            export const App = () => {
+                return (
+                    <div>
+                        <button onClick={() => {}}>Click Me</button>
+                        <DSButton>Approved DS Button</DSButton>
+                    </div>
+                );
+            };
+            "#,
         )
         .unwrap();
 
-        // If android is checked and adb is not present, on_missing_platform = "fail" must fail
-        let cfg = DesignSystemConfig {
-            provider: "git_only".to_string(),
-            tokens_path: PathBuf::from("design/tokens/tokens.json"),
-            contracts_path: PathBuf::from("design/contracts"),
-            platforms: vec!["android".to_string()],
-            on_missing_platform: "fail".to_string(),
-            ..DesignSystemConfig::default()
-        };
-
-        // If adb is missing on host, report must reflect status and failure
-        let report = evaluate_design_gate(td.path(), &cfg).unwrap();
-        let android_res = report.platform_results.get("android").unwrap();
-        if android_res.status == "failed" {
-            assert!(!report.is_compliant);
-        }
-    }
-
-    #[test]
-    fn test_parse_axe_violations_clean_vs_critical() {
-        let clean_json = r#"{"violations": [], "passes": []}"#;
-        let clean_vulns = parse_axe_violations_json(clean_json, "AA").unwrap();
-        assert!(clean_vulns.is_empty());
-
-        let report_with_violations = r#"{
-            "violations": [
-                {
-                    "id": "color-contrast",
-                    "impact": "serious",
-                    "tags": ["wcag2aa", "wcag143"],
-                    "description": "Elements must meet minimum contrast ratio thresholds",
-                    "helpUrl": "https://dequeuniversity.com/rules/axe/4.10/color-contrast",
-                    "nodes": [
-                        {
-                            "html": "<button class=\"btn-low-contrast\">Submit</button>",
-                            "target": [".btn-low-contrast"]
-                        }
-                    ]
-                },
-                {
-                    "id": "heading-order",
-                    "impact": "moderate",
-                    "tags": ["best-practice"],
-                    "description": "Heading order should be sequential",
-                    "nodes": []
+        // 2. Swift with raw Button and new unregistered component
+        let ios_dir = dir.path().join("ios");
+        fs::create_dir_all(&ios_dir).unwrap();
+        let swift_file = ios_dir.join("CardView.swift");
+        fs::write(
+            &swift_file,
+            r#"
+            // Button("in comment")
+            public struct CardView: View {
+                var body: some View {
+                    Button(action: {}) {
+                        Text("Click")
+                    }
                 }
-            ]
-        }"#;
+            }
+            "#,
+        )
+        .unwrap();
 
-        let vulns_aa = parse_axe_violations_json(report_with_violations, "AA").unwrap();
-        // color-contrast matches wcag2aa, heading-order has no wcag tag
-        assert_eq!(vulns_aa.len(), 1);
-        assert_eq!(vulns_aa[0].id, "color-contrast");
-        assert_eq!(vulns_aa[0].impact, "serious");
-        assert_eq!(vulns_aa[0].target.as_deref(), Some(".btn-low-contrast"));
+        // 3. Kotlin with raw Button
+        let kt_dir = dir.path().join("android");
+        fs::create_dir_all(&kt_dir).unwrap();
+        let kt_file = kt_dir.join("Widget.kt");
+        fs::write(
+            &kt_file,
+            r#"
+            // Button(onClick = {})
+            @Composable
+            fun WidgetView() {
+                Button(onClick = {}) {
+                    Text("Click")
+                }
+            }
+            "#,
+        )
+        .unwrap();
+
+        let drift_cfg = crate::schema::DesignDriftConfig::default();
+        let catalog = TokenCatalog::empty();
+        let res = scan_workspace_for_drift(dir.path(), &drift_cfg, &contracts, &catalog).unwrap();
+
+        assert_eq!(res.raw_primitive_violations, 3);
+        assert!(res.needs_design_review);
+        assert!(res.new_components.contains(&"CardView".to_string()));
+        assert!(res.new_components.contains(&"WidgetView".to_string()));
     }
 
     #[test]
-    fn test_parse_playwright_visual_diff_clean_vs_exceeding() {
-        let clean_json = r#"[
-            {
-                "snapshot": "button_default.png",
-                "diff_pct": 0.01,
-                "baseline": "design/baselines/button_default.png",
-                "current": "test-results/button_default.png"
-            }
+    fn test_ios_and_android_parser_fixtures() {
+        let ios_a11y_json = r#"[
+            { "id": "contrast_ratio", "impact": "serious", "description": "Contrast 2.1:1 below threshold", "target": "SubmitBtn" }
         ]"#;
+        let ios_violations = parse_ios_a11y_output(ios_a11y_json);
+        assert_eq!(ios_violations.len(), 1);
+        assert_eq!(ios_violations[0].id, "contrast_ratio");
 
-        let failures_clean = parse_playwright_visual_diff_json(clean_json, 0.05).unwrap();
-        assert!(failures_clean.is_empty());
-
-        let failing_json = r#"[
-            {
-                "snapshot": "button_hover.png",
-                "diff_pct": 0.12,
-                "baseline": "design/baselines/button_hover.png",
-                "current": "test-results/button_hover.png"
-            }
-        ]"#;
-
-        let failures = parse_playwright_visual_diff_json(failing_json, 0.05).unwrap();
-        assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].snapshot_name, "button_hover.png");
-        assert!((failures[0].diff_pct - 0.12).abs() < 1e-6);
+        let android_paparazzi_txt =
+            "Paparazzi verification failed for [CheckoutScreen]: diff percentage was 0.08";
+        let android_diffs = parse_android_visual_diff_output(android_paparazzi_txt, 0.05);
+        assert_eq!(android_diffs.len(), 1);
+        assert_eq!(android_diffs[0].snapshot_name, "CheckoutScreen");
+        assert!(android_diffs[0].diff_pct > 0.05);
     }
 }

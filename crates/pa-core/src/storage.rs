@@ -244,9 +244,30 @@ pub struct RequirementLinkRecord {
     pub verified_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DesignGateResultRecord {
+    pub result_id: String,
+    pub task_id: Option<String>,
+    pub platform: String,
+    pub token_violations: usize,
+    pub raw_primitive_violations: usize,
+    pub new_components_count: usize,
+    pub needs_design_review: bool,
+    pub a11y_violations: usize,
+    pub visual_diff_pct: f64,
+    pub status: String,
+    pub created_at: String,
+}
+
 pub trait FactoryAnalyticsStore: Send + Sync {
     fn record_task(&self, task_ctx: &TaskContext, status: &str) -> Result<()>;
     fn record_traceability(&self, task_id: &str, report: &TraceabilityReport) -> Result<()>;
+    fn record_design_gate_report(
+        &self,
+        task_id: Option<&str>,
+        report: &crate::design::DesignGateReport,
+    ) -> Result<()>;
+    fn get_task_design_gate_results(&self, task_id: &str) -> Result<Vec<DesignGateResultRecord>>;
     fn insert_requirement_links(
         &self,
         task_id: Option<&str>,
@@ -610,7 +631,23 @@ impl SqliteAnalyticsStore {
                  verified_at TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_req_links_task ON requirement_links(task_id);
-             CREATE INDEX IF NOT EXISTS idx_req_links_req ON requirement_links(req_id);",
+             CREATE INDEX IF NOT EXISTS idx_req_links_req ON requirement_links(req_id);
+
+             CREATE TABLE IF NOT EXISTS design_gate_results (
+                 result_id TEXT PRIMARY KEY,
+                 task_id TEXT,
+                 platform TEXT NOT NULL,
+                 token_violations INTEGER NOT NULL DEFAULT 0,
+                 raw_primitive_violations INTEGER NOT NULL DEFAULT 0,
+                 new_components_count INTEGER NOT NULL DEFAULT 0,
+                 needs_design_review INTEGER NOT NULL DEFAULT 0,
+                 a11y_violations INTEGER NOT NULL DEFAULT 0,
+                 visual_diff_pct REAL NOT NULL DEFAULT 0.0,
+                 status TEXT NOT NULL,
+                 created_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_design_gate_results_task ON design_gate_results(task_id);
+             CREATE INDEX IF NOT EXISTS idx_design_gate_results_platform ON design_gate_results(platform);",
         )
         .context("Failed to initialize telemetry sync, BOM, supervisor queue, and eval tables")?;
 
@@ -772,6 +809,151 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
         self.insert_requirement_links(Some(task_id), &report.engine, report)?;
 
         Ok(())
+    }
+
+    fn record_design_gate_report(
+        &self,
+        task_id: Option<&str>,
+        report: &crate::design::DesignGateReport,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now_iso = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default();
+
+        let token_violations = report
+            .violations
+            .iter()
+            .filter(|v| v.rule == "no_hardcoded_color" || v.rule == "unresolved_contract_token")
+            .count();
+        let raw_primitive_violations = report
+            .violations
+            .iter()
+            .filter(|v| v.rule == "raw_primitive_violation")
+            .count();
+        let new_components_count = report.new_components.len();
+        let needs_design_review = report.needs_design_review;
+
+        if report.platform_results.is_empty() {
+            let result_id = format!("{}:workspace", task_id.unwrap_or("global"));
+            conn.execute(
+                "INSERT INTO design_gate_results (
+                     result_id, task_id, platform, token_violations, raw_primitive_violations,
+                     new_components_count, needs_design_review, a11y_violations, visual_diff_pct,
+                     status, created_at
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT(result_id) DO UPDATE SET
+                     token_violations = excluded.token_violations,
+                     raw_primitive_violations = excluded.raw_primitive_violations,
+                     new_components_count = excluded.new_components_count,
+                     needs_design_review = excluded.needs_design_review,
+                     a11y_violations = excluded.a11y_violations,
+                     visual_diff_pct = excluded.visual_diff_pct,
+                     status = excluded.status,
+                     created_at = excluded.created_at;",
+                params![
+                    result_id,
+                    task_id,
+                    "workspace",
+                    token_violations as i64,
+                    raw_primitive_violations as i64,
+                    new_components_count as i64,
+                    if needs_design_review { 1 } else { 0 },
+                    report.a11y_violations.len() as i64,
+                    0.0f64,
+                    if report.is_compliant {
+                        "passed"
+                    } else {
+                        "failed"
+                    },
+                    now_iso,
+                ],
+            )?;
+        } else {
+            for (platform, pres) in &report.platform_results {
+                let result_id = format!("{}:{}", task_id.unwrap_or("global"), platform);
+                let plat_a11y = report
+                    .a11y_violations
+                    .iter()
+                    .filter(|a| {
+                        a.id.contains(platform)
+                            || a.target.as_deref().unwrap_or("").contains(platform)
+                    })
+                    .count();
+                let plat_diff_pct = report
+                    .visual_diff_failures
+                    .iter()
+                    .map(|f| f.diff_pct)
+                    .fold(0.0f64, f64::max);
+
+                conn.execute(
+                    "INSERT INTO design_gate_results (
+                         result_id, task_id, platform, token_violations, raw_primitive_violations,
+                         new_components_count, needs_design_review, a11y_violations, visual_diff_pct,
+                         status, created_at
+                     )
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                     ON CONFLICT(result_id) DO UPDATE SET
+                         token_violations = excluded.token_violations,
+                         raw_primitive_violations = excluded.raw_primitive_violations,
+                         new_components_count = excluded.new_components_count,
+                         needs_design_review = excluded.needs_design_review,
+                         a11y_violations = excluded.a11y_violations,
+                         visual_diff_pct = excluded.visual_diff_pct,
+                         status = excluded.status,
+                         created_at = excluded.created_at;",
+                    params![
+                        result_id,
+                        task_id,
+                        platform,
+                        token_violations as i64,
+                        raw_primitive_violations as i64,
+                        new_components_count as i64,
+                        if needs_design_review { 1 } else { 0 },
+                        plat_a11y as i64,
+                        plat_diff_pct,
+                        pres.status,
+                        now_iso,
+                    ],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_task_design_gate_results(&self, task_id: &str) -> Result<Vec<DesignGateResultRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT result_id, task_id, platform, token_violations, raw_primitive_violations,
+                    new_components_count, needs_design_review, a11y_violations, visual_diff_pct,
+                    status, created_at
+             FROM design_gate_results WHERE task_id = ?1 ORDER BY platform ASC",
+        )?;
+
+        let rows = stmt.query_map(params![task_id], |row| {
+            Ok(DesignGateResultRecord {
+                result_id: row.get(0)?,
+                task_id: row.get(1)?,
+                platform: row.get(2)?,
+                token_violations: row.get::<_, i64>(3)? as usize,
+                raw_primitive_violations: row.get::<_, i64>(4)? as usize,
+                new_components_count: row.get::<_, i64>(5)? as usize,
+                needs_design_review: row.get::<_, i64>(6)? != 0,
+                a11y_violations: row.get::<_, i64>(7)? as usize,
+                visual_diff_pct: row.get(8)?,
+                status: row.get(9)?,
+                created_at: row.get(10)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
     }
 
     fn insert_requirement_links(
@@ -3319,5 +3501,46 @@ mod tests {
         assert_eq!(summary.total_cost_usd, 0.006);
         assert!(summary.by_rubric.contains_key("spec_adherence"));
         assert!(summary.by_rubric.contains_key("security_hygiene"));
+    }
+
+    #[test]
+    fn test_design_gate_results_storage() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("factory.db");
+        let store = SqliteAnalyticsStore::open_or_create(&db_path).unwrap();
+
+        let mut report = crate::design::DesignGateReport::empty("git_only");
+        report.needs_design_review = true;
+        report.new_components = vec!["CardView".to_string()];
+        report.violations.push(crate::design::DesignLintViolation {
+            file: "App.tsx".to_string(),
+            line: 5,
+            rule: "raw_primitive_violation".to_string(),
+            message: "raw button".to_string(),
+            severity: "warning".to_string(),
+        });
+        report.platform_results.insert(
+            "ios".to_string(),
+            crate::design::PlatformGateResult {
+                platform: "ios".to_string(),
+                status: "passed".to_string(),
+                message: "ios active".to_string(),
+                details: vec![],
+            },
+        );
+
+        store
+            .record_design_gate_report(Some("task-feat-design-1"), &report)
+            .unwrap();
+
+        let results = store
+            .get_task_design_gate_results("task-feat-design-1")
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].platform, "ios");
+        assert_eq!(results[0].raw_primitive_violations, 1);
+        assert_eq!(results[0].new_components_count, 1);
+        assert!(results[0].needs_design_review);
+        assert_eq!(results[0].status, "passed");
     }
 }

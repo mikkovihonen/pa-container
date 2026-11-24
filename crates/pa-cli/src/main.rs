@@ -7,6 +7,7 @@ use pa_core::review::review_agent_workspace;
 use pa_core::schema::{
     default_factory_roles, load_factory_config, resolve_agent_sockets, AgentSpec,
 };
+use pa_core::storage::FactoryAnalyticsStore;
 use serde_json::json;
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -296,6 +297,13 @@ pub struct DesignTokensArgs {
 pub struct DesignCheckArgs {
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Target platform to check (web | ios | android | all)",
+        default_value = "all"
+    )]
+    pub platform: String,
 
     #[arg(long, help = "Output compliance report as JSON")]
     pub json: bool,
@@ -1868,6 +1876,28 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             design_report.is_compliant
         );
 
+        if design_report.needs_design_review {
+            println!(
+                "==> [DESIGN REVIEW NEEDED] Newly exported UI components require contract registration: {:?}",
+                design_report.new_components
+            );
+        }
+
+        // Record design gate results in SQLite analytics store
+        if let Ok(store) =
+            pa_core::storage::SqliteAnalyticsStore::open_or_create(&config.storage.path)
+        {
+            let _ = store.record_design_gate_report(Some(&task_ctx.task_id), &design_report);
+        }
+
+        // Emit OTLP design system gate child span
+        let _ = pa_core::telemetry::emit_design_gate_span(
+            &task_ctx,
+            &design_report,
+            &config.telemetry.otlp,
+            Some(&cwd.join(".pa/telemetry")),
+        );
+
         if !design_report.is_compliant {
             eprintln!(
                 "[ERROR] Design system gate failed with {} violation(s) across platforms.",
@@ -2073,11 +2103,9 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             design_system: Some(format!("{}:default", config.design_system.provider)),
             design_refs: task_ctx.design_refs.clone(),
             design_platforms: config.design_system.platforms.clone(),
-            design_gate: Some(if design_report.is_compliant {
-                "passed".to_string()
-            } else {
-                "failed".to_string()
-            }),
+            design_gate: Some(pa_core::git_trailers::format_design_gate_trailer(
+                &design_report,
+            )),
             agent_role: Some("verifier".to_string()),
             model: task_ctx.model_profile.clone(),
             cost_usd: task_ctx.cost_usd,
@@ -2668,8 +2696,24 @@ fn handle_design_check(args: &DesignCheckArgs) -> Result<()> {
         load_factory_config(None)?
     };
 
-    println!("==> Evaluating Cross-Platform Design System Gate...");
-    let report = pa_core::design::evaluate_design_gate(&cwd, &config.design_system)?;
+    let mut design_config = config.design_system.clone();
+    if args.platform.to_lowercase() != "all" {
+        design_config.platforms = vec![args.platform.to_lowercase()];
+    }
+
+    if !args.json {
+        println!(
+            "==> Evaluating Cross-Platform Design System Gate (Platforms: {:?})...",
+            design_config.platforms
+        );
+    }
+    let report = pa_core::design::evaluate_design_gate(&cwd, &design_config)?;
+
+    // Record in SQLite store
+    if let Ok(store) = pa_core::storage::SqliteAnalyticsStore::open_or_create(&config.storage.path)
+    {
+        let _ = store.record_design_gate_report(None, &report);
+    }
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -2693,6 +2737,12 @@ fn handle_design_check(args: &DesignCheckArgs) -> Result<()> {
             "FAILED"
         }
     );
+    if report.needs_design_review {
+        println!(
+            "Review Status:   NEEDS DESIGN REVIEW (unregistered: {:?})",
+            report.new_components
+        );
+    }
 
     println!("\nPlatform Verification Status:");
     for (platform, res) in &report.platform_results {
@@ -4395,12 +4445,13 @@ mod tests {
 
     #[test]
     fn test_cli_parsing_design_check() {
-        let args = vec!["pa", "design", "check", "--json"];
+        let args = vec!["pa", "design", "check", "--platform", "ios", "--json"];
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Design(DesignArgs {
                 command: DesignCommands::Check(c),
             }) => {
+                assert_eq!(c.platform, "ios");
                 assert!(c.json);
             }
             _ => panic!("Expected Design Check command"),

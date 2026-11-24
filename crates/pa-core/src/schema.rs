@@ -584,17 +584,127 @@ impl Default for WebPlatformSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DesignDriftConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_drift_engine")]
+    pub engine: String, // "native", "external", "hybrid", "none"
+    #[serde(default = "default_true")]
+    pub flag_new_primitives: bool,
+    #[serde(default = "default_on_raw_primitive")]
+    pub on_raw_primitive: String, // "warn", "block"
+    #[serde(default = "default_on_new_primitive")]
+    pub on_new_primitive: String, // "needs_design_review", "warn", "block"
+    #[serde(default = "default_raw_primitives")]
+    pub raw_primitives: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub linter_command: Option<String>,
+    #[serde(default = "default_drift_ignore_paths")]
+    pub ignore_paths: Vec<String>,
+}
+
+fn default_drift_engine() -> String {
+    "native".to_string()
+}
+fn default_on_raw_primitive() -> String {
+    "warn".to_string()
+}
+fn default_on_new_primitive() -> String {
+    "needs_design_review".to_string()
+}
+fn default_raw_primitives() -> HashMap<String, Vec<String>> {
+    let mut m = HashMap::new();
+    m.insert(
+        "web".to_string(),
+        vec![
+            "button".to_string(),
+            "input".to_string(),
+            "select".to_string(),
+            "textarea".to_string(),
+            "a".to_string(),
+        ],
+    );
+    m.insert(
+        "ios".to_string(),
+        vec![
+            "Button".to_string(),
+            "TextField".to_string(),
+            "SecureField".to_string(),
+            "Toggle".to_string(),
+        ],
+    );
+    m.insert(
+        "android".to_string(),
+        vec![
+            "Button".to_string(),
+            "TextField".to_string(),
+            "OutlinedTextField".to_string(),
+            "Switch".to_string(),
+        ],
+    );
+    m
+}
+fn default_drift_ignore_paths() -> Vec<String> {
+    vec![
+        "**/tests/**".to_string(),
+        "**/*.test.*".to_string(),
+        "**/*.spec.*".to_string(),
+        "design/**".to_string(),
+    ]
+}
+
+impl Default for DesignDriftConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            engine: default_drift_engine(),
+            flag_new_primitives: true,
+            on_raw_primitive: default_on_raw_primitive(),
+            on_new_primitive: default_on_new_primitive(),
+            raw_primitives: default_raw_primitives(),
+            linter_command: None,
+            ignore_paths: default_drift_ignore_paths(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IosPlatformSpec {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_ios_paths")]
+    pub paths: Vec<String>,
     #[serde(default = "default_ios_catalog")]
     pub catalog: String,
     #[serde(default = "default_ios_runner")]
     pub runner: String,
     #[serde(default = "default_ios_a11y")]
     pub a11y_engine: String,
+    #[serde(default)]
+    pub a11y_command: Option<String>,
     #[serde(default = "default_ios_visual")]
     pub visual_regression: String,
+    #[serde(default = "default_ios_visual_tool")]
+    pub visual_diff_tool: String,
+    #[serde(default)]
+    pub visual_diff_command: Option<String>,
+    #[serde(default = "default_ios_baseline_dir")]
+    pub baseline_dir: PathBuf,
+    #[serde(default = "default_max_visual_diff_pct")]
+    pub max_visual_diff_pct: f64,
+    #[serde(default = "default_ios_simulator_device")]
+    pub simulator_device: Option<String>,
+    #[serde(default = "default_on_missing_tool_skip")]
+    pub on_missing_platform: String,
 }
 
+fn default_ios_paths() -> Vec<String> {
+    vec![
+        "ios/**".to_string(),
+        "Sources/**".to_string(),
+        "**/*.swift".to_string(),
+    ]
+}
 fn default_ios_catalog() -> String {
     "swiftui_previews".to_string()
 }
@@ -607,30 +717,73 @@ fn default_ios_a11y() -> String {
 fn default_ios_visual() -> String {
     "swift_snapshot".to_string()
 }
+fn default_ios_visual_tool() -> String {
+    "swift_snapshot".to_string()
+}
+fn default_ios_baseline_dir() -> PathBuf {
+    PathBuf::from("design/baselines/ios")
+}
+fn default_ios_simulator_device() -> Option<String> {
+    Some("iPhone 16 Pro".to_string())
+}
 
 impl Default for IosPlatformSpec {
     fn default() -> Self {
         Self {
+            enabled: true,
+            paths: default_ios_paths(),
             catalog: default_ios_catalog(),
             runner: default_ios_runner(),
             a11y_engine: default_ios_a11y(),
+            a11y_command: None,
             visual_regression: default_ios_visual(),
+            visual_diff_tool: default_ios_visual_tool(),
+            visual_diff_command: None,
+            baseline_dir: default_ios_baseline_dir(),
+            max_visual_diff_pct: default_max_visual_diff_pct(),
+            simulator_device: default_ios_simulator_device(),
+            on_missing_platform: default_on_missing_tool_skip(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AndroidPlatformSpec {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_android_paths")]
+    pub paths: Vec<String>,
     #[serde(default = "default_android_catalog")]
     pub catalog: String,
     #[serde(default = "default_android_runner")]
     pub runner: String,
     #[serde(default = "default_android_a11y")]
     pub a11y_engine: String,
+    #[serde(default)]
+    pub a11y_command: Option<String>,
     #[serde(default = "default_android_visual")]
     pub visual_regression: String,
+    #[serde(default = "default_android_visual_tool")]
+    pub visual_diff_tool: String,
+    #[serde(default)]
+    pub visual_diff_command: Option<String>,
+    #[serde(default = "default_android_baseline_dir")]
+    pub baseline_dir: PathBuf,
+    #[serde(default = "default_max_visual_diff_pct")]
+    pub max_visual_diff_pct: f64,
+    #[serde(default = "default_android_adb_host")]
+    pub adb_host: Option<String>,
+    #[serde(default = "default_on_missing_tool_skip")]
+    pub on_missing_platform: String,
 }
 
+fn default_android_paths() -> Vec<String> {
+    vec![
+        "android/**".to_string(),
+        "app/**".to_string(),
+        "**/*.kt".to_string(),
+    ]
+}
 fn default_android_catalog() -> String {
     "compose_previews".to_string()
 }
@@ -643,14 +796,32 @@ fn default_android_a11y() -> String {
 fn default_android_visual() -> String {
     "paparazzi".to_string()
 }
+fn default_android_visual_tool() -> String {
+    "paparazzi".to_string()
+}
+fn default_android_baseline_dir() -> PathBuf {
+    PathBuf::from("design/baselines/android")
+}
+fn default_android_adb_host() -> Option<String> {
+    Some("host.containers.internal:5037".to_string())
+}
 
 impl Default for AndroidPlatformSpec {
     fn default() -> Self {
         Self {
+            enabled: true,
+            paths: default_android_paths(),
             catalog: default_android_catalog(),
             runner: default_android_runner(),
             a11y_engine: default_android_a11y(),
+            a11y_command: None,
             visual_regression: default_android_visual(),
+            visual_diff_tool: default_android_visual_tool(),
+            visual_diff_command: None,
+            baseline_dir: default_android_baseline_dir(),
+            max_visual_diff_pct: default_max_visual_diff_pct(),
+            adb_host: default_android_adb_host(),
+            on_missing_platform: default_on_missing_tool_skip(),
         }
     }
 }
@@ -671,6 +842,8 @@ pub struct DesignSystemConfig {
     pub endpoint: Option<String>,
     #[serde(default)]
     pub auth_key: Option<String>,
+    #[serde(default)]
+    pub drift: DesignDriftConfig,
     #[serde(default)]
     pub web: WebPlatformSpec,
     #[serde(default)]
@@ -705,6 +878,7 @@ impl Default for DesignSystemConfig {
             on_missing_platform: default_on_missing_platform(),
             endpoint: None,
             auth_key: None,
+            drift: DesignDriftConfig::default(),
             web: WebPlatformSpec::default(),
             ios: IosPlatformSpec::default(),
             android: AndroidPlatformSpec::default(),
@@ -1518,5 +1692,70 @@ temperature = 0.0
         assert_eq!(config.evals.system2.provider, "llama_server");
         assert_eq!(config.evals.system2.model, "qwen2.5-coder-32b");
         assert_eq!(config.evals.system2.temperature, 0.0);
+    }
+
+    #[test]
+    fn test_design_drift_and_mobile_specs() {
+        let default_drift = DesignDriftConfig::default();
+        assert!(default_drift.enabled);
+        assert_eq!(default_drift.engine, "native");
+        assert!(default_drift.flag_new_primitives);
+        assert_eq!(default_drift.on_raw_primitive, "warn");
+        assert_eq!(default_drift.on_new_primitive, "needs_design_review");
+        assert!(default_drift.raw_primitives.contains_key("web"));
+        assert!(default_drift.raw_primitives.contains_key("ios"));
+        assert!(default_drift.raw_primitives.contains_key("android"));
+
+        let default_ios = IosPlatformSpec::default();
+        assert!(default_ios.enabled);
+        assert_eq!(default_ios.visual_diff_tool, "swift_snapshot");
+        assert_eq!(default_ios.on_missing_platform, "skip");
+
+        let default_android = AndroidPlatformSpec::default();
+        assert!(default_android.enabled);
+        assert_eq!(default_android.visual_diff_tool, "paparazzi");
+        assert_eq!(default_android.on_missing_platform, "skip");
+
+        let toml_str = r#"
+schema_version = "2.1"
+
+[design_system]
+provider = "git_only"
+platforms = ["web", "ios", "android"]
+
+[design_system.drift]
+enabled = true
+engine = "hybrid"
+on_new_primitive = "block"
+linter_command = "npx eslint --format json"
+
+[design_system.ios]
+enabled = true
+visual_diff_tool = "simctl_diff"
+max_visual_diff_pct = 0.02
+on_missing_platform = "block"
+
+[design_system.android]
+enabled = true
+visual_diff_tool = "adb_screencap"
+max_visual_diff_pct = 0.03
+on_missing_platform = "skip"
+"#;
+        let config: FactoryConfig =
+            toml::from_str(toml_str).expect("Failed to parse design system drift/mobile TOML");
+        assert_eq!(config.design_system.drift.engine, "hybrid");
+        assert_eq!(config.design_system.drift.on_new_primitive, "block");
+        assert_eq!(
+            config.design_system.drift.linter_command.as_deref(),
+            Some("npx eslint --format json")
+        );
+        assert_eq!(config.design_system.ios.visual_diff_tool, "simctl_diff");
+        assert_eq!(config.design_system.ios.max_visual_diff_pct, 0.02);
+        assert_eq!(config.design_system.ios.on_missing_platform, "block");
+        assert_eq!(
+            config.design_system.android.visual_diff_tool,
+            "adb_screencap"
+        );
+        assert_eq!(config.design_system.android.max_visual_diff_pct, 0.03);
     }
 }

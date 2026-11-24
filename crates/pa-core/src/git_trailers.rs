@@ -191,6 +191,26 @@ pub fn format_traceability_trailer(report: &crate::traceability::TraceabilityRep
     )
 }
 
+pub fn format_design_gate_trailer(report: &crate::design::DesignGateReport) -> String {
+    if !report.is_compliant {
+        let raw_count = report
+            .violations
+            .iter()
+            .filter(|v| v.rule == "raw_primitive_violation")
+            .count();
+        format!(
+            "fail (drift={}, a11y={}, visual={})",
+            raw_count,
+            report.a11y_violations.len(),
+            report.visual_diff_failures.len()
+        )
+    } else if report.needs_design_review {
+        "pass (needs-design-review)".to_string()
+    } else {
+        "pass".to_string()
+    }
+}
+
 pub fn stamp_head_commit(repo_path: &Path, meta: &GitProvenanceMetadata) -> Result<()> {
     // Get existing commit message
     let out = Command::new("git")
@@ -268,5 +288,30 @@ mod tests {
         assert_eq!(parsed.kr_ids, vec!["KR-AUTH-01", "KR-AUTH-02"]);
         assert_eq!(parsed.design_gate.as_deref(), Some("passed"));
         assert_eq!(parsed.cost_usd, Some(0.1420));
+    }
+
+    #[test]
+    fn test_format_design_gate_trailer() {
+        let mut report = crate::design::DesignGateReport::empty("git_only");
+        assert_eq!(format_design_gate_trailer(&report), "pass");
+
+        report.needs_design_review = true;
+        assert_eq!(
+            format_design_gate_trailer(&report),
+            "pass (needs-design-review)"
+        );
+
+        report.is_compliant = false;
+        report.violations.push(crate::design::DesignLintViolation {
+            file: "app.tsx".to_string(),
+            line: 10,
+            rule: "raw_primitive_violation".to_string(),
+            message: "raw button".to_string(),
+            severity: "error".to_string(),
+        });
+        assert_eq!(
+            format_design_gate_trailer(&report),
+            "fail (drift=1, a11y=0, visual=0)"
+        );
     }
 }

@@ -78,11 +78,28 @@ enabled = true
 # Provider: "git_only", "penpot", "figma", or "none"
 provider = "git_only"
 tokens_path = "design/tokens/tokens.json"
-contracts_dir = "design/contracts"
-platforms = ["web"]
-on_missing_platform = "fail"
-static_lint = true
-verify_contracts = true
+contracts_path = "design/contracts"
+platforms = ["web", "ios", "android"]
+on_missing_platform = "skip"
+
+[design_system.drift]
+enabled = true
+engine = "native"
+flag_new_primitives = true
+on_raw_primitive = "warn"
+on_new_primitive = "needs_design_review"
+
+[design_system.ios]
+enabled = true
+visual_diff_tool = "swift_snapshot"
+max_visual_diff_pct = 0.05
+on_missing_platform = "skip"
+
+[design_system.android]
+enabled = true
+visual_diff_tool = "paparazzi"
+max_visual_diff_pct = 0.05
+on_missing_platform = "skip"
 
 [governance]
 enabled = true
@@ -188,14 +205,49 @@ tokens = ["ANTHROPIC_API_KEY"]
     - `"figma"`: Integrates with Figma REST APIs.
     - `"none"`: Disables design system verification.
 - **`tokens_path`**: Path to W3C DTCG token catalog (defaults to `design/tokens/tokens.json`).
-- **`contracts_dir`**: Path to component contract definitions (defaults to `design/contracts`).
+- **`contracts_path`**: Path to component contract definitions (defaults to `design/contracts`).
 - **`platforms`**: Target platforms to verify (`["web"]`, `["web", "ios"]`, `["web", "ios", "android"]`). Defaults to `["web"]`.
 - **`on_missing_platform`**: Behavior when a declared platform's host toolchain (`simctl`, `adb`) is missing:
     - `"fail"` *(Default for declared platforms)*: Hard-fails the gate with diagnostic instructions.
     - `"warn"`: Emits a structured warning and continues.
     - `"skip"`: Skips testing the missing platform without failing.
-- **`static_lint`**: Runs static token linters (e.g. `no_hardcoded_color`) against modified UI files.
-- **`verify_contracts`**: Validates component contracts against declared token references.
+
+#### `[design_system.drift]`
+- **`enabled`**: Enables AST component drift and raw primitive detection (defaults to `true`).
+- **`engine`**: Drift analysis engine (`"native"` [default], `"external"`, `"hybrid"`, `"none"`).
+- **`flag_new_primitives`**: When `true`, detects newly exported UI components outside contracts catalog (defaults to `true`).
+- **`on_raw_primitive`**: Action when raw primitive (`<button>`, SwiftUI `Button`, Compose `Button`) is detected when an approved contract exists:
+    - `"warn"` *(Default)*: Emits a lint warning.
+    - `"block"`: Fails the gate.
+- **`on_new_primitive`**: Action when an unregistered exported UI component is detected:
+    - `"needs_design_review"` *(Default)*: Passes the gate, records `needs_design_review = true`, and stamps `X-PA-Design-Gate: needs-design-review`.
+    - `"warn"`: Emits a warning and passes.
+    - `"block"`: Fails the gate.
+- **`linter_command`**: Optional external linter delegate command (e.g. `"npx eslint --format json"`).
+- **`ignore_paths`**: Glob patterns excluded from drift scanning (defaults to `["**/tests/**", "**/*.test.*", "**/*.spec.*", "design/**"]`).
+
+#### `[design_system.ios]`
+- **`enabled`**: Enables native iOS SwiftUI and preview verification (defaults to `true`).
+- **`paths`**: File globs triggering iOS checks (defaults to `["ios/**", "Sources/**", "**/*.swift"]`).
+- **`runner`**: iOS simulator test execution runner (defaults to `"ios_runnerd"`).
+- **`a11y_engine`**: Accessibility audit engine (defaults to `"xctest_a11y"`).
+- **`a11y_command`**: Optional command to execute XCTest accessibility audits (`performAccessibilityAudit()`).
+- **`visual_diff_tool`**: Visual regression diff tool (`"swift_snapshot"`, `"simctl_diff"`, `"custom_cmd"`, `"none"`).
+- **`baseline_dir`**: Directory containing baseline reference screenshots (defaults to `"design/baselines/ios"`).
+- **`max_visual_diff_pct`**: Maximum tolerated visual diff percentage (defaults to `0.05`).
+- **`on_missing_platform`**: Behavior when `xcrun simctl` / Xcode CLI is missing (`"skip"` [default] or `"block"`).
+
+#### `[design_system.android]`
+- **`enabled`**: Enables native Android Jetpack Compose verification (defaults to `true`).
+- **`paths`**: File globs triggering Android checks (defaults to `["android/**", "app/**", "**/*.kt"]`).
+- **`runner`**: Android verification runner (defaults to `"paparazzi"`).
+- **`a11y_engine`**: Android accessibility engine (defaults to `"espresso_a11y"`).
+- **`a11y_command`**: Optional command to execute Android accessibility checks.
+- **`visual_diff_tool`**: Visual regression tool (`"paparazzi"`, `"roborazzi"`, `"adb_screencap"`, `"custom_cmd"`, `"none"`).
+- **`baseline_dir`**: Directory containing baseline reference screenshots (defaults to `"design/baselines/android"`).
+- **`max_visual_diff_pct`**: Maximum tolerated visual diff percentage (defaults to `0.05`).
+- **`adb_host`**: ADB server endpoint for live emulator commands (defaults to `"host.containers.internal:5037"`).
+- **`on_missing_platform`**: Behavior when Android SDK / ADB / Gradle is missing (`"skip"` [default] or `"block"`).
 
 #### `[governance]`
 - **`enabled`**: Enables closed-loop governance gating before task dispatch.

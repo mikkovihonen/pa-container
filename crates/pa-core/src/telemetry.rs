@@ -596,6 +596,155 @@ pub fn emit_traceability_span(
     }
 }
 
+pub fn build_otlp_design_span_payload(
+    task_ctx: &TaskContext,
+    report: &crate::design::DesignGateReport,
+    service_name: &str,
+) -> serde_json::Value {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let start_nanos = now_nanos.to_string();
+    let end_nanos = (now_nanos + 1_000_000).to_string();
+    let child_span_id = generate_span_id();
+
+    let platforms_str = report
+        .platform_results
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(",");
+    let raw_primitive_violations = report
+        .violations
+        .iter()
+        .filter(|v| v.rule == "raw_primitive_violation")
+        .count();
+
+    let attrs = vec![
+        serde_json::json!({
+            "key": "pa.task_id",
+            "value": { "stringValue": task_ctx.task_id }
+        }),
+        serde_json::json!({
+            "key": "openinference.span.kind",
+            "value": { "stringValue": "GUARDRAIL" }
+        }),
+        serde_json::json!({
+            "key": "pa.gate.type",
+            "value": { "stringValue": "design_system" }
+        }),
+        serde_json::json!({
+            "key": "pa.design.provider",
+            "value": { "stringValue": report.provider }
+        }),
+        serde_json::json!({
+            "key": "pa.design.platforms",
+            "value": { "stringValue": platforms_str }
+        }),
+        serde_json::json!({
+            "key": "pa.design.is_compliant",
+            "value": { "boolValue": report.is_compliant }
+        }),
+        serde_json::json!({
+            "key": "pa.design.needs_design_review",
+            "value": { "boolValue": report.needs_design_review }
+        }),
+        serde_json::json!({
+            "key": "pa.design.new_components_count",
+            "value": { "intValue": report.new_components.len() as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.design.raw_primitive_violations",
+            "value": { "intValue": raw_primitive_violations as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.design.total_violations",
+            "value": { "intValue": report.violations.len() as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.design.a11y_violations",
+            "value": { "intValue": report.a11y_violations.len() as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.design.visual_diff_failures",
+            "value": { "intValue": report.visual_diff_failures.len() as i64 }
+        }),
+    ];
+
+    serde_json::json!({
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [{
+                    "key": "service.name",
+                    "value": { "stringValue": service_name }
+                }]
+            },
+            "scopeSpans": [{
+                "scope": {
+                    "name": "pa.gate.design_system",
+                    "version": "2.0.0"
+                },
+                "spans": [{
+                    "traceId": task_ctx.trace_id,
+                    "spanId": child_span_id,
+                    "parentSpanId": task_ctx.span_id,
+                    "name": "pa.gate.design_system",
+                    "kind": 1,
+                    "startTimeUnixNano": start_nanos,
+                    "endTimeUnixNano": end_nanos,
+                    "attributes": attrs,
+                    "status": {
+                        "code": if report.is_compliant { 1 } else { 2 },
+                        "message": if report.is_compliant {
+                            if report.needs_design_review { "NEEDS_DESIGN_REVIEW" } else { "PASSED" }
+                        } else {
+                            "FAILED"
+                        }
+                    }
+                }]
+            }]
+        }]
+    })
+}
+
+pub fn emit_design_gate_span(
+    task_ctx: &TaskContext,
+    report: &crate::design::DesignGateReport,
+    config: &OtlpTelemetrySpec,
+    fallback_dir: Option<&Path>,
+) -> Result<()> {
+    let payload = build_otlp_design_span_payload(task_ctx, report, "pa-container");
+    let fallback_path = fallback_dir
+        .map(|d| d.join("events.jsonl"))
+        .unwrap_or_else(|| PathBuf::from(".pa/telemetry/events.jsonl"));
+
+    if config.provider.to_lowercase() == "none" {
+        append_local_event_jsonl(&payload, &fallback_path)?;
+        return Ok(());
+    }
+
+    let post_result = ureq::post(&config.endpoint)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_millis(
+            config.batch_timeout_ms.max(500),
+        ))
+        .send_json(&payload);
+
+    match post_result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!(
+                "[WARN] OTLP design gate span export to {} failed ({}). Degrading to local JSONL: {}",
+                config.endpoint,
+                e,
+                fallback_path.display()
+            );
+            append_local_event_jsonl(&payload, &fallback_path)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
