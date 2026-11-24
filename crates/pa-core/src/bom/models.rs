@@ -127,6 +127,8 @@ pub struct SpecStrategySupplyChain {
     pub spec_hashes: BTreeMap<String, String>,
     pub design_token_hash: Option<String>,
     pub design_contract_hashes: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traceability_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

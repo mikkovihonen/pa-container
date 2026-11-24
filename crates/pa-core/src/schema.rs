@@ -475,6 +475,16 @@ pub struct TraceabilityConfig {
     pub enforce_test_linkage: bool,
     #[serde(default)]
     pub custom_cmd: Option<String>,
+    #[serde(default = "default_junit_report_paths")]
+    pub junit_report_paths: Vec<String>,
+    #[serde(default)]
+    pub coverage_report_path: Option<String>,
+    #[serde(default)]
+    pub require_test_execution: bool,
+    #[serde(default)]
+    pub min_line_coverage_pct: Option<f64>,
+    #[serde(default = "default_on_missing_tool_skip")]
+    pub on_missing_tool: String,
 }
 
 fn default_traceability_engine() -> String {
@@ -486,6 +496,9 @@ fn default_spec_dir() -> PathBuf {
 fn default_min_coverage() -> f64 {
     95.0
 }
+fn default_junit_report_paths() -> Vec<String> {
+    vec![".pa/reports/junit.xml".to_string()]
+}
 
 impl Default for TraceabilityConfig {
     fn default() -> Self {
@@ -495,6 +508,11 @@ impl Default for TraceabilityConfig {
             min_coverage_pct: default_min_coverage(),
             enforce_test_linkage: true,
             custom_cmd: None,
+            junit_report_paths: default_junit_report_paths(),
+            coverage_report_path: None,
+            require_test_execution: false,
+            min_line_coverage_pct: None,
+            on_missing_tool: default_on_missing_tool_skip(),
         }
     }
 }

@@ -62,13 +62,16 @@ provider = "sqlite"
 path = ".pa/factory.db"
 
 [traceability]
-enabled = true
 # Engine: "openfasttrace", "strictdoc", "custom_cmd", or "none"
 engine = "openfasttrace"
 spec_dir = "docs/specs"
-scan_dirs = ["crates", "src", "tests", "docs"]
-min_coverage_pct = 80.0
-strict_mode = false
+min_coverage_pct = 95.0
+enforce_test_linkage = true
+junit_report_paths = [".pa/reports/junit.xml"]
+coverage_report_path = ".pa/reports/lcov.info"
+require_test_execution = false
+min_line_coverage_pct = 80.0
+on_missing_tool = "skip"
 
 [design_system]
 enabled = true
@@ -161,16 +164,21 @@ tokens = ["ANTHROPIC_API_KEY"]
 - **`path`**: Local SQLite database path (defaults to `.pa/factory.db`) or cloud connection URI.
 
 #### `[traceability]`
-- **`enabled`**: Enables automated requirement and test traceability scanning.
 - **`engine`**: Active specification scanner:
     - `"openfasttrace"` *(Default)*: Embedded scanner for `req~`, `impl~`, `utest~`, and `vtest~` tags.
-    - `"strictdoc"`: StrictDoc requirements format adapter.
+    - `"strictdoc"`: StrictDoc requirements format adapter (`.sdoc` and `@relation(...)`).
     - `"custom_cmd"`: Invokes a custom external verification command.
     - `"none"`: Disables requirement traceability checks.
 - **`spec_dir`**: Directory where specification documents reside (defaults to `docs/specs`).
-- **`scan_dirs`**: Workspace directories scanned for implementation and test tags.
-- **`min_coverage_pct`**: Minimum required implementation and test coverage threshold (defaults to `80.0`).
-- **`strict_mode`**: When `true`, missing tests or implementations immediately fail the pipeline.
+- **`min_coverage_pct`**: Minimum required implementation and test coverage threshold (defaults to `95.0`).
+- **`enforce_test_linkage`**: When `true`, every requirement must have linked test items (defaults to `true`).
+- **`junit_report_paths`**: List of JUnit XML test report paths checked for execution verification (defaults to `[".pa/reports/junit.xml"]`).
+- **`coverage_report_path`**: Path to an LCOV (`lcov.info`) or `gcov`/`llvm-cov` JSON report for line coverage measurement.
+- **`require_test_execution`**: When `true`, requires that linked tests actually executed and passed in the JUnit XML report.
+- **`min_line_coverage_pct`**: Optional minimum line coverage threshold for linked implementation files (0.0 to 100.0).
+- **`on_missing_tool`**: Fallback policy when optional external tools (like `strictdoc` CLI) are not installed:
+    - `"skip"` *(Default)*: Warns and continues with native pure-Rust analysis.
+    - `"block"`: Hard-fails the gate.
 
 #### `[design_system]`
 - **`enabled`**: Master toggle for cross-platform design system contract verification.

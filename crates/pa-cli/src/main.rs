@@ -211,6 +211,30 @@ pub struct TraceabilityCheckArgs {
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
 
+    #[arg(
+        long,
+        help = "Traceability engine (openfasttrace | strictdoc | custom_cmd | none)"
+    )]
+    pub engine: Option<String>,
+
+    #[arg(long, help = "Path to JUnit XML test report")]
+    pub junit: Option<PathBuf>,
+
+    #[arg(long, help = "Path to LCOV or gcov/llvm-cov JSON coverage report")]
+    pub coverage: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Enforce that all linked tests must have executed and passed"
+    )]
+    pub require_test_execution: bool,
+
+    #[arg(
+        long,
+        help = "Minimum line coverage percentage threshold (0.0 - 100.0)"
+    )]
+    pub min_line_coverage: Option<f64>,
+
     #[arg(long, help = "Output report as JSON")]
     pub json: bool,
 }
@@ -1997,6 +2021,13 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             let _ = store.record_traceability(&task_ctx.task_id, &trace_report);
         }
 
+        let _ = pa_core::telemetry::emit_traceability_span(
+            &task_ctx,
+            &trace_report,
+            &config.telemetry.otlp,
+            Some(&cwd.join(".pa/telemetry")),
+        );
+
         // Resolve OKR hierarchy
         let okr_store =
             pa_core::okr::OkrStore::load_from_dir(&cwd.join("docs/okrs")).unwrap_or_default();
@@ -2036,9 +2067,8 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             objective_id: Some(resolved_obj),
             kr_ids: resolved_krs,
             req_ids: task_ctx.req_ids.clone(),
-            traceability: Some(format!(
-                "{}:{:.1}%",
-                trace_report.engine, trace_report.coverage_pct
+            traceability: Some(pa_core::git_trailers::format_traceability_trailer(
+                &trace_report,
             )),
             design_system: Some(format!("{}:default", config.design_system.provider)),
             design_refs: task_ctx.design_refs.clone(),
@@ -2370,14 +2400,36 @@ fn handle_traceability(args: &TraceabilityArgs) -> Result<()> {
 }
 
 fn handle_traceability_check(args: &TraceabilityCheckArgs) -> Result<()> {
-    let config = load_factory_config(args.config.as_deref())?;
+    let mut config = load_factory_config(args.config.as_deref())?;
     let cwd = std::env::current_dir()?;
 
-    println!("==> Scanning workspace for OpenFastTrace requirement & test links...");
+    if let Some(ref eng) = args.engine {
+        config.traceability.engine = eng.clone();
+    }
+    if let Some(ref j) = args.junit {
+        config.traceability.junit_report_paths = vec![j.to_string_lossy().to_string()];
+    }
+    if let Some(ref cov) = args.coverage {
+        config.traceability.coverage_report_path = Some(cov.to_string_lossy().to_string());
+    }
+    if args.require_test_execution {
+        config.traceability.require_test_execution = true;
+    }
+    if let Some(min_line_cov) = args.min_line_coverage {
+        config.traceability.min_line_coverage_pct = Some(min_line_cov);
+    }
+
+    println!(
+        "==> Scanning workspace for {} requirement & test links...",
+        config.traceability.engine
+    );
     let report = pa_core::traceability::evaluate_traceability_gate(&cwd, &config.traceability)?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
+        if !report.is_compliant {
+            anyhow::bail!("Spec traceability gate compliance check failed.");
+        }
         return Ok(());
     }
 
@@ -2391,6 +2443,31 @@ fn handle_traceability_check(args: &TraceabilityCheckArgs) -> Result<()> {
         "Coverage Percentage:  {:.1}% (Min Target: {:.1}%)",
         report.coverage_pct, config.traceability.min_coverage_pct
     );
+
+    let total_tests = report.tests_passed + report.tests_failed + report.tests_unexecuted;
+    if total_tests > 0 || config.traceability.require_test_execution {
+        println!(
+            "Test Execution:       {} passed, {} failed, {} unexecuted (Required: {})",
+            report.tests_passed,
+            report.tests_failed,
+            report.tests_unexecuted,
+            if config.traceability.require_test_execution {
+                "yes"
+            } else {
+                "no"
+            }
+        );
+    }
+
+    if let Some(cov) = report.line_coverage_pct {
+        let min_str = config
+            .traceability
+            .min_line_coverage_pct
+            .map(|t| format!(" (Min Target: {:.1}%)", t))
+            .unwrap_or_default();
+        println!("Line Coverage:        {:.1}%{}", cov, min_str);
+    }
+
     println!(
         "Gate Status:          {}",
         if report.is_compliant {
@@ -2410,7 +2487,34 @@ fn handle_traceability_check(args: &TraceabilityCheckArgs) -> Result<()> {
     if !report.missing_tests.is_empty() {
         println!("\nMissing Tests ({}):", report.missing_tests.len());
         for req in &report.missing_tests {
-            println!("  [!] req~{} (needs utest~{} or vtest~{})", req, req, req);
+            println!("  [!] req~{} (needs test link)", req);
+        }
+    }
+
+    if !report.failing_req_ids.is_empty() {
+        println!(
+            "\nFailing Test Requirements ({}):",
+            report.failing_req_ids.len()
+        );
+        for req in &report.failing_req_ids {
+            println!("  [✗] {}", req);
+        }
+    }
+
+    if !report.unexecuted_req_ids.is_empty() {
+        println!(
+            "\nUnexecuted Test Requirements ({}):",
+            report.unexecuted_req_ids.len()
+        );
+        for req in &report.unexecuted_req_ids {
+            println!("  [?] {}", req);
+        }
+    }
+
+    if !report.orphaned_links.is_empty() {
+        println!("\nOrphaned Annotations ({}):", report.orphaned_links.len());
+        for req in &report.orphaned_links {
+            println!("  [?] {} (no matching spec requirement found)", req);
         }
     }
 
@@ -2418,8 +2522,25 @@ fn handle_traceability_check(args: &TraceabilityCheckArgs) -> Result<()> {
         println!("\nLinked Coverage Matrix:");
         for (req_id, cov) in &report.details {
             let impl_status = if cov.has_impl { "✓ impl" } else { "✗ impl" };
-            let test_status = if cov.has_test { "✓ test" } else { "✗ test" };
-            println!("  • req~{:<24} [{} | {}]", req_id, impl_status, test_status);
+            let test_status = if cov.has_test {
+                if cov.test_passed {
+                    "✓ test (passed)"
+                } else if cov.test_executed {
+                    "✗ test (failed)"
+                } else {
+                    "? test (unexecuted)"
+                }
+            } else {
+                "✗ test"
+            };
+            let cov_str = cov
+                .line_coverage_pct
+                .map(|p| format!(" (cov: {:.1}%)", p))
+                .unwrap_or_default();
+            println!(
+                "  • {:<24} [{} | {}]{}",
+                req_id, impl_status, test_status, cov_str
+            );
         }
     }
     println!();
@@ -4205,6 +4326,39 @@ mod tests {
             Commands::Traceability(TraceabilityArgs {
                 command: TraceabilityCommands::Check(c),
             }) => {
+                assert!(c.json);
+            }
+            _ => panic!("Expected Traceability Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_traceability_check_extended_flags() {
+        let args = vec![
+            "pa",
+            "traceability",
+            "check",
+            "--engine",
+            "strictdoc",
+            "--junit",
+            ".pa/reports/junit.xml",
+            "--coverage",
+            ".pa/reports/lcov.info",
+            "--require-test-execution",
+            "--min-line-coverage",
+            "85.5",
+            "--json",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Traceability(TraceabilityArgs {
+                command: TraceabilityCommands::Check(c),
+            }) => {
+                assert_eq!(c.engine.as_deref(), Some("strictdoc"));
+                assert_eq!(c.junit, Some(PathBuf::from(".pa/reports/junit.xml")));
+                assert_eq!(c.coverage, Some(PathBuf::from(".pa/reports/lcov.info")));
+                assert!(c.require_test_execution);
+                assert_eq!(c.min_line_coverage, Some(85.5));
                 assert!(c.json);
             }
             _ => panic!("Expected Traceability Check command"),

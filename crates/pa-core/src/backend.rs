@@ -242,9 +242,19 @@ pub fn assert_backend_conformance<B: FactoryBackend + ?Sized>(
         proxy_cfg_path.exists(),
         "Proxy configuration file must be generated"
     );
-    let cfg_content = std::fs::read_to_string(&proxy_cfg_path).expect("Read proxy config");
-    let json_val: serde_json::Value =
-        serde_json::from_str(&cfg_content).expect("Parse proxy config JSON");
+    let mut json_val = None;
+    for _ in 0..10 {
+        if let Ok(cfg_content) = std::fs::read_to_string(&proxy_cfg_path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cfg_content) {
+                if v.get("agents").is_some() {
+                    json_val = Some(v);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let json_val = json_val.expect("Parse proxy config JSON");
     let agents_arr = json_val
         .get("agents")
         .and_then(|a| a.as_array())

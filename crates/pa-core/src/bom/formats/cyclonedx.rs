@@ -229,6 +229,7 @@ mod tests {
                 spec_hashes: BTreeMap::new(),
                 design_token_hash: None,
                 design_contract_hashes: BTreeMap::new(),
+                traceability_summary: None,
             },
             artifacts: vec![OutputArtifact {
                 name: "my-app".to_string(),

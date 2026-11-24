@@ -231,9 +231,30 @@ pub struct EvalSummaryReport {
     pub by_model: HashMap<String, ModelSummaryStat>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RequirementLinkRecord {
+    pub id: String,
+    pub task_id: Option<String>,
+    pub req_id: String,
+    pub engine: String,
+    pub impl_covered: bool,
+    pub test_covered: bool,
+    pub test_passed: bool,
+    pub line_coverage_pct: Option<f64>,
+    pub verified_at: String,
+}
+
 pub trait FactoryAnalyticsStore: Send + Sync {
     fn record_task(&self, task_ctx: &TaskContext, status: &str) -> Result<()>;
     fn record_traceability(&self, task_id: &str, report: &TraceabilityReport) -> Result<()>;
+    fn insert_requirement_links(
+        &self,
+        task_id: Option<&str>,
+        engine: &str,
+        report: &TraceabilityReport,
+    ) -> Result<()>;
+    fn get_requirement_links(&self, req_id: &str) -> Result<Vec<RequirementLinkRecord>>;
+    fn get_task_requirement_links(&self, task_id: &str) -> Result<Vec<RequirementLinkRecord>>;
     fn record_vcs_outcome(&self, task_id: &str, commit_sha: &str, valid: bool) -> Result<()>;
     fn get_task(&self, task_id: &str) -> Result<Option<TaskRecord>>;
     fn list_tasks(&self, limit: usize) -> Result<Vec<TaskRecord>>;
@@ -575,9 +596,45 @@ impl SqliteAnalyticsStore {
              );
              CREATE INDEX IF NOT EXISTS idx_eval_results_task ON eval_results(task_id);
              CREATE INDEX IF NOT EXISTS idx_eval_results_rubric ON eval_results(rubric_id);
-             CREATE INDEX IF NOT EXISTS idx_eval_results_evaluated_at ON eval_results(evaluated_at);",
+             CREATE INDEX IF NOT EXISTS idx_eval_results_evaluated_at ON eval_results(evaluated_at);
+
+             CREATE TABLE IF NOT EXISTS requirement_links (
+                 id TEXT PRIMARY KEY,
+                 task_id TEXT,
+                 req_id TEXT NOT NULL,
+                 engine TEXT NOT NULL,
+                 impl_covered INTEGER NOT NULL,
+                 test_covered INTEGER NOT NULL,
+                 test_passed INTEGER NOT NULL,
+                 line_coverage_pct REAL,
+                 verified_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_req_links_task ON requirement_links(task_id);
+             CREATE INDEX IF NOT EXISTS idx_req_links_req ON requirement_links(req_id);",
         )
         .context("Failed to initialize telemetry sync, BOM, supervisor queue, and eval tables")?;
+
+        // Idempotent column additions for traceability_reports
+        let _ = conn.execute(
+            "ALTER TABLE traceability_reports ADD COLUMN tests_passed INTEGER DEFAULT 0;",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE traceability_reports ADD COLUMN tests_failed INTEGER DEFAULT 0;",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE traceability_reports ADD COLUMN tests_unexecuted INTEGER DEFAULT 0;",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE traceability_reports ADD COLUMN line_coverage_pct REAL;",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE traceability_reports ADD COLUMN report_artifact TEXT;",
+            [],
+        );
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -678,15 +735,23 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
             .unwrap_or_default();
 
         conn.execute(
-            "INSERT INTO traceability_reports (task_id, engine, total_reqs, covered_reqs, coverage_pct, is_compliant, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO traceability_reports (
+                 task_id, engine, total_reqs, covered_reqs, coverage_pct, is_compliant, timestamp,
+                 tests_passed, tests_failed, tests_unexecuted, line_coverage_pct, report_artifact
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(task_id) DO UPDATE SET
                  engine = excluded.engine,
                  total_reqs = excluded.total_reqs,
                  covered_reqs = excluded.covered_reqs,
                  coverage_pct = excluded.coverage_pct,
                  is_compliant = excluded.is_compliant,
-                 timestamp = excluded.timestamp;",
+                 timestamp = excluded.timestamp,
+                 tests_passed = excluded.tests_passed,
+                 tests_failed = excluded.tests_failed,
+                 tests_unexecuted = excluded.tests_unexecuted,
+                 line_coverage_pct = excluded.line_coverage_pct,
+                 report_artifact = excluded.report_artifact;",
             params![
                 task_id,
                 report.engine,
@@ -694,11 +759,117 @@ impl FactoryAnalyticsStore for SqliteAnalyticsStore {
                 report.covered_requirements as i64,
                 report.coverage_pct,
                 if report.is_compliant { 1 } else { 0 },
-                now_iso
+                now_iso,
+                report.tests_passed as i64,
+                report.tests_failed as i64,
+                report.tests_unexecuted as i64,
+                report.line_coverage_pct,
+                report.report_artifact,
             ],
         )?;
+        drop(conn);
+
+        self.insert_requirement_links(Some(task_id), &report.engine, report)?;
 
         Ok(())
+    }
+
+    fn insert_requirement_links(
+        &self,
+        task_id: Option<&str>,
+        engine: &str,
+        report: &TraceabilityReport,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now_iso = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default();
+
+        for (req_id, detail) in &report.details {
+            let link_id = format!("{}:{}:{}", task_id.unwrap_or("global"), engine, req_id);
+            conn.execute(
+                "INSERT INTO requirement_links (
+                     id, task_id, req_id, engine, impl_covered, test_covered, test_passed, line_coverage_pct, verified_at
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                     impl_covered = excluded.impl_covered,
+                     test_covered = excluded.test_covered,
+                     test_passed = excluded.test_passed,
+                     line_coverage_pct = excluded.line_coverage_pct,
+                     verified_at = excluded.verified_at;",
+                params![
+                    link_id,
+                    task_id,
+                    req_id,
+                    engine,
+                    if detail.has_impl { 1 } else { 0 },
+                    if detail.has_test { 1 } else { 0 },
+                    if detail.test_passed { 1 } else { 0 },
+                    detail.line_coverage_pct,
+                    now_iso,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn get_requirement_links(&self, req_id: &str) -> Result<Vec<RequirementLinkRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, task_id, req_id, engine, impl_covered, test_covered, test_passed, line_coverage_pct, verified_at
+             FROM requirement_links WHERE req_id = ?1 ORDER BY verified_at DESC",
+        )?;
+
+        let rows = stmt.query_map(params![req_id], |row| {
+            Ok(RequirementLinkRecord {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                req_id: row.get(2)?,
+                engine: row.get(3)?,
+                impl_covered: row.get::<_, i64>(4)? != 0,
+                test_covered: row.get::<_, i64>(5)? != 0,
+                test_passed: row.get::<_, i64>(6)? != 0,
+                line_coverage_pct: row.get(7)?,
+                verified_at: row.get(8)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    fn get_task_requirement_links(&self, task_id: &str) -> Result<Vec<RequirementLinkRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, task_id, req_id, engine, impl_covered, test_covered, test_passed, line_coverage_pct, verified_at
+             FROM requirement_links WHERE task_id = ?1 ORDER BY req_id ASC",
+        )?;
+
+        let rows = stmt.query_map(params![task_id], |row| {
+            Ok(RequirementLinkRecord {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                req_id: row.get(2)?,
+                engine: row.get(3)?,
+                impl_covered: row.get::<_, i64>(4)? != 0,
+                test_covered: row.get::<_, i64>(5)? != 0,
+                test_passed: row.get::<_, i64>(6)? != 0,
+                line_coverage_pct: row.get(7)?,
+                verified_at: row.get(8)?,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
     }
 
     fn record_vcs_outcome(&self, task_id: &str, commit_sha: &str, valid: bool) -> Result<()> {
@@ -2783,6 +2954,7 @@ mod tests {
             coverage_pct: 100.0,
             is_compliant: true,
             details: std::collections::HashMap::new(),
+            ..TraceabilityReport::empty("openfasttrace")
         };
         store.record_traceability("feat-auth-001", &report).unwrap();
 

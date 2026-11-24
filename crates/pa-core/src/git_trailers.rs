@@ -169,6 +169,28 @@ pub fn stamp_commit_message(original_msg: &str, meta: &GitProvenanceMetadata) ->
     format!("{}\n\n{}\n", trimmed, trailers)
 }
 
+pub fn format_traceability_trailer(report: &crate::traceability::TraceabilityReport) -> String {
+    let outcome = if report.is_compliant { "pass" } else { "fail" };
+    let total_tests = report.tests_passed + report.tests_failed + report.tests_unexecuted;
+
+    let test_part = if total_tests > 0 {
+        format!(", {}/{} tests passed", report.tests_passed, total_tests)
+    } else {
+        String::new()
+    };
+
+    let cov_part = if let Some(cov) = report.line_coverage_pct {
+        format!(", {:.1}% line cov", cov)
+    } else {
+        String::new()
+    };
+
+    format!(
+        "{}={} ({:.0}% covered{}{})",
+        report.engine, outcome, report.coverage_pct, test_part, cov_part
+    )
+}
+
 pub fn stamp_head_commit(repo_path: &Path, meta: &GitProvenanceMetadata) -> Result<()> {
     // Get existing commit message
     let out = Command::new("git")

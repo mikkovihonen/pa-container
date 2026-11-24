@@ -460,6 +460,142 @@ pub fn emit_eval_span(
     Ok(())
 }
 
+pub fn build_otlp_traceability_span_payload(
+    task_ctx: &TaskContext,
+    report: &crate::traceability::TraceabilityReport,
+    service_name: &str,
+) -> serde_json::Value {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let start_nanos = now_nanos.to_string();
+    let end_nanos = (now_nanos + 1_000_000).to_string();
+    let child_span_id = generate_span_id();
+
+    let mut attrs = vec![
+        serde_json::json!({
+            "key": "pa.task_id",
+            "value": { "stringValue": task_ctx.task_id }
+        }),
+        serde_json::json!({
+            "key": "openinference.span.kind",
+            "value": { "stringValue": "GUARDRAIL" }
+        }),
+        serde_json::json!({
+            "key": "pa.gate.type",
+            "value": { "stringValue": "traceability" }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.engine",
+            "value": { "stringValue": report.engine }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.total_requirements",
+            "value": { "intValue": report.total_requirements as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.covered_requirements",
+            "value": { "intValue": report.covered_requirements as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.coverage_pct",
+            "value": { "doubleValue": report.coverage_pct }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.is_compliant",
+            "value": { "boolValue": report.is_compliant }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.tests_passed",
+            "value": { "intValue": report.tests_passed as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.tests_failed",
+            "value": { "intValue": report.tests_failed as i64 }
+        }),
+        serde_json::json!({
+            "key": "pa.traceability.tests_unexecuted",
+            "value": { "intValue": report.tests_unexecuted as i64 }
+        }),
+    ];
+
+    if let Some(cov) = report.line_coverage_pct {
+        attrs.push(serde_json::json!({
+            "key": "pa.traceability.line_coverage_pct",
+            "value": { "doubleValue": cov }
+        }));
+    }
+
+    serde_json::json!({
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [{
+                    "key": "service.name",
+                    "value": { "stringValue": service_name }
+                }]
+            },
+            "scopeSpans": [{
+                "scope": {
+                    "name": "pa.gate.traceability",
+                    "version": "2.0.0"
+                },
+                "spans": [{
+                    "traceId": task_ctx.trace_id,
+                    "spanId": child_span_id,
+                    "parentSpanId": task_ctx.span_id,
+                    "name": "pa.gate.traceability",
+                    "kind": 1,
+                    "startTimeUnixNano": start_nanos,
+                    "endTimeUnixNano": end_nanos,
+                    "attributes": attrs,
+                    "status": {
+                        "code": if report.is_compliant { 1 } else { 2 },
+                        "message": if report.is_compliant { "PASSED" } else { "FAILED" }
+                    }
+                }]
+            }]
+        }]
+    })
+}
+
+pub fn emit_traceability_span(
+    task_ctx: &TaskContext,
+    report: &crate::traceability::TraceabilityReport,
+    config: &OtlpTelemetrySpec,
+    fallback_dir: Option<&Path>,
+) -> Result<()> {
+    let payload = build_otlp_traceability_span_payload(task_ctx, report, "pa-container");
+    let fallback_path = fallback_dir
+        .map(|d| d.join("events.jsonl"))
+        .unwrap_or_else(|| PathBuf::from(".pa/telemetry/events.jsonl"));
+
+    if config.provider.to_lowercase() == "none" {
+        append_local_event_jsonl(&payload, &fallback_path)?;
+        return Ok(());
+    }
+
+    let post_result = ureq::post(&config.endpoint)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_millis(
+            config.batch_timeout_ms.max(500),
+        ))
+        .send_json(&payload);
+
+    match post_result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!(
+                "[WARN] OTLP traceability span export to {} failed ({}). Degrading to local JSONL: {}",
+                config.endpoint,
+                e,
+                fallback_path.display()
+            );
+            append_local_event_jsonl(&payload, &fallback_path)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

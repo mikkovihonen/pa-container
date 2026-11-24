@@ -261,6 +261,7 @@ mod tests {
                 spec_hashes: BTreeMap::new(),
                 design_token_hash: None,
                 design_contract_hashes: BTreeMap::new(),
+                traceability_summary: None,
             },
             artifacts: Vec::new(),
             signature_info: None,
