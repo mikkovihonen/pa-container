@@ -7,6 +7,9 @@ use pa_core::review::review_agent_workspace;
 use pa_core::schema::{
     default_factory_roles, load_factory_config, resolve_agent_sockets, AgentSpec,
 };
+use pa_core::skills::{
+    compute_skills_merkle_root, write_staged_files, EmitterRegistry, SkillLoader,
+};
 use pa_core::storage::FactoryAnalyticsStore;
 use serde_json::json;
 use std::io::{IsTerminal, Write};
@@ -85,6 +88,9 @@ pub enum Commands {
 
     #[command(about = "Run and inspect automated LLM evals and calibration reports")]
     Eval(EvalArgs),
+
+    #[command(about = "Compile, verify, and inspect cross-agent skills and MCP bindings")]
+    Skills(SkillsArgs),
 }
 
 #[derive(Args, Debug)]
@@ -826,6 +832,86 @@ pub struct EvalReportArgs {
 
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct SkillsArgs {
+    #[command(subcommand)]
+    pub command: SkillsCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SkillsCommands {
+    #[command(about = "Compile skills and MCP configs into agent-native instruction manifests")]
+    Compile(SkillsCompileArgs),
+
+    #[command(about = "List all registered agent drivers and emitters")]
+    Drivers(SkillsDriversArgs),
+
+    #[command(about = "Verify frontmatter, role skill references, and compute Merkle roots")]
+    Verify(SkillsVerifyArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SkillsCompileArgs {
+    #[arg(
+        short,
+        long,
+        help = "Target agent driver ID (e.g. pi, claude, opencode, antigravity, or 'all')"
+    )]
+    pub agent: String,
+
+    #[arg(
+        short,
+        long,
+        help = "Role to compile skills for (e.g. spec_architect, design_engineer)"
+    )]
+    pub role: Option<String>,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(
+        short,
+        long,
+        help = "Directory to stage compiled files (default: .pa/staged-skills/<agent>/)"
+    )]
+    pub out: Option<PathBuf>,
+
+    #[arg(long, help = "Simulate emission without writing files to disk")]
+    pub dry_run: bool,
+
+    #[arg(long, help = "Emit structured JSON output")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SkillsDriversArgs {
+    #[arg(
+        short,
+        long,
+        help = "Path to packages directory (default: pa_packages)"
+    )]
+    pub packages_dir: Option<PathBuf>,
+
+    #[arg(long, help = "Emit structured JSON output")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SkillsVerifyArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(
+        short,
+        long,
+        help = "Path to packages directory (default: pa_packages)"
+    )]
+    pub packages_dir: Option<PathBuf>,
+
+    #[arg(long, help = "Emit structured JSON output")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -4797,7 +4883,342 @@ fn main() -> Result<()> {
         Commands::Supervisor(args) => handle_supervisor(args),
         Commands::Task(args) => handle_task(args),
         Commands::Eval(args) => handle_eval(args),
+        Commands::Skills(args) => handle_skills(args),
     }
+}
+
+fn find_packages_dir(custom: Option<&Path>) -> PathBuf {
+    if let Some(p) = custom {
+        if p.is_dir() {
+            return p.to_path_buf();
+        }
+    }
+    let local = PathBuf::from("pa_packages");
+    if local.is_dir() {
+        return local;
+    }
+    let parent = PathBuf::from("../pa_packages");
+    if parent.is_dir() {
+        return parent;
+    }
+    let opt = PathBuf::from("/opt/pa/packs");
+    if opt.is_dir() {
+        return opt;
+    }
+    PathBuf::from("pa_packages")
+}
+
+fn handle_skills(args: &SkillsArgs) -> Result<()> {
+    match &args.command {
+        SkillsCommands::Compile(c) => handle_skills_compile(c),
+        SkillsCommands::Drivers(d) => handle_skills_drivers(d),
+        SkillsCommands::Verify(v) => handle_skills_verify(v),
+    }
+}
+
+fn handle_skills_compile(args: &SkillsCompileArgs) -> Result<()> {
+    let repo_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let packages_dir = find_packages_dir(None);
+    let config = load_factory_config(args.config.as_deref())?;
+
+    let mut registry = EmitterRegistry::new();
+    let _ = registry.discover_declarative(&packages_dir);
+
+    // Determine target agent IDs
+    let agent_ids: Vec<String> = if args.agent.eq_ignore_ascii_case("all") {
+        let mut ids = Vec::new();
+        for d in registry.list_drivers() {
+            if !ids.contains(&d.id) {
+                ids.push(d.id);
+            }
+        }
+        ids
+    } else {
+        vec![args.agent.clone()]
+    };
+
+    let mut results = Vec::new();
+
+    for agent_id in agent_ids {
+        let emitter = registry.resolve(&agent_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unknown agent driver '{}'. Run 'pa skills drivers' to list registered drivers.",
+                agent_id
+            )
+        })?;
+
+        // Determine role and role_spec
+        let (role_name, role_spec) = if let Some(ref r_name) = args.role {
+            let spec = config
+                .role(r_name)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("Role '{}' not found in factory.toml", r_name))?;
+            (r_name.clone(), spec)
+        } else {
+            // Find role in factory.toml matching driver
+            let matching = config
+                .roles
+                .iter()
+                .find(|(_, r)| r.driver.eq_ignore_ascii_case(&agent_id));
+            if let Some((r_name, r_spec)) = matching {
+                (r_name.clone(), r_spec.clone())
+            } else {
+                // If no role matches, compile all discovered skills (general export)
+                let all = SkillLoader::discover_all_skills(&repo_root, &packages_dir)?;
+                let syn = pa_core::schema::RoleSpec {
+                    driver: agent_id.clone(),
+                    skills: all.keys().cloned().collect(),
+                    ..Default::default()
+                };
+                ("all_skills".to_string(), syn)
+            }
+        };
+
+        let acp_bindings = resolve_role_acp_bindings(&role_spec.acp_services, &packages_dir);
+        let bundle = SkillLoader::load_for_role(
+            &repo_root,
+            &packages_dir,
+            &role_name,
+            &role_spec,
+            &acp_bindings,
+        )?;
+
+        let emitted = emitter.emit(&bundle)?;
+
+        if args.dry_run {
+            results.push(serde_json::json!({
+                "agent": agent_id,
+                "role": role_name,
+                "merkle_root": bundle.role.skills_merkle_root,
+                "dry_run": true,
+                "files": emitted.iter().map(|f| {
+                    serde_json::json!({
+                        "path": f.path.display().to_string(),
+                        "bytes": f.content.len(),
+                        "executable": f.executable
+                    })
+                }).collect::<Vec<_>>()
+            }));
+
+            if !args.json {
+                println!("------------------------------------------------------------");
+                println!(
+                    "[DRY-RUN] Skills compiled for agent '{}' (role: '{}')",
+                    agent_id, role_name
+                );
+                println!("  Skills Merkle Root: {}", bundle.role.skills_merkle_root);
+                println!("  Emitted Files ({}):", emitted.len());
+                for f in &emitted {
+                    println!("    * {:<40} ({} bytes)", f.path.display(), f.content.len());
+                }
+            }
+        } else {
+            let staging_dir = if let Some(ref out) = args.out {
+                if args.agent.eq_ignore_ascii_case("all") {
+                    out.join(&agent_id)
+                } else {
+                    out.clone()
+                }
+            } else {
+                repo_root.join(".pa").join("staged-skills").join(&agent_id)
+            };
+
+            let written = write_staged_files(&staging_dir, &emitted)?;
+
+            results.push(serde_json::json!({
+                "agent": agent_id,
+                "role": role_name,
+                "merkle_root": bundle.role.skills_merkle_root,
+                "dry_run": false,
+                "staging_dir": staging_dir.display().to_string(),
+                "files_written": written.iter().map(|p| p.display().to_string()).collect::<Vec<_>>()
+            }));
+
+            if !args.json {
+                println!("------------------------------------------------------------");
+                println!(
+                    "Successfully compiled skills for agent '{}' (role: '{}')",
+                    agent_id, role_name
+                );
+                println!("  Staging Directory:  {}", staging_dir.display());
+                println!("  Skills Merkle Root: {}", bundle.role.skills_merkle_root);
+                println!("  Files Written ({}):", written.len());
+                for f in &written {
+                    println!("    * {}", f.display());
+                }
+            }
+        }
+    }
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&results)?);
+    } else {
+        println!("============================================================");
+    }
+
+    Ok(())
+}
+
+fn handle_skills_drivers(args: &SkillsDriversArgs) -> Result<()> {
+    let packages_dir = find_packages_dir(args.packages_dir.as_deref());
+    let mut registry = EmitterRegistry::new();
+    let _ = registry.discover_declarative(&packages_dir);
+
+    let drivers = registry.list_drivers();
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&drivers)?);
+    } else {
+        println!(
+            "================================================================================"
+        );
+        println!("Registered Skill Drivers & Emitters:");
+        println!(
+            "--------------------------------------------------------------------------------"
+        );
+        println!(
+            "{:<16} {:<14} {:<20} {:<24}",
+            "DRIVER ID", "SOURCE", "LAYOUT", "MCP CONFIG"
+        );
+        println!(
+            "--------------------------------------------------------------------------------"
+        );
+        for d in &drivers {
+            let mcp_cfg = d.capabilities.mcp_config_path.as_deref().unwrap_or("none");
+            println!(
+                "{:<16} {:<14} {:<20} {:<24}",
+                d.id, d.source, d.capabilities.skill_layout, mcp_cfg
+            );
+        }
+        println!(
+            "================================================================================"
+        );
+    }
+
+    Ok(())
+}
+
+fn handle_skills_verify(args: &SkillsVerifyArgs) -> Result<()> {
+    let repo_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let packages_dir = find_packages_dir(args.packages_dir.as_deref());
+    let config = load_factory_config(args.config.as_deref())?;
+
+    let discovered_skills = SkillLoader::discover_all_skills(&repo_root, &packages_dir)?;
+
+    let mut validation_errors = Vec::new();
+
+    // 1. Verify discovered skill integrity
+    for (name, doc) in &discovered_skills {
+        if name.trim().is_empty() {
+            validation_errors.push("Discovered skill with empty name".to_string());
+        }
+        if doc.description.trim().is_empty() {
+            validation_errors.push(format!("Skill '{}' has empty description", name));
+        }
+        if doc.sha256.trim().is_empty() {
+            validation_errors.push(format!("Skill '{}' has invalid content hash", name));
+        }
+    }
+
+    // 2. Verify roles in factory.toml
+    let mut role_results = Vec::new();
+    for (role_name, role_spec) in &config.roles {
+        let mut missing_skills = Vec::new();
+        let mut resolved_docs = Vec::new();
+
+        for req in &role_spec.skills {
+            if let Some(doc) = discovered_skills.get(req) {
+                resolved_docs.push(doc.clone());
+            } else {
+                missing_skills.push(req.clone());
+            }
+        }
+
+        if !missing_skills.is_empty() {
+            validation_errors.push(format!(
+                "Role '{}' references missing skills: {:?}",
+                role_name, missing_skills
+            ));
+        }
+
+        let merkle = compute_skills_merkle_root(&resolved_docs);
+
+        role_results.push(serde_json::json!({
+            "role": role_name,
+            "driver": role_spec.driver,
+            "skill_count": resolved_docs.len(),
+            "skills": role_spec.skills,
+            "missing_skills": missing_skills,
+            "merkle_root": merkle
+        }));
+    }
+
+    let all_merkle = {
+        let all_vec: Vec<pa_core::skills::SkillDoc> = discovered_skills.values().cloned().collect();
+        compute_skills_merkle_root(&all_vec)
+    };
+
+    let passed = validation_errors.is_empty();
+
+    if args.json {
+        let report = serde_json::json!({
+            "status": if passed { "passed" } else { "failed" },
+            "total_discovered_skills": discovered_skills.len(),
+            "all_skills_merkle_root": all_merkle,
+            "roles": role_results,
+            "errors": validation_errors,
+        });
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "================================================================================"
+        );
+        println!("Skill Bundles & Role Verification:");
+        println!(
+            "--------------------------------------------------------------------------------"
+        );
+        println!("Total Discovered Skills: {}", discovered_skills.len());
+        println!("All Skills Merkle Root:  {}", all_merkle);
+        println!(
+            "--------------------------------------------------------------------------------"
+        );
+        println!("Role Verification:");
+        for res in &role_results {
+            println!(
+                "  * Role '{:<22}' (driver: {:<12}) -> {} skills, Merkle: {}",
+                res["role"].as_str().unwrap_or(""),
+                res["driver"].as_str().unwrap_or(""),
+                res["skill_count"],
+                res["merkle_root"].as_str().unwrap_or("")
+            );
+        }
+        println!(
+            "--------------------------------------------------------------------------------"
+        );
+        if passed {
+            println!("Verification Status: PASSED (0 missing references, 0 errors)");
+        } else {
+            println!(
+                "Verification Status: FAILED with {} errors:",
+                validation_errors.len()
+            );
+            for err in &validation_errors {
+                println!("  [ERROR] {}", err);
+            }
+        }
+        println!(
+            "================================================================================"
+        );
+    }
+
+    if !passed {
+        anyhow::bail!(
+            "Skill verification failed with {} error(s)",
+            validation_errors.len()
+        );
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -5562,6 +5983,58 @@ mod tests {
                 assert!(f.force);
             }
             _ => panic!("Expected Factory command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_skills_commands() {
+        let compile_args = vec![
+            "pa",
+            "skills",
+            "compile",
+            "--agent",
+            "pi",
+            "--role",
+            "spec_architect",
+            "--dry-run",
+            "--json",
+        ];
+        let cli = Cli::parse_from(compile_args);
+        match cli.command {
+            Commands::Skills(s) => match s.command {
+                SkillsCommands::Compile(c) => {
+                    assert_eq!(c.agent, "pi");
+                    assert_eq!(c.role.as_deref(), Some("spec_architect"));
+                    assert!(c.dry_run);
+                    assert!(c.json);
+                }
+                _ => panic!("Expected Compile action"),
+            },
+            _ => panic!("Expected Skills command"),
+        }
+
+        let drivers_args = vec!["pa", "skills", "drivers", "--json"];
+        let cli_drivers = Cli::parse_from(drivers_args);
+        match cli_drivers.command {
+            Commands::Skills(s) => match s.command {
+                SkillsCommands::Drivers(d) => {
+                    assert!(d.json);
+                }
+                _ => panic!("Expected Drivers action"),
+            },
+            _ => panic!("Expected Skills command"),
+        }
+
+        let verify_args = vec!["pa", "skills", "verify"];
+        let cli_verify = Cli::parse_from(verify_args);
+        match cli_verify.command {
+            Commands::Skills(s) => match s.command {
+                SkillsCommands::Verify(v) => {
+                    assert!(!v.json);
+                }
+                _ => panic!("Expected Verify action"),
+            },
+            _ => panic!("Expected Skills command"),
         }
     }
 }

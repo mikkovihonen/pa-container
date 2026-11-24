@@ -9,7 +9,7 @@ description: Durable local message bus and native zero-fork extensions for cross
 
 ## Native Agent Extensions (Zero-Fork Push & Pull)
 
-When this capability is enabled, `/usr/local/bin/pa-intercom-activate` automatically configures all four supported harnesses:
+When this capability is enabled, `pa skills compile` automatically synthesizes configurations and MCP bindings for all supported harnesses:
 
 | Agent Harness | Integration Mechanism | Automatic Push Behavior | Available Native / MCP Tools |
 |---|---|---|---|

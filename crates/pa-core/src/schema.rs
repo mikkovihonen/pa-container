@@ -1425,6 +1425,8 @@ pub struct RoleSpec {
     #[serde(default)]
     pub acp_services: Vec<String>,
     #[serde(default)]
+    pub skills: Vec<String>,
+    #[serde(default)]
     pub env: HashMap<String, String>,
 }
 
@@ -1439,6 +1441,7 @@ impl Default for RoleSpec {
             model_tier: default_model_tier(),
             capabilities: Vec::new(),
             acp_services: Vec::new(),
+            skills: Vec::new(),
             env: HashMap::new(),
         }
     }
@@ -1456,6 +1459,10 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
                 "telemetry_acp:read".to_string(),
                 "design_system_acp:read".to_string(),
             ],
+            skills: vec![
+                "traceability-driven-dev".to_string(),
+                "design-system-dev".to_string(),
+            ],
             env: HashMap::new(),
         },
     );
@@ -1471,6 +1478,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
                 "ios-simulator".to_string(),
             ],
             acp_services: vec!["design_system_acp:read".to_string()],
+            skills: vec!["design-system-dev".to_string()],
             env: HashMap::new(),
         },
     );
@@ -1481,6 +1489,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             model_tier: "local".to_string(),
             capabilities: vec!["git".to_string(), "source-control".to_string()],
             acp_services: vec!["design_system_acp:read".to_string()],
+            skills: vec!["design-system-dev".to_string()],
             env: HashMap::new(),
         },
     );
@@ -1491,6 +1500,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             model_tier: "local".to_string(),
             capabilities: vec!["git".to_string(), "source-control".to_string()],
             acp_services: vec!["telemetry_acp:read".to_string()],
+            skills: vec!["traceability-driven-dev".to_string()],
             env: HashMap::new(),
         },
     );
@@ -1501,6 +1511,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             model_tier: "frontier".to_string(),
             capabilities: vec!["git".to_string(), "source-control".to_string()],
             acp_services: vec!["telemetry_acp:read".to_string()],
+            skills: vec!["closed-loop-governance".to_string()],
             env: HashMap::new(),
         },
     );
@@ -1511,6 +1522,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             model_tier: "local".to_string(),
             capabilities: vec!["git".to_string()],
             acp_services: vec!["telemetry_acp:read".to_string()],
+            skills: vec!["closed-loop-governance".to_string()],
             env: HashMap::new(),
         },
     );
@@ -1584,6 +1596,10 @@ impl Default for FactoryConfig {
 }
 
 impl FactoryConfig {
+    pub fn role(&self, name: &str) -> Option<&RoleSpec> {
+        self.roles.get(name)
+    }
+
     pub fn llama_server(&self) -> &LlamaServerSpec {
         if self.compute.llama_server.enabled || self.compute.llama_server.model_path.is_some() {
             &self.compute.llama_server

@@ -1,6 +1,5 @@
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::Path;
 
 use crate::bom::collectors::toolchain::{hash_file, which_path};
@@ -24,24 +23,22 @@ pub fn collect_agentic_supply_chain(
         (None, None)
     };
 
-    // 2. Merkle root of skills
-    let mut skill_hashes = Vec::new();
-    let skills_dir = root_dir.join(".pi/skills");
-    if skills_dir.is_dir() {
-        collect_dir_file_hashes(&skills_dir, &mut skill_hashes);
-    }
-    let gemini_skills = root_dir.join(".gemini/skills");
-    if gemini_skills.is_dir() {
-        collect_dir_file_hashes(&gemini_skills, &mut skill_hashes);
-    }
-
-    let skills_merkle_root = if !skill_hashes.is_empty() {
-        skill_hashes.sort();
-        let mut hasher = Sha256::new();
-        for h in skill_hashes {
-            hasher.update(h.as_bytes());
+    // 2. Merkle root of skills via canonical SkillLoader
+    let packages_dir = root_dir.join("pa_packages");
+    let skills_merkle_root = if let Ok(skills_map) =
+        crate::skills::SkillLoader::discover_all_skills(root_dir, &packages_dir)
+    {
+        if !skills_map.is_empty() {
+            let skill_docs: Vec<crate::skills::SkillDoc> = skills_map.into_values().collect();
+            let root = crate::skills::compute_skills_merkle_root(&skill_docs);
+            if !root.is_empty() {
+                Some(root)
+            } else {
+                None
+            }
+        } else {
+            None
         }
-        Some(hex::encode(hasher.finalize()))
     } else {
         None
     };
@@ -75,22 +72,5 @@ pub fn collect_agentic_supply_chain(
         model_id,
         model_mode,
         local_weights_sha256: None,
-    }
-}
-
-fn collect_dir_file_hashes(dir: &Path, out: &mut Vec<String>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() {
-                if let Ok(bytes) = fs::read(&p) {
-                    let mut hasher = Sha256::new();
-                    hasher.update(&bytes);
-                    out.push(hex::encode(hasher.finalize()));
-                }
-            } else if p.is_dir() {
-                collect_dir_file_hashes(&p, out);
-            }
-        }
     }
 }

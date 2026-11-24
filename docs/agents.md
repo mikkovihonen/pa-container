@@ -175,3 +175,67 @@ Each agent's commits are reviewed independently without polluting the host's act
 # Review changes from security-auditor
 ./pa review security-auditor --open
 ```
+
+---
+
+## 7. Cross-Agent Skill Compiler (`pa skills`)
+
+PA-Container 2.0 includes an open-ended **Skill Compiler** that translates canonical capability skills (`.pi/skills/` and `pa_packages/**/skill/SKILL.md`) and Model Context Protocol (MCP) server bindings into agent-native instructions and configurations.
+
+### 7.1 Compilation and Staging Workflows
+
+To compile skills for a single agent driver or all agents without polluting the host Git repository:
+
+```bash
+# Dry-run compilation for Pi with role-scoped least privilege
+pa skills compile --agent pi --role traceability_auditor --dry-run
+
+# Compile and stage for all active agents into ephemeral staging root
+pa skills compile --agent all --out .pa/staged-skills/
+
+# Emit structured compilation results as JSON
+pa skills compile --agent claude --json
+```
+
+### 7.2 Inspecting Registered Drivers
+
+List all active emitters across built-in Rust emitters, declarative manifests, and external plugins:
+
+```bash
+pa skills drivers
+```
+
+### 7.3 Verifying Integrity & Merkle Roots
+
+Validates skill YAML frontmatter, checks for missing references in `factory.toml`, and outputs the deterministic `skills_merkle_root`:
+
+```bash
+pa skills verify
+```
+
+### 7.4 Adding New Agents via Declarative Driver (`emitter.toml`)
+
+New agents can be supported without recompiling `pa-core` by adding `pa_packages/agents/<agent_name>/emitter.toml`:
+
+```toml
+[driver]
+id = "cursor"
+description = "Cursor IDE Rules and MCP Driver"
+
+[skills]
+layout = "per_skill_file"
+path_pattern = ".cursor/rules/{name}.mdc"
+include_frontmatter = true
+
+[mcp]
+target_path = ".cursor/mcp.json"
+format = "json"
+schema_wrapper = "mcpServers"
+```
+
+### 7.5 Adding External Plugin Drivers (`custom_cmd`)
+
+External tools can act as skill compilers by implementing the canonical JSON protocol:
+- **Input (stdin):** `CompiledSkillBundle` JSON (`schema_version = 1`, `role`, `skills`, `mcp_servers`).
+- **Output (stdout):** Array of `EmittedFile` JSON objects (`[{"path": "...", "content": "...", "executable": false}]`).
+- Path-containment validation automatically rejects any emitted file attempting path traversal (`..` or root escaping).
