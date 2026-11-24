@@ -387,6 +387,45 @@ pub enum DesignCommands {
 
     #[command(about = "Verify design system compliance across enabled platforms")]
     Check(DesignCheckArgs),
+
+    #[command(about = "Compile W3C DTCG design tokens to native platform artifacts")]
+    Compile(DesignCompileArgs),
+
+    #[command(about = "Launch or stop the self-hosted Penpot design stack in Podman")]
+    Ui(DesignUiArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct DesignCompileArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Verify compiled outputs are up-to-date without mutating files"
+    )]
+    pub check: bool,
+
+    #[arg(long, help = "Output compilation report as JSON")]
+    pub json: bool,
+
+    #[arg(
+        long,
+        help = "Attach Penpot design references (e.g. penpot:file_id/board_id) to provenance trailers"
+    )]
+    pub refs: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct DesignUiArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Print Web UI URL only without launching containers")]
+    pub url: bool,
+
+    #[arg(long, help = "Stop the running Penpot container stack")]
+    pub stop: bool,
 }
 
 #[derive(Args, Debug)]
@@ -3347,7 +3386,176 @@ fn handle_design(args: &DesignArgs) -> Result<()> {
     match &args.command {
         DesignCommands::Tokens(t) => handle_design_tokens(t),
         DesignCommands::Check(c) => handle_design_check(c),
+        DesignCommands::Compile(co) => handle_design_compile(co),
+        DesignCommands::Ui(u) => handle_design_ui(u),
     }
+}
+
+fn handle_design_compile(args: &DesignCompileArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = if let Some(ref path) = args.config {
+        pa_core::schema::load_factory_config(Some(path))?
+    } else {
+        load_factory_config(None)?
+    };
+
+    if args.check {
+        let freshness = pa_core::design::check_tokens_freshness(&cwd, &config.design_system)?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&freshness)?);
+            if !freshness.is_fresh {
+                anyhow::bail!("Compiled design tokens are not up to date.");
+            }
+            return Ok(());
+        }
+
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║       PA-Container 2.0 Design Token Freshness Check            ║");
+        println!("╚════════════════════════════════════════════════════════════════╝");
+        println!("Compiler Tool:   {}", freshness.tool);
+        println!("Tokens Digest:   {}", freshness.tokens_digest);
+        println!(
+            "Fresh Status:    {}",
+            if freshness.is_fresh {
+                "UP-TO-DATE"
+            } else {
+                "STALE"
+            }
+        );
+        if !freshness.missing_files.is_empty() {
+            println!("Missing Files:   {:?}", freshness.missing_files);
+        }
+        if !freshness.stale_files.is_empty() {
+            println!("Stale Files:     {:?}", freshness.stale_files);
+        }
+        if let Some(ref w) = freshness.warning {
+            println!("Warning:         {}", w);
+        }
+        if let Some(ref e) = freshness.error {
+            println!("Error:           {}", e);
+        }
+
+        if !freshness.is_fresh {
+            anyhow::bail!(
+                "Compiled design tokens are stale or missing. Run 'pa design compile' to update."
+            );
+        }
+        return Ok(());
+    }
+
+    let report = pa_core::design::compile_design_tokens(&cwd, &config.design_system)?;
+
+    if let Some(ref r) = args.refs {
+        println!("==> Linking Design Reference: {}", r);
+    }
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        if report.status == "failed" {
+            anyhow::bail!("Token compilation failed.");
+        }
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 W3C DTCG Token Compilation Report       ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Compiler Tool:   {}", report.tool);
+    println!("Status:          {}", report.status);
+    println!("Tokens Digest:   {}", report.digest);
+    println!("Duration:        {} ms", report.duration_ms);
+    if let Some(ref msg) = report.message {
+        println!("Message:         {}", msg);
+    }
+    println!("Generated Files ({}):", report.generated_files.len());
+    for f in &report.generated_files {
+        println!("  • {}", f.display());
+    }
+    println!();
+
+    Ok(())
+}
+
+fn handle_design_ui(args: &DesignUiArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = if let Some(ref path) = args.config {
+        pa_core::schema::load_factory_config(Some(path))?
+    } else {
+        load_factory_config(None)?
+    };
+
+    let penpot_url = config.design_system.penpot.base_url.clone();
+    if args.url {
+        println!("{}", penpot_url);
+        return Ok(());
+    }
+
+    // Verify podman binary exists
+    let has_podman = std::process::Command::new("podman")
+        .arg("--version")
+        .output()
+        .is_ok();
+    if !has_podman {
+        anyhow::bail!("podman command not found. Podman is required to run 'pa design ui'.");
+    }
+
+    let compose_file = cwd.join("deploy/penpot/compose.yaml");
+    if !compose_file.exists() {
+        anyhow::bail!(
+            "Penpot compose file not found at {}",
+            compose_file.display()
+        );
+    }
+
+    if args.stop {
+        println!("==> Stopping self-hosted Penpot stack...");
+        let status = std::process::Command::new("podman")
+            .args(["compose", "-f", compose_file.to_str().unwrap(), "down"])
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                println!("==> Penpot stack stopped successfully.");
+                return Ok(());
+            }
+            _ => {
+                // Try podman-compose directly if podman compose subcommand failed
+                let status2 = std::process::Command::new("podman-compose")
+                    .args(["-f", compose_file.to_str().unwrap(), "down"])
+                    .status();
+                if let Ok(s) = status2 {
+                    if s.success() {
+                        println!("==> Penpot stack stopped successfully.");
+                        return Ok(());
+                    }
+                }
+                anyhow::bail!("Failed to stop Penpot stack via podman compose.");
+            }
+        }
+    }
+
+    println!("==> Starting self-hosted Penpot stack via Podman...");
+    let status = std::process::Command::new("podman")
+        .args(["compose", "-f", compose_file.to_str().unwrap(), "up", "-d"])
+        .status();
+
+    let started = match status {
+        Ok(s) if s.success() => true,
+        _ => {
+            let status2 = std::process::Command::new("podman-compose")
+                .args(["-f", compose_file.to_str().unwrap(), "up", "-d"])
+                .status();
+            status2.map(|s| s.success()).unwrap_or(false)
+        }
+    };
+
+    if !started {
+        anyhow::bail!("Failed to launch Penpot stack via podman compose. Please check Podman installation and deploy/penpot/compose.yaml.");
+    }
+
+    println!("==> Penpot stack active at {}", penpot_url);
+    println!("==> Opening Penpot Web UI in default browser...");
+    let _ = open_in_browser(&penpot_url);
+    Ok(())
 }
 
 fn handle_design_tokens(args: &DesignTokensArgs) -> Result<()> {
@@ -5499,6 +5707,45 @@ mod tests {
                 assert!(c.json);
             }
             _ => panic!("Expected Design Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_design_ui() {
+        let args = vec!["pa", "design", "ui", "--url", "--stop"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Design(DesignArgs {
+                command: DesignCommands::Ui(u),
+            }) => {
+                assert!(u.url);
+                assert!(u.stop);
+            }
+            _ => panic!("Expected Design Ui command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_design_compile() {
+        let args = vec![
+            "pa",
+            "design",
+            "compile",
+            "--check",
+            "--json",
+            "--refs",
+            "penpot:file1/board2",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Design(DesignArgs {
+                command: DesignCommands::Compile(c),
+            }) => {
+                assert!(c.check);
+                assert!(c.json);
+                assert_eq!(c.refs.as_deref(), Some("penpot:file1/board2"));
+            }
+            _ => panic!("Expected Design Compile command"),
         }
     }
 

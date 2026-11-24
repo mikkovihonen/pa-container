@@ -260,6 +260,28 @@ tokens = ["ANTHROPIC_API_KEY"]
     - `"warn"`: Emits a structured warning and continues.
     - `"skip"`: Skips testing the missing platform without failing.
 
+#### `[design_system.penpot]`
+- **`base_url`**: Penpot instance HTTP endpoint (defaults to `"http://127.0.0.1:9001"`).
+- **`keyring_token`**: Keyring or environment variable name holding the Penpot API access token (defaults to `"PENPOT_ACCESS_TOKEN"`).
+- **`mcp_url`**: Optional Penpot desktop Model Context Protocol server URL for interactive sessions (defaults to `None`).
+- **`cache_dir`**: Path for caching rendered board PNG snapshots (defaults to `".pa/cache/design"`).
+- **`on_unavailable`**: Behavior when the Penpot API is unreachable:
+    - `"skip"` *(Default)*: Returns a warning response without failing unattended agent tasks.
+    - `"block"`: Fails the tool call with an error.
+
+#### `[design_system.compiler]`
+- **`tool`**: Token compilation engine (`"style_dictionary"` [default], `"terrazzo"`, `"custom_cmd"`, `"none"`).
+- **`config_path`**: Optional custom configuration path for Style Dictionary or Terrazzo.
+- **`custom_cmd`**: Custom shell command array when `tool = "custom_cmd"`.
+- **`outputs`**: Mapping of target platform identifiers to output file paths:
+    - `css`: `"src/styles/tokens.css"`
+    - `swift`: `"Sources/DesignSystem/Tokens.swift"`
+    - `kotlin`: `"app/src/main/java/com/example/ui/Tokens.kt"`
+- **`check_freshness_in_gate`**: When `true`, `pa design check` and feature design gates fail if `tokens.json` has been modified without recompiling outputs (defaults to `true`).
+- **`on_missing_tool`**: Behavior when the configured compiler binary is missing on host:
+    - `"skip"` *(Default)*: Degrades to a warning in gate evaluation without blocking the gate.
+    - `"block"`: Hard-fails the design gate.
+
 #### `[design_system.drift]`
 - **`enabled`**: Enables AST component drift and raw primitive detection (defaults to `true`).
 - **`engine`**: Drift analysis engine (`"native"` [default], `"external"`, `"hybrid"`, `"none"`).

@@ -15,12 +15,13 @@ macos_brew_packages = ["python@3"]
 
 [entitlements]
 read_paths = ["design/tokens", "design/contracts", "factory.toml"]
-write_paths = []
+write_paths = [".pa/cache/design"]
 allow_gpu = false
 
 [proxy]
 allowlist = ["design.penpot.app", "api.penpot.app", "api.figma.com", "localhost", "127.0.0.1"]
 tokens = [
     { env_var = "PENPOT_TOKEN", allowed_hosts = ["design.penpot.app", "api.penpot.app", "localhost", "127.0.0.1"] },
+    { env_var = "PENPOT_ACCESS_TOKEN", allowed_hosts = ["design.penpot.app", "api.penpot.app", "localhost", "127.0.0.1"] },
     { env_var = "FIGMA_TOKEN", allowed_hosts = ["api.figma.com"] },
 ]

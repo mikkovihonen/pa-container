@@ -897,6 +897,97 @@ impl Default for AndroidPlatformSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PenpotConfig {
+    #[serde(default = "default_penpot_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_penpot_keyring_token")]
+    pub keyring_token: String,
+    #[serde(default)]
+    pub mcp_url: Option<String>,
+    #[serde(default = "default_penpot_cache_dir")]
+    pub cache_dir: PathBuf,
+    #[serde(default = "default_penpot_on_unavailable")]
+    pub on_unavailable: String,
+}
+
+fn default_penpot_base_url() -> String {
+    "http://127.0.0.1:9001".to_string()
+}
+fn default_penpot_keyring_token() -> String {
+    "PENPOT_ACCESS_TOKEN".to_string()
+}
+fn default_penpot_cache_dir() -> PathBuf {
+    PathBuf::from(".pa/cache/design")
+}
+fn default_penpot_on_unavailable() -> String {
+    "skip".to_string()
+}
+
+impl Default for PenpotConfig {
+    fn default() -> Self {
+        Self {
+            base_url: default_penpot_base_url(),
+            keyring_token: default_penpot_keyring_token(),
+            mcp_url: None,
+            cache_dir: default_penpot_cache_dir(),
+            on_unavailable: default_penpot_on_unavailable(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TokenCompilerConfig {
+    #[serde(default = "default_compiler_tool")]
+    pub tool: String,
+    #[serde(default)]
+    pub config_path: Option<PathBuf>,
+    #[serde(default)]
+    pub custom_cmd: Option<Vec<String>>,
+    #[serde(default = "default_compiler_outputs")]
+    pub outputs: HashMap<String, PathBuf>,
+    #[serde(default = "default_compiler_check_freshness")]
+    pub check_freshness_in_gate: bool,
+    #[serde(default = "default_compiler_on_missing_tool")]
+    pub on_missing_tool: String,
+}
+
+fn default_compiler_tool() -> String {
+    "style_dictionary".to_string()
+}
+fn default_compiler_outputs() -> HashMap<String, PathBuf> {
+    let mut map = HashMap::new();
+    map.insert("css".to_string(), PathBuf::from("src/styles/tokens.css"));
+    map.insert(
+        "swift".to_string(),
+        PathBuf::from("Sources/DesignSystem/Tokens.swift"),
+    );
+    map.insert(
+        "kotlin".to_string(),
+        PathBuf::from("app/src/main/java/com/example/ui/Tokens.kt"),
+    );
+    map
+}
+fn default_compiler_check_freshness() -> bool {
+    true
+}
+fn default_compiler_on_missing_tool() -> String {
+    "skip".to_string()
+}
+
+impl Default for TokenCompilerConfig {
+    fn default() -> Self {
+        Self {
+            tool: default_compiler_tool(),
+            config_path: None,
+            custom_cmd: None,
+            outputs: default_compiler_outputs(),
+            check_freshness_in_gate: default_compiler_check_freshness(),
+            on_missing_tool: default_compiler_on_missing_tool(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DesignSystemConfig {
     #[serde(default = "default_design_provider")]
     pub provider: String,
@@ -920,6 +1011,10 @@ pub struct DesignSystemConfig {
     pub ios: IosPlatformSpec,
     #[serde(default)]
     pub android: AndroidPlatformSpec,
+    #[serde(default)]
+    pub penpot: PenpotConfig,
+    #[serde(default)]
+    pub compiler: TokenCompilerConfig,
 }
 
 fn default_design_provider() -> String {
@@ -952,6 +1047,8 @@ impl Default for DesignSystemConfig {
             web: WebPlatformSpec::default(),
             ios: IosPlatformSpec::default(),
             android: AndroidPlatformSpec::default(),
+            penpot: PenpotConfig::default(),
+            compiler: TokenCompilerConfig::default(),
         }
     }
 }

@@ -513,6 +513,49 @@ class AllowlistAddon:
                 return result
         return None
 
+    def _get_penpot_config(self) -> tuple[str | None, int | None, str | None]:
+        """Returns (penpot_hostname, penpot_port, mcp_hostname) if provider == 'penpot'."""
+        cfg_path = os.environ.get("PA_MULTI_AGENT_CONFIG") or os.environ.get("PA_FACTORY_CONFIG")
+        if not cfg_path:
+            for candidate in ("factory.toml", ".pa-container/factory.toml"):
+                if os.path.isfile(candidate):
+                    cfg_path = candidate
+                    break
+        if not cfg_path or not os.path.isfile(cfg_path):
+            return None, None, None
+
+        try:
+            data = None
+            if cfg_path.endswith(".toml"):
+                import tomllib
+
+                with open(cfg_path, "rb") as f:
+                    data = tomllib.load(f)
+            elif cfg_path.endswith((".yaml", ".yml")):
+                with open(cfg_path, encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+            if not data or not isinstance(data, dict):
+                return None, None, None
+
+            ds = data.get("design_system", {})
+            if ds.get("provider") != "penpot":
+                return None, None, None
+
+            penpot_cfg = ds.get("penpot", {})
+            base_url = penpot_cfg.get("base_url") or ds.get("endpoint") or "http://127.0.0.1:9001"
+            mcp_url = penpot_cfg.get("mcp_url")
+
+            from urllib.parse import urlparse
+
+            p_parsed = urlparse(base_url)
+            penpot_host = p_parsed.hostname
+            penpot_port = p_parsed.port or (443 if p_parsed.scheme == "https" else 80)
+            mcp_host = urlparse(mcp_url).hostname if mcp_url else None
+            return penpot_host, penpot_port, mcp_host
+        except Exception as e:
+            log.warning(f"[allowlist] Error reading factory config for Penpot: {e}")
+            return None, None, None
+
     def request(self, flow: http.HTTPFlow) -> None:
         """Main mitmproxy hook: filter HTTP requests based on allowlist rules."""
         # Skip flows that already have a response or error
@@ -525,6 +568,50 @@ class AllowlistAddon:
         hostname = _strip_port(flow.request.pretty_host or "")
         server_ip = _get_server_ip(flow)
         method = (getattr(flow.request, "method", "") or "GET").upper()
+
+        # Check Penpot routes when provider == "penpot" in factory.toml
+        penpot_host, penpot_port, mcp_host = self._get_penpot_config()
+        flow_port = getattr(flow.request, "port", None)
+        is_penpot_target = bool(
+            penpot_host
+            and _matches_hostname(hostname, [penpot_host])
+            and (penpot_port is None or flow_port is None or flow_port == penpot_port)
+        )
+
+        if is_penpot_target:
+            path = flow.request.path or "/"
+            if method in ("GET", "HEAD", "OPTIONS"):
+                if self._log_allowed:
+                    log.info(f"[allowlist] ALLOW (Penpot read-only route: {method} {path}) {hostname}")
+                return
+            elif method == "POST":
+                # Only permit read-only RPC commands
+                allowed_rpc_prefixes = (
+                    "/api/rpc/command/get-",
+                    "/api/rpc/command/export-",
+                    "/api/export/",
+                )
+                if any(path.startswith(p) for p in allowed_rpc_prefixes):
+                    if self._log_allowed:
+                        log.info(f"[allowlist] ALLOW (Penpot read-only RPC: {method} {path}) {hostname}")
+                    return
+                else:
+                    if self._log_blocked:
+                        log.info(f"[allowlist] DENY (Penpot mutating command violation: {method} {path}) {hostname}")
+                    if not self._dry_run:
+                        self._block_flow(flow, reason=f"Penpot mutating RPC {path} prohibited in read-only mode")
+                    return
+            else:
+                if self._log_blocked:
+                    log.info(f"[allowlist] DENY (Penpot unsupported method: {method}) {hostname}")
+                if not self._dry_run:
+                    self._block_flow(flow, reason=f"Penpot method {method} prohibited in read-only mode")
+                return
+
+        if mcp_host and _matches_hostname(hostname, [mcp_host]):
+            if self._log_allowed:
+                log.info(f"[allowlist] ALLOW (Penpot MCP pass-through) {hostname}")
+            return
 
         # Always allow localhost / llama provider hostnames
         if self._is_localhost(hostname):

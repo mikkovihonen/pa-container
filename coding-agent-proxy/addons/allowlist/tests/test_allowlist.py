@@ -1062,3 +1062,54 @@ class TestReadOnlyRulesAndMethods:
         addon.request(flow_post)
         assert flow_post.response is not None
         assert flow_post.response.status_code == 403
+
+
+class TestPenpotAllowlistRoutes:
+    def test_penpot_read_only_rpc_and_mutating_block(self, tmp_path, monkeypatch):
+        factory_toml = tmp_path / "factory.toml"
+        factory_toml.write_text(
+            """
+[design_system]
+provider = "penpot"
+
+[design_system.penpot]
+base_url = "http://penpot.internal:9001"
+mcp_url = "http://penpot-mcp.internal:9002"
+"""
+        )
+        monkeypatch.setenv("PA_MULTI_AGENT_CONFIG", str(factory_toml))
+
+        addon = AllowlistAddon()
+
+        # 1. GET to Penpot base_url is allowed
+        flow_get = _make_flow("penpot.internal:9001", "10.0.0.5")
+        flow_get.request.method = "GET"
+        flow_get.request.path = "/api/main/version"
+        flow_get.request.port = 9001
+        addon.request(flow_get)
+        assert flow_get.response is None
+
+        # 2. Read-only POST to Penpot RPC is allowed
+        flow_post_ro = _make_flow("penpot.internal:9001", "10.0.0.5")
+        flow_post_ro.request.method = "POST"
+        flow_post_ro.request.path = "/api/rpc/command/get-file"
+        flow_post_ro.request.port = 9001
+        addon.request(flow_post_ro)
+        assert flow_post_ro.response is None
+
+        # 3. Mutating POST to Penpot RPC is blocked
+        flow_post_mutate = _make_flow("penpot.internal:9001", "10.0.0.5")
+        flow_post_mutate.request.method = "POST"
+        flow_post_mutate.request.path = "/api/rpc/command/delete-file"
+        flow_post_mutate.request.port = 9001
+        addon.request(flow_post_mutate)
+        assert flow_post_mutate.response is not None
+        assert flow_post_mutate.response.status_code == 403
+
+        # 4. MCP pass-through host is allowed
+        flow_mcp = _make_flow("penpot-mcp.internal:9002", "10.0.0.6")
+        flow_mcp.request.method = "POST"
+        flow_mcp.request.path = "/"
+        flow_mcp.request.port = 9002
+        addon.request(flow_mcp)
+        assert flow_mcp.response is None

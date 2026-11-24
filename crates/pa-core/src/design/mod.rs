@@ -1,4 +1,5 @@
 pub mod android;
+pub mod compiler;
 pub mod drift;
 pub mod ios;
 
@@ -13,6 +14,10 @@ use crate::schema::DesignSystemConfig;
 
 pub use android::{
     evaluate_android_platform, parse_android_a11y_output, parse_android_visual_diff_output,
+};
+pub use compiler::{
+    check_tokens_freshness, check_tool_availability, compile_design_tokens, compute_file_digest,
+    TokenCompileReport, TokenFreshnessReport,
 };
 pub use drift::{find_hardcoded_hex, scan_workspace_for_drift, DriftScanResult};
 pub use ios::{evaluate_ios_platform, parse_ios_a11y_output, parse_ios_visual_diff_output};
@@ -876,6 +881,92 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
         }
     }
 
+    // 4. Token Freshness Verification
+    if config.compiler.check_freshness_in_gate && config.compiler.tool != "none" {
+        let freshness = check_tokens_freshness(root, config)?;
+        if !freshness.is_fresh {
+            if freshness.tool_available {
+                is_compliant = false;
+                violations.push(DesignLintViolation {
+                    file: config.tokens_path.display().to_string(),
+                    line: 1,
+                    rule: "stale_compiled_tokens".to_string(),
+                    message: format!(
+                        "Compiled platform tokens are stale or missing (missing: {:?}, stale: {:?}). Run 'pa design compile' to update.",
+                        freshness.missing_files, freshness.stale_files
+                    ),
+                    severity: "error".to_string(),
+                });
+                platform_results.insert(
+                    "compiler".to_string(),
+                    PlatformGateResult {
+                        platform: "compiler".to_string(),
+                        status: "failed".to_string(),
+                        message: "Compiled design tokens are stale or missing.".to_string(),
+                        details: vec![
+                            format!("Missing files: {:?}", freshness.missing_files),
+                            format!("Stale files: {:?}", freshness.stale_files),
+                            "Run 'pa design compile' to synchronize platform token files."
+                                .to_string(),
+                        ],
+                    },
+                );
+            } else if config
+                .compiler
+                .on_missing_tool
+                .eq_ignore_ascii_case("block")
+            {
+                is_compliant = false;
+                violations.push(DesignLintViolation {
+                    file: config.tokens_path.display().to_string(),
+                    line: 1,
+                    rule: "missing_token_compiler".to_string(),
+                    message: format!(
+                        "Token compiler tool '{}' is required but missing on host.",
+                        config.compiler.tool
+                    ),
+                    severity: "error".to_string(),
+                });
+                platform_results.insert(
+                    "compiler".to_string(),
+                    PlatformGateResult {
+                        platform: "compiler".to_string(),
+                        status: "failed".to_string(),
+                        message: format!(
+                            "Token compiler tool '{}' is missing on host (blocked).",
+                            config.compiler.tool
+                        ),
+                        details: vec![format!("Error: {:?}", freshness.error)],
+                    },
+                );
+            } else {
+                // on_missing_tool == "skip"
+                platform_results.insert(
+                    "compiler".to_string(),
+                    PlatformGateResult {
+                        platform: "compiler".to_string(),
+                        status: "skipped".to_string(),
+                        message: format!(
+                            "Token compiler tool '{}' is missing on host (skipped with warning).",
+                            config.compiler.tool
+                        ),
+                        details: vec![format!("Warning: {:?}", freshness.warning)],
+                    },
+                );
+            }
+        } else {
+            platform_results.insert(
+                "compiler".to_string(),
+                PlatformGateResult {
+                    platform: "compiler".to_string(),
+                    status: "passed".to_string(),
+                    message: "Compiled design tokens are fresh.".to_string(),
+                    details: Vec::new(),
+                },
+            );
+        }
+    }
+
     if violations.iter().any(|v| v.severity == "error") {
         is_compliant = false;
     }
@@ -1044,6 +1135,10 @@ mod tests {
             tokens_path: PathBuf::from("design/tokens/tokens.json"),
             contracts_path: PathBuf::from("design/contracts"),
             platforms: vec![],
+            compiler: crate::schema::TokenCompilerConfig {
+                tool: "none".to_string(),
+                ..Default::default()
+            },
             ..Default::default()
         };
 

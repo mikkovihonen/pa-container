@@ -135,6 +135,23 @@ contracts_path = "design/contracts"
 platforms = ["web"]
 on_missing_platform = "fail"
 
+[design_system.penpot]
+base_url = "http://127.0.0.1:9001"
+keyring_token = "PENPOT_ACCESS_TOKEN"
+mcp_url = "http://127.0.0.1:9002"
+cache_dir = ".pa/cache/design"
+on_unavailable = "skip" # "skip" or "block"
+
+[design_system.compiler]
+tool = "style_dictionary" # "style_dictionary", "terrazzo", "custom_cmd", or "none"
+check_freshness_in_gate = true
+on_missing_tool = "skip" # "skip" or "block"
+
+[design_system.compiler.outputs]
+css = "src/styles/tokens.css"
+swift = "Sources/DesignSystem/Tokens.swift"
+kotlin = "app/src/main/java/com/example/ui/Tokens.kt"
+
 [design_system.web]
 catalog = "storybook"
 a11y_engine = "axe_core"
@@ -147,7 +164,7 @@ on_missing_tool = "skip" # "skip" or "block"
 
 ---
 
-## 6. CLI Inspection (`pa design`)
+## 6. CLI Workflows (`pa design`)
 
 ### Inspecting Tokens
 
@@ -163,15 +180,52 @@ pa design tokens --token-type dimension
 pa design tokens --json
 ```
 
+### Compiling Design Tokens
+
+```bash
+# Compile tokens into platform-specific files (CSS, Swift, Kotlin)
+pa design compile
+
+# Verify tokens are fresh without modifying files
+pa design compile --check
+
+# Output structured compilation report as JSON
+pa design compile --json
+```
+
+### Self-Hosted Penpot UI (Podman)
+
+```bash
+# Start Penpot container stack via Podman and open Web UI
+pa design ui
+
+# Print Penpot Web UI URL without launching containers
+pa design ui --url
+
+# Stop the running Penpot container stack
+pa design ui --stop
+```
+
 ### Running Design System Verification
 
 ```bash
-# Run all enabled platform checks and static token linters
+# Run all enabled platform checks, token freshness checks, and static token linters
 pa design check
 
 # Output structured compliance report as JSON
 pa design check --json
 ```
+
+---
+
+## 7. Penpot Board Spec Inspection & Caching
+
+When `provider = "penpot"` is enabled, agents and developer tools query board specs via `design.get_board_spec`:
+
+- **Revision-Based Caching:** Board snapshots are deterministically cached under `.pa/cache/design/{file_id}_{board_id}_{rev}.png` based on the document revision in Penpot.
+- **Cache Invalidation:** If the file revision changes or `force_refresh: true` is passed, a fresh PNG export is rendered by `penpot-exporter`.
+- **Read-Only Proxy Enforcement:** The host proxy allowlist permits only read-only RPC routes (`get-file`, `get-profile`, `export-object`), strictly blocking modifying commands.
+- **Desktop MCP Pass-Through:** When `mcp_url` is configured, interactive desktop sessions can forward requests directly to Penpot's local MCP server.
 
 Example output:
 ```text
