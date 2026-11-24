@@ -261,10 +261,182 @@ impl Default for OtlpTelemetrySpec {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TelemetrySyncSpec {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_sync_jsonl_path")]
+    pub jsonl_path: PathBuf,
+    #[serde(default = "default_snapshot_max_age")]
+    pub snapshot_max_age_sec: u64,
+}
+
+fn default_sync_jsonl_path() -> PathBuf {
+    PathBuf::from(".pa/telemetry/events.jsonl")
+}
+
+fn default_snapshot_max_age() -> u64 {
+    300
+}
+
+impl Default for TelemetrySyncSpec {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            jsonl_path: default_sync_jsonl_path(),
+            snapshot_max_age_sec: default_snapshot_max_age(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TelemetryVcsSpec {
+    #[serde(default = "default_provider_none")]
+    pub provider: String,
+    #[serde(default)]
+    pub repo: Option<String>,
+    #[serde(default)]
+    pub api_base_url: Option<String>,
+    #[serde(default)]
+    pub keyring_token: Option<String>,
+    #[serde(default = "default_lookback_days")]
+    pub lookback_days: u32,
+}
+
+fn default_provider_none() -> String {
+    "none".to_string()
+}
+
+fn default_lookback_days() -> u32 {
+    14
+}
+
+impl Default for TelemetryVcsSpec {
+    fn default() -> Self {
+        Self {
+            provider: default_provider_none(),
+            repo: None,
+            api_base_url: None,
+            keyring_token: None,
+            lookback_days: default_lookback_days(),
+        }
+    }
+}
+
+impl TelemetryVcsSpec {
+    pub fn resolve_token(&self) -> Option<zeroize::Zeroizing<String>> {
+        let key = self.keyring_token.as_deref().unwrap_or("GITHUB_TOKEN");
+        if let Ok(val) = std::env::var(key) {
+            if !val.is_empty() {
+                return Some(zeroize::Zeroizing::new(val));
+            }
+        }
+        if let Ok(val) = std::env::var("GITHUB_TOKEN") {
+            if !val.is_empty() {
+                return Some(zeroize::Zeroizing::new(val));
+            }
+        }
+        if let Ok(val) = std::env::var("GITLAB_TOKEN") {
+            if !val.is_empty() {
+                return Some(zeroize::Zeroizing::new(val));
+            }
+        }
+
+        let test_mode = cfg!(test)
+            || std::env::var("PA_TEST_MODE")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+            || std::env::var("PA_DISABLE_KEYRING")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+            || std::env::var("CI").is_ok();
+
+        if test_mode {
+            return Some(zeroize::Zeroizing::new(format!("mock-vcs-token-{}", key)));
+        }
+
+        if let Ok(entry) = keyring::Entry::new("pa-container", key) {
+            if let Ok(pwd) = entry.get_password() {
+                if !pwd.is_empty() {
+                    return Some(zeroize::Zeroizing::new(pwd));
+                }
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TelemetryMetricsSpec {
+    #[serde(default = "default_provider_none")]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub keyring_token: Option<String>,
+}
+
+impl Default for TelemetryMetricsSpec {
+    fn default() -> Self {
+        Self {
+            provider: default_provider_none(),
+            endpoint: None,
+            keyring_token: None,
+        }
+    }
+}
+
+impl TelemetryMetricsSpec {
+    pub fn resolve_token(&self) -> Option<zeroize::Zeroizing<String>> {
+        let key = self.keyring_token.as_deref().unwrap_or("PROMETHEUS_TOKEN");
+        if let Ok(val) = std::env::var(key) {
+            if !val.is_empty() {
+                return Some(zeroize::Zeroizing::new(val));
+            }
+        }
+        if let Ok(val) = std::env::var("PROMETHEUS_TOKEN") {
+            if !val.is_empty() {
+                return Some(zeroize::Zeroizing::new(val));
+            }
+        }
+
+        let test_mode = cfg!(test)
+            || std::env::var("PA_TEST_MODE")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+            || std::env::var("PA_DISABLE_KEYRING")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+            || std::env::var("CI").is_ok();
+
+        if test_mode {
+            return Some(zeroize::Zeroizing::new(format!(
+                "mock-metrics-token-{}",
+                key
+            )));
+        }
+
+        if let Ok(entry) = keyring::Entry::new("pa-container", key) {
+            if let Ok(pwd) = entry.get_password() {
+                if !pwd.is_empty() {
+                    return Some(zeroize::Zeroizing::new(pwd));
+                }
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct TelemetryConfig {
     #[serde(default)]
     pub otlp: OtlpTelemetrySpec,
+    #[serde(default)]
+    pub sync: TelemetrySyncSpec,
+    #[serde(default)]
+    pub vcs: TelemetryVcsSpec,
+    #[serde(default)]
+    pub metrics: TelemetryMetricsSpec,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -335,6 +507,20 @@ pub struct WebPlatformSpec {
     pub a11y_engine: String,
     #[serde(default = "default_web_visual")]
     pub visual_regression: String,
+    #[serde(default = "default_wcag_level")]
+    pub wcag_level: String,
+    #[serde(default)]
+    pub a11y_command: Option<String>,
+    #[serde(default = "default_visual_diff_tool")]
+    pub visual_diff_tool: String,
+    #[serde(default)]
+    pub visual_diff_command: Option<String>,
+    #[serde(default = "default_max_visual_diff_pct")]
+    pub max_visual_diff_pct: f64,
+    #[serde(default = "default_baseline_dir")]
+    pub baseline_dir: PathBuf,
+    #[serde(default = "default_on_missing_tool_skip")]
+    pub on_missing_tool: String,
 }
 
 fn default_web_catalog() -> String {
@@ -346,6 +532,21 @@ fn default_web_a11y() -> String {
 fn default_web_visual() -> String {
     "lost_pixel".to_string()
 }
+fn default_wcag_level() -> String {
+    "AA".to_string()
+}
+fn default_visual_diff_tool() -> String {
+    "playwright".to_string()
+}
+fn default_max_visual_diff_pct() -> f64 {
+    0.05
+}
+fn default_baseline_dir() -> PathBuf {
+    PathBuf::from("design/baselines")
+}
+fn default_on_missing_tool_skip() -> String {
+    "skip".to_string()
+}
 
 impl Default for WebPlatformSpec {
     fn default() -> Self {
@@ -353,6 +554,13 @@ impl Default for WebPlatformSpec {
             catalog: default_web_catalog(),
             a11y_engine: default_web_a11y(),
             visual_regression: default_web_visual(),
+            wcag_level: default_wcag_level(),
+            a11y_command: None,
+            visual_diff_tool: default_visual_diff_tool(),
+            visual_diff_command: None,
+            max_visual_diff_pct: default_max_visual_diff_pct(),
+            baseline_dir: default_baseline_dir(),
+            on_missing_tool: default_on_missing_tool_skip(),
         }
     }
 }
@@ -487,6 +695,42 @@ impl Default for DesignSystemConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScaConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_sca_provider")]
+    pub provider: String,
+    #[serde(default = "default_sca_min_severity")]
+    pub min_severity: String,
+    #[serde(default = "default_on_missing_tool_skip")]
+    pub on_missing_tool: String,
+    #[serde(default)]
+    pub ignore_ids: Vec<String>,
+    #[serde(default)]
+    pub custom_command: Option<String>,
+}
+
+fn default_sca_provider() -> String {
+    "both".to_string()
+}
+fn default_sca_min_severity() -> String {
+    "high".to_string()
+}
+
+impl Default for ScaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_sca_provider(),
+            min_severity: default_sca_min_severity(),
+            on_missing_tool: default_on_missing_tool_skip(),
+            ignore_ids: Vec::new(),
+            custom_command: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GovernanceConfig {
     #[serde(default = "default_max_wip_prs")]
     pub max_wip_prs: usize,
@@ -494,6 +738,14 @@ pub struct GovernanceConfig {
     pub slo_defense_error_budget_min: f64,
     #[serde(default = "default_budget_usd")]
     pub budget_usd_per_kr: f64,
+    #[serde(default = "default_wip_mode")]
+    pub wip_mode: String,
+    #[serde(default = "default_on_slo_breach")]
+    pub on_slo_breach: String,
+    #[serde(default = "default_defense_mode_allowed_roles")]
+    pub defense_mode_allowed_roles: Vec<String>,
+    #[serde(default)]
+    pub sca: ScaConfig,
 }
 
 fn default_max_wip_prs() -> usize {
@@ -505,6 +757,19 @@ fn default_slo_defense() -> f64 {
 fn default_budget_usd() -> f64 {
     50.0
 }
+fn default_wip_mode() -> String {
+    "combined".to_string()
+}
+fn default_on_slo_breach() -> String {
+    "block".to_string()
+}
+fn default_defense_mode_allowed_roles() -> Vec<String> {
+    vec![
+        "bugfix".to_string(),
+        "triage".to_string(),
+        "verifier".to_string(),
+    ]
+}
 
 impl Default for GovernanceConfig {
     fn default() -> Self {
@@ -512,6 +777,148 @@ impl Default for GovernanceConfig {
             max_wip_prs: default_max_wip_prs(),
             slo_defense_error_budget_min: default_slo_defense(),
             budget_usd_per_kr: default_budget_usd(),
+            wip_mode: default_wip_mode(),
+            on_slo_breach: default_on_slo_breach(),
+            defense_mode_allowed_roles: default_defense_mode_allowed_roles(),
+            sca: ScaConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EscalationConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_escalation_chain")]
+    pub chain: Vec<String>,
+    #[serde(default = "default_max_retries_per_tier")]
+    pub max_retries_per_tier: u32,
+    #[serde(default = "default_escalate_on")]
+    pub escalate_on: Vec<String>,
+    #[serde(default = "default_true")]
+    pub respect_kr_budget: bool,
+    #[serde(default = "default_min_first_pass_yield")]
+    pub min_first_pass_yield: f64,
+    #[serde(default = "default_max_change_failure_rate")]
+    pub max_change_failure_rate: f64,
+    #[serde(default = "default_min_sample_size")]
+    pub min_sample_size: usize,
+}
+
+fn default_escalation_chain() -> Vec<String> {
+    vec![
+        "local".to_string(),
+        "frontier".to_string(),
+        "frontier+verifier".to_string(),
+    ]
+}
+
+fn default_max_retries_per_tier() -> u32 {
+    2
+}
+
+fn default_escalate_on() -> Vec<String> {
+    vec!["test_failure".to_string(), "gate_failure".to_string()]
+}
+
+fn default_min_first_pass_yield() -> f64 {
+    0.80
+}
+
+fn default_max_change_failure_rate() -> f64 {
+    0.20
+}
+
+fn default_min_sample_size() -> usize {
+    5
+}
+
+impl Default for EscalationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            chain: default_escalation_chain(),
+            max_retries_per_tier: default_max_retries_per_tier(),
+            escalate_on: default_escalate_on(),
+            respect_kr_budget: true,
+            min_first_pass_yield: default_min_first_pass_yield(),
+            max_change_failure_rate: default_max_change_failure_rate(),
+            min_sample_size: default_min_sample_size(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct RoutingConfig {
+    #[serde(default)]
+    pub escalation: EscalationConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SupervisorConfig {
+    #[serde(default)]
+    pub daemon: bool,
+    #[serde(default = "default_max_concurrent_agents")]
+    pub max_concurrent_agents: usize,
+    #[serde(default = "default_slot_uid_start")]
+    pub slot_uid_start: u32,
+    #[serde(default = "default_slot_proxy_port_start")]
+    pub slot_proxy_port_start: u16,
+    #[serde(default = "default_lease_timeout_sec")]
+    pub lease_timeout_sec: u64,
+    #[serde(default = "default_reallocate_roles")]
+    pub reallocate_roles: Vec<String>,
+    #[serde(default = "default_intercom_dir")]
+    pub intercom_dir: PathBuf,
+    #[serde(default = "default_supervisor_socket_path")]
+    pub socket_path: PathBuf,
+}
+
+fn default_max_concurrent_agents() -> usize {
+    4
+}
+
+fn default_slot_uid_start() -> u32 {
+    2001
+}
+
+fn default_slot_proxy_port_start() -> u16 {
+    8081
+}
+
+fn default_lease_timeout_sec() -> u64 {
+    1800
+}
+
+fn default_reallocate_roles() -> Vec<String> {
+    vec![
+        "review_assist".to_string(),
+        "verifier".to_string(),
+        "traceability_auditor".to_string(),
+        "design_steward".to_string(),
+        "okr_analyst".to_string(),
+    ]
+}
+
+fn default_intercom_dir() -> PathBuf {
+    PathBuf::from(".pa/intercom")
+}
+
+fn default_supervisor_socket_path() -> PathBuf {
+    PathBuf::from(".pa/supervisor.sock")
+}
+
+impl Default for SupervisorConfig {
+    fn default() -> Self {
+        Self {
+            daemon: false,
+            max_concurrent_agents: default_max_concurrent_agents(),
+            slot_uid_start: default_slot_uid_start(),
+            slot_proxy_port_start: default_slot_proxy_port_start(),
+            lease_timeout_sec: default_lease_timeout_sec(),
+            reallocate_roles: default_reallocate_roles(),
+            intercom_dir: default_intercom_dir(),
+            socket_path: default_supervisor_socket_path(),
         }
     }
 }
@@ -524,6 +931,8 @@ pub struct RoleSpec {
     pub model_tier: String,
     #[serde(default)]
     pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub acp_services: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
 }
@@ -538,6 +947,7 @@ impl Default for RoleSpec {
             driver: default_driver(),
             model_tier: default_model_tier(),
             capabilities: Vec::new(),
+            acp_services: Vec::new(),
             env: HashMap::new(),
         }
     }
@@ -551,6 +961,10 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             driver: "antigravity".to_string(),
             model_tier: "frontier".to_string(),
             capabilities: vec!["git".to_string(), "source-control".to_string()],
+            acp_services: vec![
+                "telemetry_acp:read".to_string(),
+                "design_system_acp:read".to_string(),
+            ],
             env: HashMap::new(),
         },
     );
@@ -565,6 +979,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
                 "virtual-desktop".to_string(),
                 "ios-simulator".to_string(),
             ],
+            acp_services: vec!["design_system_acp:read".to_string()],
             env: HashMap::new(),
         },
     );
@@ -574,6 +989,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             driver: "pi".to_string(),
             model_tier: "local".to_string(),
             capabilities: vec!["git".to_string(), "source-control".to_string()],
+            acp_services: vec!["design_system_acp:read".to_string()],
             env: HashMap::new(),
         },
     );
@@ -583,6 +999,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             driver: "pi".to_string(),
             model_tier: "local".to_string(),
             capabilities: vec!["git".to_string(), "source-control".to_string()],
+            acp_services: vec!["telemetry_acp:read".to_string()],
             env: HashMap::new(),
         },
     );
@@ -592,6 +1009,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             driver: "antigravity".to_string(),
             model_tier: "frontier".to_string(),
             capabilities: vec!["git".to_string(), "source-control".to_string()],
+            acp_services: vec!["telemetry_acp:read".to_string()],
             env: HashMap::new(),
         },
     );
@@ -601,6 +1019,7 @@ pub fn default_factory_roles() -> HashMap<String, RoleSpec> {
             driver: "pi".to_string(),
             model_tier: "local".to_string(),
             capabilities: vec!["git".to_string()],
+            acp_services: vec!["telemetry_acp:read".to_string()],
             env: HashMap::new(),
         },
     );
@@ -633,6 +1052,10 @@ pub struct FactoryConfig {
     pub design_system: DesignSystemConfig,
     #[serde(default)]
     pub governance: GovernanceConfig,
+    #[serde(default)]
+    pub routing: RoutingConfig,
+    #[serde(default)]
+    pub supervisor: SupervisorConfig,
     #[serde(default = "default_factory_roles")]
     pub roles: HashMap<String, RoleSpec>,
 }
@@ -656,6 +1079,8 @@ impl Default for FactoryConfig {
             traceability: TraceabilityConfig::default(),
             design_system: DesignSystemConfig::default(),
             governance: GovernanceConfig::default(),
+            routing: RoutingConfig::default(),
+            supervisor: SupervisorConfig::default(),
             roles: default_factory_roles(),
         }
     }
@@ -796,6 +1221,14 @@ max_threadgroup_memory = 32768
         assert_eq!(config.design_system.ios.runner, "ios_runnerd");
         assert_eq!(config.design_system.android.runner, "adb_emulator");
         assert_eq!(config.governance.max_wip_prs, 5);
+        assert!(config.routing.escalation.enabled);
+        assert_eq!(
+            config.routing.escalation.chain,
+            vec!["local", "frontier", "frontier+verifier"]
+        );
+        assert_eq!(config.supervisor.max_concurrent_agents, 4);
+        assert_eq!(config.supervisor.slot_uid_start, 2001);
+        assert_eq!(config.supervisor.slot_proxy_port_start, 8081);
         assert!(config.roles.contains_key("spec_architect"));
         assert!(config.roles.contains_key("design_engineer"));
         assert!(config.roles.contains_key("traceability_auditor"));
@@ -840,6 +1273,18 @@ max_wip_prs = 3
 slo_defense_error_budget_min = 0.95
 budget_usd_per_kr = 100.0
 
+[routing.escalation]
+enabled = true
+chain = ["local", "frontier"]
+max_retries_per_tier = 1
+respect_kr_budget = true
+
+[supervisor]
+daemon = true
+max_concurrent_agents = 8
+slot_uid_start = 3001
+slot_proxy_port_start = 9081
+
 [roles.custom_role]
 driver = "claude"
 model_tier = "frontier"
@@ -856,6 +1301,13 @@ capabilities = ["git"]
         assert_eq!(config.traceability.min_coverage_pct, 98.5);
         assert_eq!(config.design_system.platforms, vec!["web", "ios"]);
         assert_eq!(config.governance.max_wip_prs, 3);
+        assert!(config.routing.escalation.enabled);
+        assert_eq!(config.routing.escalation.chain, vec!["local", "frontier"]);
+        assert_eq!(config.routing.escalation.max_retries_per_tier, 1);
+        assert!(config.supervisor.daemon);
+        assert_eq!(config.supervisor.max_concurrent_agents, 8);
+        assert_eq!(config.supervisor.slot_uid_start, 3001);
+        assert_eq!(config.supervisor.slot_proxy_port_start, 9081);
         assert!(config.roles.contains_key("custom_role"));
         assert_eq!(config.roles.get("custom_role").unwrap().driver, "claude");
     }

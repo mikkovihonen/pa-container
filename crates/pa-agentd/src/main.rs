@@ -82,6 +82,8 @@ impl GuestDaemonService {
             "prune_caches" => self.rpc_prune_caches(),
             "apply_tuning" => self.rpc_apply_tuning(),
             "dispatch_feature_stage" => self.rpc_dispatch_feature_stage(&params),
+            "inspect_build_environment" => self.rpc_inspect_build_environment(),
+            "hash_build_artifacts" => self.rpc_hash_build_artifacts(&params),
             _ => {
                 return json!({
                     "jsonrpc": "2.0",
@@ -1035,6 +1037,35 @@ impl GuestDaemonService {
             }))
         }
     }
+
+    fn rpc_inspect_build_environment(&self) -> Result<serde_json::Value> {
+        let toolchain = pa_core::bom::collectors::toolchain::collect_host_toolchain()?;
+        let substrate = pa_core::bom::collectors::substrate::collect_substrate_environment("auto");
+        let machine = pa_core::bom::collectors::substrate::collect_machine_identity();
+
+        Ok(json!({
+            "status": "ok",
+            "machine": machine,
+            "toolchain": toolchain,
+            "substrate": substrate,
+        }))
+    }
+
+    fn rpc_hash_build_artifacts(&self, params: &serde_json::Value) -> Result<serde_json::Value> {
+        let mut paths = Vec::new();
+        if let Some(arr) = params.get("paths").and_then(|p| p.as_array()) {
+            for v in arr {
+                if let Some(s) = v.as_str() {
+                    paths.push(PathBuf::from(s));
+                }
+            }
+        }
+        let artifacts = pa_core::bom::collectors::artifacts::collect_artifacts(&paths);
+        Ok(json!({
+            "status": "ok",
+            "artifacts": artifacts,
+        }))
+    }
 }
 
 pub fn detect_linux_root_mount() -> (String, String) {
@@ -1210,6 +1241,40 @@ mod tests {
         let res = service.dispatch(&req);
         assert_eq!(res["id"], 42);
         assert_eq!(res["result"]["status"], "ok");
+    }
+
+    #[test]
+    fn test_guest_daemon_inspect_build_environment() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 43,
+            "method": "inspect_build_environment",
+            "params": {}
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 43);
+        assert_eq!(res["result"]["status"], "ok");
+        assert!(res["result"]["machine"]["host_os"].is_string());
+        assert!(res["result"]["toolchain"].is_array());
+        assert!(res["result"]["substrate"]["backend"].is_string());
+    }
+
+    #[test]
+    fn test_guest_daemon_hash_build_artifacts() {
+        let service = GuestDaemonService::new(None);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 44,
+            "method": "hash_build_artifacts",
+            "params": {
+                "paths": ["Cargo.toml"]
+            }
+        });
+        let res = service.dispatch(&req);
+        assert_eq!(res["id"], 44);
+        assert_eq!(res["result"]["status"], "ok");
+        assert!(res["result"]["artifacts"].is_array());
     }
 
     #[test]

@@ -972,3 +972,93 @@ class TestIntegration:
         flow = _make_flow("github.com", "140.82.121.4")
         addon.request(flow)
         assert flow.response is None
+
+
+class TestReadOnlyRulesAndMethods:
+    def test_allowlist_rule_read_only(self):
+        rule = AllowlistRule(
+            {
+                "name": "acp-read-only",
+                "mode": "allow",
+                "hostnames": ["telemetry.internal"],
+                "read_only": True,
+            }
+        )
+        assert rule.evaluate("telemetry.internal", "1.2.3.4", "GET") == "allow"
+        assert rule.evaluate("telemetry.internal", "1.2.3.4", "HEAD") == "allow"
+        assert rule.evaluate("telemetry.internal", "1.2.3.4", "OPTIONS") == "allow"
+        assert rule.evaluate("telemetry.internal", "1.2.3.4", "POST") == "deny_method"
+        assert rule.evaluate("telemetry.internal", "1.2.3.4", "DELETE") == "deny_method"
+        assert rule.evaluate("other.host", "1.2.3.4", "GET") is None
+
+    def test_addon_blocks_mutating_method_on_read_only_rule(self, tmp_path):
+        config = {
+            "global": {
+                "mode": "allow",
+                "default_action": "block",
+                "rules": [
+                    {
+                        "name": "ro-penpot",
+                        "mode": "allow",
+                        "hostnames": ["design.penpot.app"],
+                        "read_only": True,
+                    }
+                ],
+            }
+        }
+        config_file = tmp_path / "config.yaml"
+        import yaml
+
+        with open(config_file, "w") as f:
+            yaml.dump(config, f)
+
+        addon = AllowlistAddon(config_path=str(config_file))
+
+        # GET is allowed
+        flow_get = _make_flow("design.penpot.app", "1.2.3.4")
+        flow_get.request.method = "GET"
+        addon.request(flow_get)
+        assert flow_get.response is None
+
+        # DELETE is denied
+        flow_del = _make_flow("design.penpot.app", "1.2.3.4")
+        flow_del.request.method = "DELETE"
+        addon.request(flow_del)
+        assert flow_del.response is not None
+        assert flow_del.response.status_code == 403
+
+    def test_addon_blocks_mutating_method_via_pa_policy(self, tmp_path):
+        config = {
+            "global": {
+                "mode": "allow",
+                "default_action": "block",
+                "rules": [],
+            }
+        }
+        config_file = tmp_path / "config.yaml"
+        import yaml
+
+        with open(config_file, "w") as f:
+            yaml.dump(config, f)
+
+        addon = AllowlistAddon(config_path=str(config_file))
+
+        policy = MagicMock()
+        policy.agent_id = "agent_test"
+        policy.allowed_hosts = ["api.figma.com"]
+        policy.read_only_hosts = ["api.figma.com"]
+
+        # GET is allowed
+        flow_get = _make_flow("api.figma.com", "1.2.3.4")
+        flow_get.metadata = {"pa_policy": policy}
+        flow_get.request.method = "GET"
+        addon.request(flow_get)
+        assert flow_get.response is None
+
+        # POST is blocked
+        flow_post = _make_flow("api.figma.com", "1.2.3.4")
+        flow_post.metadata = {"pa_policy": policy}
+        flow_post.request.method = "POST"
+        addon.request(flow_post)
+        assert flow_post.response is not None
+        assert flow_post.response.status_code == 403

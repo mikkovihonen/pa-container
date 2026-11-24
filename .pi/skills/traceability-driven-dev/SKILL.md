@@ -87,3 +87,19 @@ When the traceability gate reports missing links without code logic errors:
 - Locate untagged test functions and append the corresponding `// utest~<REQ-ID>~1` comment.
 - Ensure all acceptance criteria in `tasks.md` reference valid `req~` identifiers.
 - Re-run `pa traceability check` to verify 100% compliance before stamping `X-PA-Traceability` trailers.
+
+---
+
+## 4. Operational Context & OKR Telemetry via MCP (`telemetry_acp`)
+
+Autonomous agents bound to `telemetry_acp:read` have access to read-only operational context tools:
+
+- `telemetry.get_okr_context(kr_id: str)`:
+    - Call this before authoring a functional specification to pull the objective title, target metrics, current progress %, and already linked requirements.
+    - Example: `telemetry.get_okr_context(kr_id="KR-AUTH-01")`.
+- `telemetry.get_slo_status()`:
+    - Call this before scheduling new feature work to verify error budget health. If `defense_mode_active: true`, only emergency roles (`bugfix`, `triage`, `verifier`) may proceed.
+- `telemetry.query_recent_failures(limit: int, role: str)`:
+    - Call during triage or bugfixing to inspect recent gate rejections and root causes across the factory.
+- `telemetry.get_factory_health()`:
+    - Inspect rolling First Pass Yield (FPY), Change Failure Rate (CFR), and WIP saturation.

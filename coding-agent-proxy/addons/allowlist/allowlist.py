@@ -240,6 +240,8 @@ class AllowlistRule:
         self.mode: str = rule_def.get("mode", "allow")  # "allow" or "block"
         self.hostnames: list[str] = rule_def.get("hostnames", [])
         self.ip_ranges: list[str] = rule_def.get("ip_ranges", [])
+        self.read_only: bool = rule_def.get("read_only", False)
+        self.allowed_methods: list[str] = [m.upper() for m in rule_def.get("allowed_methods", [])]
 
         # Pre-parse IP patterns for efficiency
         self._parsed_ips: list[
@@ -274,17 +276,18 @@ class AllowlistRule:
         """Check if an IP matches any IP pattern in this rule."""
         return _ip_matches(ip_str, self._parsed_ips)
 
-    def evaluate(self, hostname: str, server_ip: str | None) -> str | None:
+    def evaluate(self, hostname: str, server_ip: str | None, method: str | None = None) -> str | None:
         """Evaluate this rule against a request.
 
         Returns:
             ``"allow"`` if the request should be allowed,
             ``"deny"`` if the request should be blocked,
+            ``"deny_method"`` if host/IP matches but HTTP method is prohibited,
             ``None`` if this rule does not match (skip to next rule).
 
         In ``allow`` mode:
-            - If hostname matches → "allow"
-            - If IP matches → "allow"
+            - If hostname matches → "allow" (or "deny_method" if method restricted)
+            - If IP matches → "allow" (or "deny_method" if method restricted)
             - Otherwise → None (no match, continue checking)
 
         In ``block`` mode:
@@ -302,6 +305,10 @@ class AllowlistRule:
             # If the request matches this allowlist rule on any dimension,
             # it's allowed.
             if hostname_match or ip_match:
+                if self.read_only or self.allowed_methods:
+                    permitted = self.allowed_methods if self.allowed_methods else ["GET", "HEAD", "OPTIONS"]
+                    if method and method.upper() not in permitted:
+                        return "deny_method"
                 return "allow"
         elif self.mode == "block" and (hostname_match or ip_match):
             # If the request matches this blocklist rule on any dimension,
@@ -494,14 +501,14 @@ class AllowlistAddon:
             self._parsed_blocked_ips = _parse_ip_patterns(ranges)
         return _ip_matches(ip_str, self._parsed_blocked_ips)
 
-    def _check_rules(self, hostname: str, server_ip: str | None) -> str | None:
+    def _check_rules(self, hostname: str, server_ip: str | None, method: str | None = None) -> str | None:
         """Check all rules against the request.
 
         Returns:
-            ``"allow"``, ``"deny"``, or ``None`` (no rule matched).
+            ``"allow"``, ``"deny"``, ``"deny_method"``, or ``None`` (no rule matched).
         """
         for rule in self.rules:
-            result = rule.evaluate(hostname, server_ip)
+            result = rule.evaluate(hostname, server_ip, method)
             if result is not None:
                 return result
         return None
@@ -517,6 +524,7 @@ class AllowlistAddon:
         # DNS), so hostname rules must match against pretty_host.
         hostname = _strip_port(flow.request.pretty_host or "")
         server_ip = _get_server_ip(flow)
+        method = (getattr(flow.request, "method", "") or "GET").upper()
 
         # Always allow localhost / llama provider hostnames
         if self._is_localhost(hostname):
@@ -528,8 +536,19 @@ class AllowlistAddon:
         pa_policy = flow.metadata.get("pa_policy") if isinstance(getattr(flow, "metadata", None), dict) else None
         if pa_policy is not None:
             allowed_hosts = getattr(pa_policy, "allowed_hosts", None)
+            read_only_hosts = getattr(pa_policy, "read_only_hosts", None)
             if isinstance(allowed_hosts, (list, set, tuple)):
                 if _matches_hostname(hostname, [str(h) for h in allowed_hosts]):
+                    if (
+                        read_only_hosts
+                        and _matches_hostname(hostname, [str(h) for h in read_only_hosts])
+                        and method not in ("GET", "HEAD", "OPTIONS")
+                    ):
+                        if self._log_blocked:
+                            log.info(f"[allowlist] DENY (read-only ACP endpoint violation: {method}) {hostname}")
+                        if not self._dry_run:
+                            self._block_flow(flow, reason=f"read-only ACP endpoint violation ({method} prohibited)")
+                        return
                     if self._log_allowed:
                         log.info(f"[allowlist] ALLOW (agent policy {pa_policy.agent_id}) {hostname}")
                     return
@@ -541,12 +560,36 @@ class AllowlistAddon:
                     self._block_flow(flow, reason=f"agent policy {pa_policy.agent_id} prohibited")
                     return
 
+        # Global read_only_hosts enforcement
+        read_only_hosts = list(self.global_config.get("read_only_hosts") or [])
+        env_ro = os.environ.get("PROXY_READ_ONLY_HOSTS")
+        if env_ro:
+            read_only_hosts.extend([h.strip() for h in env_ro.split(",") if h.strip()])
+
+        if (
+            read_only_hosts
+            and _matches_hostname(hostname, read_only_hosts)
+            and method not in ("GET", "HEAD", "OPTIONS")
+        ):
+            if self._log_blocked:
+                log.info(f"[allowlist] DENY (read-only host violation: {method}) {hostname}")
+            if not self._dry_run:
+                self._block_flow(flow, reason=f"read-only host violation ({method} prohibited)")
+            return
+
         # Check rules
-        result = self._check_rules(hostname, server_ip)
+        result = self._check_rules(hostname, server_ip, method)
 
         if result == "allow":
             if self._log_allowed:
                 log.info(f"[allowlist] ALLOW {hostname}{' ' + server_ip if server_ip else ''}")
+            return
+
+        if result == "deny_method":
+            if self._log_blocked:
+                log.info(f"[allowlist] DENY (method {method} not permitted by rule) {hostname}")
+            if not self._dry_run:
+                self._block_flow(flow, reason=f"method {method} not permitted by rule")
             return
 
         # SSRF Protection: if destination IP is in blocked private/loopback/metadata ranges and not explicitly allowed

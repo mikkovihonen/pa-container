@@ -75,6 +75,10 @@ flowchart TD
 - **Git Provenance Stamp:**
     - Gate 2 review sign-off stamps structured `X-PA-*` Git commit trailers onto merge commits.
     - Captures task ID, trace ID, requirements, KRs, objectives, and design references directly in the Git audit history.
+- **Factory DBOM & Cryptographic Attestation:**
+    - Generates signed CycloneDX 1.6 and SLSA v1.0 in-toto DSSE attestations covering dependencies, compilers, hypervisors, prompts, and proxies.
+    - Captures RFC 8785 canonical digest and Ed25519 signatures in commit trailers (`X-PA-BOM-ID`, `X-PA-BOM-Digest`, `X-PA-BOM-Signature`).
+    - **Guide:** Learn more in [Factory DBOM & Attestation](bom.md).
 - **Guide:** Learn more in [Runtime Telemetry & Git (Layer 2)](telemetry.md).
 
 ### Layer 3: Operational & Business Outcomes
@@ -100,3 +104,5 @@ Every stage of the factory links to the same standardized correlation keys:
 | `design_refs` | `["button.primary"]` | Defined in `design/contracts/`, checked by multi-platform design gate. |
 | `task_id` | `task-1732130000-abcd` | Generated at task run start, propagates via `proxy-bindings.json` to proxy and spans. |
 | `trace_id` | `4bf92f3577b34da6a3ce929d0e0e4736` | OTel root trace identifier passed into proxy headers and stamped in Git trailers. |
+| `bom_id` | `bom-1795507656-654567fc` | Identifies Factory DBOM in `.pa/boms/` and `factory.db`, stamped in Git trailers. |
+| `bom_digest` | `sha256:7509eaae23...` | RFC 8785 canonical SHA256 digest of 6-plane factory provenance, signed with Ed25519. |

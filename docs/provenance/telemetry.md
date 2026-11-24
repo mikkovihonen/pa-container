@@ -130,9 +130,19 @@ pa telemetry ui
 # Inspect traces and events for a specific task
 pa telemetry trace <task-id>
 
-# Display aggregated analytical outcomes and FinOps spend
+# Display aggregated DORA, flow metrics, and FinOps unit economics (default: 14-day window)
 pa telemetry report
 
-# Synchronize local database with telemetry events
+# Display DORA/flow report for a custom window and group by dimension
+pa telemetry report --window 30d --by role
+pa telemetry report --window 7d --by okr
+pa telemetry report --json
+
+# Synchronize local database with telemetry events, VCS PR outcomes, and OKR metrics
 pa telemetry sync
+
+# Synchronize a specific source or manually record a Key Result metric observation
+pa telemetry sync --source vcs --since 7d
+pa telemetry sync --source jsonl
+pa telemetry sync --record-kr KR-AUTH-01 85.0
 ```

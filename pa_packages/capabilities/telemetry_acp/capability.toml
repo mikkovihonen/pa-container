@@ -1,0 +1,26 @@
+schema_version = "1.0"
+
+[capability]
+name = "telemetry_acp"
+category = "observability"
+version = "1.0.0"
+description = "Factory Telemetry Model Context Protocol (MCP) server providing read-only operational telemetry, OKR context, factory health, failure diagnostics, and SLO defense status."
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/telemetry_acp"
+bin_dirs = ["bin"]
+fedora_packages = ["python3", "sqlite"]
+macos_brew_packages = ["python@3", "sqlite"]
+
+[entitlements]
+read_paths = [".pa/factory.db", "docs/okrs", "factory.toml"]
+write_paths = []
+allow_gpu = false
+
+[proxy]
+allowlist = ["localhost", "127.0.0.1", "::1"]
+tokens = [
+    { env_var = "PROMETHEUS_TOKEN", allowed_hosts = ["localhost", "127.0.0.1"] },
+    { env_var = "PHOENIX_API_KEY", allowed_hosts = ["localhost", "127.0.0.1"] },
+]

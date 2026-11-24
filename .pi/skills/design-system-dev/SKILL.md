@@ -137,3 +137,20 @@ The Software Factory automatically evaluates design system compliance before com
         - `web`: Node.js runtime and testing dependencies.
         - `ios`: `xcrun simctl` / Xcode command line tools.
         - `android`: `adb` or Android SDK.
+
+---
+
+## 5. Design System Discovery via MCP (`design_system_acp`)
+
+Autonomous agents bound to `design_system_acp:read` have access to read-only design context tools:
+
+- `design.search_tokens(query: str = "", platform: str = "web", category: str = None)`:
+    - Search W3C DTCG tokens and receive code snippets formatted for Web (CSS variables), iOS (Swift), or Android (Kotlin).
+    - Example: `design.search_tokens(query="brand", platform="web")`.
+- `design.get_component_contract(component: str)`:
+    - Inspect required tokens, accessibility targets (WCAG / VoiceOver / TalkBack), and platform component paths before writing UI code.
+    - Example: `design.get_component_contract(component="Button")`.
+- `design.list_deprecated()`:
+    - Verify that none of the tokens or components planned for use are deprecated.
+- `design.get_board_spec(board_id: str = None, file_id: str = None)`:
+    - Query live visual board specs from Penpot or Figma (or receive local contract guidance in `git_only` mode).

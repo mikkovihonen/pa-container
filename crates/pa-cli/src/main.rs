@@ -1,12 +1,16 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use pa_core::backend::get_backend;
 use pa_core::feature::{Feature, FeatureStatus, TaskSlice, TestKind, TestScenario};
+use pa_core::manifest::{resolve_role_acp_bindings, CapabilityRegistry};
 use pa_core::review::review_agent_workspace;
-use pa_core::schema::{load_factory_config, resolve_agent_sockets, AgentSpec};
+use pa_core::schema::{
+    default_factory_roles, load_factory_config, resolve_agent_sockets, AgentSpec,
+};
 use serde_json::json;
 use std::io::{IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -56,6 +60,27 @@ pub enum Commands {
 
     #[command(about = "Inspect and verify cross-platform Design System contracts & tokens")]
     Design(DesignArgs),
+
+    #[command(
+        about = "Scan and verify Software Composition Analysis (SCA) dependencies and vulnerabilities"
+    )]
+    Sca(ScaArgs),
+
+    #[command(
+        about = "Manage and verify Software Factory Digital Bill of Materials (DBOM) & Attestations"
+    )]
+    Bom(BomArgs),
+
+    #[command(
+        about = "Inspect, test, and activate Agent / Model Context Protocol (ACP/MCP) operational context servers"
+    )]
+    Acp(AcpArgs),
+
+    #[command(about = "Manage the asynchronous concurrent Host Supervisor daemon")]
+    Supervisor(SupervisorCliArgs),
+
+    #[command(about = "Enqueue and manage tasks in the Factory Work Queue")]
+    Task(TaskCliArgs),
 }
 
 #[derive(Args, Debug)]
@@ -89,6 +114,9 @@ pub struct RunArgs {
         help = "Associated Requirement IDs (comma-separated, e.g. REQ-AUTH-01)"
     )]
     pub req: Option<String>,
+
+    #[arg(long, help = "Force dispatch overriding SLO defense mode guardrail")]
+    pub force: bool,
 
     #[arg(
         trailing_var_arg = true,
@@ -247,6 +275,373 @@ pub struct DesignCheckArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct ScaArgs {
+    #[command(subcommand)]
+    pub command: ScaCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ScaCommands {
+    #[command(about = "Scan workspace dependencies for known vulnerabilities")]
+    Check(ScaCheckArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ScaCheckArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Output report as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BomArgs {
+    #[command(subcommand)]
+    pub command: BomSubcommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum BomSubcommand {
+    #[command(about = "Generate an Ed25519 signing keypair for the software factory")]
+    Keygen(BomKeygenArgs),
+
+    #[command(about = "Generate, sign, and store a complete Factory DBOM for workspace artifacts")]
+    Generate(BomGenerateArgs),
+
+    #[command(about = "Inspect a Factory DBOM or artifact by ID or path")]
+    Inspect(BomInspectArgs),
+
+    #[command(about = "Verify a Factory DBOM against cryptographic signatures and policies")]
+    Verify(BomVerifyArgs),
+
+    #[command(about = "Compare two Factory DBOMs to identify supply chain drift")]
+    Diff(BomDiffArgs),
+
+    #[command(about = "Export a Factory DBOM in CycloneDX 1.6 or SLSA v1.0 formats")]
+    Export(BomExportArgs),
+
+    #[command(about = "List historical Factory DBOMs recorded in factory.db")]
+    List(BomListArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct BomKeygenArgs {
+    #[arg(
+        short,
+        long,
+        help = "Output path for the private key (default: .pa/keys/factory_ed25519.key)"
+    )]
+    pub output: Option<PathBuf>,
+
+    #[arg(short, long, help = "Overwrite existing key file")]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BomGenerateArgs {
+    #[arg(long, default_value = "pa-container", help = "Target name")]
+    pub target: String,
+
+    #[arg(long, default_value = "2.0.0", help = "Target version")]
+    pub version: String,
+
+    #[arg(long, help = "Feature or task ID to correlate")]
+    pub task_id: Option<String>,
+
+    #[arg(long, help = "Artifact paths or directories to hash")]
+    pub artifacts: Vec<PathBuf>,
+
+    #[arg(long, help = "Path to Ed25519 signing key")]
+    pub key: Option<PathBuf>,
+
+    #[arg(long, help = "Do not persist to database (.pa/factory.db)")]
+    pub no_db: bool,
+
+    #[arg(long, help = "Output JSON to stdout")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BomInspectArgs {
+    #[arg(help = "BOM ID or path to BOM JSON file")]
+    pub target: String,
+
+    #[arg(
+        long,
+        help = "Filter inspection to a specific plane (dependencies, toolchain, substrate, agentic, proxy, specs, artifacts)"
+    )]
+    pub plane: Option<String>,
+
+    #[arg(long, help = "Output as raw JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BomVerifyArgs {
+    #[arg(help = "BOM ID or path to BOM JSON file")]
+    pub target: String,
+
+    #[arg(
+        long,
+        help = "Path to policy TOML file (default: bom-policy.toml or factory.toml)"
+    )]
+    pub policy: Option<PathBuf>,
+
+    #[arg(long, help = "Expected public key (base64)")]
+    pub key: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct BomDiffArgs {
+    #[arg(help = "First BOM ID or file path")]
+    pub bom_a: String,
+
+    #[arg(help = "Second BOM ID or file path")]
+    pub bom_b: String,
+
+    #[arg(long, help = "Summary output only")]
+    pub summary: bool,
+
+    #[arg(long, help = "Output diff as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BomExportArgs {
+    #[arg(help = "BOM ID")]
+    pub bom_id: String,
+
+    #[arg(
+        long,
+        default_value = "cyclonedx",
+        help = "Export format (cyclonedx, slsa, canonical)"
+    )]
+    pub format: String,
+
+    #[arg(short, long, help = "Output file path (default: stdout)")]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct BomListArgs {
+    #[arg(
+        short,
+        long,
+        default_value = "20",
+        help = "Maximum number of records to return"
+    )]
+    pub limit: usize,
+
+    #[arg(long, help = "Output as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct AcpArgs {
+    #[command(subcommand)]
+    pub command: AcpSubcommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AcpSubcommand {
+    #[command(about = "List registered ACP/MCP servers and their exposed tools")]
+    List(AcpListArgs),
+
+    #[command(about = "Run self-tests on registered ACP/MCP servers")]
+    Test(AcpTestArgs),
+
+    #[command(about = "Synthesize MCP configuration for an agent role or export JSON")]
+    Activate(AcpActivateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct AcpListArgs {
+    #[arg(
+        short,
+        long,
+        help = "Path to packages directory (default: pa_packages)"
+    )]
+    pub packages_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct AcpTestArgs {
+    #[arg(
+        short,
+        long,
+        help = "Path to packages directory (default: pa_packages)"
+    )]
+    pub packages_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct AcpActivateArgs {
+    #[arg(
+        short,
+        long,
+        help = "Agent role to synthesize MCP config for (e.g. spec_architect, design_engineer)"
+    )]
+    pub role: Option<String>,
+
+    #[arg(
+        long,
+        help = "Harness target (antigravity, claude, opencode, all)",
+        default_value = "all"
+    )]
+    pub harness: String,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct SupervisorCliArgs {
+    #[command(subcommand)]
+    pub command: SupervisorCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SupervisorCommands {
+    #[command(about = "Start the Host Supervisor (foreground or background daemon)")]
+    Start(SupervisorStartArgs),
+
+    #[command(about = "Query the status of the Host Supervisor and active worker leases")]
+    Status(SupervisorStatusArgs),
+
+    #[command(about = "Gracefully stop the running Host Supervisor daemon")]
+    Stop(SupervisorStopArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SupervisorStartArgs {
+    #[arg(long, help = "Maximum concurrent agent workers")]
+    pub concurrency: Option<usize>,
+
+    #[arg(long, help = "Run in background daemon mode")]
+    pub daemon: bool,
+
+    #[arg(long, help = "Run in foreground interactive mode")]
+    pub foreground: bool,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct SupervisorStatusArgs {
+    #[arg(long, help = "Output status as JSON")]
+    pub json: bool,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct SupervisorStopArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskCliArgs {
+    #[command(subcommand)]
+    pub command: TaskCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TaskCommands {
+    #[command(about = "Enqueue a new task for the supervisor to execute")]
+    Enqueue(TaskEnqueueArgs),
+
+    #[command(about = "List tasks currently in the supervisor queue")]
+    List(TaskListArgs),
+
+    #[command(about = "Resume an awaiting_human task")]
+    Resume(TaskResumeArgs),
+
+    #[command(about = "Cancel a queued or running task")]
+    Cancel(TaskCancelArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TaskEnqueueArgs {
+    #[arg(
+        long,
+        help = "Role for the task (e.g. feature, bugfix, review_assist, verifier)"
+    )]
+    pub role: String,
+
+    #[arg(long, help = "Requirement ID (e.g. REQ-AUTH-01)")]
+    pub req: Option<String>,
+
+    #[arg(long, help = "Key Result ID (e.g. KR-AUTH-01)")]
+    pub kr: Option<String>,
+
+    #[arg(
+        long,
+        default_value = "100",
+        help = "Scheduling priority (lower integer = higher priority)"
+    )]
+    pub priority: i32,
+
+    #[arg(
+        long,
+        default_value = "local",
+        help = "Initial model tier (e.g. local, frontier)"
+    )]
+    pub tier: String,
+
+    #[arg(short, long, help = "Task ID (default: auto-generated)")]
+    pub task_id: Option<String>,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskListArgs {
+    #[arg(
+        long,
+        help = "Filter tasks by status (e.g. queued, running, awaiting_human, completed, failed)"
+    )]
+    pub status: Option<String>,
+
+    #[arg(short, long, default_value = "20", help = "Maximum tasks to return")]
+    pub limit: usize,
+
+    #[arg(long, help = "Output as JSON")]
+    pub json: bool,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskResumeArgs {
+    #[arg(help = "Task ID to resume")]
+    pub task_id: String,
+
+    #[arg(
+        long,
+        help = "Human response or clarification payload to provide to the agent"
+    )]
+    pub response: Option<String>,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct TaskCancelArgs {
+    #[arg(help = "Task ID to cancel")]
+    pub task_id: String,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
 pub struct FactoryArgs {
     #[arg(
         help = "Factory lifecycle action: up, down, or status",
@@ -368,6 +763,19 @@ pub struct FeatureRunArgs {
 
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Force execution overriding SLO defense mode guardrail")]
+    pub force: bool,
+
+    #[arg(
+        long,
+        default_value = "feature",
+        help = "Role executing the run (e.g. feature, bugfix, triage, verifier)"
+    )]
+    pub role: String,
+
+    #[arg(long, help = "Initial model tier (e.g. local, frontier)")]
+    pub model_tier: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -505,48 +913,22 @@ fn handle_run(args: &RunArgs) -> Result<()> {
             &config.governance,
             active_wip,
             task_ctx.kr_ids.first().map(|s| s.as_str()),
+            args.role.as_deref(),
         )?;
 
         if !gov_decision.allowed {
-            eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
-            anyhow::bail!(
-                "Governance guardrail blocked dispatch: {}",
-                gov_decision.reason
-            );
-        }
-
-        if let Some(ref model_override) = gov_decision.model_override {
-            println!(
-                "==> [GOVERNANCE] Model override applied: {} ({})",
-                model_override, gov_decision.reason
-            );
-            task_ctx.model_profile = Some(model_override.clone());
-        }
-
-        if gov_decision.defense_mode_active {
-            println!(
-                "==> [GOVERNANCE WARNING] SLO Defense Mode active (health: {:.1}%).",
-                gov_decision.slo_health_pct
-            );
-        }
-    }
-
-    // Closed-Loop Governance Evaluation
-    if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
-        let active_wip = count_active_wip_features(&cwd);
-        let gov_decision = pa_core::governance::GovernanceEngine::evaluate_dispatch(
-            store.as_ref(),
-            &config.governance,
-            active_wip,
-            task_ctx.kr_ids.first().map(|s| s.as_str()),
-        )?;
-
-        if !gov_decision.allowed {
-            eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
-            anyhow::bail!(
-                "Governance guardrail blocked dispatch: {}",
-                gov_decision.reason
-            );
+            if args.force {
+                println!(
+                    "==> [GOVERNANCE OVERRIDE] Dispatch forced via --force despite guardrail: {}",
+                    gov_decision.reason
+                );
+            } else {
+                eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
+                anyhow::bail!(
+                    "Governance guardrail blocked dispatch: {}. Use --force to override.",
+                    gov_decision.reason
+                );
+            }
         }
 
         if let Some(ref model_override) = gov_decision.model_override {
@@ -1125,6 +1507,16 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
         task_ctx.trace_id, task_ctx.task_id, config.telemetry.otlp.provider
     );
 
+    let mut current_tier = args.model_tier.clone().unwrap_or_else(|| {
+        config
+            .routing
+            .escalation
+            .chain
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "local".to_string())
+    });
+
     // Closed-Loop Governance Evaluation
     if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
         let active_wip = count_active_wip_features(&cwd);
@@ -1133,14 +1525,22 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             &config.governance,
             active_wip,
             task_ctx.kr_ids.first().map(|s| s.as_str()),
+            Some(&args.role),
         )?;
 
         if !gov_decision.allowed {
-            eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
-            anyhow::bail!(
-                "Governance guardrail blocked dispatch: {}",
-                gov_decision.reason
-            );
+            if args.force {
+                println!(
+                    "==> [GOVERNANCE OVERRIDE] Feature run forced via --force despite guardrail: {}",
+                    gov_decision.reason
+                );
+            } else {
+                eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
+                anyhow::bail!(
+                    "Governance guardrail blocked dispatch: {}. Use --force to override.",
+                    gov_decision.reason
+                );
+            }
         }
 
         if let Some(ref model_override) = gov_decision.model_override {
@@ -1157,6 +1557,34 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
                 gov_decision.slo_health_pct
             );
         }
+
+        // Proactive tier promotion evaluation
+        if config.routing.escalation.enabled {
+            if let Ok((promoted_tier, reason)) =
+                pa_core::governance::GovernanceEngine::resolve_initial_tier(
+                    store.as_ref(),
+                    &config.routing.escalation,
+                    &config.governance,
+                    &args.role,
+                    &current_tier,
+                    task_ctx.kr_ids.first().map(|s| s.as_str()),
+                )
+            {
+                if promoted_tier != current_tier {
+                    println!(
+                        "==> [ESCALATION] Proactive tier promotion applied: {} -> {} ({})",
+                        current_tier,
+                        promoted_tier,
+                        reason.as_deref().unwrap_or("rolling FPY/CFR stats")
+                    );
+                    current_tier = promoted_tier;
+                }
+            }
+        }
+    }
+
+    if task_ctx.model_profile.is_none() {
+        task_ctx.model_profile = Some(current_tier.clone());
     }
 
     let backend = get_backend(&config)?;
@@ -1248,6 +1676,58 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             trace_report.total_requirements
         );
 
+        let evaluate_escalation_on_failure = |failure_kind: &str, err_msg: &str| -> Result<()> {
+            if config.routing.escalation.enabled {
+                if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+                    let esc_decision = pa_core::governance::GovernanceEngine::evaluate_escalation(
+                        store.as_ref(),
+                        &config.routing.escalation,
+                        &config.governance,
+                        &task_ctx.task_id,
+                        &current_tier,
+                        0,
+                        failure_kind,
+                        err_msg,
+                        task_ctx.kr_ids.first().map(|s| s.as_str()),
+                    )?;
+                    match esc_decision {
+                        pa_core::governance::EscalationDecision::RetrySameTier {
+                            tier,
+                            attempt,
+                            ..
+                        } => {
+                            println!(
+                                "==> [ESCALATION] Quality gate failure: retrying on same tier '{}' (attempt {})",
+                                tier, attempt
+                            );
+                        }
+                        pa_core::governance::EscalationDecision::Escalate {
+                            next_tier,
+                            require_verifier,
+                            ..
+                        } => {
+                            println!(
+                                "==> [ESCALATION] Quality gate failure triggered upward model escalation: {} -> {} (require_verifier: {})",
+                                current_tier, next_tier, require_verifier
+                            );
+                        }
+                        pa_core::governance::EscalationDecision::Halt { reason, .. } => {
+                            if !args.force {
+                                eprintln!("[ESCALATION HALT] Upward escalation halted: {}", reason);
+                                anyhow::bail!("{}: Upward escalation blocked: {}", err_msg, reason);
+                            } else {
+                                println!(
+                                    "==> [ESCALATION OVERRIDE] Escalation halt overridden via --force: {}",
+                                    reason
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            anyhow::bail!("{}", err_msg);
+        };
+
         if !trace_report.is_compliant {
             eprintln!(
                 "[ERROR] Traceability gate failed: coverage {:.1}% < min {:.1}%. Missing tests: {:?}, Missing impl: {:?}",
@@ -1256,7 +1736,44 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
                 trace_report.missing_tests,
                 trace_report.missing_impl
             );
-            anyhow::bail!("Traceability gate failed compliance check. Run 'pa traceability check' for details.");
+            evaluate_escalation_on_failure(
+                "gate_failure",
+                "Traceability gate failed compliance check. Run 'pa traceability check' for details.",
+            )?;
+        }
+
+        // Evaluate Software Composition Analysis (SCA) Gate
+        if config.governance.sca.enabled {
+            println!(
+                "==> Evaluating Software Composition Analysis (SCA) Gate (Provider: {}, Min Severity: {})...",
+                config.governance.sca.provider, config.governance.sca.min_severity
+            );
+            let sca_report = pa_core::sca::evaluate_sca_gate(&cwd, &config.governance.sca)?;
+            println!(
+                "==> SCA scan completed (Scanner: {}). Vulnerabilities found: {}, blocking: {}, compliant: {}",
+                sca_report.scanner,
+                sca_report.vulnerabilities_found,
+                sca_report.blocking_vulnerabilities.len(),
+                sca_report.is_compliant
+            );
+
+            if !sca_report.is_compliant {
+                eprintln!(
+                    "[ERROR] SCA gate failed with {} blocking vulnerability/vulnerabilities (Severity >= {}):",
+                    sca_report.blocking_vulnerabilities.len(),
+                    config.governance.sca.min_severity
+                );
+                for v in &sca_report.blocking_vulnerabilities {
+                    eprintln!(
+                        "  [!] {} [{:?}] in {}@{}: {}",
+                        v.id, v.severity, v.package, v.installed_version, v.title
+                    );
+                }
+                evaluate_escalation_on_failure(
+                    "gate_failure",
+                    "SCA gate failed compliance check (blocking vulnerabilities detected). Run 'pa sca check' for details.",
+                )?;
+            }
         }
 
         // Evaluate Cross-Platform Design System Gate
@@ -1266,8 +1783,12 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
         );
         let design_report = pa_core::design::evaluate_design_gate(&cwd, &config.design_system)?;
         println!(
-            "==> Design system tokens: {}, contracts: {}, compliant: {}",
-            design_report.total_tokens, design_report.total_contracts, design_report.is_compliant
+            "==> Design system tokens: {}, contracts: {}, a11y violations: {}, visual diff failures: {}, compliant: {}",
+            design_report.total_tokens,
+            design_report.total_contracts,
+            design_report.a11y_violations.len(),
+            design_report.visual_diff_failures.len(),
+            design_report.is_compliant
         );
 
         if !design_report.is_compliant {
@@ -1278,9 +1799,30 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             for v in &design_report.violations {
                 eprintln!("  [!] {}:{} [{}]: {}", v.file, v.line, v.rule, v.message);
             }
-            anyhow::bail!(
-                "Design system gate failed compliance check. Run 'pa design check' for details."
-            );
+            if !design_report.a11y_violations.is_empty() {
+                eprintln!("[ERROR] Accessibility (a11y) violations found:");
+                for a in &design_report.a11y_violations {
+                    let target_str = a.target.as_deref().unwrap_or("-");
+                    eprintln!(
+                        "  [!] [A11Y:{}] {}: {} (Impact: {})",
+                        a.id, a.description, target_str, a.impact
+                    );
+                }
+            }
+            if !design_report.visual_diff_failures.is_empty() {
+                eprintln!("[ERROR] Visual regression diff failures found:");
+                for v in &design_report.visual_diff_failures {
+                    eprintln!(
+                        "  [!] [DIFF] {}: diff {:.2}% exceeds max threshold",
+                        v.snapshot_name,
+                        v.diff_pct * 100.0
+                    );
+                }
+            }
+            evaluate_escalation_on_failure(
+                "gate_failure",
+                "Design system gate failed compliance check. Run 'pa design check' for details.",
+            )?;
         }
 
         // Record into Analytical Store (factory.db)
@@ -1296,6 +1838,29 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             okr_store.resolve_hierarchy(first_req)
         } else {
             ("OBJ-OPS-MAINTENANCE".to_string(), Vec::new())
+        };
+
+        // Generate and sign Factory DBOM for the feature implementation
+        let signing_key = pa_core::bom::load_or_create_signing_key(None).ok();
+        let (bom_id, bom_digest, bom_signature, bom_key_id) = if let Some(ref sk) = signing_key {
+            let builder = pa_core::bom::BomBuilder::new("feature-build", "2.0.0")
+                .with_root_dir(&cwd)
+                .with_task_id(&task_ctx.task_id)
+                .with_trace_id(&task_ctx.trace_id);
+            if let Ok((bom, sig, dig)) = builder.build_and_sign(sk) {
+                let kid = bom
+                    .signature_info
+                    .as_ref()
+                    .map(|s| s.key_id.clone())
+                    .unwrap_or_default();
+                let store = pa_core::storage::get_analytics_store(&config.storage.path).ok();
+                let _ = pa_core::bom::persist_factory_bom(&bom, &cwd, store.as_deref());
+                (Some(bom.bom_id), Some(dig), Some(sig), Some(kid))
+            } else {
+                (None, None, None, None)
+            }
+        } else {
+            (None, None, None, None)
         };
 
         // Format and stamp X-PA-* Git trailers on verification commit
@@ -1320,6 +1885,10 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             agent_role: Some("verifier".to_string()),
             model: task_ctx.model_profile.clone(),
             cost_usd: task_ctx.cost_usd,
+            bom_id,
+            bom_digest,
+            bom_signature,
+            bom_key_id,
         };
 
         let trailers_str = meta.format_trailers();
@@ -1363,6 +1932,19 @@ fn handle_feature_review(args: &FeatureReviewArgs) -> Result<()> {
             "==> Approving feature '{}' and merging into '{}'...",
             feature.slug, feature.target_branch
         );
+
+        if let Ok(config) = load_factory_config(None) {
+            if config.governance.sca.enabled {
+                let sca_report = pa_core::sca::evaluate_sca_gate(&cwd, &config.governance.sca)?;
+                if !sca_report.is_compliant {
+                    eprintln!(
+                        "[ERROR] Cannot approve/merge feature: SCA gate failed with {} blocking vulnerability/vulnerabilities.",
+                        sca_report.blocking_vulnerabilities.len()
+                    );
+                    anyhow::bail!("SCA gate compliance check failed. Resolve blocking vulnerabilities before merging.");
+                }
+            }
+        }
 
         let evidence_trailers =
             Feature::evidence_dir(&cwd, &feature.slug).join("provenance.trailers");
@@ -1847,12 +2429,1218 @@ fn handle_design_check(args: &DesignCheckArgs) -> Result<()> {
             println!("  [!] {}:{} [{}]: {}", v.file, v.line, v.rule, v.message);
         }
     }
+
+    if !report.a11y_violations.is_empty() {
+        println!(
+            "\nAccessibility (a11y) Violations ({}):",
+            report.a11y_violations.len()
+        );
+        for a in &report.a11y_violations {
+            let target_str = a.target.as_deref().unwrap_or("-");
+            println!(
+                "  [!] [{}] {}: {} (Impact: {})",
+                a.id, a.description, target_str, a.impact
+            );
+        }
+    }
+
+    if !report.visual_diff_failures.is_empty() {
+        println!(
+            "\nVisual Regression Diff Failures ({}):",
+            report.visual_diff_failures.len()
+        );
+        for v in &report.visual_diff_failures {
+            println!(
+                "  [!] {}: diff {:.2}% exceeds max threshold",
+                v.snapshot_name,
+                v.diff_pct * 100.0
+            );
+        }
+    }
     println!();
 
     if !report.is_compliant {
         anyhow::bail!("Design system gate compliance check failed.");
     }
 
+    Ok(())
+}
+
+fn handle_sca(args: &ScaArgs) -> Result<()> {
+    match &args.command {
+        ScaCommands::Check(cmd_args) => handle_sca_check(cmd_args),
+    }
+}
+
+fn handle_sca_check(args: &ScaCheckArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = if let Some(ref path) = args.config {
+        pa_core::schema::load_factory_config(Some(path))?
+    } else {
+        load_factory_config(None)?
+    };
+
+    println!("==> Evaluating Software Composition Analysis (SCA) Gate...");
+    let report = pa_core::sca::evaluate_sca_gate(&cwd, &config.governance.sca)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        if !report.is_compliant {
+            anyhow::bail!("SCA gate compliance check failed.");
+        }
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Software Composition Analysis (SCA)     ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Scanner:         {}", report.scanner);
+    println!("Vulnerabilities: {}", report.vulnerabilities_found);
+    println!("Blocking CVEs:   {}", report.blocking_vulnerabilities.len());
+    println!(
+        "Gate Status:     {}",
+        if report.is_compliant {
+            "PASSED"
+        } else {
+            "FAILED"
+        }
+    );
+
+    if !report.summary.is_empty() {
+        println!("Summary:         {}", report.summary);
+    }
+
+    if !report.advisories.is_empty() {
+        println!("\nDetected Vulnerabilities:");
+        let blocking_set: std::collections::HashSet<_> = report
+            .blocking_vulnerabilities
+            .iter()
+            .map(|b| &b.id)
+            .collect();
+        for v in &report.advisories {
+            let marker = if blocking_set.contains(&v.id) {
+                "[BLOCKING]"
+            } else {
+                "[IGNORED/LOW]"
+            };
+            println!(
+                "  • {} {} [{:?}] in {}@{}: {}",
+                marker, v.id, v.severity, v.package, v.installed_version, v.title
+            );
+        }
+    }
+    println!();
+
+    if !report.is_compliant {
+        anyhow::bail!("SCA gate compliance check failed.");
+    }
+
+    Ok(())
+}
+
+fn handle_bom(args: &BomArgs) -> Result<()> {
+    match &args.command {
+        BomSubcommand::Keygen(cmd) => handle_bom_keygen(cmd),
+        BomSubcommand::Generate(cmd) => handle_bom_generate(cmd),
+        BomSubcommand::Inspect(cmd) => handle_bom_inspect(cmd),
+        BomSubcommand::Verify(cmd) => handle_bom_verify(cmd),
+        BomSubcommand::Diff(cmd) => handle_bom_diff(cmd),
+        BomSubcommand::Export(cmd) => handle_bom_export(cmd),
+        BomSubcommand::List(cmd) => handle_bom_list(cmd),
+    }
+}
+
+fn handle_bom_keygen(args: &BomKeygenArgs) -> Result<()> {
+    let key_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(".pa/keys/factory_ed25519.key"));
+    if key_path.exists() && !args.force {
+        anyhow::bail!(
+            "Key file already exists at {}. Use --force to overwrite.",
+            key_path.display()
+        );
+    }
+    if let Some(parent) = key_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let sk = pa_core::bom::generate_keypair();
+    let vk = sk.verifying_key();
+    let key_id = pa_core::bom::derive_key_id(&vk);
+    let hex_key = hex::encode(sk.to_bytes());
+    std::fs::write(&key_path, format!("{}\n", hex_key))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(&key_path, perms);
+    }
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine;
+    println!("==> Generated Ed25519 factory signing keypair:");
+    println!("    Private key: {}", key_path.display());
+    println!("    Public key:  {}", BASE64.encode(vk.as_bytes()));
+    println!("    Key ID:      {}", key_id);
+    Ok(())
+}
+
+fn handle_bom_generate(args: &BomGenerateArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = load_factory_config(None).ok();
+    let sk = pa_core::bom::load_or_create_signing_key(args.key.as_deref())?;
+    let mut builder =
+        pa_core::bom::BomBuilder::new(&args.target, &args.version).with_root_dir(&cwd);
+    if let Some(ref tid) = args.task_id {
+        builder = builder.with_task_id(tid);
+    }
+    if !args.artifacts.is_empty() {
+        builder = builder.with_artifact_paths(args.artifacts.clone());
+    }
+    let (bom, _sig, digest) = builder.build_and_sign(&sk)?;
+    let store = if !args.no_db {
+        config
+            .as_ref()
+            .and_then(|c| pa_core::storage::get_analytics_store(&c.storage.path).ok())
+    } else {
+        None
+    };
+    let paths = pa_core::bom::persist_factory_bom(&bom, &cwd, store.as_deref())?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&bom)?);
+    } else {
+        println!("==> Generated and signed Factory DBOM:");
+        println!("    BOM ID:    {}", bom.bom_id);
+        println!("    Digest:    {}", digest);
+        println!("    Canonical: {}", paths.canonical_path.display());
+        println!("    CycloneDX: {}", paths.cdx_path.display());
+        println!("    SLSA DSSE: {}", paths.slsa_path.display());
+    }
+    Ok(())
+}
+
+fn resolve_bom(target: &str, cwd: &Path) -> Result<pa_core::bom::FactoryBom> {
+    let p = Path::new(target);
+    if p.is_file() {
+        let content = std::fs::read_to_string(p)?;
+        return Ok(serde_json::from_str(&content)?);
+    }
+    let boms_dir = cwd.join(".pa/boms");
+    let canonical = boms_dir.join(format!("{}.canonical.json", target));
+    if canonical.is_file() {
+        let content = std::fs::read_to_string(&canonical)?;
+        return Ok(serde_json::from_str(&content)?);
+    }
+    let cdx = boms_dir.join(format!("{}.cdx.json", target));
+    if cdx.is_file() {
+        let content = std::fs::read_to_string(&cdx)?;
+        return Ok(serde_json::from_str(&content)?);
+    }
+    anyhow::bail!("Could not resolve Factory DBOM for '{}'", target);
+}
+
+fn handle_bom_inspect(args: &BomInspectArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let bom = resolve_bom(&args.target, &cwd)?;
+
+    if args.json {
+        if let Some(ref plane) = args.plane {
+            match plane.to_lowercase().as_str() {
+                "dependencies" | "deps" => {
+                    println!("{}", serde_json::to_string_pretty(&bom.plane_dependencies)?)
+                }
+                "toolchain" | "tools" => {
+                    println!("{}", serde_json::to_string_pretty(&bom.plane_toolchain)?)
+                }
+                "substrate" => println!("{}", serde_json::to_string_pretty(&bom.plane_substrate)?),
+                "agentic" | "agents" => {
+                    println!("{}", serde_json::to_string_pretty(&bom.plane_agentic)?)
+                }
+                "proxy" => println!("{}", serde_json::to_string_pretty(&bom.plane_proxy)?),
+                "specs" => println!("{}", serde_json::to_string_pretty(&bom.plane_specs)?),
+                "artifacts" => println!("{}", serde_json::to_string_pretty(&bom.artifacts)?),
+                _ => println!("{}", serde_json::to_string_pretty(&bom)?),
+            }
+        } else {
+            println!("{}", serde_json::to_string_pretty(&bom)?);
+        }
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Factory Digital Bill of Materials       ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("BOM ID:         {}", bom.bom_id);
+    println!(
+        "Target:         {} v{}",
+        bom.target_name, bom.target_version
+    );
+    println!("Created At:     {}", bom.created_at);
+    if let Some(ref tid) = bom.task_id {
+        println!("Task ID:        {}", tid);
+    }
+    if let Some(ref cid) = bom.commit_sha {
+        println!("Commit SHA:     {}", cid);
+    }
+    if let Some(ref sig) = bom.signature_info {
+        println!("Signing Key ID: {}", sig.key_id);
+        println!("BOM Digest:     {}", sig.bom_digest);
+    }
+
+    let plane_filter = args.plane.as_deref().unwrap_or("all").to_lowercase();
+    let show_all = plane_filter == "all";
+
+    if (show_all || plane_filter == "dependencies" || plane_filter == "deps")
+        && !bom.plane_dependencies.is_empty()
+    {
+        println!("\nPlane 1: Dependencies ({})", bom.plane_dependencies.len());
+        for d in bom.plane_dependencies.iter().take(10) {
+            println!("  • {} v{} [{}]", d.name, d.version, d.ecosystem);
+        }
+        if bom.plane_dependencies.len() > 10 {
+            println!(
+                "  ... and {} more dependencies",
+                bom.plane_dependencies.len() - 10
+            );
+        }
+    }
+
+    if (show_all || plane_filter == "toolchain" || plane_filter == "tools")
+        && !bom.plane_toolchain.is_empty()
+    {
+        println!("\nPlane 2: Toolchain ({})", bom.plane_toolchain.len());
+        for t in &bom.plane_toolchain {
+            let h = t.binary_sha256.as_deref().unwrap_or("-");
+            let short_h = &h[..h.len().min(12)];
+            println!("  • {} v{} (hash: {})", t.name, t.version, short_h);
+        }
+    }
+
+    if show_all || plane_filter == "substrate" {
+        println!("\nPlane 3: Substrate ({})", bom.plane_substrate.backend);
+        let guest_os = bom
+            .plane_substrate
+            .guest_os_release
+            .get("PRETTY_NAME")
+            .or_else(|| bom.plane_substrate.guest_os_release.get("NAME"))
+            .map(|s| s.as_str())
+            .unwrap_or("Darwin / Linux");
+        println!("  • OS Release: {}", guest_os);
+        if let Some(ref tart) = bom.plane_substrate.tart_fingerprint {
+            println!("  • IPSW Build: {}", tart.ipsw_build);
+            println!("  • Darwin:     {}", tart.darwin_version);
+        } else if let Some(ref incus) = bom.plane_substrate.incus_fingerprint {
+            println!("  • Incus Image: {}", incus.image_fingerprint);
+            println!("  • Kernel:      {}", incus.kernel_version);
+        }
+    }
+
+    if show_all || plane_filter == "agentic" {
+        println!("\nPlane 4: Agentic Supply Chain");
+        if let Some(ref model) = bom.plane_agentic.model_id {
+            println!("  • Model: {}", model);
+        }
+        if let Some(ref root) = bom.plane_agentic.skills_merkle_root {
+            println!("  • Skills Root: {}", root);
+        }
+    }
+
+    if show_all || plane_filter == "proxy" {
+        println!("\nPlane 5: Proxy Intermediation");
+        println!(
+            "  • Proxy Version: {}",
+            bom.plane_proxy.proxy_version.as_deref().unwrap_or("-")
+        );
+        if let Some(ref hash) = bom.plane_proxy.allowlist_ruleset_hash {
+            println!("  • Allowlist Ruleset Hash: {}", hash);
+        }
+    }
+
+    if show_all || plane_filter == "specs" {
+        println!("\nPlane 6: Strategic Intent & Specs");
+        if let Some(ref sha) = bom.plane_specs.git_commit_sha {
+            println!("  • Git Commit: {}", sha);
+        }
+        println!("  • OKR Manifests: {}", bom.plane_specs.okr_hashes.len());
+        println!("  • Spec Manifests: {}", bom.plane_specs.spec_hashes.len());
+    }
+
+    if (show_all || plane_filter == "artifacts") && !bom.artifacts.is_empty() {
+        println!("\nArtifacts ({})", bom.artifacts.len());
+        for a in &bom.artifacts {
+            println!("  • {} ({}) sha256:{}", a.name, a.path, a.sha256);
+        }
+    }
+    println!();
+    Ok(())
+}
+
+fn handle_bom_verify(args: &BomVerifyArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let bom = resolve_bom(&args.target, &cwd)?;
+
+    let mut policy = if let Some(ref p_path) = args.policy {
+        let content = std::fs::read_to_string(p_path)
+            .with_context(|| format!("Failed to read policy file at {}", p_path.display()))?;
+        toml::from_str(&content)?
+    } else {
+        pa_core::bom::policy::BomPolicy::default()
+    };
+
+    if let Some(ref key) = args.key {
+        policy.trusted_public_keys.push(key.clone());
+    }
+
+    println!(
+        "==> Verifying Factory DBOM '{}' against policy...",
+        bom.bom_id
+    );
+    let report = pa_core::bom::policy::evaluate_policy(&bom, &policy)?;
+
+    if report.passed {
+        println!(
+            "==> Verification PASSED: Cryptographic signature and supply chain policies verified."
+        );
+        Ok(())
+    } else {
+        eprintln!(
+            "[ERROR] Factory DBOM verification failed with {} violation(s):",
+            report.violations.len()
+        );
+        for v in &report.violations {
+            eprintln!("  [!] {}", v);
+        }
+        anyhow::bail!("Factory DBOM policy verification failed.");
+    }
+}
+
+fn handle_bom_diff(args: &BomDiffArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let bom_a = resolve_bom(&args.bom_a, &cwd)?;
+    let bom_b = resolve_bom(&args.bom_b, &cwd)?;
+
+    let report = pa_core::bom::diff::diff_boms(&bom_a, &bom_b);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Factory DBOM Supply Chain Diff          ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("BOM A: {}", report.bom_a_id);
+    println!("BOM B: {}", report.bom_b_id);
+    println!("Commit Changed:         {}", report.commit_changed);
+    println!("Target Version Changed: {}", report.target_version_changed);
+
+    if !report.added_deps.is_empty() {
+        println!("\nAdded Dependencies ({}):", report.added_deps.len());
+        for d in &report.added_deps {
+            println!("  + {}", d);
+        }
+    }
+    if !report.removed_deps.is_empty() {
+        println!("\nRemoved Dependencies ({}):", report.removed_deps.len());
+        for d in &report.removed_deps {
+            println!("  - {}", d);
+        }
+    }
+    if !report.modified_deps.is_empty() {
+        println!("\nModified Dependencies ({}):", report.modified_deps.len());
+        for d in &report.modified_deps {
+            println!("  ~ {}: {} -> {}", d.name, d.old_val, d.new_val);
+        }
+    }
+
+    if !report.added_tools.is_empty() {
+        println!(
+            "\nAdded Toolchain Components ({}):",
+            report.added_tools.len()
+        );
+        for t in &report.added_tools {
+            println!("  + {}", t);
+        }
+    }
+    if !report.removed_tools.is_empty() {
+        println!(
+            "\nRemoved Toolchain Components ({}):",
+            report.removed_tools.len()
+        );
+        for t in &report.removed_tools {
+            println!("  - {}", t);
+        }
+    }
+    if !report.modified_tools.is_empty() {
+        println!(
+            "\nModified Toolchain Components ({}):",
+            report.modified_tools.len()
+        );
+        for t in &report.modified_tools {
+            println!("  ~ {}: {} -> {}", t.name, t.old_val, t.new_val);
+        }
+    }
+
+    if !report.substrate_changes.is_empty() {
+        println!("\nSubstrate Changes ({}):", report.substrate_changes.len());
+        for s in &report.substrate_changes {
+            println!("  ~ {}", s);
+        }
+    }
+    if !report.agentic_changes.is_empty() {
+        println!(
+            "\nAgentic Supply Chain Changes ({}):",
+            report.agentic_changes.len()
+        );
+        for a in &report.agentic_changes {
+            println!("  ~ {}", a);
+        }
+    }
+    if !report.proxy_changes.is_empty() {
+        println!(
+            "\nProxy Intermediation Changes ({}):",
+            report.proxy_changes.len()
+        );
+        for p in &report.proxy_changes {
+            println!("  ~ {}", p);
+        }
+    }
+    if !report.spec_changes.is_empty() {
+        println!(
+            "\nSpecification Plane Changes ({}):",
+            report.spec_changes.len()
+        );
+        for s in &report.spec_changes {
+            println!("  ~ {}", s);
+        }
+    }
+    println!();
+    Ok(())
+}
+
+fn handle_bom_export(args: &BomExportArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let bom = resolve_bom(&args.bom_id, &cwd)?;
+
+    let out_str = match args.format.to_lowercase().as_str() {
+        "cyclonedx" | "cdx" => {
+            let cdx = pa_core::bom::formats::to_cyclonedx_json(&bom)?;
+            serde_json::to_string_pretty(&cdx)?
+        }
+        "slsa" | "dsse" => {
+            let slsa = pa_core::bom::formats::to_slsa_dsse_json(&bom)?;
+            serde_json::to_string_pretty(&slsa)?
+        }
+        "canonical" | "jcs" => pa_core::bom::to_canonical_json_string(&bom)?,
+        _ => anyhow::bail!(
+            "Unsupported export format '{}'. Supported: cyclonedx, slsa, canonical",
+            args.format
+        ),
+    };
+
+    if let Some(ref path) = args.output {
+        std::fs::write(path, &out_str)?;
+        println!("==> Exported Factory DBOM to {}", path.display());
+    } else {
+        println!("{}", out_str);
+    }
+    Ok(())
+}
+
+fn handle_bom_list(args: &BomListArgs) -> Result<()> {
+    let config = load_factory_config(None).ok();
+    let store = config
+        .as_ref()
+        .and_then(|c| pa_core::storage::get_analytics_store(&c.storage.path).ok());
+
+    let records = if let Some(st) = store {
+        st.list_boms(args.limit).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    if args.json {
+        let json_arr: Vec<_> = records
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "bom_id": r.bom_id,
+                    "task_id": r.task_id,
+                    "commit_sha": r.commit_sha,
+                    "created_at": r.created_at,
+                    "bom_digest": r.bom_digest,
+                    "target_name": r.target_name,
+                    "target_version": r.target_version,
+                    "substrate_type": r.substrate_type,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&json_arr)?);
+        return Ok(());
+    }
+
+    println!(
+        "{:<36} {:<15} {:<10} {:<20}",
+        "BOM ID", "TARGET", "VERSION", "CREATED AT"
+    );
+    println!("{}", "-".repeat(85));
+    for r in &records {
+        println!(
+            "{:<36} {:<15} {:<10} {:<20}",
+            r.bom_id, r.target_name, r.target_version, r.created_at
+        );
+    }
+    Ok(())
+}
+
+fn handle_acp(args: &AcpArgs) -> Result<()> {
+    match &args.command {
+        AcpSubcommand::List(a) => handle_acp_list(a),
+        AcpSubcommand::Test(a) => handle_acp_test(a),
+        AcpSubcommand::Activate(a) => handle_acp_activate(a),
+    }
+}
+
+fn handle_acp_list(args: &AcpListArgs) -> Result<()> {
+    let packages_dir = args
+        .packages_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("pa_packages"));
+    let reg = CapabilityRegistry::discover(&packages_dir).with_context(|| {
+        format!(
+            "Failed to discover capabilities at {}",
+            packages_dir.display()
+        )
+    })?;
+
+    println!("Registered Software Factory ACP/MCP Servers:");
+    println!(
+        "{:<24} {:<16} {:<12} {:<40}",
+        "CAPABILITY", "CATEGORY", "VERSION", "MCP SERVER"
+    );
+    println!("{:-<95}", "");
+
+    let mcp_capabilities = ["telemetry_acp", "design_system_acp", "reverse-engineering"];
+    for name in mcp_capabilities {
+        if let Some(cap) = reg.get(name) {
+            let mcp_path = cap.package_dir.join("mcp").join("server.py");
+            let status = if mcp_path.is_file() {
+                "ready"
+            } else {
+                "missing"
+            };
+            println!(
+                "{:<24} {:<16} {:<12} {:<40}",
+                cap.capability.name,
+                cap.capability.category,
+                cap.capability.version,
+                format!("{} ({})", mcp_path.display(), status)
+            );
+        }
+    }
+    Ok(())
+}
+
+fn handle_acp_test(args: &AcpTestArgs) -> Result<()> {
+    let packages_dir = args
+        .packages_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("pa_packages"));
+    let reg = CapabilityRegistry::discover(&packages_dir)?;
+
+    println!("Testing registered ACP/MCP servers (--self-test)...");
+    let mcp_capabilities = ["telemetry_acp", "design_system_acp", "reverse-engineering"];
+    let mut all_ok = true;
+
+    for name in mcp_capabilities {
+        if let Some(cap) = reg.get(name) {
+            let mcp_path = cap.package_dir.join("mcp").join("server.py");
+            if !mcp_path.is_file() {
+                eprintln!(
+                    "  [-] {:<24}: server.py not found at {}",
+                    name,
+                    mcp_path.display()
+                );
+                all_ok = false;
+                continue;
+            }
+
+            let output = std::process::Command::new("python3")
+                .arg(&mcp_path)
+                .arg("--self-test")
+                .output();
+
+            match output {
+                Ok(out) if out.status.success() => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if stdout.contains("mcp-server-ready") {
+                        println!(
+                            "  [+] {:<24}: self-test PASSED ({})",
+                            name,
+                            mcp_path.display()
+                        );
+                    } else {
+                        eprintln!("  [-] {:<24}: unexpected output: {}", name, stdout.trim());
+                        all_ok = false;
+                    }
+                }
+                Ok(out) => {
+                    eprintln!(
+                        "  [-] {:<24}: failed with exit code {:?}: {}",
+                        name,
+                        out.status.code(),
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    );
+                    all_ok = false;
+                }
+                Err(e) => {
+                    eprintln!("  [-] {:<24}: failed to execute python3: {}", name, e);
+                    all_ok = false;
+                }
+            }
+        }
+    }
+
+    if !all_ok {
+        anyhow::bail!("One or more ACP/MCP self-tests failed");
+    }
+    println!("All ACP/MCP servers passed self-tests.");
+    Ok(())
+}
+
+fn handle_acp_activate(args: &AcpActivateArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let packages_dir = PathBuf::from("pa_packages");
+
+    let role_name = args.role.as_deref().unwrap_or("spec_architect");
+    let role_spec = config.roles.get(role_name).cloned().unwrap_or_else(|| {
+        default_factory_roles()
+            .get(role_name)
+            .cloned()
+            .unwrap_or_default()
+    });
+
+    println!(
+        "Synthesizing ACP/MCP configuration for role '{}'...",
+        role_name
+    );
+    println!(
+        "Driver: {}, Tier: {}, ACP Services: {:?}",
+        role_spec.driver, role_spec.model_tier, role_spec.acp_services
+    );
+
+    let bindings = resolve_role_acp_bindings(&role_spec.acp_services, &packages_dir);
+    println!("Bound MCP servers ({}):", bindings.len());
+    for b in &bindings {
+        println!("  - {}: {} ({})", b.name, b.command.display(), b.service);
+    }
+
+    if args.harness == "antigravity" || args.harness == "claude" || args.harness == "all" {
+        let mut servers_map = serde_json::Map::new();
+        for b in &bindings {
+            servers_map.insert(b.name.clone(), b.to_mcp_entry_json());
+        }
+        let mcp_config = serde_json::json!({
+            "mcpServers": servers_map
+        });
+        println!("\nMCP Config Format (Antigravity / Claude Code):");
+        println!("{}", serde_json::to_string_pretty(&mcp_config)?);
+    }
+
+    if args.harness == "opencode" || args.harness == "all" {
+        let mut servers_map = serde_json::Map::new();
+        for b in &bindings {
+            servers_map.insert(b.name.clone(), b.to_opencode_entry_json());
+        }
+        let opencode_config = serde_json::json!({
+            "mcp": servers_map
+        });
+        println!("\nOpenCode Config Format:");
+        println!("{}", serde_json::to_string_pretty(&opencode_config)?);
+    }
+
+    Ok(())
+}
+
+fn handle_supervisor(args: &SupervisorCliArgs) -> Result<()> {
+    match &args.command {
+        SupervisorCommands::Start(s) => handle_supervisor_start(s),
+        SupervisorCommands::Status(s) => handle_supervisor_status(s),
+        SupervisorCommands::Stop(s) => handle_supervisor_stop(s),
+    }
+}
+
+fn handle_supervisor_start(args: &SupervisorStartArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let mut config = load_factory_config(args.config.as_deref())?;
+
+    if let Some(c) = args.concurrency {
+        config.supervisor.max_concurrent_agents = c;
+    }
+
+    let is_daemon = (args.daemon || config.supervisor.daemon) && !args.foreground;
+    let pid_file = cwd.join(".pa/supervisor.pid");
+    let sock_path = cwd.join(&config.supervisor.socket_path);
+
+    if is_daemon {
+        if sock_path.exists() {
+            if let Ok(resp) = pa_core::supervisor::send_supervisor_ipc(&sock_path, "status") {
+                if !resp.is_empty() {
+                    anyhow::bail!(
+                        "Supervisor daemon is already running (socket: {})",
+                        sock_path.display()
+                    );
+                }
+            }
+        }
+
+        let exe = std::env::current_exe()?;
+        let log_dir = cwd.join(".pa");
+        std::fs::create_dir_all(&log_dir)?;
+        let stdout_file = std::fs::File::create(log_dir.join("supervisor.log"))?;
+        let stderr_file = std::fs::File::create(log_dir.join("supervisor.err"))?;
+
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg("supervisor").arg("start").arg("--foreground");
+        if let Some(c) = args.concurrency {
+            cmd.arg("--concurrency").arg(c.to_string());
+        }
+        if let Some(ref cfg_p) = args.config {
+            cmd.arg("--config").arg(cfg_p);
+        }
+
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::from(stdout_file))
+            .stderr(std::process::Stdio::from(stderr_file));
+
+        let child = cmd
+            .spawn()
+            .context("Failed to spawn background supervisor process")?;
+        let child_pid = child.id();
+        std::fs::write(&pid_file, child_pid.to_string())?;
+
+        println!(
+            "==> Started PA-Container Supervisor daemon (PID: {}, slots: {}, socket: {})",
+            child_pid,
+            config.supervisor.max_concurrent_agents,
+            sock_path.display()
+        );
+        return Ok(());
+    }
+
+    let pid = std::process::id();
+    if let Some(parent) = pid_file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&pid_file, pid.to_string())?;
+
+    println!("\n╔═══════════════════════════════════════════════════════════════════════════════════════════════╗");
+    println!("║                    PA-Container 2.0 Host Supervisor (Foreground)                              ║");
+    println!("╚═══════════════════════════════════════════════════════════════════════════════════════════════╝");
+    println!(
+        "==> Concurrency: {} slots (UIDs: {}..{}, Ports: {}..{})",
+        config.supervisor.max_concurrent_agents,
+        config.supervisor.slot_uid_start,
+        config.supervisor.slot_uid_start + config.supervisor.max_concurrent_agents as u32 - 1,
+        config.supervisor.slot_proxy_port_start,
+        config.supervisor.slot_proxy_port_start + config.supervisor.max_concurrent_agents as u16
+            - 1,
+    );
+    println!(
+        "==> Intercom bus: {}",
+        cwd.join(&config.supervisor.intercom_dir).display()
+    );
+    println!("==> Unix socket:  {}", sock_path.display());
+    println!("==> PID file:     {}", pid_file.display());
+    println!("==> Running supervisor scheduler tick loop. Stop via IPC or Ctrl+C...\n");
+
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    let store_arc: Arc<dyn pa_core::storage::FactoryAnalyticsStore> = Arc::from(store);
+    let supervisor = Arc::new(pa_core::supervisor::HostSupervisor::new(
+        store_arc,
+        config.clone(),
+        cwd,
+    )?);
+
+    let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+
+    let r_ipc = running.clone();
+    let sup_ipc = supervisor.clone();
+    let sock_p_clone = sock_path.clone();
+    let ipc_handle = std::thread::spawn(move || {
+        let _ = sup_ipc.run_ipc_server(&sock_p_clone, r_ipc);
+    });
+
+    let r_loop = running.clone();
+    let sup_loop = supervisor.clone();
+    while r_loop.load(std::sync::atomic::Ordering::SeqCst) {
+        if let Ok(summary) = sup_loop.tick() {
+            if summary.active_workers > 0
+                || !summary.claimed_tasks.is_empty()
+                || !summary.reclaimed_tasks.is_empty()
+                || !summary.hitl_paused_tasks.is_empty()
+            {
+                println!(
+                    "[TICK] Active: {}, Idle: {}, Claimed: {:?}, Reclaimed: {:?}, HITL paused: {:?}",
+                    summary.active_workers,
+                    summary.idle_slots,
+                    summary.claimed_tasks,
+                    summary.reclaimed_tasks,
+                    summary.hitl_paused_tasks
+                );
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    let _ = ipc_handle.join();
+    let _ = std::fs::remove_file(&pid_file);
+    let _ = std::fs::remove_file(&sock_path);
+    println!("==> Host Supervisor shut down gracefully.");
+    Ok(())
+}
+
+fn handle_supervisor_status(args: &SupervisorStatusArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = load_factory_config(args.config.as_deref())?;
+    let sock_path = cwd.join(&config.supervisor.socket_path);
+
+    if sock_path.exists() {
+        if let Ok(raw_json) = pa_core::supervisor::send_supervisor_ipc(&sock_path, "status") {
+            if args.json {
+                println!("{}", raw_json);
+                return Ok(());
+            }
+            if let Ok(status) =
+                serde_json::from_str::<pa_core::supervisor::SupervisorStatus>(&raw_json)
+            {
+                print_supervisor_status(&status, true);
+                return Ok(());
+            }
+        }
+    }
+
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    let leases = store.list_worker_leases()?;
+    let queued = store.list_queued_tasks(None, 20)?;
+    let active_leases = leases.iter().filter(|l| l.task_id.is_some()).count();
+    let idle_leases = leases.len().saturating_sub(active_leases);
+    let queued_count = queued
+        .iter()
+        .filter(|t| t.status == "queued" || t.status == "retrying")
+        .count();
+
+    let status = pa_core::supervisor::SupervisorStatus {
+        pid: None,
+        running: false,
+        max_concurrency: config.supervisor.max_concurrent_agents,
+        active_leases,
+        idle_leases,
+        queued_tasks_count: queued_count,
+        wip_reallocation_active: false,
+        slo_defense_active: false,
+        leases,
+        queued_tasks: queued,
+    };
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&status)?);
+    } else {
+        println!(
+            "[NOTICE] Supervisor daemon is offline. Displaying direct DB state (.pa/factory.db):"
+        );
+        print_supervisor_status(&status, false);
+    }
+
+    Ok(())
+}
+
+fn print_supervisor_status(status: &pa_core::supervisor::SupervisorStatus, is_online: bool) {
+    let status_str = if is_online { "ONLINE" } else { "OFFLINE" };
+    let pid_str = status
+        .pid
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    println!("\n╔═══════════════════════════════════════════════════════════════════════════════════════════════╗");
+    println!("║                    PA-Container 2.0 Host Supervisor Status                                    ║");
+    println!("╚═══════════════════════════════════════════════════════════════════════════════════════════════╝");
+    println!("Daemon State:        {} (PID: {})", status_str, pid_str);
+    println!("Max Concurrency:     {} workers", status.max_concurrency);
+    println!(
+        "Worker Leases:       {} active, {} idle",
+        status.active_leases, status.idle_leases
+    );
+    println!(
+        "Queued Tasks:        {} pending in work queue",
+        status.queued_tasks_count
+    );
+    println!(
+        "WIP Reallocation:    {}",
+        if status.wip_reallocation_active {
+            "ACTIVE (diverting slots to review/verifier)"
+        } else {
+            "INACTIVE"
+        }
+    );
+    println!(
+        "SLO Defense Mode:    {}",
+        if status.slo_defense_active {
+            "ACTIVE (restricting new feature dispatches)"
+        } else {
+            "INACTIVE"
+        }
+    );
+
+    println!("\n── Worker Slot Leases ──");
+    if status.leases.is_empty() {
+        println!("No worker leases initialized.");
+    } else {
+        println!(
+            "{:<8} {:<12} {:<12} {:<24} {:<16}",
+            "SLOT", "UID", "PROXY PORT", "ASSIGNED TASK", "STATUS"
+        );
+        println!("{}", "─".repeat(80));
+        for (i, l) in status.leases.iter().enumerate() {
+            let (assigned, st) = match &l.task_id {
+                Some(tid) => (tid.as_str(), "BUSY"),
+                None => ("-", "IDLE"),
+            };
+            println!(
+                "{:<8} {:<12} {:<12} {:<24} {:<16}",
+                i + 1,
+                l.uid,
+                l.proxy_port,
+                assigned,
+                st
+            );
+        }
+    }
+
+    println!("\n── Active & Pending Tasks ──");
+    if status.queued_tasks.is_empty() {
+        println!("No tasks currently queued or running.");
+    } else {
+        println!(
+            "{:<16} {:<18} {:<10} {:<16} {:<12} {:<8}",
+            "TASK ID", "ROLE", "PRIORITY", "STATUS", "TIER", "ATTEMPTS"
+        );
+        println!("{}", "─".repeat(85));
+        for t in &status.queued_tasks {
+            println!(
+                "{:<16} {:<18} {:<10} {:<16} {:<12} {:<8}",
+                t.task_id, t.role, t.priority, t.status, t.model_tier, t.attempt_count
+            );
+        }
+    }
+    println!();
+}
+
+fn handle_supervisor_stop(args: &SupervisorStopArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = load_factory_config(args.config.as_deref())?;
+    let sock_path = cwd.join(&config.supervisor.socket_path);
+    let pid_file = cwd.join(".pa/supervisor.pid");
+
+    let mut stopped_via_ipc = false;
+    if sock_path.exists() {
+        if let Ok(resp) = pa_core::supervisor::send_supervisor_ipc(&sock_path, "stop") {
+            println!(
+                "==> Sent graceful stop command to Supervisor via IPC: {}",
+                resp.trim()
+            );
+            stopped_via_ipc = true;
+        }
+    }
+
+    if pid_file.exists() {
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+            let _ = std::process::Command::new("kill")
+                .arg(pid_str.trim())
+                .output();
+        }
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    if !stopped_via_ipc {
+        println!("==> Supervisor daemon is not running or socket already removed.");
+    }
+    Ok(())
+}
+
+fn handle_task(args: &TaskCliArgs) -> Result<()> {
+    match &args.command {
+        TaskCommands::Enqueue(e) => handle_task_enqueue(e),
+        TaskCommands::List(l) => handle_task_list(l),
+        TaskCommands::Resume(r) => handle_task_resume(r),
+        TaskCommands::Cancel(c) => handle_task_cancel(c),
+    }
+}
+
+fn handle_task_enqueue(args: &TaskEnqueueArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string();
+
+    let task_id = args
+        .task_id
+        .clone()
+        .unwrap_or_else(|| format!("task-{}", &now_ts[now_ts.len().saturating_sub(6)..]));
+
+    let task = pa_core::storage::QueuedTask {
+        task_id: task_id.clone(),
+        role: args.role.clone(),
+        req_ids: args
+            .req
+            .as_deref()
+            .map(|r| vec![r.to_string()])
+            .unwrap_or_default(),
+        kr_ids: args
+            .kr
+            .as_deref()
+            .map(|k| vec![k.to_string()])
+            .unwrap_or_default(),
+        priority: args.priority,
+        status: "queued".to_string(),
+        attempt_count: 0,
+        model_tier: args.tier.clone(),
+        assigned_uid: None,
+        proxy_port: None,
+        lease_expires_at: None,
+        failure_context: None,
+        created_at: now_ts.clone(),
+        updated_at: now_ts,
+    };
+
+    store.enqueue_task(&task)?;
+
+    println!(
+        "==> Enqueued task '{}' [role: {}, priority: {}, tier: {}]",
+        task.task_id, task.role, task.priority, task.model_tier
+    );
+    Ok(())
+}
+
+fn handle_task_list(args: &TaskListArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    let tasks = store.list_queued_tasks(args.status.as_deref(), args.limit)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&tasks)?);
+        return Ok(());
+    }
+
+    println!("\n╔═══════════════════════════════════════════════════════════════════════════════════════════════╗");
+    println!("║                    PA-Container 2.0 Task Queue                                                ║");
+    println!("╚═══════════════════════════════════════════════════════════════════════════════════════════════╝");
+    if tasks.is_empty() {
+        println!("No tasks found matching filter.");
+    } else {
+        println!(
+            "{:<16} {:<18} {:<10} {:<16} {:<12} {:<8} {:<10}",
+            "TASK ID", "ROLE", "PRIORITY", "STATUS", "TIER", "ATTEMPTS", "ASSIGNED"
+        );
+        println!("{}", "─".repeat(95));
+        for t in &tasks {
+            let assigned_str = match (t.assigned_uid, t.proxy_port) {
+                (Some(uid), Some(port)) => format!("{}:{}", uid, port),
+                _ => "-".to_string(),
+            };
+            println!(
+                "{:<16} {:<18} {:<10} {:<16} {:<12} {:<8} {:<10}",
+                t.task_id,
+                t.role,
+                t.priority,
+                t.status,
+                t.model_tier,
+                t.attempt_count,
+                assigned_str
+            );
+        }
+    }
+    println!();
+    Ok(())
+}
+
+fn handle_task_resume(args: &TaskResumeArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = load_factory_config(args.config.as_deref())?;
+    let sock_path = cwd.join(&config.supervisor.socket_path);
+
+    let mut ipc_sent = false;
+    if sock_path.exists() {
+        if let Ok(resp) = pa_core::supervisor::send_supervisor_ipc(
+            &sock_path,
+            &format!("resume {}", args.task_id),
+        ) {
+            if !resp.contains("error") {
+                ipc_sent = true;
+            }
+        }
+    }
+
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    store.update_queued_task_status(&args.task_id, "queued", None)?;
+
+    if let Some(ref response_text) = args.response {
+        let intercom_dir = cwd.join(&config.supervisor.intercom_dir);
+        let _ = std::fs::create_dir_all(&intercom_dir);
+        let resp_payload = json!({
+            "event": "human_response",
+            "task_id": args.task_id,
+            "response": response_text
+        });
+        let _ = std::fs::write(
+            intercom_dir.join(format!("{}.resume.json", args.task_id)),
+            serde_json::to_string_pretty(&resp_payload)?,
+        );
+    }
+
+    if ipc_sent {
+        println!(
+            "==> Resumed task '{}' via Supervisor IPC (status: queued).",
+            args.task_id
+        );
+    } else {
+        println!(
+            "==> Resumed task '{}' directly in database (status: queued).",
+            args.task_id
+        );
+    }
+    Ok(())
+}
+
+fn handle_task_cancel(args: &TaskCancelArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = load_factory_config(args.config.as_deref())?;
+    let sock_path = cwd.join(&config.supervisor.socket_path);
+
+    if sock_path.exists() {
+        let _ = pa_core::supervisor::send_supervisor_ipc(
+            &sock_path,
+            &format!("cancel {}", args.task_id),
+        );
+    }
+
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    store.update_queued_task_status(&args.task_id, "cancelled", Some("Cancelled by user"))?;
+    if let Ok(leases) = store.list_worker_leases() {
+        for l in leases {
+            if l.task_id.as_deref() == Some(&args.task_id) {
+                let _ = store.release_task_lease(l.slot_id);
+            }
+        }
+    }
+
+    println!(
+        "==> Cancelled task '{}' and released any slot leases.",
+        args.task_id
+    );
     Ok(())
 }
 
@@ -1870,6 +3658,11 @@ fn main() -> Result<()> {
         Commands::Traceability(args) => handle_traceability(args),
         Commands::Okr(args) => handle_okr(args),
         Commands::Design(args) => handle_design(args),
+        Commands::Sca(args) => handle_sca(args),
+        Commands::Bom(args) => handle_bom(args),
+        Commands::Acp(args) => handle_acp(args),
+        Commands::Supervisor(args) => handle_supervisor(args),
+        Commands::Task(args) => handle_task(args),
     }
 }
 
@@ -2143,6 +3936,332 @@ mod tests {
                 command: TelemetryCommands::Sync(_),
             }) => {}
             _ => panic!("Expected Telemetry Sync command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_sca_check() {
+        let args = vec!["pa", "sca", "check", "--json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Sca(ScaArgs {
+                command: ScaCommands::Check(c),
+            }) => {
+                assert!(c.json);
+            }
+            _ => panic!("Expected Sca Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_feature_run_force_and_role() {
+        let args = vec![
+            "pa",
+            "feature",
+            "run",
+            "auth-tokens",
+            "--force",
+            "--role",
+            "bugfix",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Feature(FeatureArgs {
+                command: FeatureCommands::Run(r),
+            }) => {
+                assert_eq!(r.slug, "auth-tokens");
+                assert!(r.force);
+                assert_eq!(r.role, "bugfix");
+            }
+            _ => panic!("Expected Feature Run command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_run_force() {
+        let args = vec!["pa", "run", "--force", "--role", "verifier"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Run(r) => {
+                assert!(r.force);
+                assert_eq!(r.role.as_deref(), Some("verifier"));
+            }
+            _ => panic!("Expected Run command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_bom_keygen() {
+        let args = vec![
+            "pa",
+            "bom",
+            "keygen",
+            "--output",
+            ".pa/keys/custom.key",
+            "--force",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Bom(BomArgs {
+                command: BomSubcommand::Keygen(k),
+            }) => {
+                assert_eq!(k.output, Some(PathBuf::from(".pa/keys/custom.key")));
+                assert!(k.force);
+            }
+            _ => panic!("Expected Bom Keygen command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_bom_generate() {
+        let args = vec![
+            "pa",
+            "bom",
+            "generate",
+            "--target",
+            "my-app",
+            "--version",
+            "1.2.3",
+            "--task-id",
+            "task-100",
+            "--json",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Bom(BomArgs {
+                command: BomSubcommand::Generate(g),
+            }) => {
+                assert_eq!(g.target, "my-app");
+                assert_eq!(g.version, "1.2.3");
+                assert_eq!(g.task_id.as_deref(), Some("task-100"));
+                assert!(g.json);
+            }
+            _ => panic!("Expected Bom Generate command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_bom_inspect_and_verify() {
+        let args = vec![
+            "pa",
+            "bom",
+            "inspect",
+            "bom-123",
+            "--plane",
+            "dependencies",
+            "--json",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Bom(BomArgs {
+                command: BomSubcommand::Inspect(i),
+            }) => {
+                assert_eq!(i.target, "bom-123");
+                assert_eq!(i.plane.as_deref(), Some("dependencies"));
+                assert!(i.json);
+            }
+            _ => panic!("Expected Bom Inspect command"),
+        }
+
+        let verify_args = vec!["pa", "bom", "verify", "bom-123", "--policy", "policy.toml"];
+        let cli_verify = Cli::parse_from(verify_args);
+        match cli_verify.command {
+            Commands::Bom(BomArgs {
+                command: BomSubcommand::Verify(v),
+            }) => {
+                assert_eq!(v.target, "bom-123");
+                assert_eq!(v.policy, Some(PathBuf::from("policy.toml")));
+            }
+            _ => panic!("Expected Bom Verify command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_bom_diff_and_export() {
+        let diff_args = vec!["pa", "bom", "diff", "bom-1", "bom-2", "--summary", "--json"];
+        let cli_diff = Cli::parse_from(diff_args);
+        match cli_diff.command {
+            Commands::Bom(BomArgs {
+                command: BomSubcommand::Diff(d),
+            }) => {
+                assert_eq!(d.bom_a, "bom-1");
+                assert_eq!(d.bom_b, "bom-2");
+                assert!(d.summary);
+                assert!(d.json);
+            }
+            _ => panic!("Expected Bom Diff command"),
+        }
+
+        let export_args = vec![
+            "pa", "bom", "export", "bom-1", "--format", "slsa", "--output", "out.json",
+        ];
+        let cli_export = Cli::parse_from(export_args);
+        match cli_export.command {
+            Commands::Bom(BomArgs {
+                command: BomSubcommand::Export(e),
+            }) => {
+                assert_eq!(e.bom_id, "bom-1");
+                assert_eq!(e.format, "slsa");
+                assert_eq!(e.output, Some(PathBuf::from("out.json")));
+            }
+            _ => panic!("Expected Bom Export command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_acp() {
+        let list_args = vec!["pa", "acp", "list", "--packages-dir", "pa_packages"];
+        let cli_list = Cli::parse_from(list_args);
+        match cli_list.command {
+            Commands::Acp(AcpArgs {
+                command: AcpSubcommand::List(l),
+            }) => {
+                assert_eq!(l.packages_dir, Some(PathBuf::from("pa_packages")));
+            }
+            _ => panic!("Expected Acp List command"),
+        }
+
+        let activate_args = vec![
+            "pa",
+            "acp",
+            "activate",
+            "--role",
+            "spec_architect",
+            "--harness",
+            "claude",
+        ];
+        let cli_activate = Cli::parse_from(activate_args);
+        match cli_activate.command {
+            Commands::Acp(AcpArgs {
+                command: AcpSubcommand::Activate(a),
+            }) => {
+                assert_eq!(a.role.as_deref(), Some("spec_architect"));
+                assert_eq!(a.harness, "claude");
+            }
+            _ => panic!("Expected Acp Activate command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_supervisor_start_and_status() {
+        let start_args = vec![
+            "pa",
+            "supervisor",
+            "start",
+            "--concurrency",
+            "8",
+            "--daemon",
+        ];
+        let cli_start = Cli::parse_from(start_args);
+        match cli_start.command {
+            Commands::Supervisor(SupervisorCliArgs {
+                command: SupervisorCommands::Start(s),
+            }) => {
+                assert_eq!(s.concurrency, Some(8));
+                assert!(s.daemon);
+                assert!(!s.foreground);
+            }
+            _ => panic!("Expected Supervisor Start command"),
+        }
+
+        let status_args = vec!["pa", "supervisor", "status", "--json"];
+        let cli_status = Cli::parse_from(status_args);
+        match cli_status.command {
+            Commands::Supervisor(SupervisorCliArgs {
+                command: SupervisorCommands::Status(s),
+            }) => {
+                assert!(s.json);
+            }
+            _ => panic!("Expected Supervisor Status command"),
+        }
+
+        let stop_args = vec!["pa", "supervisor", "stop"];
+        let cli_stop = Cli::parse_from(stop_args);
+        match cli_stop.command {
+            Commands::Supervisor(SupervisorCliArgs {
+                command: SupervisorCommands::Stop(_),
+            }) => {}
+            _ => panic!("Expected Supervisor Stop command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_task_enqueue_and_list() {
+        let enqueue_args = vec![
+            "pa",
+            "task",
+            "enqueue",
+            "--role",
+            "bugfix",
+            "--req",
+            "REQ-AUTH-01",
+            "--kr",
+            "KR-AUTH-01",
+            "--priority",
+            "50",
+            "--tier",
+            "frontier",
+            "--task-id",
+            "task-custom-1",
+        ];
+        let cli_enqueue = Cli::parse_from(enqueue_args);
+        match cli_enqueue.command {
+            Commands::Task(TaskCliArgs {
+                command: TaskCommands::Enqueue(e),
+            }) => {
+                assert_eq!(e.role, "bugfix");
+                assert_eq!(e.req.as_deref(), Some("REQ-AUTH-01"));
+                assert_eq!(e.kr.as_deref(), Some("KR-AUTH-01"));
+                assert_eq!(e.priority, 50);
+                assert_eq!(e.tier, "frontier");
+                assert_eq!(e.task_id.as_deref(), Some("task-custom-1"));
+            }
+            _ => panic!("Expected Task Enqueue command"),
+        }
+
+        let list_args = vec![
+            "pa", "task", "list", "--status", "queued", "--limit", "10", "--json",
+        ];
+        let cli_list = Cli::parse_from(list_args);
+        match cli_list.command {
+            Commands::Task(TaskCliArgs {
+                command: TaskCommands::List(l),
+            }) => {
+                assert_eq!(l.status.as_deref(), Some("queued"));
+                assert_eq!(l.limit, 10);
+                assert!(l.json);
+            }
+            _ => panic!("Expected Task List command"),
+        }
+
+        let resume_args = vec![
+            "pa",
+            "task",
+            "resume",
+            "task-custom-1",
+            "--response",
+            "Approved by human",
+        ];
+        let cli_resume = Cli::parse_from(resume_args);
+        match cli_resume.command {
+            Commands::Task(TaskCliArgs {
+                command: TaskCommands::Resume(r),
+            }) => {
+                assert_eq!(r.task_id, "task-custom-1");
+                assert_eq!(r.response.as_deref(), Some("Approved by human"));
+            }
+            _ => panic!("Expected Task Resume command"),
+        }
+
+        let cancel_args = vec!["pa", "task", "cancel", "task-custom-1"];
+        let cli_cancel = Cli::parse_from(cancel_args);
+        match cli_cancel.command {
+            Commands::Task(TaskCliArgs {
+                command: TaskCommands::Cancel(c),
+            }) => {
+                assert_eq!(c.task_id, "task-custom-1");
+            }
+            _ => panic!("Expected Task Cancel command"),
         }
     }
 }

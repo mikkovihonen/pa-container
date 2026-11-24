@@ -20,6 +20,7 @@ nav = [
     { "Design System & Tokens (Layer 1)" = "provenance/design-system.md" },
     { "Runtime Telemetry & Git (Layer 2)" = "provenance/telemetry.md" },
     { "Closed-Loop Governance (Layer 3)" = "provenance/governance.md" },
+    { "Factory DBOM & Attestation" = "provenance/bom.md" },
   ] },
   { "Proxy & Addons" = [
     { "Overview" = "proxy/overview.md" },

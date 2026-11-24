@@ -72,6 +72,31 @@ if [ ! -f ".pa/features/$TEST_FEATURE/evidence/verification.log" ]; then
 fi
 echo "Verified: Verification evidence captured."
 
+# Verify Factory DBOM Git Trailers
+if [ ! -f ".pa/features/$TEST_FEATURE/evidence/provenance.trailers" ]; then
+    echo "ERROR: Missing provenance.trailers in .pa/features/$TEST_FEATURE/evidence/" >&2
+    exit 1
+fi
+if ! grep -q "X-PA-BOM-ID: *bom-" ".pa/features/$TEST_FEATURE/evidence/provenance.trailers"; then
+    echo "ERROR: Missing or invalid X-PA-BOM-ID trailer" >&2
+    exit 1
+fi
+if ! grep -q "X-PA-BOM-Digest: *sha256:" ".pa/features/$TEST_FEATURE/evidence/provenance.trailers"; then
+    echo "ERROR: Missing or invalid X-PA-BOM-Digest trailer" >&2
+    exit 1
+fi
+echo "Verified: Factory DBOM trailers (X-PA-BOM-ID, X-PA-BOM-Digest) stamped."
+
+# Verify Factory DBOM generation and policy verification
+echo "==> Verifying Factory DBOM CLI generation & policy evaluation..."
+$PA_BIN bom generate --target "e2e-test-artifact" --version "1.0.0"
+BOM_LATEST=$($PA_BIN bom list --limit 1 --json | grep '"bom_id"' | head -n 1 | cut -d '"' -f 4)
+if [ -n "$BOM_LATEST" ]; then
+    $PA_BIN bom verify "$BOM_LATEST"
+    $PA_BIN bom inspect "$BOM_LATEST" --plane toolchain >/dev/null
+    echo "Verified: Factory DBOM $BOM_LATEST generated, indexed, and verified."
+fi
+
 # 4. Phase 5: Review & Gate 2 Approval
 echo "==> Step 4: Reviewing feature worktree and evidence..."
 $PA_BIN feature review "$TEST_FEATURE"

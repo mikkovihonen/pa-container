@@ -281,6 +281,25 @@ pub struct PlatformGateResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct A11yViolation {
+    pub id: String,
+    pub impact: String,
+    pub description: String,
+    pub help_url: Option<String>,
+    pub nodes_count: usize,
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisualDiffFailure {
+    pub snapshot_name: String,
+    pub diff_pct: f64,
+    pub max_allowed_pct: f64,
+    pub baseline_path: String,
+    pub current_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DesignGateReport {
     pub provider: String,
     pub is_compliant: bool,
@@ -288,6 +307,10 @@ pub struct DesignGateReport {
     pub total_contracts: usize,
     pub platform_results: HashMap<String, PlatformGateResult>,
     pub violations: Vec<DesignLintViolation>,
+    #[serde(default)]
+    pub a11y_violations: Vec<A11yViolation>,
+    #[serde(default)]
+    pub visual_diff_failures: Vec<VisualDiffFailure>,
 }
 
 impl DesignGateReport {
@@ -299,8 +322,192 @@ impl DesignGateReport {
             total_contracts: 0,
             platform_results: HashMap::new(),
             violations: Vec::new(),
+            a11y_violations: Vec::new(),
+            visual_diff_failures: Vec::new(),
         }
     }
+}
+
+pub fn parse_axe_violations_json(json_str: &str, wcag_level: &str) -> Result<Vec<A11yViolation>> {
+    let mut result = Vec::new();
+    let val: serde_json::Value =
+        serde_json::from_str(json_str).context("Failed to parse axe-core JSON")?;
+
+    let violations = if let Some(arr) = val.get("violations").and_then(|v| v.as_array()) {
+        arr
+    } else if let Some(arr) = val.as_array() {
+        arr
+    } else {
+        return Ok(result);
+    };
+
+    let target_level = wcag_level.to_uppercase();
+
+    for item in violations {
+        let id = item
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let impact = item
+            .get("impact")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let description = item
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let help_url = item
+            .get("helpUrl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let tags: Vec<String> = item
+            .get("tags")
+            .and_then(|t| t.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let matches_level = match target_level.as_str() {
+            "A" => tags
+                .iter()
+                .any(|t| t.contains("wcag2a") || t.contains("wcag21a") || t.contains("wcag22a")),
+            "AA" => tags.iter().any(|t| {
+                t.contains("wcag2a")
+                    || t.contains("wcag2aa")
+                    || t.contains("wcag21a")
+                    || t.contains("wcag21aa")
+                    || t.contains("wcag22aa")
+            }),
+            "AAA" => tags.iter().any(|t| t.starts_with("wcag")),
+            _ => true,
+        };
+
+        if !tags.is_empty() && !matches_level {
+            continue;
+        }
+
+        let nodes = item.get("nodes").and_then(|n| n.as_array());
+        let nodes_count = nodes.map(|n| n.len()).unwrap_or(0);
+        let target = nodes
+            .and_then(|n| n.first())
+            .and_then(|node| node.get("target"))
+            .and_then(|t| t.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        result.push(A11yViolation {
+            id,
+            impact,
+            description,
+            help_url,
+            nodes_count,
+            target,
+        });
+    }
+
+    Ok(result)
+}
+
+pub fn parse_playwright_visual_diff_json(
+    json_str: &str,
+    max_pct: f64,
+) -> Result<Vec<VisualDiffFailure>> {
+    let mut failures = Vec::new();
+    let val: serde_json::Value =
+        serde_json::from_str(json_str).context("Failed to parse Playwright visual diff JSON")?;
+
+    if let Some(arr) = val.as_array() {
+        for item in arr {
+            let name = item
+                .get("snapshot")
+                .or_else(|| item.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let diff_pct = item
+                .get("diff_pct")
+                .or_else(|| item.get("diffPercentage"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let baseline = item
+                .get("baseline")
+                .or_else(|| item.get("expected"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let current = item
+                .get("current")
+                .or_else(|| item.get("actual"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if diff_pct > max_pct {
+                failures.push(VisualDiffFailure {
+                    snapshot_name: name.to_string(),
+                    diff_pct,
+                    max_allowed_pct: max_pct,
+                    baseline_path: baseline.to_string(),
+                    current_path: current.to_string(),
+                });
+            }
+        }
+    } else if let Some(suites) = val.get("suites").and_then(|s| s.as_array()) {
+        for suite in suites {
+            if let Some(specs) = suite.get("specs").and_then(|s| s.as_array()) {
+                for spec in specs {
+                    let title = spec
+                        .get("title")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("snapshot");
+                    if let Some(tests) = spec.get("tests").and_then(|t| t.as_array()) {
+                        for test in tests {
+                            if let Some(results) = test.get("results").and_then(|r| r.as_array()) {
+                                for res in results {
+                                    if let Some(err_msg) = res
+                                        .get("error")
+                                        .and_then(|e| e.get("message"))
+                                        .and_then(|m| m.as_str())
+                                    {
+                                        if err_msg.contains("Screenshot comparison failed")
+                                            || err_msg.contains("ratio")
+                                        {
+                                            let diff_pct = if let Some(pos) = err_msg.find("ratio ")
+                                            {
+                                                let sub = &err_msg[pos + 6..];
+                                                sub.split_whitespace()
+                                                    .next()
+                                                    .and_then(|s| s.parse::<f64>().ok())
+                                                    .unwrap_or(max_pct + 0.01)
+                                            } else {
+                                                max_pct + 0.01
+                                            };
+                                            if diff_pct > max_pct {
+                                                failures.push(VisualDiffFailure {
+                                                    snapshot_name: title.to_string(),
+                                                    diff_pct,
+                                                    max_allowed_pct: max_pct,
+                                                    baseline_path: "".to_string(),
+                                                    current_path: "".to_string(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(failures)
 }
 
 /// Evaluates the multi-platform design system quality gate:
@@ -315,39 +522,241 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
 
     let store = DesignSystemStore::load(root, config)?;
     let mut violations = Vec::new();
+    let mut a11y_violations = Vec::new();
+    let mut visual_diff_failures = Vec::new();
     let mut platform_results = HashMap::new();
     let mut is_compliant = true;
 
-    // 1. Check prerequisite toolchains for enabled platforms
+    // 1. Check prerequisite toolchains and execute quality runners for enabled platforms
     for platform in &config.platforms {
         match platform.as_str() {
             "web" => {
                 let has_node = Command::new("node").arg("--version").output().is_ok();
-                if !has_node && config.on_missing_platform == "fail" {
-                    is_compliant = false;
-                    platform_results.insert(
-                        "web".to_string(),
-                        PlatformGateResult {
-                            platform: "web".to_string(),
-                            status: "failed".to_string(),
-                            message: "Node.js / Web runtime is not available on host.".to_string(),
-                            details: vec![
-                                "Please install Node.js or disable 'web' in factory.toml platforms."
+                let block_on_missing = config.web.on_missing_tool.eq_ignore_ascii_case("block")
+                    || config.on_missing_platform == "fail";
+
+                if !has_node {
+                    if block_on_missing {
+                        is_compliant = false;
+                        platform_results.insert(
+                            "web".to_string(),
+                            PlatformGateResult {
+                                platform: "web".to_string(),
+                                status: "failed".to_string(),
+                                message: "Node.js / Web runtime is not available on host.".to_string(),
+                                details: vec![
+                                    "Please install Node.js or disable 'web' in factory.toml platforms."
+                                        .to_string(),
+                                ],
+                            },
+                        );
+                    } else {
+                        platform_results.insert(
+                            "web".to_string(),
+                            PlatformGateResult {
+                                platform: "web".to_string(),
+                                status: "skipped".to_string(),
+                                message: "Node.js runtime missing (skipped with warning)."
                                     .to_string(),
-                            ],
-                        },
-                    );
+                                details: Vec::new(),
+                            },
+                        );
+                    }
                 } else {
+                    let mut web_details = Vec::new();
+                    let mut web_passed = true;
+
+                    // 1. Accessibility (axe-core)
+                    let mut a11y_found_any = false;
+                    if let Some(ref cmd_str) = config.web.a11y_command {
+                        let out = Command::new("sh")
+                            .arg("-c")
+                            .arg(cmd_str)
+                            .current_dir(root)
+                            .output();
+
+                        if let Ok(o) = out {
+                            let stdout = String::from_utf8_lossy(&o.stdout);
+                            if let Ok(vulns) =
+                                parse_axe_violations_json(&stdout, &config.web.wcag_level)
+                            {
+                                a11y_found_any = true;
+                                for v in vulns {
+                                    if v.impact == "serious" || v.impact == "critical" {
+                                        web_passed = false;
+                                        is_compliant = false;
+                                        violations.push(DesignLintViolation {
+                                            file: v
+                                                .target
+                                                .clone()
+                                                .unwrap_or_else(|| "web".to_string()),
+                                            line: 1,
+                                            rule: "a11y_wcag_violation".to_string(),
+                                            message: format!(
+                                                "[axe-core] WCAG {} {} violation in '{}': {}",
+                                                config.web.wcag_level,
+                                                v.impact,
+                                                v.id,
+                                                v.description
+                                            ),
+                                            severity: "error".to_string(),
+                                        });
+                                    }
+                                    a11y_violations.push(v);
+                                }
+                            }
+                        }
+                    }
+
+                    let a11y_file = root.join("target/a11y-results.json");
+                    let a11y_file_pa = root.join(".pa/a11y-results.json");
+                    let a11y_path = if a11y_file.is_file() {
+                        Some(a11y_file)
+                    } else if a11y_file_pa.is_file() {
+                        Some(a11y_file_pa)
+                    } else {
+                        None
+                    };
+
+                    if !a11y_found_any {
+                        if let Some(p) = a11y_path {
+                            if let Ok(content) = fs::read_to_string(&p) {
+                                if let Ok(vulns) =
+                                    parse_axe_violations_json(&content, &config.web.wcag_level)
+                                {
+                                    for v in vulns {
+                                        if v.impact == "serious" || v.impact == "critical" {
+                                            web_passed = false;
+                                            is_compliant = false;
+                                            violations.push(DesignLintViolation {
+                                                file: v
+                                                    .target
+                                                    .clone()
+                                                    .unwrap_or_else(|| "web".to_string()),
+                                                line: 1,
+                                                rule: "a11y_wcag_violation".to_string(),
+                                                message: format!(
+                                                    "[axe-core] WCAG {} {} violation in '{}': {}",
+                                                    config.web.wcag_level,
+                                                    v.impact,
+                                                    v.id,
+                                                    v.description
+                                                ),
+                                                severity: "error".to_string(),
+                                            });
+                                        }
+                                        a11y_violations.push(v);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Visual Regression (Playwright)
+                    let mut visual_found_any = false;
+                    if let Some(ref cmd_str) = config.web.visual_diff_command {
+                        let out = Command::new("sh")
+                            .arg("-c")
+                            .arg(cmd_str)
+                            .current_dir(root)
+                            .output();
+
+                        if let Ok(o) = out {
+                            let stdout = String::from_utf8_lossy(&o.stdout);
+                            if let Ok(diffs) = parse_playwright_visual_diff_json(
+                                &stdout,
+                                config.web.max_visual_diff_pct,
+                            ) {
+                                visual_found_any = true;
+                                for d in diffs {
+                                    web_passed = false;
+                                    is_compliant = false;
+                                    violations.push(DesignLintViolation {
+                                        file: d.snapshot_name.clone(),
+                                        line: 1,
+                                        rule: "visual_regression_violation".to_string(),
+                                        message: format!(
+                                            "[playwright visual diff] Snapshot '{}' diff {:.2}% exceeds max allowed {:.2}%",
+                                            d.snapshot_name,
+                                            d.diff_pct * 100.0,
+                                            d.max_allowed_pct * 100.0
+                                        ),
+                                        severity: "error".to_string(),
+                                    });
+                                    visual_diff_failures.push(d);
+                                }
+                            }
+                        }
+                    }
+
+                    let visual_file = root.join("target/visual-diff-results.json");
+                    let visual_file_pa = root.join(".pa/visual-diff-results.json");
+                    let visual_path = if visual_file.is_file() {
+                        Some(visual_file)
+                    } else if visual_file_pa.is_file() {
+                        Some(visual_file_pa)
+                    } else {
+                        None
+                    };
+
+                    if !visual_found_any {
+                        if let Some(p) = visual_path {
+                            if let Ok(content) = fs::read_to_string(&p) {
+                                if let Ok(diffs) = parse_playwright_visual_diff_json(
+                                    &content,
+                                    config.web.max_visual_diff_pct,
+                                ) {
+                                    for d in diffs {
+                                        web_passed = false;
+                                        is_compliant = false;
+                                        violations.push(DesignLintViolation {
+                                            file: d.snapshot_name.clone(),
+                                            line: 1,
+                                            rule: "visual_regression_violation".to_string(),
+                                            message: format!(
+                                                "[playwright visual diff] Snapshot '{}' diff {:.2}% exceeds max allowed {:.2}%",
+                                                d.snapshot_name,
+                                                d.diff_pct * 100.0,
+                                                d.max_allowed_pct * 100.0
+                                            ),
+                                            severity: "error".to_string(),
+                                        });
+                                        visual_diff_failures.push(d);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    web_details.push(format!(
+                        "Accessibility (engine: {}, wcag: {}, violations: {})",
+                        config.web.a11y_engine,
+                        config.web.wcag_level,
+                        a11y_violations.len()
+                    ));
+                    web_details.push(format!(
+                        "Visual Regression (tool: {}, max_diff: {:.1}%, failures: {})",
+                        config.web.visual_diff_tool,
+                        config.web.max_visual_diff_pct * 100.0,
+                        visual_diff_failures.len()
+                    ));
+
                     platform_results.insert(
                         "web".to_string(),
                         PlatformGateResult {
                             platform: "web".to_string(),
-                            status: if has_node { "passed" } else { "skipped" }.to_string(),
+                            status: if web_passed {
+                                "passed".to_string()
+                            } else {
+                                "failed".to_string()
+                            },
                             message: format!(
-                                "Web platform active (catalog: {}, a11y: {})",
-                                config.web.catalog, config.web.a11y_engine
+                                "Web platform active (catalog: {}, a11y: {}, visual: {})",
+                                config.web.catalog,
+                                config.web.a11y_engine,
+                                config.web.visual_regression
                             ),
-                            details: Vec::new(),
+                            details: web_details,
                         },
                     );
                 }
@@ -476,6 +885,8 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
         total_contracts: store.contracts.len(),
         platform_results,
         violations,
+        a11y_violations,
+        visual_diff_failures,
     })
 }
 
@@ -784,5 +1195,73 @@ mod tests {
         if android_res.status == "failed" {
             assert!(!report.is_compliant);
         }
+    }
+
+    #[test]
+    fn test_parse_axe_violations_clean_vs_critical() {
+        let clean_json = r#"{"violations": [], "passes": []}"#;
+        let clean_vulns = parse_axe_violations_json(clean_json, "AA").unwrap();
+        assert!(clean_vulns.is_empty());
+
+        let report_with_violations = r#"{
+            "violations": [
+                {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "tags": ["wcag2aa", "wcag143"],
+                    "description": "Elements must meet minimum contrast ratio thresholds",
+                    "helpUrl": "https://dequeuniversity.com/rules/axe/4.10/color-contrast",
+                    "nodes": [
+                        {
+                            "html": "<button class=\"btn-low-contrast\">Submit</button>",
+                            "target": [".btn-low-contrast"]
+                        }
+                    ]
+                },
+                {
+                    "id": "heading-order",
+                    "impact": "moderate",
+                    "tags": ["best-practice"],
+                    "description": "Heading order should be sequential",
+                    "nodes": []
+                }
+            ]
+        }"#;
+
+        let vulns_aa = parse_axe_violations_json(report_with_violations, "AA").unwrap();
+        // color-contrast matches wcag2aa, heading-order has no wcag tag
+        assert_eq!(vulns_aa.len(), 1);
+        assert_eq!(vulns_aa[0].id, "color-contrast");
+        assert_eq!(vulns_aa[0].impact, "serious");
+        assert_eq!(vulns_aa[0].target.as_deref(), Some(".btn-low-contrast"));
+    }
+
+    #[test]
+    fn test_parse_playwright_visual_diff_clean_vs_exceeding() {
+        let clean_json = r#"[
+            {
+                "snapshot": "button_default.png",
+                "diff_pct": 0.01,
+                "baseline": "design/baselines/button_default.png",
+                "current": "test-results/button_default.png"
+            }
+        ]"#;
+
+        let failures_clean = parse_playwright_visual_diff_json(clean_json, 0.05).unwrap();
+        assert!(failures_clean.is_empty());
+
+        let failing_json = r#"[
+            {
+                "snapshot": "button_hover.png",
+                "diff_pct": 0.12,
+                "baseline": "design/baselines/button_hover.png",
+                "current": "test-results/button_hover.png"
+            }
+        ]"#;
+
+        let failures = parse_playwright_visual_diff_json(failing_json, 0.05).unwrap();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].snapshot_name, "button_hover.png");
+        assert!((failures[0].diff_pct - 0.12).abs() < 1e-6);
     }
 }

@@ -355,6 +355,74 @@ pub fn merge_agent_capabilities(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AcpServerBinding {
+    pub name: String,
+    pub service: String,
+    pub command: PathBuf,
+    pub args: Vec<String>,
+}
+
+impl AcpServerBinding {
+    pub fn to_mcp_entry_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "command": self.command.to_string_lossy(),
+            "args": self.args
+        })
+    }
+
+    pub fn to_opencode_entry_json(&self) -> serde_json::Value {
+        let mut cmd = vec![self.command.to_string_lossy().to_string()];
+        cmd.extend(self.args.clone());
+        serde_json::json!({
+            "type": "local",
+            "command": cmd,
+            "enabled": true
+        })
+    }
+}
+
+pub fn resolve_role_acp_bindings(
+    acp_services: &[String],
+    packages_root: &Path,
+) -> Vec<AcpServerBinding> {
+    let mut bindings = Vec::new();
+    for entry in acp_services {
+        let parts: Vec<&str> = entry.split(':').collect();
+        let name = parts[0];
+        let service = if parts.len() > 1 { parts[1] } else { "read" };
+
+        let candidate_dirs = [
+            packages_root.join("capabilities").join(name),
+            packages_root.join(name),
+        ];
+
+        for dir in candidate_dirs {
+            let mcp_server = dir.join("mcp").join("server.py");
+            let short_name = name.strip_suffix("_acp").unwrap_or(name);
+            let bin_wrapper = dir.join("bin").join(format!("pa-{}-mcp", short_name));
+            if mcp_server.is_file() {
+                bindings.push(AcpServerBinding {
+                    name: name.to_string(),
+                    service: service.to_string(),
+                    command: mcp_server,
+                    args: vec![],
+                });
+                break;
+            } else if bin_wrapper.is_file() {
+                bindings.push(AcpServerBinding {
+                    name: name.to_string(),
+                    service: service.to_string(),
+                    command: bin_wrapper,
+                    args: vec![],
+                });
+                break;
+            }
+        }
+    }
+    bindings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,9 +444,11 @@ mod tests {
             .join("../..")
             .join("pa_packages");
         let reg = CapabilityRegistry::discover(&packages_dir).unwrap();
-        assert_eq!(reg.len(), 19);
+        assert_eq!(reg.len(), 21);
         assert!(reg.get("git").is_some());
         assert!(reg.get("source-control").is_some());
+        assert!(reg.get("telemetry_acp").is_some());
+        assert!(reg.get("design_system_acp").is_some());
 
         let resolved = reg
             .resolve_dependency_closure(&["source-control".to_string()])
@@ -440,5 +510,30 @@ mod tests {
             .expect("Should resolve synthetic secret in test mode");
         assert_eq!(*secret, "pa-test-mock-secret-NON_EXISTENT_KEYRING_KEY_123");
         std::env::remove_var("PA_DISABLE_KEYRING");
+    }
+
+    #[test]
+    fn test_resolve_role_acp_bindings() {
+        let packages_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("pa_packages");
+        let bindings = resolve_role_acp_bindings(
+            &[
+                "telemetry_acp:read".to_string(),
+                "design_system_acp:read".to_string(),
+            ],
+            &packages_dir,
+        );
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0].name, "telemetry_acp");
+        assert_eq!(bindings[0].service, "read");
+        assert!(bindings[0].command.is_file());
+        assert_eq!(bindings[1].name, "design_system_acp");
+        assert_eq!(bindings[1].service, "read");
+        assert!(bindings[1].command.is_file());
+
+        let mcp_json = bindings[0].to_mcp_entry_json();
+        assert!(mcp_json.get("command").is_some());
+        assert!(mcp_json.get("args").is_some());
     }
 }

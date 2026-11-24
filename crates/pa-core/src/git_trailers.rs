@@ -29,6 +29,14 @@ pub struct GitProvenanceMetadata {
     pub model: Option<String>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
+    #[serde(default)]
+    pub bom_id: Option<String>,
+    #[serde(default)]
+    pub bom_digest: Option<String>,
+    #[serde(default)]
+    pub bom_signature: Option<String>,
+    #[serde(default)]
+    pub bom_key_id: Option<String>,
 }
 
 impl GitProvenanceMetadata {
@@ -75,6 +83,18 @@ impl GitProvenanceMetadata {
         }
         if let Some(cost) = self.cost_usd {
             lines.push(format!("X-PA-Cost-USD: {:.4}", cost));
+        }
+        if let Some(ref bid) = self.bom_id {
+            lines.push(format!("X-PA-BOM-ID: {}", bid));
+        }
+        if let Some(ref bdigest) = self.bom_digest {
+            lines.push(format!("X-PA-BOM-Digest: {}", bdigest));
+        }
+        if let Some(ref bsig) = self.bom_signature {
+            lines.push(format!("X-PA-BOM-Signature: {}", bsig));
+        }
+        if let Some(ref bkey) = self.bom_key_id {
+            lines.push(format!("X-PA-BOM-Key-ID: {}", bkey));
         }
 
         lines.join("\n")
@@ -126,6 +146,10 @@ impl GitProvenanceMetadata {
                     "X-PA-Agent" => meta.agent_role = Some(val.to_string()),
                     "X-PA-Model" => meta.model = Some(val.to_string()),
                     "X-PA-Cost-USD" => meta.cost_usd = val.parse::<f64>().ok(),
+                    "X-PA-BOM-ID" => meta.bom_id = Some(val.to_string()),
+                    "X-PA-BOM-Digest" => meta.bom_digest = Some(val.to_string()),
+                    "X-PA-BOM-Signature" => meta.bom_signature = Some(val.to_string()),
+                    "X-PA-BOM-Key-ID" => meta.bom_key_id = Some(val.to_string()),
                     _ => {}
                 }
             }
@@ -197,18 +221,28 @@ mod tests {
             agent_role: Some("design_engineer".to_string()),
             model: Some("claude-3-7-sonnet".to_string()),
             cost_usd: Some(0.1420),
+            bom_id: Some("bom-abc-123".to_string()),
+            bom_digest: Some("sha256:digest-abc".to_string()),
+            bom_signature: Some("sig-xyz".to_string()),
+            bom_key_id: Some("pa-factory-ed25519-123".to_string()),
         };
 
         let formatted = meta.format_trailers();
         assert!(formatted.contains("X-PA-Task-ID: feat-auth-001"));
         assert!(formatted.contains("X-PA-Key-Results: KR-AUTH-01,KR-AUTH-02"));
         assert!(formatted.contains("X-PA-Design-Platforms: web,ios"));
+        assert!(formatted.contains("X-PA-BOM-ID: bom-abc-123"));
+        assert!(formatted.contains("X-PA-BOM-Digest: sha256:digest-abc"));
 
         let commit_msg = stamp_commit_message("feat: add token rotation", &meta);
         let parsed = GitProvenanceMetadata::parse(&commit_msg);
 
         assert_eq!(parsed.task_id, "feat-auth-001");
         assert_eq!(parsed.objective_id.as_deref(), Some("OBJ-2026-Q4-SEC"));
+        assert_eq!(parsed.bom_id.as_deref(), Some("bom-abc-123"));
+        assert_eq!(parsed.bom_digest.as_deref(), Some("sha256:digest-abc"));
+        assert_eq!(parsed.bom_signature.as_deref(), Some("sig-xyz"));
+        assert_eq!(parsed.bom_key_id.as_deref(), Some("pa-factory-ed25519-123"));
         assert_eq!(parsed.kr_ids, vec!["KR-AUTH-01", "KR-AUTH-02"]);
         assert_eq!(parsed.design_gate.as_deref(), Some("passed"));
         assert_eq!(parsed.cost_usd, Some(0.1420));

@@ -1,0 +1,26 @@
+schema_version = "1.0"
+
+[capability]
+name = "design_system_acp"
+category = "design"
+version = "1.0.0"
+description = "Design System Model Context Protocol (MCP) server providing read-only token discovery (W3C DTCG), component contract verification, deprecation tracking, and visual board inspection via Penpot HTTP API."
+requires = []
+
+[staging]
+install_prefix = "/opt/pa/packs/design_system_acp"
+bin_dirs = ["bin"]
+fedora_packages = ["python3"]
+macos_brew_packages = ["python@3"]
+
+[entitlements]
+read_paths = ["design/tokens", "design/contracts", "factory.toml"]
+write_paths = []
+allow_gpu = false
+
+[proxy]
+allowlist = ["design.penpot.app", "api.penpot.app", "api.figma.com", "localhost", "127.0.0.1"]
+tokens = [
+    { env_var = "PENPOT_TOKEN", allowed_hosts = ["design.penpot.app", "api.penpot.app", "localhost", "127.0.0.1"] },
+    { env_var = "FIGMA_TOKEN", allowed_hosts = ["api.figma.com"] },
+]

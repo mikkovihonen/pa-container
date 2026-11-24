@@ -128,16 +128,21 @@ To prevent silent failures, PA-Container enforces strict host toolchain validati
 
 ```toml
 [design_system]
-enabled = true
 # Provider: "git_only", "penpot", "figma", or "none"
 provider = "git_only"
 tokens_path = "design/tokens/tokens.json"
-contracts_dir = "design/contracts"
+contracts_path = "design/contracts"
 platforms = ["web"]
-# Missing platform behavior: "fail", "warn", or "skip"
 on_missing_platform = "fail"
-static_lint = true
-verify_contracts = true
+
+[design_system.web]
+catalog = "storybook"
+a11y_engine = "axe_core"
+wcag_level = "AA"
+visual_diff_tool = "playwright"
+max_visual_diff_pct = 0.05
+baseline_dir = "design/baselines"
+on_missing_tool = "skip" # "skip" or "block"
 ```
 
 ---
