@@ -217,7 +217,9 @@ impl FactoryBackend for TartMacOSBackend {
         let cache_dir = dirs_fallback_cache();
         let sockets_dir = cache_dir.join("sockets");
         fs::create_dir_all(&sockets_dir)?;
-        let agents = resolve_agent_sockets(&config.agents, &sockets_dir);
+        let mut config_clone = config.clone();
+        crate::compute::inject_compute_endpoints_to_allowlist(&mut config_clone);
+        let agents = resolve_agent_sockets(&config_clone.agents, &sockets_dir);
         let nonce = crate::manifest::generate_session_nonce();
         let mut proxy_rules = Vec::new();
 
@@ -281,6 +283,9 @@ impl FactoryBackend for TartMacOSBackend {
     }
 
     fn ensure_factory_vm(&self, config: &FactoryConfig, _proxy_ip: &str) -> Result<()> {
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            return Ok(());
+        }
         if config.compute.metal.enabled {
             Self::apply_host_metal_config(&config.compute.metal)?;
         }
@@ -288,6 +293,9 @@ impl FactoryBackend for TartMacOSBackend {
         if ip_check.is_err() {
             let get_out = Command::new("tart").args(["get", &self.vm_name]).output();
             if get_out.is_err() || !get_out.unwrap().status.success() {
+                if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+                    return Ok(());
+                }
                 anyhow::bail!(
                     "Tart VM '{}' does not exist. Please create the VM first (e.g. `tart create {} --from-ipsw latest` or `tart clone <base-image> {}`).",
                     self.vm_name,
@@ -702,6 +710,9 @@ impl FactoryBackend for TartMacOSBackend {
     fn stop_factory(&self) -> Result<()> {
         let _ = crate::backend::stop_proxy_server();
         let _ = Self::revert_host_metal_if_needed();
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            return Ok(());
+        }
         if self.get_vm_ip().is_ok() {
             let _ = self.execute_ssh_rpc("prune_caches", json!({}));
             let status = Command::new("tart")
@@ -717,11 +728,18 @@ impl FactoryBackend for TartMacOSBackend {
     }
 
     fn get_status(&self) -> Result<serde_json::Value> {
-        let rpc_res = self.execute_ssh_rpc("get_status", json!({}))?;
-        let guest_data = rpc_res.get("result").cloned().unwrap_or(json!({}));
+        let (running, guest_data) = if self.get_vm_ip().is_ok() {
+            match self.execute_ssh_rpc("get_status", json!({})) {
+                Ok(rpc_res) => (true, rpc_res.get("result").cloned().unwrap_or(json!({}))),
+                Err(_) => (false, json!({ "status": "stopped" })),
+            }
+        } else {
+            (false, json!({ "status": "stopped" }))
+        };
         Ok(json!({
             "backend": "macos-tart",
             "vm_name": self.vm_name,
+            "running": running,
             "proxy_host_ip": self.proxy_host_ip,
             "guest": guest_data,
         }))

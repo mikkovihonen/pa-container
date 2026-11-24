@@ -71,6 +71,8 @@ pub struct ComputeSpec {
     pub gpu: String,
     #[serde(default)]
     pub metal: MetalSpec,
+    #[serde(default)]
+    pub llama_server: LlamaServerSpec,
 }
 
 fn default_backend() -> String {
@@ -94,6 +96,7 @@ impl Default for ComputeSpec {
             memory_mb: default_memory(),
             gpu: default_gpu(),
             metal: MetalSpec::default(),
+            llama_server: LlamaServerSpec::default(),
         }
     }
 }
@@ -104,33 +107,100 @@ pub struct CapabilitiesSpec {
     pub installed: Vec<String>,
 }
 
+fn deserialize_gpu_layers<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum LayersHelper {
+        Int(i32),
+        Str(String),
+    }
+
+    match Option::<LayersHelper>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(LayersHelper::Int(n)) => Ok(Some(n)),
+        Some(LayersHelper::Str(s)) => {
+            let lower = s.trim().to_lowercase();
+            if lower == "all" {
+                Ok(Some(-1))
+            } else if lower == "none" {
+                Ok(Some(0))
+            } else {
+                lower.parse::<i32>().map(Some).map_err(D::Error::custom)
+            }
+        }
+    }
+}
+
+fn default_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_llama_port() -> u16 {
+    8081
+}
+fn default_ctx_size_opt() -> Option<u32> {
+    Some(32768)
+}
+fn default_startup_timeout_sec() -> u64 {
+    120
+}
+fn default_on_missing_binary() -> String {
+    "skip".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LlamaServerSpec {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub managed_lifecycle: bool,
     #[serde(default)]
-    pub model: String,
-    #[serde(default = "default_ctx_size")]
-    pub ctx_size: u32,
-    #[serde(default = "default_gpu_layers")]
-    pub gpu_layers: String,
-}
-
-fn default_ctx_size() -> u32 {
-    32768
-}
-fn default_gpu_layers() -> String {
-    "all".to_string()
+    pub binary_path: Option<String>,
+    #[serde(default)]
+    pub model_path: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_llama_port")]
+    pub port: u16,
+    #[serde(default = "default_ctx_size_opt")]
+    pub ctx_size: Option<u32>,
+    #[serde(default, deserialize_with = "deserialize_gpu_layers")]
+    pub gpu_layers: Option<i32>,
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    #[serde(default = "default_startup_timeout_sec")]
+    pub startup_timeout_sec: u64,
+    #[serde(default = "default_on_missing_binary")]
+    pub on_missing_binary: String,
 }
 
 impl Default for LlamaServerSpec {
     fn default() -> Self {
         Self {
             enabled: false,
-            model: String::new(),
-            ctx_size: default_ctx_size(),
-            gpu_layers: default_gpu_layers(),
+            managed_lifecycle: true,
+            binary_path: None,
+            model_path: None,
+            model: None,
+            host: default_host(),
+            port: default_llama_port(),
+            ctx_size: default_ctx_size_opt(),
+            gpu_layers: None,
+            extra_args: Vec::new(),
+            startup_timeout_sec: default_startup_timeout_sec(),
+            on_missing_binary: default_on_missing_binary(),
         }
+    }
+}
+
+impl LlamaServerSpec {
+    pub fn effective_model_path(&self) -> Option<&str> {
+        self.model_path.as_deref().or(self.model.as_deref())
     }
 }
 
@@ -1513,6 +1583,21 @@ impl Default for FactoryConfig {
     }
 }
 
+impl FactoryConfig {
+    pub fn llama_server(&self) -> &LlamaServerSpec {
+        if self.compute.llama_server.enabled || self.compute.llama_server.model_path.is_some() {
+            &self.compute.llama_server
+        } else if self.inference.llama_server.enabled
+            || self.inference.llama_server.model_path.is_some()
+            || self.inference.llama_server.model.is_some()
+        {
+            &self.inference.llama_server
+        } else {
+            &self.compute.llama_server
+        }
+    }
+}
+
 pub fn resolve_agent_sockets(agents: &[AgentSpec], sockets_dir: &Path) -> Vec<AgentSpec> {
     agents
         .iter()
@@ -1851,5 +1936,68 @@ on_missing_platform = "skip"
             "adb_screencap"
         );
         assert_eq!(config.design_system.android.max_visual_diff_pct, 0.03);
+    }
+
+    #[test]
+    fn test_compute_llama_server_spec_defaults_and_deserialization() {
+        let default_cfg = FactoryConfig::default();
+        let default_llama = &default_cfg.compute.llama_server;
+        assert!(!default_llama.enabled);
+        assert!(default_llama.managed_lifecycle);
+        assert_eq!(default_llama.host, "127.0.0.1");
+        assert_eq!(default_llama.port, 8081);
+        assert_eq!(default_llama.ctx_size, Some(32768));
+        assert_eq!(default_llama.gpu_layers, None);
+        assert_eq!(default_llama.startup_timeout_sec, 120);
+        assert_eq!(default_llama.on_missing_binary, "skip");
+        assert_eq!(default_cfg.llama_server(), default_llama);
+
+        let toml_str = r#"
+schema_version = "2.0"
+
+[compute.llama_server]
+enabled = true
+managed_lifecycle = true
+binary_path = "/usr/local/bin/llama-server"
+model_path = "/models/qwen2.5-coder-7b.gguf"
+host = "127.0.0.1"
+port = 8085
+ctx_size = 65536
+gpu_layers = "all"
+extra_args = ["--metrics", "--threads", "8"]
+startup_timeout_sec = 60
+on_missing_binary = "block"
+"#;
+        let config: FactoryConfig = toml::from_str(toml_str).expect("Failed to parse TOML");
+        let llama = config.llama_server();
+        assert!(llama.enabled);
+        assert!(llama.managed_lifecycle);
+        assert_eq!(
+            llama.binary_path.as_deref(),
+            Some("/usr/local/bin/llama-server")
+        );
+        assert_eq!(
+            llama.model_path.as_deref(),
+            Some("/models/qwen2.5-coder-7b.gguf")
+        );
+        assert_eq!(
+            llama.effective_model_path(),
+            Some("/models/qwen2.5-coder-7b.gguf")
+        );
+        assert_eq!(llama.host, "127.0.0.1");
+        assert_eq!(llama.port, 8085);
+        assert_eq!(llama.ctx_size, Some(65536));
+        assert_eq!(llama.gpu_layers, Some(-1));
+        assert_eq!(llama.extra_args, vec!["--metrics", "--threads", "8"]);
+        assert_eq!(llama.startup_timeout_sec, 60);
+        assert_eq!(llama.on_missing_binary, "block");
+
+        // Numeric gpu_layers
+        let toml_num = r#"
+[compute.llama_server]
+gpu_layers = 42
+"#;
+        let config_num: FactoryConfig = toml::from_str(toml_num).expect("Failed to parse numeric");
+        assert_eq!(config_num.compute.llama_server.gpu_layers, Some(42));
     }
 }

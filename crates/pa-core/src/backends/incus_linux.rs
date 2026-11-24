@@ -145,7 +145,9 @@ impl FactoryBackend for IncusLinuxBackend {
         let cache_dir = dirs_fallback_cache();
         let sockets_dir = cache_dir.join("sockets");
         fs::create_dir_all(&sockets_dir)?;
-        let agents = resolve_agent_sockets(&config.agents, &sockets_dir);
+        let mut config_clone = config.clone();
+        crate::compute::inject_compute_endpoints_to_allowlist(&mut config_clone);
+        let agents = resolve_agent_sockets(&config_clone.agents, &sockets_dir);
         let nonce = crate::manifest::generate_session_nonce();
         let mut proxy_rules = Vec::new();
 
@@ -208,6 +210,9 @@ impl FactoryBackend for IncusLinuxBackend {
     }
 
     fn ensure_factory_vm(&self, config: &FactoryConfig, _proxy_ip: &str) -> Result<()> {
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            return Ok(());
+        }
         let check = Command::new("incus").args(["info", &self.vm_name]).output();
 
         if check.is_err() || !check.unwrap().status.success() {
@@ -511,6 +516,9 @@ impl FactoryBackend for IncusLinuxBackend {
 
     fn stop_factory(&self) -> Result<()> {
         let _ = crate::backend::stop_proxy_server();
+        if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+            return Ok(());
+        }
         if self.get_vm_ip().is_ok() {
             let _ = self.execute_ssh_rpc("prune_caches", json!({}));
             let status = Command::new("incus")
@@ -526,11 +534,18 @@ impl FactoryBackend for IncusLinuxBackend {
     }
 
     fn get_status(&self) -> Result<serde_json::Value> {
-        let rpc_res = self.execute_ssh_rpc("get_status", json!({}))?;
-        let guest_data = rpc_res.get("result").cloned().unwrap_or(json!({}));
+        let (running, guest_data) = if self.get_vm_ip().is_ok() {
+            match self.execute_ssh_rpc("get_status", json!({})) {
+                Ok(rpc_res) => (true, rpc_res.get("result").cloned().unwrap_or(json!({}))),
+                Err(_) => (false, json!({ "status": "stopped" })),
+            }
+        } else {
+            (false, json!({ "status": "stopped" }))
+        };
         Ok(json!({
             "backend": "linux-incus",
             "vm_name": self.vm_name,
+            "running": running,
             "proxy_host_ip": self.bridge_ip,
             "bridge_ip": self.bridge_ip,
             "guest": guest_data,

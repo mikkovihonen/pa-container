@@ -77,6 +77,10 @@ pub fn ensure_proxy_server(
     config_path: &Path,
     _agents: &[AgentSpec],
 ) -> Result<()> {
+    if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+        return Ok(());
+    }
+
     let _lock = PROXY_MUTEX.lock().unwrap();
 
     let cache_dir = config_path
@@ -210,6 +214,9 @@ pub fn ensure_proxy_server(
 }
 
 pub fn stop_proxy_server() -> Result<()> {
+    if std::env::var("PA_TEST_MODE").unwrap_or_default() == "1" {
+        return Ok(());
+    }
     let _ = std::process::Command::new("podman")
         .args(["stop", "-t", "1", "pa-proxy"])
         .status();

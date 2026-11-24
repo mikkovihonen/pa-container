@@ -838,6 +838,18 @@ pub struct FactoryArgs {
 
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Do not stop compute plane inference server on factory down"
+    )]
+    pub keep_compute: bool,
+
+    #[arg(
+        long,
+        help = "Force stop compute plane inference server even if other sessions exist"
+    )]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1165,6 +1177,52 @@ fn handle_factory(args: &FactoryArgs) -> Result<()> {
     match args.action.to_lowercase().as_str() {
         "up" => {
             println!("==> Bringing up Software Factory VM and proxy...");
+            let session_id =
+                pa_core::compute::derive_factory_session_id(&config, args.config.as_deref())?;
+
+            let llama_spec = config.llama_server().clone();
+            if llama_spec.enabled {
+                println!("==> Ensuring Compute Plane inference server (llama-server)...");
+                match pa_core::compute::ensure_llama_server(&llama_spec, &session_id)? {
+                    pa_core::compute::LlamaServerStatusInfo::Running {
+                        pid,
+                        host,
+                        port,
+                        refcount,
+                        health,
+                        ..
+                    } => {
+                        println!(
+                            "==> Compute Plane: llama-server running (PID: {}, endpoint: http://{}:{}, health: {:?}, refcount: {}).",
+                            pid, host, port, health, refcount
+                        );
+                    }
+                    pa_core::compute::LlamaServerStatusInfo::ExternalRunning {
+                        host,
+                        port,
+                        health,
+                    } => {
+                        println!(
+                            "==> Compute Plane: external llama-server detected (endpoint: http://{}:{}, health: {:?}).",
+                            host, port, health
+                        );
+                    }
+                    pa_core::compute::LlamaServerStatusInfo::MissingBinary { searched } => {
+                        println!(
+                            "==> [WARN] Compute Plane: llama-server binary not found (searched: {}). Skipping inference server startup.",
+                            searched
+                        );
+                    }
+                    pa_core::compute::LlamaServerStatusInfo::Stopped { host, port } => {
+                        println!(
+                            "==> [WARN] Compute Plane: llama-server stopped or unreachable at http://{}:{}.",
+                            host, port
+                        );
+                    }
+                    pa_core::compute::LlamaServerStatusInfo::Disabled => {}
+                }
+            }
+
             let packages_dir = std::env::current_dir()?.join("pa_packages");
             let registry = if packages_dir.is_dir() {
                 pa_core::manifest::CapabilityRegistry::discover(&packages_dir)?
@@ -1173,6 +1231,8 @@ fn handle_factory(args: &FactoryArgs) -> Result<()> {
             };
             pa_core::manifest::merge_agent_capabilities(&mut config.agents, &registry)?;
 
+            pa_core::compute::inject_compute_endpoints_to_allowlist(&mut config);
+
             let proxy_ip = backend.start_proxy(&config)?;
             backend.ensure_factory_vm(&config, &proxy_ip)?;
             println!("==> Software Factory is UP (Proxy gateway: {}).", proxy_ip);
@@ -1180,10 +1240,51 @@ fn handle_factory(args: &FactoryArgs) -> Result<()> {
         "down" => {
             println!("==> Shutting down Software Factory VM and stopping processes...");
             backend.stop_factory()?;
+
+            if !args.keep_compute {
+                let llama_spec = config.llama_server().clone();
+                if llama_spec.enabled {
+                    println!("==> Releasing Compute Plane inference server...");
+                    let session_id = pa_core::compute::derive_factory_session_id(
+                        &config,
+                        args.config.as_deref(),
+                    )?;
+                    match pa_core::compute::release_llama_server(
+                        &llama_spec,
+                        &session_id,
+                        args.force,
+                    )? {
+                        pa_core::compute::LlamaReleaseResult::Terminated { pid } => {
+                            println!("==> Compute Plane: llama-server (PID: {}) terminated.", pid);
+                        }
+                        pa_core::compute::LlamaReleaseResult::Retained { remaining_sessions } => {
+                            println!(
+                                "==> Compute Plane: llama-server retained ({} active session(s) remain).",
+                                remaining_sessions
+                            );
+                        }
+                        pa_core::compute::LlamaReleaseResult::NotManaged => {
+                            println!("==> Compute Plane: llama-server is externally managed or already stopped.");
+                        }
+                        pa_core::compute::LlamaReleaseResult::Disabled => {}
+                    }
+                }
+            } else {
+                println!("==> Compute Plane: --keep-compute specified, leaving inference server running.");
+            }
+
             println!("==> Software Factory is DOWN.");
         }
         "status" => {
-            let status = backend.get_status()?;
+            let mut status = backend.get_status()?;
+            let llama_spec = config.llama_server();
+            let compute_status = pa_core::compute::get_llama_server_status(llama_spec)?;
+            if let serde_json::Value::Object(ref mut map) = status {
+                map.insert(
+                    "compute_plane".to_string(),
+                    serde_json::to_value(&compute_status)?,
+                );
+            }
             println!("{}", serde_json::to_string_pretty(&status)?);
         }
         other => {
@@ -5435,6 +5536,32 @@ mod tests {
                 assert!(p.json);
             }
             _ => panic!("Expected Eval Report command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_factory_lifecycle_flags() {
+        let up_args = vec!["pa", "factory", "up", "--config", "factory.toml"];
+        let cli_up = Cli::parse_from(up_args);
+        match cli_up.command {
+            Commands::Factory(f) => {
+                assert_eq!(f.action, "up");
+                assert_eq!(f.config.as_deref(), Some(Path::new("factory.toml")));
+                assert!(!f.keep_compute);
+                assert!(!f.force);
+            }
+            _ => panic!("Expected Factory command"),
+        }
+
+        let down_args = vec!["pa", "factory", "down", "--keep-compute", "--force"];
+        let cli_down = Cli::parse_from(down_args);
+        match cli_down.command {
+            Commands::Factory(f) => {
+                assert_eq!(f.action, "down");
+                assert!(f.keep_compute);
+                assert!(f.force);
+            }
+            _ => panic!("Expected Factory command"),
         }
     }
 }

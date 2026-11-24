@@ -34,6 +34,20 @@ apple_family_max = 1009
 # Threadgroup memory floor in bytes (default 65536 = 64 KiB)
 max_threadgroup_memory = 65536
 
+[compute.llama_server]
+# Native host LLM inference server supervision (Metal / CUDA / ROCm)
+enabled = false
+managed_lifecycle = true
+# binary_path = "/usr/local/bin/llama-server"
+# model_path = "models/qwen2.5-coder-7b.gguf"
+host = "127.0.0.1"
+port = 8081
+ctx_size = 32768
+gpu_layers = -1
+extra_args = ["--metrics"]
+startup_timeout_sec = 120
+on_missing_binary = "skip"
+
 [proxy]
 base_proxy_port = 8081
 base_transparent_port = 8091
@@ -174,6 +188,21 @@ tokens = ["ANTHROPIC_API_KEY"]
     - `"none"`: Never modifies host settings (assumes external out-of-band management).
 - **`apple_family_max`**: Maximum Apple GPU feature tier to expose via the interposer shim (defaults to `1009` for Apple Family 9 / M3/M4).
 - **`max_threadgroup_memory`**: Memory ceiling in bytes (defaults to `65536` for 64 KiB, overcoming stock 32 KiB restriction).
+
+#### `[compute.llama_server]`
+- **`enabled`**: Master toggle for local host LLM inference server supervision (defaults to `false`).
+- **`managed_lifecycle`**: When `true` (default), `pa factory up` spawns and health-checks `llama-server` on the host, and `pa factory down` releases/terminates it. When `false`, verifies external availability without process management.
+- **`binary_path`**: Optional explicit path to `llama-server` binary. If omitted, searches `$PATH` and `~/.local/share/pa-container/bin/`.
+- **`model_path`**: Path to the GGUF model file loaded into memory.
+- **`host`**: Host interface to bind (defaults to `"127.0.0.1"`).
+- **`port`**: Port number for `llama-server` (defaults to `8081` to avoid colliding with `coding-agent-proxy` at `8080`).
+- **`ctx_size`**: Context window size in tokens (defaults to `32768`).
+- **`gpu_layers`**: Number of layers offloaded to host GPU (`-1` or `"all"` for complete offload, integer for specific layer count).
+- **`extra_args`**: Additional flags passed directly to `llama-server` (e.g. `["--metrics", "--threads", "8"]`).
+- **`startup_timeout_sec`**: Health polling timeout in seconds while model loads (`503` to `200 OK`, defaults to `120`).
+- **`on_missing_binary`**: Failure policy if `llama-server` binary cannot be resolved:
+    - `"skip"` *(Default)*: Emits a warning and proceeds without local inference.
+    - `"block"`: Aborts `pa factory up` with an error.
 
 #### `[proxy]`
 - **`base_proxy_port`**: Starting port number for dedicated agent HTTP/HTTPS proxy listeners (defaults to `8081`).
