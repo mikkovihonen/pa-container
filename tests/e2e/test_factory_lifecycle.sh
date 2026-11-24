@@ -11,6 +11,14 @@ echo " PA-Container 2.0: E2E Factory Lifecycle Verification"
 echo " Platform: $(uname -s) ($(uname -m))"
 echo "=========================================================="
 
+# Non-interactive test credential overrides (ensures zero OS Keychain/keyring prompts)
+export PA_TEST_MODE=1
+export PA_DISABLE_KEYRING=1
+export ADMIN_PASSWORD="pa-test-admin-password"
+export OPENAI_API_KEY="test-mock-openai-key"
+export GEMINI_API_KEY="test-mock-gemini-key"
+export ANTHROPIC_API_KEY="test-mock-anthropic-key"
+
 PA_BIN="cargo run --quiet --bin pa --"
 
 # 1. Verify Status Command

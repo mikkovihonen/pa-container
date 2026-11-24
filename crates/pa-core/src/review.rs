@@ -30,6 +30,10 @@ pub fn review_agent_workspace(
             fs::create_dir_all(parent)?;
         }
         if !worktree_path.exists() {
+            let _ = Command::new("git")
+                .args(["worktree", "prune"])
+                .current_dir(repo)
+                .output();
             let branch = format!("pa/{}/task", agent_id);
             let branch_exists = Command::new("git")
                 .args(["rev-parse", "--verify", &branch])

@@ -12,12 +12,14 @@ flowchart TB
         CLI["pa CLI (crates/pa-cli)"]
         Keyring["OS Keyring (Zeroizing Memory)"]
         Llama["llama-server (host Metal/CUDA)"]
+        Store["Analytical Store (.pa/factory.db SQLite WAL)"]
         
         subgraph ProxyStack["Egress & Auditing Proxy (coding-agent-proxy)"]
             Proxy["mitmproxy :8081 (Agent 1)\nmitmproxy :8082 (Agent 2)\nDNS :5353"]
             Allowlist["Per-Agent Allowlist Addon"]
             Replacer["HMAC Token Replacer Addon"]
             Exporter["Flow Exporter (JSONL)"]
+            OTLP["OTLP Exporter Addon"]
         end
     end
 
@@ -40,6 +42,7 @@ flowchart TB
 
     CLI -->|SSH / Stdio JSON-RPC 2.0| Daemon
     CLI -->|Ingest Dirty Git Stash| Vault
+    CLI -->|Persist Spans & Metrics| Store
     Daemon -->|POSIX dscl/useradd| Agent1
     Daemon -->|POSIX dscl/useradd| Agent2
     
@@ -48,7 +51,9 @@ flowchart TB
     Proxy --> Allowlist
     Allowlist --> Replacer
     Replacer --> Exporter
+    Exporter --> OTLP
     Exporter -->|Egress| WAN["External APIs / Upstream Git"]
+    OTLP -->|Traces & GenAI Spans| Backend["OTLP Collector (Phoenix / Langfuse)"]
     Proxy -.->|Local Inference :11434| Llama
 ```
 
@@ -105,3 +110,32 @@ flowchart TB
     - Agents cannot inspect or spoof other agents' network traffic.
     - Host allowlists are enforced per port.
     - Placeholder tokens are verified against agent identity before real API credentials from the host keyring are injected into outbound headers.
+
+---
+
+## 3. The 4-Layer Provenance & Governance Model
+
+Beyond virtualization and sandboxing, PA-Container 2.0 operates a provider-agnostic **4-Layer Provenance Architecture** that connects business strategy with autonomous code execution and closes the loop with operational governance.
+
+```mermaid
+flowchart LR
+    L0["Layer 0:\nOKRs-as-Code"] -->|Intent & Budget| L1["Layer 1:\nSpecs & DTCG Tokens"]
+    L1 -->|Verifiable Gates| L2["Layer 2:\nOTel Spans & Git Trailers"]
+    L2 -->|Outcomes & Cost| L3["Layer 3:\nClosed-Loop Governance"]
+    L3 -.->|Feedback: WIP / SLO / FinOps Throttle| L0
+    L3 -.->|Feedback: Pre-Dispatch Gate| L2
+```
+
+- **Layer 0 — Business Strategy (OKRs-as-Code):**
+    - Git-versioned TOML manifests (`docs/okrs/*.toml`) define Objectives, Key Results, metrics, and FinOps spending limits (`budget_usd`).
+    - Connects strategic business intent directly to technical requirements (`REQ-xxx`).
+- **Layer 1 — Dual Specification Plane:**
+    - **Functional Traceability:** OpenFastTrace tags (`req~`, `impl~`, `utest~`, `vtest~`) guarantee every code change is linked to an approved specification and automated test.
+    - **Cross-Platform Design System Contracts:** Versioned W3C DTCG tokens (`design/tokens/tokens.json`) and component contracts (`design/contracts/*.toml`) verified across Web (Playwright/axe-core), iOS (`simctl`/`ios_runnerd`), and Android (`adb`/Compose).
+- **Layer 2 — Runtime Execution Traceability:**
+    - Root execution spans (`pa.task.run`) propagate via `.pa/proxy-bindings.json` to proxy-intercepted agent LLM spans (`gen_ai.chat`).
+    - Spans are scrubbed for secrets and exported to Arize Phoenix or Langfuse.
+    - Gate 2 merge sign-off stamps structured `X-PA-*` Git commit trailers onto merge commits.
+- **Layer 3 — Operational Outcomes & Closed-Loop Governance:**
+    - An embedded SQLite WAL database (`.pa/factory.db`) records metrics, costs, and test results.
+    - The Governance Engine evaluates WIP limits, SLO Defense Mode, and KR budget throttling before dispatch, dynamically routing to local `llama-server` models when cloud budgets are exhausted.

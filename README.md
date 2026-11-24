@@ -36,6 +36,14 @@ Agents run as distinct unprivileged POSIX users ($\text{UID} \ge 2001$) confined
 - **Multi-Port Auditable Proxy (`coding-agent-proxy`):**
     - Mitmproxy intercepts traffic across dedicated per-agent ports (`8081`, `8082`, ...).
     - Enforces declarative host allowlists and dynamically replaces HMAC placeholder tokens with real secrets.
+- **Provider-Agnostic 4-Layer Provenance:**
+    - Seamlessly correlates Strategic OKRs (Layer 0), Functional & DTCG Design Specs (Layer 1), Runtime OTel Spans & Git Trailers (Layer 2), and Closed-Loop Governance (Layer 3).
+- **Cross-Platform Design System Contracts:**
+    - Versioned W3C DTCG tokens (`design/tokens/tokens.json`) and component contracts (`design/contracts/*.toml`) verified across Web, iOS, and Android.
+- **OTel & OpenInference GenAI Observability:**
+    - Live trace generation and payload secret scrubbing with pluggable OTLP backends (Arize Phoenix, Langfuse).
+- **Closed-Loop Factory Governance:**
+    - Embedded SQLite WAL analytical store (`factory.db`) enforcing WIP limits, SLO Defense Mode, and FinOps KR budget throttling to local `llama-server`.
 - **Declarative Capability Packs:**
     - Unified `capability.toml` manifests define tools, dependencies, and network egress rules without legacy container layering.
 

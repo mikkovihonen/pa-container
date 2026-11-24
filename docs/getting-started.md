@@ -156,3 +156,30 @@ For production feature development, use the structured **Feature Implementation 
 ```
 
 See [Feature Implementation Workflow](features.md) for full details on multi-tenant pipelines and assertion locking.
+
+---
+
+## 7. 4-Layer Provenance & Factory Verification
+
+PA-Container 2.0 provides commands to inspect strategic alignment, requirement coverage, design system compliance, and execution telemetry across the factory:
+
+```bash
+# 1. Inspect strategic OKRs and FinOps budgets (Layer 0)
+./pa okr status
+
+# 2. Verify requirement and test traceability coverage (Layer 1)
+./pa traceability check
+
+# 3. Inspect W3C DTCG design tokens and verify design contracts (Layer 1)
+./pa design tokens
+./pa design check
+
+# 4. Inspect OpenTelemetry status and launch trace dashboard (Layer 2)
+./pa telemetry status
+./pa telemetry ui
+
+# 5. Display analytical outcomes, FinOps spend, and governance health (Layer 3)
+./pa telemetry report
+```
+
+Explore the complete [4-Layer Provenance Documentation](provenance/index.md) to learn how OKRs, specifications, design tokens, telemetry, and governance work together.

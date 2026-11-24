@@ -95,7 +95,58 @@ tokens = ["GEMINI_API_KEY"]
 
 ---
 
-## 4. Multi-Agent CLI Workflows
+## 4. Specialized Agent Roles
+
+PA-Container 2.0 introduces declarative role definitions (`[roles.*]`) in `factory.toml`. Roles bind agents to abstract capability interfaces, restricting or granting access to factory systems:
+
+| Role Identifier | Description | Abstract Capabilities |
+| :--- | :--- | :--- |
+| `spec_author` | Drafts requirements, links OKRs, authors OpenFastTrace tags | `traceability:read`, `traceability:write`, `okr:read` |
+| `design_engineer` | Authors and validates W3C DTCG tokens & component contracts | `design_system:read`, `design_system:write` |
+| `telemetry_engineer` | Inspects execution traces, tunes OTLP exporters, monitors spans | `telemetry:read`, `telemetry:write` |
+| `governance_officer` | Audits factory health, reviews WIP limits, sets KR budget ceilings | `governance:read`, `governance:write`, `storage:read` |
+| `qa_platform_engineer` | Hardens tests across Web, iOS Simulator, and Android targets | `traceability:verify`, `design_system:verify` |
+| `finops_analyst` | Monitors token consumption, analyzes cost per KR, optimizes models | `governance:read`, `storage:read`, `okr:read` |
+
+### Declaring Roles in `factory.toml`
+
+```toml
+[roles.spec_author]
+description = "Drafts functional requirements and validates OKR linkages"
+capabilities = ["traceability:read", "traceability:write", "okr:read"]
+
+[roles.design_engineer]
+description = "Maintains W3C DTCG tokens and cross-platform contracts"
+capabilities = ["design_system:read", "design_system:write"]
+
+[[agents]]
+id = "architect"
+uid = 2001
+driver = "claude"
+role = "spec_author"
+capabilities = ["git", "source-control"]
+allowlist = ["api.anthropic.com"]
+tokens = ["ANTHROPIC_API_KEY"]
+```
+
+---
+
+## 5. Built-in Agent Skills
+
+Agents in PA-Container 2.0 are equipped with provider-agnostic skills staged under `.pi/skills/` (and translated for Claude, OpenCode, and Antigravity drivers):
+
+- **`traceability-driven-dev`:**
+    - Teaches agents how to annotate specifications and code with OpenFastTrace tags (`req~`, `impl~`, `utest~`, `vtest~`).
+    - Enforces test-first workflows and coverage verification before proposing code changes.
+- **`design-system-dev`:**
+    - Instructs agents on W3C DTCG token schema conventions, token alias resolution, and component contract authoring (`design/contracts/*.toml`).
+    - Prevents hardcoding raw color literals (`no_hardcoded_color`) and instructs agents to verify across Web, iOS, and Android targets.
+- **`closed-loop-governance`:**
+    - Guides agents to inspect active WIP limits, query remaining KR budgets via `pa okr status`, and respect local model throttling policies.
+
+---
+
+## 6. Multi-Agent CLI Workflows
 
 ### Launching Agents
 

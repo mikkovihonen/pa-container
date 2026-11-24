@@ -1,0 +1,24 @@
+name = "Button"
+description = "Core interactive button component supporting primary, secondary, and ghost variants"
+platforms = ["web", "ios", "android"]
+tokens = [
+    "color.brand.primary",
+    "color.surface.background",
+    "spacing.sm",
+    "spacing.md"
+]
+
+[web]
+component = "src/components/Button.tsx"
+catalog_entry = "Button.stories.tsx"
+a11y_target = "wcag2aa"
+
+[ios]
+component = "Sources/DesignSystem/Button.swift"
+catalog_entry = "ButtonPreviews.swift"
+a11y_target = "accessibilityElement"
+
+[android]
+component = "app/src/main/java/com/example/ui/Button.kt"
+catalog_entry = "ButtonPreviews.kt"
+a11y_target = "contentDescription"

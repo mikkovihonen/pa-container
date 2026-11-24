@@ -9,23 +9,32 @@ repo_url = "https://github.com/mikkovihonen/pa-container"
 nav = [
   { "Home" = "index.md" },
   { "Getting Started" = "getting-started.md" },
-  { "Feature Workflow" = "features.md" },
-  { "Sandboxing 101" = "sandboxing.md" },
   { "Architecture" = "architecture.md" },
-  { "Architecture Plan" = "design/pa_container_next_generation_software_factory_architecture_plan.md" },
-  { "Configuration" = "configuration.md" },
+  { "Feature Workflow" = "features.md" },
   { "Multi-Agent Support" = "agents.md" },
-  { "Platform Parity" = "platform-parity.md" },
-  { "T3 Code Integration" = "t3-code.md" },
-  { "Development" = "development.md" },
-  { "Releases" = "releases.md" },
-  { "Proxy & addons" = [
+  { "Sandboxing 101" = "sandboxing.md" },
+  { "4-Layer Provenance" = [
+    { "Overview & Model" = "provenance/index.md" },
+    { "OKRs-as-Code (Layer 0)" = "provenance/okrs.md" },
+    { "Specs & Traceability (Layer 1)" = "provenance/traceability.md" },
+    { "Design System & Tokens (Layer 1)" = "provenance/design-system.md" },
+    { "Runtime Telemetry & Git (Layer 2)" = "provenance/telemetry.md" },
+    { "Closed-Loop Governance (Layer 3)" = "provenance/governance.md" },
+  ] },
+  { "Proxy & Addons" = [
     { "Overview" = "proxy/overview.md" },
     { "Allowlist" = "proxy/allowlist.md" },
     { "Token Replacer" = "proxy/token-replacer.md" },
     { "Flow Export" = "proxy/flow-export.md" },
+    { "OTLP Exporter" = "proxy/otlp-exporter.md" },
     { "Addon Development" = "proxy/addon-development.md" },
   ] },
+  { "Configuration Reference" = "configuration.md" },
+  { "Architecture Plan" = "design/pa_container_next_generation_software_factory_architecture_plan.md" },
+  { "Platform Parity" = "platform-parity.md" },
+  { "T3 Code Integration" = "t3-code.md" },
+  { "Development" = "development.md" },
+  { "Releases" = "releases.md" },
 ]
 
 [project.theme]

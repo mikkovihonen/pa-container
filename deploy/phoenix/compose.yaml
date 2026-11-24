@@ -1,0 +1,17 @@
+services:
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: pa-phoenix
+    restart: unless-stopped
+    ports:
+      - "6006:6006" # Phoenix Web UI and OTLP HTTP receiver (/v1/traces)
+      - "4317:4317" # OTLP gRPC endpoint
+    environment:
+      - PHOENIX_PORT=6006
+      - PHOENIX_GRPC_PORT=4317
+      - PHOENIX_ENABLE_PROMETHEUS=true
+    volumes:
+      - phoenix-data:/root/.phoenix
+
+volumes:
+  phoenix-data:

@@ -1,0 +1,40 @@
+# Self-Hosted Langfuse Stack for PA-Container 2.0 Telemetry
+# Default Web UI: http://127.0.0.1:3000
+# Default OTLP Endpoint: http://127.0.0.1:3000/api/public/otel/v1/traces
+
+services:
+  langfuse-server:
+    image: ghcr.io/langfuse/langfuse:2
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=pa-container-secret-key-change-in-production
+      - SALT=pa-container-salt-change-in-production
+      - TELEMETRY_ENABLED=false
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+
+  langfuse-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=langfuse
+    ports:
+      - "5433:5432"
+    volumes:
+      - langfuse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  langfuse_pgdata:

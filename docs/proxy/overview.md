@@ -25,6 +25,7 @@ flowchart TB
             AL["AllowlistAddon\n(Host Allowlist Filtering)"]
             TR["TokenReplacerAddon\n(Zero-Knowledge HMAC Secret Injection)"]
             FE["FlowExportAddon\n(Per-Agent JSONL Flow Logging)"]
+            OTLP["otlp_exporter Addon\n(OTel & OpenInference GenAI Spans)"]
         end
 
         P1 --> MAC
@@ -33,12 +34,14 @@ flowchart TB
         MAC --> AL
         AL --> TR
         TR --> FE
+        FE --> OTLP
     end
 
     Agent1 -->|Egress via 8081| P1
     Agent2 -->|Egress via 8082| P2
     FE --> WAN["External APIs (Anthropic, OpenAI, GitHub)"]
     FE -.->|Local Inference :11434| Llama["Host llama-server"]
+    OTLP -->|Traces & Spans| Collector["OTLP Collector (Phoenix / Langfuse)"]
 ```
 
 ### Core Features
@@ -60,7 +63,7 @@ flowchart TB
 
 ## 2. Proxy Addons Pipeline
 
-The proxy runs four core addons loaded into `mitmproxy`:
+The proxy runs five core addons loaded into `mitmproxy`:
 
 | Addon | Role | Key Configuration |
 | :--- | :--- | :--- |
@@ -68,6 +71,7 @@ The proxy runs four core addons loaded into `mitmproxy`:
 | **`allowlist`** | Enforces host allowlists declared in `factory.toml` and `capability.toml`. | Returns `403 Forbidden` for unapproved hostnames. |
 | **`token_replacer`** | Swaps HMAC placeholders with real API secrets for approved endpoints. | Scoped to matching destination hostnames. |
 | **`flow_export`** | Records JSONL audit trails for each agent flow. | Writes to `.cache/pa-container/flows-agent-<id>.jsonl`. |
+| **[`otlp_exporter`](otlp-exporter.md)** | Emits OTel & OpenInference spans with payload secret scrubbing. | Controlled via `[telemetry.otlp]` in `factory.toml`. |
 
 ---
 

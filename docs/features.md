@@ -73,6 +73,17 @@ pa feature run <feature-slug> --stage green
 pa feature run <feature-slug> --stage verify
 ```
 
+#### Pre-Dispatch Governance Check
+Before any agent is spawned, `pa feature run` evaluates the **Closed-Loop Governance Engine**:
+- **WIP Limits:** If active unmerged PRs or feature branches exceed `max_wip_prs`, dispatch is **blocked** until existing features are reviewed and merged.
+- **SLO Defense Mode:** If system error budgets fall below `slo_defense_error_budget_min`, feature execution is paused.
+- **KR Budget Throttling:** If cloud LLM spend for the feature's linked Key Result exceeds `budget_usd`, execution is dynamically **throttled** to the local offline `llama-server`.
+
+#### Automated Quality Gates
+During the `verify` stage, `pa-core` enforces:
+- **Traceability Gate:** Verifies that all requirement tags (`req~`) declared in the feature spec have corresponding implementation (`impl~`) and test (`utest~` / `vtest~`) tags.
+- **Design System Gate:** Verifies that UI modifications adhere to W3C DTCG tokens, pass static linting (`no_hardcoded_color`), and pass enabled platform checks (Web, iOS, Android).
+
 ### 2.4 Reviewing and Merging (Gate 2)
 
 Inspect agent modifications in an isolated host review worktree:
@@ -89,4 +100,22 @@ pa feature review <feature-slug> --feedback "Adjust padding and re-run visual ch
 
 # Approve and merge the verified feature into target branch
 pa feature review <feature-slug> --approve
+```
+
+#### Provenance Commit Stamping
+When `--approve` is executed, Gate 2 merges the isolated feature branch into the target branch and automatically stamps structured RFC 5198 Git commit trailers into the merge commit:
+
+```text
+feat(auth): implement HMAC nonce verification
+
+Verified implementation of agent request authentication with zero
+token leaks through egress proxy.
+
+X-PA-Task-Id: task-1732130000-abcd
+X-PA-Trace-Id: 4bf92f3577b34da6a3ce929d0e0e4736
+X-PA-Feature-Id: agent-auth-flow
+X-PA-Requirements: AUTH-01, AUTH-02
+X-PA-KRs: KR-SEC-01
+X-PA-Objectives: OBJ-2026-Q4-SEC
+X-PA-Design-Refs: button.primary
 ```

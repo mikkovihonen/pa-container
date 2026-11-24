@@ -661,6 +661,10 @@ impl FactoryBackend for TartMacOSBackend {
             if let Some(p) = worktree_path.parent() {
                 let _ = fs::create_dir_all(p);
             }
+            let _ = Command::new("git")
+                .args(["worktree", "prune"])
+                .current_dir(host_repo)
+                .output();
             let branch = format!("pa/{}/task", agent_id);
             let branch_exists = Command::new("git")
                 .args(["rev-parse", "--verify", &branch])

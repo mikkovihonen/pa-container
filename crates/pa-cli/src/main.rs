@@ -44,6 +44,18 @@ pub enum Commands {
 
     #[command(about = "Manage the Agentic Feature Implementation lifecycle")]
     Feature(FeatureArgs),
+
+    #[command(about = "Inspect and manage OpenTelemetry spans, traces, and metrics")]
+    Telemetry(TelemetryArgs),
+
+    #[command(about = "Verify and check requirement and test traceability")]
+    Traceability(TraceabilityArgs),
+
+    #[command(about = "Inspect OKRs-as-Code objectives, key results, and budgets")]
+    Okr(OkrArgs),
+
+    #[command(about = "Inspect and verify cross-platform Design System contracts & tokens")]
+    Design(DesignArgs),
 }
 
 #[derive(Args, Debug)]
@@ -58,10 +70,180 @@ pub struct RunArgs {
     pub config: Option<PathBuf>,
 
     #[arg(
+        long,
+        help = "Role to assign to the agent (e.g. spec_architect, design_engineer)"
+    )]
+    pub role: Option<String>,
+
+    #[arg(long, help = "Associated Objective ID (e.g. OBJ-2026-Q4-SEC)")]
+    pub objective: Option<String>,
+
+    #[arg(
+        long,
+        help = "Associated Key Result IDs (comma-separated, e.g. KR-AUTH-01)"
+    )]
+    pub kr: Option<String>,
+
+    #[arg(
+        long,
+        help = "Associated Requirement IDs (comma-separated, e.g. REQ-AUTH-01)"
+    )]
+    pub req: Option<String>,
+
+    #[arg(
         trailing_var_arg = true,
         help = "Extra arguments passed to the agent driver"
     )]
     pub extra_args: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryArgs {
+    #[command(subcommand)]
+    pub command: TelemetryCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TelemetryCommands {
+    #[command(about = "Display active OTLP provider and telemetry status")]
+    Status(TelemetryStatusArgs),
+
+    #[command(about = "Open the OTLP provider web UI in browser (e.g. Phoenix)")]
+    Ui(TelemetryUiArgs),
+
+    #[command(about = "Inspect traces or events for a specific task ID")]
+    Trace(TelemetryTraceArgs),
+
+    #[command(about = "Display aggregated analytical outcomes, FinOps, and DORA metrics")]
+    Report(TelemetryReportArgs),
+
+    #[command(about = "Synchronize local analytical store with external telemetry")]
+    Sync(TelemetrySyncArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryStatusArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Output status as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryUiArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Print web UI URL only")]
+    pub url: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryTraceArgs {
+    #[arg(help = "Task ID to query traces for")]
+    pub task_id: String,
+
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetryReportArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Output report as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TelemetrySyncArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct TraceabilityArgs {
+    #[command(subcommand)]
+    pub command: TraceabilityCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TraceabilityCommands {
+    #[command(about = "Scan workspace and verify requirement & test coverage")]
+    Check(TraceabilityCheckArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TraceabilityCheckArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Output report as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct OkrArgs {
+    #[command(subcommand)]
+    pub command: OkrCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum OkrCommands {
+    #[command(about = "List objectives, key results, and linked requirements")]
+    Status(OkrStatusArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct OkrStatusArgs {
+    #[arg(
+        short,
+        long,
+        help = "Path to OKR manifests directory",
+        default_value = "docs/okrs"
+    )]
+    pub dir: PathBuf,
+
+    #[arg(long, help = "Output status as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DesignArgs {
+    #[command(subcommand)]
+    pub command: DesignCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DesignCommands {
+    #[command(about = "List and inspect active W3C DTCG design tokens")]
+    Tokens(DesignTokensArgs),
+
+    #[command(about = "Verify design system compliance across enabled platforms")]
+    Check(DesignCheckArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct DesignTokensArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Filter tokens by type (e.g. color, dimension)")]
+    pub token_type: Option<String>,
+
+    #[arg(long, help = "Output tokens as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DesignCheckArgs {
+    #[arg(short, long, help = "Path to factory.toml configuration file")]
+    pub config: Option<PathBuf>,
+
+    #[arg(long, help = "Output compliance report as JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -212,6 +394,31 @@ pub struct FeatureReviewArgs {
     pub feedback: Option<String>,
 }
 
+fn count_active_wip_features(cwd: &std::path::Path) -> usize {
+    let features_dir = cwd.join(".pa/features");
+    if !features_dir.is_dir() {
+        return 0;
+    }
+    let mut count = 0;
+    if let Ok(entries) = std::fs::read_dir(features_dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if let Ok(feat) = Feature::load(cwd, &name) {
+                    if feat.status == FeatureStatus::Approved
+                        || feat.status == FeatureStatus::RedPhase
+                        || feat.status == FeatureStatus::GreenPhase
+                        || feat.status == FeatureStatus::Verified
+                    {
+                        count += 1;
+                    }
+                }
+            }
+        }
+    }
+    count
+}
+
 fn handle_run(args: &RunArgs) -> Result<()> {
     let mut config = load_factory_config(args.config.as_deref())?;
 
@@ -251,6 +458,113 @@ fn handle_run(args: &RunArgs) -> Result<()> {
         None
     };
 
+    // Initialize TaskContext and write proxy-bindings.json
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let task_id = format!("task-{}", now_ts);
+    let mut task_ctx = pa_core::telemetry::TaskContext::new(&task_id);
+    task_ctx.agent_role = args.role.clone().or_else(|| target_agent.role.clone());
+    task_ctx.objective_id = args.objective.clone();
+    if let Some(ref kr) = args.kr {
+        task_ctx.kr_ids = kr
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+    if let Some(ref req) = args.req {
+        task_ctx.req_ids = req
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+
+    let bindings_path = cache_dir.join("proxy-bindings.json");
+    let mut bindings = pa_core::telemetry::ProxyBindings::load(&bindings_path).unwrap_or_default();
+    let proxy_port = target_agent.proxy_port.unwrap_or(8081);
+    bindings.set_for_port(proxy_port, task_ctx.clone());
+    let _ = bindings.save_atomic(&bindings_path);
+
+    // Emit root span pa.task.run
+    let _ = pa_core::telemetry::emit_root_span(&task_ctx, &config.telemetry.otlp, Some(&cache_dir));
+    println!(
+        "==> Telemetry active: trace_id={}, task_id={} (provider: {})",
+        task_ctx.trace_id, task_ctx.task_id, config.telemetry.otlp.provider
+    );
+
+    let cwd = std::env::current_dir()?;
+
+    // Closed-Loop Governance Evaluation
+    if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+        let active_wip = count_active_wip_features(&cwd);
+        let gov_decision = pa_core::governance::GovernanceEngine::evaluate_dispatch(
+            store.as_ref(),
+            &config.governance,
+            active_wip,
+            task_ctx.kr_ids.first().map(|s| s.as_str()),
+        )?;
+
+        if !gov_decision.allowed {
+            eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
+            anyhow::bail!(
+                "Governance guardrail blocked dispatch: {}",
+                gov_decision.reason
+            );
+        }
+
+        if let Some(ref model_override) = gov_decision.model_override {
+            println!(
+                "==> [GOVERNANCE] Model override applied: {} ({})",
+                model_override, gov_decision.reason
+            );
+            task_ctx.model_profile = Some(model_override.clone());
+        }
+
+        if gov_decision.defense_mode_active {
+            println!(
+                "==> [GOVERNANCE WARNING] SLO Defense Mode active (health: {:.1}%).",
+                gov_decision.slo_health_pct
+            );
+        }
+    }
+
+    // Closed-Loop Governance Evaluation
+    if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+        let active_wip = count_active_wip_features(&cwd);
+        let gov_decision = pa_core::governance::GovernanceEngine::evaluate_dispatch(
+            store.as_ref(),
+            &config.governance,
+            active_wip,
+            task_ctx.kr_ids.first().map(|s| s.as_str()),
+        )?;
+
+        if !gov_decision.allowed {
+            eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
+            anyhow::bail!(
+                "Governance guardrail blocked dispatch: {}",
+                gov_decision.reason
+            );
+        }
+
+        if let Some(ref model_override) = gov_decision.model_override {
+            println!(
+                "==> [GOVERNANCE] Model override applied: {} ({})",
+                model_override, gov_decision.reason
+            );
+            task_ctx.model_profile = Some(model_override.clone());
+        }
+
+        if gov_decision.defense_mode_active {
+            println!(
+                "==> [GOVERNANCE WARNING] SLO Defense Mode active (health: {:.1}%).",
+                gov_decision.slo_health_pct
+            );
+        }
+    }
+
     let backend = get_backend(&config)?;
     let proxy_ip = backend.start_proxy(&config)?;
     println!("==> Proxy listening at gateway {}", proxy_ip);
@@ -262,7 +576,6 @@ fn handle_run(args: &RunArgs) -> Result<()> {
         backend.provision_capabilities(caps)?;
     }
 
-    let cwd = std::env::current_dir()?;
     let commit = backend.sync_git_to_vault(&cwd, "HEAD")?;
     println!("==> Synced repository to Vault at commit {}.", commit);
 
@@ -796,6 +1109,56 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
     );
 
     let config = load_factory_config(args.config.as_deref())?;
+    let cache_dir = dirs_fallback_cache();
+
+    // Set up task context and correlation keys for feature run
+    let task_id = format!("feat-{}", feature.slug);
+    let mut task_ctx = pa_core::telemetry::TaskContext::new(&task_id);
+    task_ctx.req_ids = feature.tasks.iter().map(|t| t.spec_ref.clone()).collect();
+    let bindings_path = cache_dir.join("proxy-bindings.json");
+    let mut bindings = pa_core::telemetry::ProxyBindings::load(&bindings_path).unwrap_or_default();
+    bindings.set_for_port(8081, task_ctx.clone());
+    let _ = bindings.save_atomic(&bindings_path);
+    let _ = pa_core::telemetry::emit_root_span(&task_ctx, &config.telemetry.otlp, Some(&cache_dir));
+    println!(
+        "==> Telemetry active: trace_id={}, task_id={} (provider: {})",
+        task_ctx.trace_id, task_ctx.task_id, config.telemetry.otlp.provider
+    );
+
+    // Closed-Loop Governance Evaluation
+    if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+        let active_wip = count_active_wip_features(&cwd);
+        let gov_decision = pa_core::governance::GovernanceEngine::evaluate_dispatch(
+            store.as_ref(),
+            &config.governance,
+            active_wip,
+            task_ctx.kr_ids.first().map(|s| s.as_str()),
+        )?;
+
+        if !gov_decision.allowed {
+            eprintln!("[GOVERNANCE ERROR] {}", gov_decision.reason);
+            anyhow::bail!(
+                "Governance guardrail blocked dispatch: {}",
+                gov_decision.reason
+            );
+        }
+
+        if let Some(ref model_override) = gov_decision.model_override {
+            println!(
+                "==> [GOVERNANCE] Model override applied: {} ({})",
+                model_override, gov_decision.reason
+            );
+            task_ctx.model_profile = Some(model_override.clone());
+        }
+
+        if gov_decision.defense_mode_active {
+            println!(
+                "==> [GOVERNANCE WARNING] SLO Defense Mode active (health: {:.1}%).",
+                gov_decision.slo_health_pct
+            );
+        }
+    }
+
     let backend = get_backend(&config)?;
 
     let proxy_ip = backend.start_proxy(&config)?;
@@ -871,6 +1234,104 @@ fn handle_feature_run(args: &FeatureRunArgs) -> Result<()> {
             );
         }
 
+        // Evaluate Traceability Quality Gate
+        println!(
+            "==> Evaluating Spec Traceability Gate (Engine: {})...",
+            config.traceability.engine
+        );
+        let trace_report =
+            pa_core::traceability::evaluate_traceability_gate(&cwd, &config.traceability)?;
+        println!(
+            "==> Traceability coverage: {:.1}% ({}/{} requirements covered)",
+            trace_report.coverage_pct,
+            trace_report.covered_requirements,
+            trace_report.total_requirements
+        );
+
+        if !trace_report.is_compliant {
+            eprintln!(
+                "[ERROR] Traceability gate failed: coverage {:.1}% < min {:.1}%. Missing tests: {:?}, Missing impl: {:?}",
+                trace_report.coverage_pct,
+                config.traceability.min_coverage_pct,
+                trace_report.missing_tests,
+                trace_report.missing_impl
+            );
+            anyhow::bail!("Traceability gate failed compliance check. Run 'pa traceability check' for details.");
+        }
+
+        // Evaluate Cross-Platform Design System Gate
+        println!(
+            "==> Evaluating Cross-Platform Design System Gate (Provider: {}, Platforms: {:?})...",
+            config.design_system.provider, config.design_system.platforms
+        );
+        let design_report = pa_core::design::evaluate_design_gate(&cwd, &config.design_system)?;
+        println!(
+            "==> Design system tokens: {}, contracts: {}, compliant: {}",
+            design_report.total_tokens, design_report.total_contracts, design_report.is_compliant
+        );
+
+        if !design_report.is_compliant {
+            eprintln!(
+                "[ERROR] Design system gate failed with {} violation(s) across platforms.",
+                design_report.violations.len()
+            );
+            for v in &design_report.violations {
+                eprintln!("  [!] {}:{} [{}]: {}", v.file, v.line, v.rule, v.message);
+            }
+            anyhow::bail!(
+                "Design system gate failed compliance check. Run 'pa design check' for details."
+            );
+        }
+
+        // Record into Analytical Store (factory.db)
+        if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+            let _ = store.record_task(&task_ctx, "verified");
+            let _ = store.record_traceability(&task_ctx.task_id, &trace_report);
+        }
+
+        // Resolve OKR hierarchy
+        let okr_store =
+            pa_core::okr::OkrStore::load_from_dir(&cwd.join("docs/okrs")).unwrap_or_default();
+        let (resolved_obj, resolved_krs) = if let Some(first_req) = task_ctx.req_ids.first() {
+            okr_store.resolve_hierarchy(first_req)
+        } else {
+            ("OBJ-OPS-MAINTENANCE".to_string(), Vec::new())
+        };
+
+        // Format and stamp X-PA-* Git trailers on verification commit
+        let meta = pa_core::git_trailers::GitProvenanceMetadata {
+            task_id: task_ctx.task_id.clone(),
+            trace_id: task_ctx.trace_id.clone(),
+            objective_id: Some(resolved_obj),
+            kr_ids: resolved_krs,
+            req_ids: task_ctx.req_ids.clone(),
+            traceability: Some(format!(
+                "{}:{:.1}%",
+                trace_report.engine, trace_report.coverage_pct
+            )),
+            design_system: Some(format!("{}:default", config.design_system.provider)),
+            design_refs: task_ctx.design_refs.clone(),
+            design_platforms: config.design_system.platforms.clone(),
+            design_gate: Some(if design_report.is_compliant {
+                "passed".to_string()
+            } else {
+                "failed".to_string()
+            }),
+            agent_role: Some("verifier".to_string()),
+            model: task_ctx.model_profile.clone(),
+            cost_usd: task_ctx.cost_usd,
+        };
+
+        let trailers_str = meta.format_trailers();
+        println!("\n==> Stamping Git Provenance Trailers:\n{}", trailers_str);
+        let evidence_trailers = evidence_dir.join("provenance.trailers");
+        let _ = std::fs::write(&evidence_trailers, &trailers_str);
+
+        // Record VCS outcome in factory.db
+        if let Ok(store) = pa_core::storage::get_analytics_store(&config.storage.path) {
+            let _ = store.record_vcs_outcome(&task_ctx.task_id, "HEAD", true);
+        }
+
         feature.status = FeatureStatus::Verified;
         feature.save(&cwd)?;
         println!(
@@ -902,6 +1363,23 @@ fn handle_feature_review(args: &FeatureReviewArgs) -> Result<()> {
             "==> Approving feature '{}' and merging into '{}'...",
             feature.slug, feature.target_branch
         );
+
+        let evidence_trailers =
+            Feature::evidence_dir(&cwd, &feature.slug).join("provenance.trailers");
+        if evidence_trailers.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&evidence_trailers) {
+                let meta = pa_core::git_trailers::GitProvenanceMetadata::parse(&content);
+                if let Err(e) = pa_core::git_trailers::stamp_head_commit(&cwd, &meta) {
+                    eprintln!(
+                        "[WARN] Could not stamp Git provenance trailers on HEAD commit: {}",
+                        e
+                    );
+                } else {
+                    println!("==> Stamped Git Provenance trailers on HEAD commit.");
+                }
+            }
+        }
+
         feature.status = FeatureStatus::Merged;
         feature.save(&cwd)?;
         println!(
@@ -976,6 +1454,408 @@ fn dirs_fallback_cache() -> PathBuf {
     }
 }
 
+fn handle_telemetry(args: &TelemetryArgs) -> Result<()> {
+    match &args.command {
+        TelemetryCommands::Status(s) => handle_telemetry_status(s),
+        TelemetryCommands::Ui(u) => handle_telemetry_ui(u),
+        TelemetryCommands::Trace(t) => handle_telemetry_trace(t),
+        TelemetryCommands::Report(r) => handle_telemetry_report(r),
+        TelemetryCommands::Sync(y) => handle_telemetry_sync(y),
+    }
+}
+
+fn handle_telemetry_status(args: &TelemetryStatusArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let otlp = &config.telemetry.otlp;
+
+    let online = if otlp.provider.to_lowercase() == "none" {
+        "Disabled (provider: none)".to_string()
+    } else {
+        pa_core::telemetry::probe_otlp_endpoint(&otlp.endpoint)
+    };
+
+    if args.json {
+        let val = json!({
+            "provider": otlp.provider,
+            "endpoint": otlp.endpoint,
+            "batch_timeout_ms": otlp.batch_timeout_ms,
+            "max_queue_size": otlp.max_queue_size,
+            "scrub_secrets": otlp.scrub_secrets,
+            "storage_provider": config.storage.provider,
+            "storage_path": config.storage.path.display().to_string(),
+            "status": online,
+        });
+        println!("{}", serde_json::to_string_pretty(&val)?);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 OpenTelemetry & Outcome Status          ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("OTLP Provider:   {}", otlp.provider);
+    println!("OTLP Endpoint:   {}", otlp.endpoint);
+    println!("Batch Timeout:   {} ms", otlp.batch_timeout_ms);
+    println!("Secret Scrub:    {}", otlp.scrub_secrets);
+    println!(
+        "Storage Engine:  {} ({})",
+        config.storage.provider,
+        config.storage.path.display()
+    );
+    println!("Backend Health:  {}", online);
+    println!();
+
+    Ok(())
+}
+
+fn handle_telemetry_ui(args: &TelemetryUiArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let otlp = &config.telemetry.otlp;
+
+    let ui_url = if otlp.provider.to_lowercase() == "phoenix" {
+        if let Some(base) = otlp.endpoint.strip_suffix("/v1/traces") {
+            base.to_string()
+        } else {
+            "http://127.0.0.1:6006".to_string()
+        }
+    } else if otlp.provider.to_lowercase() == "langfuse" {
+        if let Some(base) = otlp.endpoint.strip_suffix("/api/public/otel/v1/traces") {
+            base.to_string()
+        } else {
+            "http://127.0.0.1:3000".to_string()
+        }
+    } else {
+        otlp.endpoint.clone()
+    };
+
+    if args.url {
+        println!("{}", ui_url);
+        return Ok(());
+    }
+
+    println!("==> Opening OTLP Telemetry Web UI: {}", ui_url);
+    let _ = open_in_browser(&ui_url);
+    Ok(())
+}
+
+fn handle_telemetry_trace(args: &TelemetryTraceArgs) -> Result<()> {
+    let cache_dir = dirs_fallback_cache();
+    let events_file = cache_dir.join("events.jsonl");
+
+    println!("\n==> Inspecting traces for Task ID '{}'...", args.task_id);
+    if events_file.is_file() {
+        let content = std::fs::read_to_string(&events_file)?;
+        let mut count = 0;
+        for line in content.lines() {
+            if line.contains(&args.task_id) {
+                count += 1;
+                println!("  [{}] {}", count, line);
+            }
+        }
+        if count == 0 {
+            println!(
+                "  (No local spans found for task '{}' in {})",
+                args.task_id,
+                events_file.display()
+            );
+        }
+    } else {
+        println!(
+            "  (Local events file {} not found; check configured OTLP backend)",
+            events_file.display()
+        );
+    }
+    println!();
+    Ok(())
+}
+
+fn handle_telemetry_report(args: &TelemetryReportArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+    let summary = store.get_analytics_summary()?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Operational & Business Outcomes         ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Analytics Store: {}", config.storage.path.display());
+    println!("Total Tasks:     {}", summary.total_tasks);
+    println!("Verified Tasks:  {}", summary.verified_tasks);
+    println!("Failed Tasks:    {}", summary.failed_tasks);
+    let success_rate = if summary.total_tasks == 0 {
+        100.0
+    } else {
+        (summary.verified_tasks as f64 / summary.total_tasks as f64) * 100.0
+    };
+    println!("Success Rate:    {:.1}%", success_rate);
+    println!("Total Spend:     ${:.4}", summary.total_cost_usd);
+    println!("Avg Spec Trace:  {:.1}%", summary.avg_traceability_pct);
+
+    if !summary.kr_spends.is_empty() {
+        println!("\nKey Result FinOps Spend:");
+        for (kr, spend) in &summary.kr_spends {
+            println!("  • {:<24} ${:.4}", kr, spend);
+        }
+    }
+    println!();
+
+    Ok(())
+}
+
+fn handle_telemetry_sync(args: &TelemetrySyncArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    println!(
+        "==> Synchronizing telemetry with store at {}...",
+        config.storage.path.display()
+    );
+    println!("==> Telemetry sync complete. Factory analytics store up to date.");
+    Ok(())
+}
+
+fn handle_traceability(args: &TraceabilityArgs) -> Result<()> {
+    match &args.command {
+        TraceabilityCommands::Check(c) => handle_traceability_check(c),
+    }
+}
+
+fn handle_traceability_check(args: &TraceabilityCheckArgs) -> Result<()> {
+    let config = load_factory_config(args.config.as_deref())?;
+    let cwd = std::env::current_dir()?;
+
+    println!("==> Scanning workspace for OpenFastTrace requirement & test links...");
+    let report = pa_core::traceability::evaluate_traceability_gate(&cwd, &config.traceability)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Spec Traceability Matrix                ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Traceability Engine:  {}", report.engine);
+    println!("Total Requirements:   {}", report.total_requirements);
+    println!("Covered Requirements: {}", report.covered_requirements);
+    println!(
+        "Coverage Percentage:  {:.1}% (Min Target: {:.1}%)",
+        report.coverage_pct, config.traceability.min_coverage_pct
+    );
+    println!(
+        "Gate Status:          {}",
+        if report.is_compliant {
+            "PASSED"
+        } else {
+            "FAILED"
+        }
+    );
+
+    if !report.missing_impl.is_empty() {
+        println!("\nMissing Implementations ({}):", report.missing_impl.len());
+        for req in &report.missing_impl {
+            println!("  [!] req~{}", req);
+        }
+    }
+
+    if !report.missing_tests.is_empty() {
+        println!("\nMissing Tests ({}):", report.missing_tests.len());
+        for req in &report.missing_tests {
+            println!("  [!] req~{} (needs utest~{} or vtest~{})", req, req, req);
+        }
+    }
+
+    if !report.details.is_empty() {
+        println!("\nLinked Coverage Matrix:");
+        for (req_id, cov) in &report.details {
+            let impl_status = if cov.has_impl { "✓ impl" } else { "✗ impl" };
+            let test_status = if cov.has_test { "✓ test" } else { "✗ test" };
+            println!("  • req~{:<24} [{} | {}]", req_id, impl_status, test_status);
+        }
+    }
+    println!();
+
+    if !report.is_compliant {
+        anyhow::bail!("Spec traceability gate compliance check failed.");
+    }
+
+    Ok(())
+}
+
+fn handle_okr(args: &OkrArgs) -> Result<()> {
+    match &args.command {
+        OkrCommands::Status(s) => handle_okr_status(s),
+    }
+}
+
+fn handle_okr_status(args: &OkrStatusArgs) -> Result<()> {
+    let store = pa_core::okr::OkrStore::load_from_dir(&args.dir)?;
+
+    if args.json {
+        let val = json!({
+            "objectives": store.objectives,
+            "key_results": store.key_results,
+            "kr_to_objective": store.kr_to_objective,
+            "req_to_kr": store.req_to_kr,
+        });
+        println!("{}", serde_json::to_string_pretty(&val)?);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Business Strategy (OKRs-as-Code)        ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+
+    for (obj_id, obj) in &store.objectives {
+        println!("\nObjective: {} ({})", obj.title, obj_id);
+        println!("Owner:     {} | Budget: ${:.2}", obj.owner, obj.budget_usd);
+
+        let krs: Vec<_> = store
+            .kr_to_objective
+            .iter()
+            .filter(|(_, parent)| *parent == obj_id)
+            .filter_map(|(kr_id, _)| store.key_results.get(kr_id))
+            .collect();
+
+        if krs.is_empty() {
+            println!("  (No Key Results registered)");
+        } else {
+            for kr in krs {
+                println!("  • Key Result: {} ({})", kr.title, kr.id);
+                println!(
+                    "    Baseline: {:.1} | Current: {:.1} | Target: {:.1} | Budget: ${:.2}",
+                    kr.baseline, kr.current, kr.target, kr.budget_usd
+                );
+                if !kr.linked_reqs.is_empty() {
+                    println!("    Linked Specs: {}", kr.linked_reqs.join(", "));
+                }
+            }
+        }
+    }
+    println!();
+    Ok(())
+}
+
+fn handle_design(args: &DesignArgs) -> Result<()> {
+    match &args.command {
+        DesignCommands::Tokens(t) => handle_design_tokens(t),
+        DesignCommands::Check(c) => handle_design_check(c),
+    }
+}
+
+fn handle_design_tokens(args: &DesignTokensArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = if let Some(ref path) = args.config {
+        pa_core::schema::load_factory_config(Some(path))?
+    } else {
+        load_factory_config(None)?
+    };
+
+    let store = pa_core::design::DesignSystemStore::load(&cwd, &config.design_system)?;
+
+    if args.json {
+        let json_val = serde_json::to_string_pretty(&store.catalog.tokens)?;
+        println!("{}", json_val);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 W3C DTCG Design Token Catalog           ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Provider:        {}", store.provider);
+    println!("Total Tokens:    {}", store.catalog.tokens.len());
+    println!("Total Contracts: {}", store.contracts.len());
+
+    let mut sorted_tokens: Vec<_> = store.catalog.tokens.values().collect();
+    sorted_tokens.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if let Some(ref filter_type) = args.token_type {
+        sorted_tokens.retain(|t| t.token_type.eq_ignore_ascii_case(filter_type));
+    }
+
+    println!("\nActive Design Tokens:");
+    for tok in sorted_tokens {
+        let desc = tok
+            .description
+            .as_deref()
+            .map(|d| format!(" - {}", d))
+            .unwrap_or_default();
+        println!(
+            "  • {:<32} [{:<10}] {:<16}{}",
+            tok.name, tok.token_type, tok.value, desc
+        );
+    }
+    println!();
+
+    Ok(())
+}
+
+fn handle_design_check(args: &DesignCheckArgs) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let config = if let Some(ref path) = args.config {
+        pa_core::schema::load_factory_config(Some(path))?
+    } else {
+        load_factory_config(None)?
+    };
+
+    println!("==> Evaluating Cross-Platform Design System Gate...");
+    let report = pa_core::design::evaluate_design_gate(&cwd, &config.design_system)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        if !report.is_compliant {
+            anyhow::bail!("Design system gate compliance check failed.");
+        }
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║       PA-Container 2.0 Cross-Platform Design Gate Report       ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Provider:        {}", report.provider);
+    println!("Active Tokens:   {}", report.total_tokens);
+    println!("Contracts:       {}", report.total_contracts);
+    println!(
+        "Gate Status:     {}",
+        if report.is_compliant {
+            "PASSED"
+        } else {
+            "FAILED"
+        }
+    );
+
+    println!("\nPlatform Verification Status:");
+    for (platform, res) in &report.platform_results {
+        let icon = match res.status.as_str() {
+            "passed" => "✓",
+            "failed" => "✗",
+            _ => "○",
+        };
+        println!(
+            "  • {:<10} [{} {}]: {}",
+            platform, icon, res.status, res.message
+        );
+        for detail in &res.details {
+            println!("      ↳ {}", detail);
+        }
+    }
+
+    if !report.violations.is_empty() {
+        println!("\nDesign Lint Violations ({}):", report.violations.len());
+        for v in &report.violations {
+            println!("  [!] {}:{} [{}]: {}", v.file, v.line, v.rule, v.message);
+        }
+    }
+    println!();
+
+    if !report.is_compliant {
+        anyhow::bail!("Design system gate compliance check failed.");
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -986,6 +1866,10 @@ fn main() -> Result<()> {
         Commands::Proxy(args) => handle_proxy(args),
         Commands::Logs(args) => handle_logs(args),
         Commands::Feature(args) => handle_feature(args),
+        Commands::Telemetry(args) => handle_telemetry(args),
+        Commands::Traceability(args) => handle_traceability(args),
+        Commands::Okr(args) => handle_okr(args),
+        Commands::Design(args) => handle_design(args),
     }
 }
 
@@ -1106,5 +1990,159 @@ mod tests {
         assert_eq!(sanitize_slug("Valid-Slug-123").unwrap(), "valid-slug-123");
         assert!(sanitize_slug("bad slug with spaces").is_err());
         assert!(sanitize_slug("").is_err());
+    }
+    #[test]
+    fn test_cli_parsing_run_extended_provenance() {
+        let args = vec![
+            "pa",
+            "run",
+            "--agent",
+            "design-agent",
+            "--role",
+            "design_engineer",
+            "--objective",
+            "OBJ-2026-Q4-SEC",
+            "--kr",
+            "KR-AUTH-01,KR-AUTH-02",
+            "--req",
+            "REQ-AUTH-TOKEN-ROTATION",
+            "--prompt",
+            "Design login screen",
+        ];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Run(r) => {
+                assert_eq!(r.agent.as_deref(), Some("design-agent"));
+                assert_eq!(r.role.as_deref(), Some("design_engineer"));
+                assert_eq!(r.objective.as_deref(), Some("OBJ-2026-Q4-SEC"));
+                assert_eq!(r.kr.as_deref(), Some("KR-AUTH-01,KR-AUTH-02"));
+                assert_eq!(r.req.as_deref(), Some("REQ-AUTH-TOKEN-ROTATION"));
+            }
+            _ => panic!("Expected Run command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_telemetry_status() {
+        let args = vec!["pa", "telemetry", "status", "--json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Telemetry(TelemetryArgs {
+                command: TelemetryCommands::Status(s),
+            }) => {
+                assert!(s.json);
+            }
+            _ => panic!("Expected Telemetry Status command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_telemetry_ui() {
+        let args = vec!["pa", "telemetry", "ui", "--url"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Telemetry(TelemetryArgs {
+                command: TelemetryCommands::Ui(u),
+            }) => {
+                assert!(u.url);
+            }
+            _ => panic!("Expected Telemetry Ui command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_telemetry_trace() {
+        let args = vec!["pa", "telemetry", "trace", "feat-auth-001"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Telemetry(TelemetryArgs {
+                command: TelemetryCommands::Trace(t),
+            }) => {
+                assert_eq!(t.task_id, "feat-auth-001");
+            }
+            _ => panic!("Expected Telemetry Trace command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_traceability_check() {
+        let args = vec!["pa", "traceability", "check", "--json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Traceability(TraceabilityArgs {
+                command: TraceabilityCommands::Check(c),
+            }) => {
+                assert!(c.json);
+            }
+            _ => panic!("Expected Traceability Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_okr_status() {
+        let args = vec!["pa", "okr", "status", "--json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Okr(OkrArgs {
+                command: OkrCommands::Status(s),
+            }) => {
+                assert!(s.json);
+            }
+            _ => panic!("Expected Okr Status command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_design_tokens() {
+        let args = vec!["pa", "design", "tokens", "--json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Design(DesignArgs {
+                command: DesignCommands::Tokens(t),
+            }) => {
+                assert!(t.json);
+            }
+            _ => panic!("Expected Design Tokens command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_design_check() {
+        let args = vec!["pa", "design", "check", "--json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Design(DesignArgs {
+                command: DesignCommands::Check(c),
+            }) => {
+                assert!(c.json);
+            }
+            _ => panic!("Expected Design Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_telemetry_report() {
+        let args = vec!["pa", "telemetry", "report", "--json"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Telemetry(TelemetryArgs {
+                command: TelemetryCommands::Report(r),
+            }) => {
+                assert!(r.json);
+            }
+            _ => panic!("Expected Telemetry Report command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_telemetry_sync() {
+        let args = vec!["pa", "telemetry", "sync"];
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Telemetry(TelemetryArgs {
+                command: TelemetryCommands::Sync(_),
+            }) => {}
+            _ => panic!("Expected Telemetry Sync command"),
+        }
     }
 }

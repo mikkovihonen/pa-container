@@ -158,11 +158,17 @@ pub fn ensure_proxy_server(
                     .join("addons/flow_export/flow_export.py")
                     .to_str()
                     .unwrap_or(""),
+                "-s",
+                proxy_dir
+                    .join("addons/otlp_exporter/otlp_exporter.py")
+                    .to_str()
+                    .unwrap_or(""),
             ]);
             uv_cmd.args(&modes);
             uv_cmd.env("PA_SOCKETS_DIR", &sockets_dir);
             uv_cmd.env("FLOW_EXPORT_ENABLED", "true");
             uv_cmd.env("FLOW_EXPORT_DIR", &cache_dir);
+            uv_cmd.env("PA_PROXY_BINDINGS", cache_dir.join("proxy-bindings.json"));
             uv_cmd.env(
                 "ALLOWLIST_CONFIG_PATH",
                 proxy_dir.join("addons/allowlist/allowlist_config.yaml"),

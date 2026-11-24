@@ -45,10 +45,63 @@ default_branch = "main"
 vault_path = "/var/pa-vault"
 branch_pattern = "refs/heads/pa/{agent_id}/*"
 
+[telemetry.otlp]
+enabled = true
+# Provider: "phoenix", "langfuse", "otlp_generic", or "none"
+provider = "phoenix"
+endpoint = "http://127.0.0.1:4318"
+ui_endpoint = "http://127.0.0.1:6006"
+service_name = "pa-factory"
+sample_rate = 1.0
+scrub_secrets = true
+export_prompts = true
+
+[storage]
+# Provider: "sqlite", "postgres", or "clickhouse"
+provider = "sqlite"
+path = ".pa/factory.db"
+
+[traceability]
+enabled = true
+# Engine: "openfasttrace", "strictdoc", "custom_cmd", or "none"
+engine = "openfasttrace"
+spec_dir = "docs/specs"
+scan_dirs = ["crates", "src", "tests", "docs"]
+min_coverage_pct = 80.0
+strict_mode = false
+
+[design_system]
+enabled = true
+# Provider: "git_only", "penpot", "figma", or "none"
+provider = "git_only"
+tokens_path = "design/tokens/tokens.json"
+contracts_dir = "design/contracts"
+platforms = ["web"]
+on_missing_platform = "fail"
+static_lint = true
+verify_contracts = true
+
+[governance]
+enabled = true
+max_wip_prs = 5
+slo_defense_error_budget_min = 0.05
+budget_usd_per_kr = 100.0
+fallback_model = "qwen2.5-coder-7b-instruct"
+fallback_base_url = "http://127.0.0.1:11434/v1"
+
+[roles.spec_author]
+description = "Drafts and refines functional specs and OKR links"
+capabilities = ["traceability:read", "traceability:write"]
+
+[roles.design_engineer]
+description = "Authors and validates cross-platform design tokens and contracts"
+capabilities = ["design_system:read", "design_system:write"]
+
 [[agents]]
 id = "agent1"
 uid = 2001
 driver = "pi"
+role = "spec_author"
 capabilities = ["git", "source-control", "image-tools"]
 allowlist = ["api.openai.com", "generativelanguage.googleapis.com"]
 tokens = ["OPENAI_API_KEY", "GEMINI_API_KEY"]
@@ -89,10 +142,70 @@ tokens = ["ANTHROPIC_API_KEY"]
 - **`dns_port`**: Internal DNS resolver port (defaults to `5353`).
 - **`default_allowlist`**: Hostnames universally reachable across all agents.
 
+#### `[telemetry.otlp]`
+- **`enabled`**: Master toggle for OpenTelemetry span export.
+- **`provider`**: Active OTLP trace backend:
+    - `"phoenix"` *(Default)*: Arize Phoenix tracing endpoint.
+    - `"langfuse"`: Langfuse telemetry collector.
+    - `"otlp_generic"`: Generic OpenTelemetry Collector HTTP endpoint.
+    - `"none"`: Disables external telemetry; records local JSONL flow logs only.
+- **`endpoint`**: HTTP endpoint for OTLP trace exports (defaults to `http://127.0.0.1:4318`).
+- **`ui_endpoint`**: Optional URL opened by `pa telemetry ui` (e.g. `http://127.0.0.1:6006`).
+- **`service_name`**: OpenTelemetry service name stamped on emitted spans (defaults to `pa-factory`).
+- **`sample_rate`**: Span sampling ratio from `0.0` to `1.0` (defaults to `1.0`).
+- **`scrub_secrets`**: Automatically redacts API keys, Bearer tokens, and passwords from span payloads.
+- **`export_prompts`**: Whether sanitized LLM prompt and completion contents are exported in spans.
+
+#### `[storage]`
+- **`provider`**: Analytical database engine (`"sqlite"`, `"postgres"`, or `"clickhouse"`).
+- **`path`**: Local SQLite database path (defaults to `.pa/factory.db`) or cloud connection URI.
+
+#### `[traceability]`
+- **`enabled`**: Enables automated requirement and test traceability scanning.
+- **`engine`**: Active specification scanner:
+    - `"openfasttrace"` *(Default)*: Embedded scanner for `req~`, `impl~`, `utest~`, and `vtest~` tags.
+    - `"strictdoc"`: StrictDoc requirements format adapter.
+    - `"custom_cmd"`: Invokes a custom external verification command.
+    - `"none"`: Disables requirement traceability checks.
+- **`spec_dir`**: Directory where specification documents reside (defaults to `docs/specs`).
+- **`scan_dirs`**: Workspace directories scanned for implementation and test tags.
+- **`min_coverage_pct`**: Minimum required implementation and test coverage threshold (defaults to `80.0`).
+- **`strict_mode`**: When `true`, missing tests or implementations immediately fail the pipeline.
+
+#### `[design_system]`
+- **`enabled`**: Master toggle for cross-platform design system contract verification.
+- **`provider`**: Design token source:
+    - `"git_only"` *(Default)*: Reads local W3C DTCG tokens and component contracts directly from Git.
+    - `"penpot"`: Integrates with self-hosted or SaaS Penpot instances.
+    - `"figma"`: Integrates with Figma REST APIs.
+    - `"none"`: Disables design system verification.
+- **`tokens_path`**: Path to W3C DTCG token catalog (defaults to `design/tokens/tokens.json`).
+- **`contracts_dir`**: Path to component contract definitions (defaults to `design/contracts`).
+- **`platforms`**: Target platforms to verify (`["web"]`, `["web", "ios"]`, `["web", "ios", "android"]`). Defaults to `["web"]`.
+- **`on_missing_platform`**: Behavior when a declared platform's host toolchain (`simctl`, `adb`) is missing:
+    - `"fail"` *(Default for declared platforms)*: Hard-fails the gate with diagnostic instructions.
+    - `"warn"`: Emits a structured warning and continues.
+    - `"skip"`: Skips testing the missing platform without failing.
+- **`static_lint`**: Runs static token linters (e.g. `no_hardcoded_color`) against modified UI files.
+- **`verify_contracts`**: Validates component contracts against declared token references.
+
+#### `[governance]`
+- **`enabled`**: Enables closed-loop governance gating before task dispatch.
+- **`max_wip_prs`**: Maximum permitted active feature branches / unmerged PRs (e.g. `5`).
+- **`slo_defense_error_budget_min`**: Minimum remaining service error budget before non-critical tasks are blocked (e.g. `0.05`).
+- **`budget_usd_per_kr`**: Spending ceiling in USD per Key Result. When reached, task dispatch routes to local offline inference.
+- **`fallback_model`**: Offline model name to use when throttled (e.g. `qwen2.5-coder-7b-instruct`).
+- **`fallback_base_url`**: Offline API endpoint for throttled tasks (e.g. `http://127.0.0.1:11434/v1`).
+
+#### `[roles.<name>]`
+- **`description`**: Human-readable explanation of the role's responsibilities.
+- **`capabilities`**: Granular capability permissions granted to the role (e.g. `traceability:read`, `design_system:write`).
+
 #### `[[agents]]`
 - **`id`**: Unique string identifier for the agent (e.g. `agent1`, `lead-architect`).
 - **`uid`**: POSIX user identifier assigned inside the VM (must be $\ge 2001$).
 - **`driver`**: Supported agent runner (`pi`, `claude`, `opencode`, `antigravity`).
+- **`role`**: *(Optional)* Specialized agent role name declared under `[roles]` (e.g. `spec_author`, `design_engineer`).
 - **`capabilities`**: List of capability packs mounted into the agent's environment.
 - **`allowlist`**: Agent-specific destination domains permitted through the proxy.
 - **`tokens`**: Environment variables subject to HMAC placeholder generation and dynamic proxy secret injection.

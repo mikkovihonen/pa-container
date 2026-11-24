@@ -1,0 +1,25 @@
+[objective]
+id = "OBJ-2026-Q4-SEC"
+title = "Zero-Trust Infrastructure and Token Security"
+owner = "security-team"
+budget_usd = 250.0
+
+[[key_results]]
+id = "KR-AUTH-01"
+title = "OAuth2 Token Rotation and Exfiltration Prevention"
+metric_query = "sum(auth_token_rotation_success_total)"
+baseline = 0.0
+target = 100.0
+current = 45.0
+budget_usd = 50.0
+linked_reqs = ["REQ-AUTH-TOKEN-ROTATION", "REQ-AUTH-REVOCATION"]
+
+[[key_results]]
+id = "KR-AUTH-02"
+title = "Zero Hardcoded Secrets in Repository"
+metric_query = "count(hardcoded_secret_violations)"
+baseline = 5.0
+target = 0.0
+current = 0.0
+budget_usd = 25.0
+linked_reqs = ["REQ-AUTH-STATIC-LINT"]

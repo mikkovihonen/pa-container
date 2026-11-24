@@ -40,6 +40,7 @@ testpaths = [
     "coding-agent-proxy/addons/token_replacer/tests",
     "coding-agent-proxy/addons/flow_export/tests",
     "coding-agent-proxy/addons/multi_agent_context/tests",
+    "coding-agent-proxy/addons/otlp_exporter/tests",
 ]
 markers = [
     "smoke: proxy smoke tests",
