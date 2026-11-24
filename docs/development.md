@@ -77,9 +77,9 @@ The documentation site is built using [Zensical](https://github.com/zensical/zen
 ### Indentation Rules (`AGENTS.md`)
 - Python-Markdown requires **4-space indentation** for nested list items. Multiples of 4 spaces must be used for all subsequent levels.
 - Format Markdown files using the repository helper:
-  ```bash
-  uv run python3 scripts/format_markdown.py
-  ```
+    ```bash
+    uv run python3 scripts/format_markdown.py
+    ```
 
 ### Linting & Previewing Docs
 

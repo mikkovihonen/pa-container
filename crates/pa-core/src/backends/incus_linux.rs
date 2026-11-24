@@ -581,11 +581,7 @@ impl FactoryBackend for IncusLinuxBackend {
 }
 
 fn dirs_fallback_cache() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".cache").join("pa-container")
-    } else {
-        std::env::temp_dir().join("pa-container")
-    }
+    crate::paths::cache_dir()
 }
 
 #[cfg(test)]

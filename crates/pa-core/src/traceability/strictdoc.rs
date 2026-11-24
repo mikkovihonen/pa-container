@@ -82,11 +82,18 @@ impl StrictDocEngine {
             if cov_p.is_file() {
                 coverage_report = CoverageReport::load_file(&cov_p).ok();
             } else if config.min_line_coverage_pct.is_some() {
-                anyhow::bail!(
-                    "Traceability line coverage threshold configured (`min_line_coverage_pct`), \
-                     but coverage report file was not found at: {}",
-                    cov_p.display()
-                );
+                if config.on_missing_tool.eq_ignore_ascii_case("skip") {
+                    eprintln!(
+                        "[WARN] Coverage report not found at {} (skipped due to on_missing_tool = 'skip')",
+                        cov_p.display()
+                    );
+                } else {
+                    anyhow::bail!(
+                        "Traceability line coverage threshold configured (`min_line_coverage_pct`), \
+                         but coverage report file was not found at: {}",
+                        cov_p.display()
+                    );
+                }
             }
         }
 
@@ -168,7 +175,10 @@ impl StrictDocEngine {
 
             let line_cov_ok = match (config.min_line_coverage_pct, req_line_cov) {
                 (Some(min_pct), Some(actual_pct)) => actual_pct >= min_pct,
-                (Some(_), None) => false, // missing coverage data for implemented files
+                (Some(_), None) => {
+                    // If coverage report was missing and skipped via on_missing_tool = 'skip', do not fail gate
+                    coverage_report.is_none() && config.on_missing_tool.eq_ignore_ascii_case("skip")
+                }
                 (None, _) => true,
             };
 

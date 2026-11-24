@@ -31,7 +31,6 @@ nav = [
     { "Addon Development" = "proxy/addon-development.md" },
   ] },
   { "Configuration Reference" = "configuration.md" },
-  { "Architecture Plan" = "design/pa_container_next_generation_software_factory_architecture_plan.md" },
   { "Platform Parity" = "platform-parity.md" },
   { "T3 Code Integration" = "t3-code.md" },
   { "Development" = "development.md" },

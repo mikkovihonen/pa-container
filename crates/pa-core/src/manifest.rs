@@ -401,19 +401,32 @@ pub fn resolve_role_acp_bindings(
             let mcp_server = dir.join("mcp").join("server.py");
             let short_name = name.strip_suffix("_acp").unwrap_or(name);
             let bin_wrapper = dir.join("bin").join(format!("pa-{}-mcp", short_name));
-            if mcp_server.is_file() {
-                bindings.push(AcpServerBinding {
-                    name: name.to_string(),
-                    service: service.to_string(),
-                    command: mcp_server,
-                    args: vec![],
-                });
-                break;
+            let bin_wrapper_alt = dir
+                .join("bin")
+                .join(format!("pa-{}-mcp", short_name.replace('_', "-")));
+            let bin_wrapper_prefix = if let Some((prefix, _)) = short_name.split_once('_') {
+                dir.join("bin").join(format!("pa-{prefix}-mcp"))
+            } else {
+                bin_wrapper.clone()
+            };
+
+            let target_bin = if mcp_server.is_file() {
+                Some(mcp_server)
             } else if bin_wrapper.is_file() {
+                Some(bin_wrapper)
+            } else if bin_wrapper_alt.is_file() {
+                Some(bin_wrapper_alt)
+            } else if bin_wrapper_prefix.is_file() {
+                Some(bin_wrapper_prefix)
+            } else {
+                None
+            };
+
+            if let Some(cmd) = target_bin {
                 bindings.push(AcpServerBinding {
                     name: name.to_string(),
                     service: service.to_string(),
-                    command: bin_wrapper,
+                    command: cmd,
                     args: vec![],
                 });
                 break;

@@ -49,7 +49,7 @@ The release version must stay synchronized across three locations:
 Version consistency is verified locally and in CI using the version gate script:
 
 ```bash
-uv run python3 .github/workflows/scripts/validate_versions.py
+pa version check
 ```
 
 ---
@@ -68,7 +68,7 @@ To cut a new release:
     - Run `cargo check` and `uv lock` to update lockfiles.
 4. **Run Pre-Flight Validation:**
     ```bash
-    uv run python3 .github/workflows/scripts/validate_versions.py --new-version 2.0.0
+    pa version check --target 2.0.0
     uv run pre-commit run --all-files
     ```
 5. **Commit, Tag, and Push:**

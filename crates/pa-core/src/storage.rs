@@ -449,7 +449,7 @@ impl SqliteAnalyticsStore {
         let conn = Connection::open(db_path)
             .with_context(|| format!("Failed to open SQLite database: {}", db_path.display()))?;
 
-        // Initialize WAL mode and fast synchronous settings
+        // Initialize WAL mode and fast synchronous settings, followed by canonical table schema
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
@@ -487,40 +487,15 @@ impl SqliteAnalyticsStore {
                  covered_reqs INTEGER NOT NULL,
                  coverage_pct REAL NOT NULL,
                  is_compliant INTEGER NOT NULL,
-                 timestamp TEXT NOT NULL
-             );",
-        )
-        .context("Failed to initialize database tables")?;
+                 timestamp TEXT NOT NULL,
+                 tests_passed INTEGER DEFAULT 0,
+                 tests_failed INTEGER DEFAULT 0,
+                 tests_unexecuted INTEGER DEFAULT 0,
+                 line_coverage_pct REAL,
+                 report_artifact TEXT
+             );
 
-        // Ensure tasks table has prompt_tokens & completion_tokens
-        let _ = conn.execute(
-            "ALTER TABLE tasks ADD COLUMN prompt_tokens INTEGER DEFAULT 0;",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE tasks ADD COLUMN completion_tokens INTEGER DEFAULT 0;",
-            [],
-        );
-
-        // Detect and drop legacy vcs_outcomes table if missing pr_id
-        let is_legacy_vcs: bool = conn
-            .prepare("PRAGMA table_info(vcs_outcomes);")
-            .map(|mut stmt| {
-                let cols: Vec<String> = stmt
-                    .query_map([], |row| row.get::<_, String>(1))
-                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                    .unwrap_or_default();
-                !cols.is_empty() && !cols.contains(&"pr_id".to_string())
-            })
-            .unwrap_or(false);
-
-        if is_legacy_vcs {
-            let _ = conn.execute_batch("DROP TABLE IF EXISTS vcs_outcomes;");
-        }
-
-        // Initialize VCS, Prod Signals, KR Snapshots, and Sync Cursors tables
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS vcs_outcomes (
+             CREATE TABLE IF NOT EXISTS vcs_outcomes (
                  pr_id TEXT PRIMARY KEY,
                  task_id TEXT,
                  repo TEXT NOT NULL,
@@ -723,29 +698,7 @@ impl SqliteAnalyticsStore {
              );
              CREATE INDEX IF NOT EXISTS idx_sca_gate_results_task ON sca_gate_results(task_id);",
         )
-        .context("Failed to initialize telemetry sync, BOM, supervisor queue, and eval tables")?;
-
-        // Idempotent column additions for traceability_reports
-        let _ = conn.execute(
-            "ALTER TABLE traceability_reports ADD COLUMN tests_passed INTEGER DEFAULT 0;",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE traceability_reports ADD COLUMN tests_failed INTEGER DEFAULT 0;",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE traceability_reports ADD COLUMN tests_unexecuted INTEGER DEFAULT 0;",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE traceability_reports ADD COLUMN line_coverage_pct REAL;",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE traceability_reports ADD COLUMN report_artifact TEXT;",
-            [],
-        );
+        .context("Failed to initialize canonical database tables")?;
 
         Ok(Self {
             conn: Mutex::new(conn),

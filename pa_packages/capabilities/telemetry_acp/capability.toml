@@ -10,8 +10,8 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/telemetry_acp"
 bin_dirs = ["bin"]
-fedora_packages = ["python3", "sqlite"]
-macos_brew_packages = ["python@3", "sqlite"]
+fedora_packages = ["sqlite"]
+macos_brew_packages = ["sqlite"]
 
 [entitlements]
 read_paths = [".pa/factory.db", "docs/okrs", "factory.toml"]

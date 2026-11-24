@@ -10,8 +10,8 @@ requires = []
 [staging]
 install_prefix = "/opt/pa/packs/design_system_acp"
 bin_dirs = ["bin"]
-fedora_packages = ["python3"]
-macos_brew_packages = ["python@3"]
+fedora_packages = []
+macos_brew_packages = []
 
 [entitlements]
 read_paths = ["design/tokens", "design/contracts", "factory.toml"]

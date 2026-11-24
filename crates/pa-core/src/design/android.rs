@@ -40,35 +40,58 @@ pub fn evaluate_android_platform(
         || std::env::var("ANDROID_SDK_ROOT").is_ok()
         || root.join("gradlew").is_file();
 
-    if !has_adb && config.on_missing_platform.eq_ignore_ascii_case("block") {
-        return Ok(AndroidEvaluationResult {
-            gate_result: PlatformGateResult {
-                platform: "android".to_string(),
-                status: "failed".to_string(),
-                message: "Android verification enabled but 'adb' / Android SDK is not available."
-                    .to_string(),
-                details: vec![
-                    "Prerequisite failed (on_missing_platform = 'block'): Android SDK / adb / gradlew required."
-                        .to_string(),
-                ],
-            },
-            a11y_violations: Vec::new(),
-            visual_diff_failures: Vec::new(),
-        });
-    }
+    let a11y_file = root.join("target/android-a11y-results.json");
+    let a11y_file_pa = root.join(".pa/reports/android-a11y.json");
+    let a11y_path = if a11y_file.is_file() {
+        Some(a11y_file)
+    } else if a11y_file_pa.is_file() {
+        Some(a11y_file_pa)
+    } else {
+        None
+    };
 
-    if !has_adb {
-        return Ok(AndroidEvaluationResult {
-            gate_result: PlatformGateResult {
-                platform: "android".to_string(),
-                status: "skipped".to_string(),
-                message: "Android verification skipped: 'adb' / Android SDK is not available."
-                    .to_string(),
-                details: Vec::new(),
-            },
-            a11y_violations: Vec::new(),
-            visual_diff_failures: Vec::new(),
-        });
+    let visual_file = root.join("target/android-visual-diff-results.json");
+    let visual_file_pa = root.join(".pa/reports/android-visual-diff.json");
+    let visual_path = if visual_file.is_file() {
+        Some(visual_file)
+    } else if visual_file_pa.is_file() {
+        Some(visual_file_pa)
+    } else {
+        None
+    };
+
+    let has_reports = a11y_path.is_some() || visual_path.is_some();
+    let has_commands = config.a11y_command.is_some() || config.visual_diff_command.is_some();
+
+    if !has_adb && !has_reports && !has_commands {
+        if config.on_missing_platform.eq_ignore_ascii_case("block") {
+            return Ok(AndroidEvaluationResult {
+                gate_result: PlatformGateResult {
+                    platform: "android".to_string(),
+                    status: "failed".to_string(),
+                    message: "Android verification enabled but 'adb' / Android SDK is not available."
+                        .to_string(),
+                    details: vec![
+                        "Prerequisite failed (on_missing_platform = 'block'): Android SDK / adb / gradlew required."
+                            .to_string(),
+                    ],
+                },
+                a11y_violations: Vec::new(),
+                visual_diff_failures: Vec::new(),
+            });
+        } else {
+            return Ok(AndroidEvaluationResult {
+                gate_result: PlatformGateResult {
+                    platform: "android".to_string(),
+                    status: "skipped".to_string(),
+                    message: "Android verification skipped: 'adb' / Android SDK is not available."
+                        .to_string(),
+                    details: Vec::new(),
+                },
+                a11y_violations: Vec::new(),
+                visual_diff_failures: Vec::new(),
+            });
+        }
     }
 
     let mut a11y_violations = Vec::new();
@@ -83,7 +106,10 @@ pub fn evaluate_android_platform(
 
         // Inject proxy settings for proxy isolation
         cmd.env("HTTP_PROXY", "http://127.0.0.1:8080")
-            .env("HTTPS_PROXY", "http://127.0.0.1:8080");
+            .env("HTTPS_PROXY", "http://127.0.0.1:8080")
+            .env("http_proxy", "http://127.0.0.1:8080")
+            .env("https_proxy", "http://127.0.0.1:8080")
+            .env("PA_BASELINE_DIR", &config.baseline_dir);
 
         if let Ok(o) = cmd.output() {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -128,7 +154,11 @@ pub fn evaluate_android_platform(
     if let Some(ref cmd_str) = config.visual_diff_command {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(cmd_str).current_dir(root);
-        cmd.env("HTTP_PROXY", "http://127.0.0.1:8080");
+        cmd.env("HTTP_PROXY", "http://127.0.0.1:8080")
+            .env("HTTPS_PROXY", "http://127.0.0.1:8080")
+            .env("http_proxy", "http://127.0.0.1:8080")
+            .env("https_proxy", "http://127.0.0.1:8080")
+            .env("PA_BASELINE_DIR", &config.baseline_dir);
 
         if let Ok(o) = cmd.output() {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -136,16 +166,6 @@ pub fn evaluate_android_platform(
             visual_diff_failures.extend(parsed);
         }
     }
-
-    let visual_file = root.join("target/android-visual-diff-results.json");
-    let visual_file_pa = root.join(".pa/reports/android-visual-diff.json");
-    let visual_path = if visual_file.is_file() {
-        Some(visual_file)
-    } else if visual_file_pa.is_file() {
-        Some(visual_file_pa)
-    } else {
-        None
-    };
 
     if let Some(p) = visual_path {
         if let Ok(content) = fs::read_to_string(&p) {

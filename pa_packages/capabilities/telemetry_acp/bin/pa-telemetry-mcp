@@ -1,1 +1,2 @@
-../mcp/server.py
+#!/bin/bash
+exec pa mcp telemetry "$@"

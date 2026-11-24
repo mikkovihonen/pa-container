@@ -227,11 +227,7 @@ pub fn stop_proxy_server() -> Result<()> {
 }
 
 pub fn dirs_fallback_cache() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".cache").join("pa-container")
-    } else {
-        std::env::temp_dir().join("pa-container")
-    }
+    crate::paths::cache_dir()
 }
 
 pub fn assert_backend_conformance<B: FactoryBackend + ?Sized>(

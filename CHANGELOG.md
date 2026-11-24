@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file. The format 
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes & Consolidation (Rust-First & Zero-Shim Architecture)
+- **Configuration Canonicalization:**
+    - Eliminated `.pa-container/factory.toml` search fallback; `factory.toml` in the repository root (or explicit `--config <path>`) is now the single canonical configuration location.
+- **CLI Simplification & Shell Wrapper Deletion:**
+    - Deleted root `./pa` bash wrapper shim. Users and CI invoke the compiled native binary (`pa`) directly or use `cargo run -p pa-cli --`.
+- **Native Rust Operational MCP Servers:**
+    - Migrated `telemetry_acp`, `design_system_acp`, and `agentintercom` to native Rust subcommands (`pa mcp telemetry`, `pa mcp design`, `pa mcp intercom`, `pa intercom`).
+    - Deleted all Python server implementations (`server.py`, `pa-*-mcp` python scripts), eliminating external Python runtime dependencies for coding agents.
+    - Updated capability manifests to eliminate `python3` from staging dependencies.
+- **SQLite Migrations Collapse:**
+    - Collapsed all database table definitions in `crates/pa-core/src/storage.rs` into a single canonical idempotent schema.
+    - Eliminated legacy `vcs_outcomes` table-introspection and drop shim, and incorporated all task usage and traceability report columns directly into initial table creation.
+- **Path Helpers Unification:**
+    - Consolidated duplicated directory fallback functions across 4 crates into `pa_core::paths` (`cache_dir`, `state_dir`, `logs_dir`, `share_dir`).
+- **Documentation Deduplication:**
+    - Removed obsolete 1,490-line planning RFC (`docs/design/pa_container_next_generation_software_factory_architecture_plan.md`) and purged its entry from `zensical.toml`.
+    - Added native `pa docs index` and `pa version check` subcommands replacing `.github/` helper scripts.
+
+---
+
 ## [2.0.0] - 2026-11-14
 
 ### Architecture Rewrite (Clean Departure from Legacy)

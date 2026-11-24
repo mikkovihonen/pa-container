@@ -582,11 +582,16 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
                     // 1. Accessibility (axe-core)
                     let mut a11y_found_any = false;
                     if let Some(ref cmd_str) = config.web.a11y_command {
-                        let out = Command::new("sh")
-                            .arg("-c")
+                        let mut cmd = Command::new("sh");
+                        cmd.arg("-c")
                             .arg(cmd_str)
                             .current_dir(root)
-                            .output();
+                            .env("HTTP_PROXY", "http://127.0.0.1:8080")
+                            .env("HTTPS_PROXY", "http://127.0.0.1:8080")
+                            .env("http_proxy", "http://127.0.0.1:8080")
+                            .env("https_proxy", "http://127.0.0.1:8080")
+                            .env("PA_BASELINE_DIR", &config.web.baseline_dir);
+                        let out = cmd.output();
 
                         if let Ok(o) = out {
                             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -623,10 +628,13 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
 
                     let a11y_file = root.join("target/a11y-results.json");
                     let a11y_file_pa = root.join(".pa/a11y-results.json");
+                    let a11y_file_pa_rep = root.join(".pa/reports/web-a11y.json");
                     let a11y_path = if a11y_file.is_file() {
                         Some(a11y_file)
                     } else if a11y_file_pa.is_file() {
                         Some(a11y_file_pa)
+                    } else if a11y_file_pa_rep.is_file() {
+                        Some(a11y_file_pa_rep)
                     } else {
                         None
                     };
@@ -668,11 +676,16 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
                     // 2. Visual Regression (Playwright)
                     let mut visual_found_any = false;
                     if let Some(ref cmd_str) = config.web.visual_diff_command {
-                        let out = Command::new("sh")
-                            .arg("-c")
+                        let mut cmd = Command::new("sh");
+                        cmd.arg("-c")
                             .arg(cmd_str)
                             .current_dir(root)
-                            .output();
+                            .env("HTTP_PROXY", "http://127.0.0.1:8080")
+                            .env("HTTPS_PROXY", "http://127.0.0.1:8080")
+                            .env("http_proxy", "http://127.0.0.1:8080")
+                            .env("https_proxy", "http://127.0.0.1:8080")
+                            .env("PA_BASELINE_DIR", &config.web.baseline_dir);
+                        let out = cmd.output();
 
                         if let Ok(o) = out {
                             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -704,10 +717,13 @@ pub fn evaluate_design_gate(root: &Path, config: &DesignSystemConfig) -> Result<
 
                     let visual_file = root.join("target/visual-diff-results.json");
                     let visual_file_pa = root.join(".pa/visual-diff-results.json");
+                    let visual_file_pa_rep = root.join(".pa/reports/web-visual-diff.json");
                     let visual_path = if visual_file.is_file() {
                         Some(visual_file)
                     } else if visual_file_pa.is_file() {
                         Some(visual_file_pa)
+                    } else if visual_file_pa_rep.is_file() {
+                        Some(visual_file_pa_rep)
                     } else {
                         None
                     };
@@ -1253,5 +1269,125 @@ mod tests {
         assert_eq!(android_diffs.len(), 1);
         assert_eq!(android_diffs[0].snapshot_name, "CheckoutScreen");
         assert!(android_diffs[0].diff_pct > 0.05);
+    }
+
+    #[test]
+    fn test_dynamic_web_axe_and_playwright_gate() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+
+        // Create mock design tokens
+        let tokens_dir = root.join("design/tokens");
+        fs::create_dir_all(&tokens_dir).unwrap();
+        fs::write(
+            tokens_dir.join("tokens.json"),
+            r##"{"color": {"brand": {"$value": "#ff0000", "$type": "color"}}}"##,
+        )
+        .unwrap();
+
+        let config = DesignSystemConfig {
+            platforms: vec!["web".to_string()],
+            web: crate::schema::WebPlatformSpec {
+                wcag_level: "AA".to_string(),
+                max_visual_diff_pct: 0.05,
+                a11y_command: Some(
+                    r#"printf '{"violations": [{"id": "color-contrast", "impact": "serious", "description": "Element has insufficient contrast", "tags": ["wcag2aa"], "nodes": [{"target": ["button.cta"]}]}]}'"#.to_string(),
+                ),
+                visual_diff_command: Some(
+                    r##"printf '[{"snapshot": "hero-banner", "diff_pct": 0.08, "expected": "base.png", "actual": "curr.png"}]'"##.to_string(),
+                ),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let report = evaluate_design_gate(root, &config).unwrap();
+        assert!(!report.is_compliant);
+        assert_eq!(report.a11y_violations.len(), 1);
+        assert_eq!(report.a11y_violations[0].id, "color-contrast");
+        assert_eq!(report.visual_diff_failures.len(), 1);
+        assert_eq!(report.visual_diff_failures[0].snapshot_name, "hero-banner");
+
+        let web_res = report.platform_results.get("web").unwrap();
+        assert_eq!(web_res.status, "failed");
+    }
+
+    #[test]
+    fn test_dynamic_ios_and_android_report_fallbacks_and_missing_tool() {
+        use crate::schema::{AndroidPlatformSpec, IosPlatformSpec};
+
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+
+        // Staged reports in .pa/reports/
+        let rep_dir = root.join(".pa/reports");
+        fs::create_dir_all(&rep_dir).unwrap();
+
+        // Staged iOS a11y report
+        fs::write(
+            rep_dir.join("ios-a11y.json"),
+            r#"[{"id": "accessibility_label_missing", "impact": "serious", "description": "Button lacks accessibility label", "target": "BuyNow"}]"#,
+        )
+        .unwrap();
+
+        // Staged Android visual diff report
+        fs::write(
+            rep_dir.join("android-visual-diff.json"),
+            r#"Paparazzi verification failed for [ProfileScreen]: diff percentage was 0.12"#,
+        )
+        .unwrap();
+
+        let base_cfg = DesignSystemConfig::default();
+
+        // Evaluate iOS platform with staged report
+        let ios_spec = IosPlatformSpec {
+            enabled: true,
+            ..Default::default()
+        };
+        let ios_res = evaluate_ios_platform(root, &ios_spec, &base_cfg).unwrap();
+        assert_eq!(ios_res.gate_result.status, "failed");
+        assert_eq!(ios_res.a11y_violations.len(), 1);
+        assert_eq!(ios_res.a11y_violations[0].id, "accessibility_label_missing");
+
+        // Evaluate Android platform with staged report
+        let android_spec = AndroidPlatformSpec {
+            enabled: true,
+            ..Default::default()
+        };
+        let android_res = evaluate_android_platform(root, &android_spec, &base_cfg).unwrap();
+        assert_eq!(android_res.gate_result.status, "failed");
+        assert_eq!(android_res.visual_diff_failures.len(), 1);
+        assert_eq!(
+            android_res.visual_diff_failures[0].snapshot_name,
+            "ProfileScreen"
+        );
+
+        // Clean directory: test on_missing_platform = 'skip' vs 'block'
+        let empty_td = tempfile::tempdir().unwrap();
+        let empty_root = empty_td.path();
+
+        let skip_spec = IosPlatformSpec {
+            enabled: true,
+            on_missing_platform: "skip".to_string(),
+            ..Default::default()
+        };
+        let skip_res = evaluate_ios_platform(empty_root, &skip_spec, &base_cfg).unwrap();
+        assert_eq!(skip_res.gate_result.status, "skipped");
+
+        let block_spec = IosPlatformSpec {
+            enabled: true,
+            on_missing_platform: "block".to_string(),
+            ..Default::default()
+        };
+        let block_res = evaluate_ios_platform(empty_root, &block_spec, &base_cfg).unwrap();
+        // If host has xcrun simctl it might run or fail prerequisite
+        let has_simctl = std::process::Command::new("xcrun")
+            .args(["simctl", "help"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !has_simctl {
+            assert_eq!(block_res.gate_result.status, "failed");
+        }
     }
 }

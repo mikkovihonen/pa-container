@@ -230,6 +230,90 @@ impl VcsCollector for NoopVcsCollector {
     }
 }
 
+pub fn parse_github_reviews(rev_val: &serde_json::Value) -> (u32, Option<String>) {
+    let mut review_rounds = 0u32;
+    let mut first_review_at: Option<String> = None;
+    if let Some(rev_arr) = rev_val.as_array() {
+        for rev in rev_arr {
+            if let Some(st) = rev.get("state").and_then(|s| s.as_str()) {
+                if st == "CHANGES_REQUESTED" {
+                    review_rounds += 1;
+                }
+            }
+            if let Some(sub) = rev.get("submitted_at").and_then(|s| s.as_str()) {
+                if !sub.is_empty() {
+                    match &first_review_at {
+                        None => first_review_at = Some(sub.to_string()),
+                        Some(prev) => {
+                            if sub < prev.as_str() {
+                                first_review_at = Some(sub.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (review_rounds, first_review_at)
+}
+
+pub fn parse_github_commits(commits_val: &serde_json::Value) -> u32 {
+    let mut human_commits = 0u32;
+    if let Some(arr) = commits_val.as_array() {
+        for commit in arr {
+            let is_bot = commit
+                .get("author")
+                .and_then(|a| a.get("login"))
+                .and_then(|l| l.as_str())
+                .map(|l| l.ends_with("[bot]") || l == "dependabot" || l == "renovate")
+                .unwrap_or_else(|| {
+                    commit
+                        .get("author")
+                        .and_then(|a| a.get("type"))
+                        .and_then(|t| t.as_str())
+                        .map(|t| t.eq_ignore_ascii_case("bot"))
+                        .unwrap_or(false)
+                });
+            if !is_bot {
+                human_commits += 1;
+            }
+        }
+    }
+    human_commits
+}
+
+pub fn parse_github_check_runs(runs_val: &serde_json::Value) -> (u32, bool) {
+    let mut runs_count = 0u32;
+    let mut failed_first_run = false;
+
+    let list_opt = runs_val
+        .get("check_runs")
+        .and_then(|r| r.as_array())
+        .or_else(|| runs_val.as_array());
+
+    if let Some(runs) = list_opt {
+        runs_count = runs.len() as u32;
+        for run in runs {
+            let conclusion = run.get("conclusion").and_then(|c| c.as_str()).unwrap_or("");
+            if conclusion == "failure"
+                || conclusion == "timed_out"
+                || conclusion == "cancelled"
+                || conclusion == "action_required"
+            {
+                failed_first_run = true;
+                break;
+            }
+        }
+    } else if let Some(state) = runs_val.get("state").and_then(|s| s.as_str()) {
+        runs_count = 1;
+        if state == "failure" || state == "error" {
+            failed_first_run = true;
+        }
+    }
+
+    (runs_count, failed_first_run)
+}
+
 pub struct GitHubCollector {
     pub repo: String,
     pub api_base_url: String,
@@ -237,7 +321,7 @@ pub struct GitHubCollector {
 }
 
 impl VcsCollector for GitHubCollector {
-    fn poll_prs(&self, _since: Option<&str>, _lookback_days: u32) -> Result<Vec<VcsOutcomeRecord>> {
+    fn poll_prs(&self, since: Option<&str>, _lookback_days: u32) -> Result<Vec<VcsOutcomeRecord>> {
         if self.repo.is_empty() {
             return Ok(Vec::new());
         }
@@ -253,6 +337,7 @@ impl VcsCollector for GitHubCollector {
             }
         };
 
+        let since_epoch = since.and_then(parse_timestamp_epoch_sec);
         let base = self.api_base_url.trim_end_matches('/');
         let url = format!(
             "{}/repos/{}/pulls?state=all&sort=updated&direction=desc&per_page=100",
@@ -296,6 +381,19 @@ impl VcsCollector for GitHubCollector {
         let mut outcomes = Vec::new();
 
         for item in arr {
+            let updated_at = item
+                .get("updated_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if let (Some(since_sec), Some(up_sec)) =
+                (since_epoch, parse_timestamp_epoch_sec(updated_at))
+            {
+                if up_sec <= since_sec {
+                    break;
+                }
+            }
+
             let pr_number = item.get("number").and_then(|v| v.as_u64()).unwrap_or(0);
             let pr_id = format!("gh-{}-{}", self.repo.replace('/', "-"), pr_number);
             let state_raw = item.get("state").and_then(|v| v.as_str()).unwrap_or("open");
@@ -320,9 +418,12 @@ impl VcsCollector for GitHubCollector {
             let reverted = title.to_lowercase().contains("revert");
 
             // Extract Task ID from PR body or title
-            let meta = GitProvenanceMetadata::parse(body);
-            let task_id = if !meta.task_id.is_empty() {
-                Some(meta.task_id)
+            let meta_body = GitProvenanceMetadata::parse(body);
+            let meta_title = GitProvenanceMetadata::parse(title);
+            let task_id = if !meta_body.task_id.is_empty() {
+                Some(meta_body.task_id)
+            } else if !meta_title.task_id.is_empty() {
+                Some(meta_title.task_id)
             } else {
                 None
             };
@@ -345,8 +446,9 @@ impl VcsCollector for GitHubCollector {
                 None
             };
 
-            // Optionally probe reviews for CHANGES_REQUESTED
+            // 1. Probe reviews for CHANGES_REQUESTED and first_review_at
             let mut review_rounds = 0u32;
+            let mut first_review_at = None;
             let reviews_url = format!("{}/repos/{}/pulls/{}/reviews", base, self.repo, pr_number);
             if let Ok(rev_resp) = ureq::get(&reviews_url)
                 .set("Accept", "application/vnd.github.v3+json")
@@ -355,12 +457,63 @@ impl VcsCollector for GitHubCollector {
                 .call()
             {
                 if let Ok(rev_json) = rev_resp.into_json::<serde_json::Value>() {
-                    if let Some(rev_arr) = rev_json.as_array() {
-                        for rev in rev_arr {
-                            if let Some(st) = rev.get("state").and_then(|s| s.as_str()) {
-                                if st == "CHANGES_REQUESTED" {
-                                    review_rounds += 1;
-                                }
+                    let (rounds, first_at) = parse_github_reviews(&rev_json);
+                    review_rounds = rounds;
+                    first_review_at = first_at;
+                }
+            }
+
+            // 2. Probe commits for human commits count
+            let mut human_commits_added = 0u32;
+            let commits_url = format!("{}/repos/{}/pulls/{}/commits", base, self.repo, pr_number);
+            if let Ok(com_resp) = ureq::get(&commits_url)
+                .set("Accept", "application/vnd.github.v3+json")
+                .set("User-Agent", "pa-container-software-factory")
+                .set("Authorization", &format!("Bearer {}", token))
+                .call()
+            {
+                if let Ok(com_json) = com_resp.into_json::<serde_json::Value>() {
+                    human_commits_added = parse_github_commits(&com_json);
+                }
+            }
+
+            // 3. Probe CI check runs / statuses for CI metrics
+            let mut ci_runs_count = 1u32;
+            let mut ci_failed_first_run = false;
+            let head_sha = item
+                .get("head")
+                .and_then(|h| h.get("sha"))
+                .and_then(|s| s.as_str());
+            if let Some(sha) = head_sha {
+                let check_runs_url =
+                    format!("{}/repos/{}/commits/{}/check-runs", base, self.repo, sha);
+                if let Ok(cr_resp) = ureq::get(&check_runs_url)
+                    .set("Accept", "application/vnd.github.v3+json")
+                    .set("User-Agent", "pa-container-software-factory")
+                    .set("Authorization", &format!("Bearer {}", token))
+                    .call()
+                {
+                    if let Ok(cr_json) = cr_resp.into_json::<serde_json::Value>() {
+                        let (runs, failed) = parse_github_check_runs(&cr_json);
+                        if runs > 0 {
+                            ci_runs_count = runs;
+                            ci_failed_first_run = failed;
+                        }
+                    }
+                } else {
+                    // Fallback to commit status endpoint
+                    let status_url = format!("{}/repos/{}/commits/{}/status", base, self.repo, sha);
+                    if let Ok(st_resp) = ureq::get(&status_url)
+                        .set("Accept", "application/vnd.github.v3+json")
+                        .set("User-Agent", "pa-container-software-factory")
+                        .set("Authorization", &format!("Bearer {}", token))
+                        .call()
+                    {
+                        if let Ok(st_json) = st_resp.into_json::<serde_json::Value>() {
+                            let (runs, failed) = parse_github_check_runs(&st_json);
+                            if runs > 0 {
+                                ci_runs_count = runs;
+                                ci_failed_first_run = failed;
                             }
                         }
                     }
@@ -374,12 +527,12 @@ impl VcsCollector for GitHubCollector {
                 pr_number,
                 state,
                 opened_at,
-                first_review_at: None,
+                first_review_at,
                 merged_at,
                 human_review_rounds: review_rounds,
-                human_commits_added: 0,
-                ci_runs_count: 1,
-                ci_failed_first_run: false,
+                human_commits_added,
+                ci_runs_count,
+                ci_failed_first_run,
                 reverted,
                 lead_time_sec,
                 synced_at: now_iso.clone(),
@@ -850,5 +1003,88 @@ mod tests {
         let snapshots = store.list_kr_snapshots(Some("KR-1"), 10).unwrap();
         assert_eq!(snapshots.len(), 1);
         assert!((snapshots[0].progress_pct - 50.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_parse_github_reviews_and_commits_and_check_runs() {
+        // 1. Test reviews parsing
+        let rev_json = serde_json::json!([
+            {
+                "state": "COMMENTED",
+                "submitted_at": "2026-11-20T12:00:00Z"
+            },
+            {
+                "state": "CHANGES_REQUESTED",
+                "submitted_at": "2026-11-20T10:00:00Z"
+            },
+            {
+                "state": "CHANGES_REQUESTED",
+                "submitted_at": "2026-11-20T15:00:00Z"
+            }
+        ]);
+        let (rounds, first_at) = parse_github_reviews(&rev_json);
+        assert_eq!(rounds, 2);
+        assert_eq!(first_at, Some("2026-11-20T10:00:00Z".to_string()));
+
+        // 2. Test commits parsing (human vs bot filtering)
+        let com_json = serde_json::json!([
+            {
+                "sha": "111",
+                "author": { "login": "developer-alice", "type": "User" }
+            },
+            {
+                "sha": "222",
+                "author": { "login": "dependabot[bot]", "type": "Bot" }
+            },
+            {
+                "sha": "333",
+                "author": { "login": "developer-bob", "type": "User" }
+            }
+        ]);
+        let human_commits = parse_github_commits(&com_json);
+        assert_eq!(human_commits, 2);
+
+        // 3. Test check-runs parsing with failures
+        let cr_failed = serde_json::json!({
+            "total_count": 2,
+            "check_runs": [
+                {
+                    "name": "build",
+                    "status": "completed",
+                    "conclusion": "failure"
+                },
+                {
+                    "name": "lint",
+                    "status": "completed",
+                    "conclusion": "success"
+                }
+            ]
+        });
+        let (runs, failed) = parse_github_check_runs(&cr_failed);
+        assert_eq!(runs, 2);
+        assert!(failed);
+
+        // 4. Test check-runs parsing with all success
+        let cr_success = serde_json::json!({
+            "total_count": 1,
+            "check_runs": [
+                {
+                    "name": "test",
+                    "status": "completed",
+                    "conclusion": "success"
+                }
+            ]
+        });
+        let (runs_succ, failed_succ) = parse_github_check_runs(&cr_success);
+        assert_eq!(runs_succ, 1);
+        assert!(!failed_succ);
+
+        // 5. Test commit status format
+        let status_json = serde_json::json!({
+            "state": "error"
+        });
+        let (runs_st, failed_st) = parse_github_check_runs(&status_json);
+        assert_eq!(runs_st, 1);
+        assert!(failed_st);
     }
 }

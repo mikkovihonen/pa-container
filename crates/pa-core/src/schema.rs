@@ -1731,11 +1731,8 @@ pub fn load_factory_config(path: Option<&Path>) -> Result<FactoryConfig> {
         Some(p) => Some(p.to_path_buf()),
         None => {
             let direct = PathBuf::from("factory.toml");
-            let nested = PathBuf::from(".pa-container/factory.toml");
             if direct.is_file() {
                 Some(direct)
-            } else if nested.is_file() {
-                Some(nested)
             } else {
                 None
             }

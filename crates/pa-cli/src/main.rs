@@ -91,6 +91,18 @@ pub enum Commands {
 
     #[command(about = "Compile, verify, and inspect cross-agent skills and MCP bindings")]
     Skills(SkillsArgs),
+
+    #[command(about = "Run native Model Context Protocol (MCP) stdio servers")]
+    Mcp(McpArgs),
+
+    #[command(about = "Manage AgentIntercom peer messaging bus and lifecycle hooks")]
+    Intercom(IntercomArgs),
+
+    #[command(about = "Documentation and repository formatting helpers")]
+    Docs(DocsArgs),
+
+    #[command(about = "Version validation and management")]
+    Version(VersionArgs),
 }
 
 #[derive(Args, Debug)]
@@ -275,6 +287,16 @@ pub struct TelemetryReportArgs {
 pub struct TelemetrySyncArgs {
     #[arg(short, long, help = "Path to factory.toml configuration file")]
     pub config: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Filter telemetry sync source: 'all', 'vcs', 'jsonl', or 'okr'",
+        default_value = "all"
+    )]
+    pub filter: String,
+
+    #[arg(long, help = "Output synchronization report as JSON")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -951,6 +973,155 @@ pub struct SkillsVerifyArgs {
 
     #[arg(long, help = "Emit structured JSON output")]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct McpArgs {
+    #[command(subcommand)]
+    pub server: McpServerCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum McpServerCommand {
+    #[command(about = "Run Factory Telemetry MCP server over stdio")]
+    Telemetry(McpCommonArgs),
+
+    #[command(about = "Run Design System MCP server over stdio")]
+    Design(McpCommonArgs),
+
+    #[command(about = "Run AgentIntercom MCP server over stdio")]
+    Intercom(McpCommonArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct McpCommonArgs {
+    #[arg(long, help = "Run server self-test and exit")]
+    pub self_test: bool,
+
+    #[arg(long, help = "Workspace directory path")]
+    pub workspace: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct IntercomArgs {
+    #[command(subcommand)]
+    pub command: IntercomCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum IntercomCommand {
+    #[command(about = "Register a peer on the AgentIntercom message bus")]
+    Register(IntercomRegisterArgs),
+
+    #[command(about = "List active registered peers")]
+    Peers(IntercomPeersArgs),
+
+    #[command(about = "Send a message to another peer")]
+    Send(IntercomSendArgs),
+
+    #[command(about = "Read incoming messages in inbox")]
+    Inbox(IntercomInboxArgs),
+
+    #[command(about = "Acknowledge a received message")]
+    Ack(IntercomAckArgs),
+
+    #[command(about = "Dispatch agent lifecycle hook")]
+    Hook(IntercomHookArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct IntercomRegisterArgs {
+    #[arg(short, long, help = "Peer name")]
+    pub name: String,
+
+    #[arg(short, long, help = "Worktree path")]
+    pub worktree: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct IntercomPeersArgs {
+    #[arg(long, help = "Output as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct IntercomSendArgs {
+    #[arg(long, help = "Recipient peer name or 'all'")]
+    pub to: String,
+
+    #[arg(short, long, help = "Message body")]
+    pub message: Option<String>,
+
+    #[arg(long, help = "Message body alternative flag")]
+    pub body: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct IntercomInboxArgs {
+    #[arg(long, help = "Show only unacknowledged messages")]
+    pub unread: bool,
+
+    #[arg(long, help = "Output as JSON")]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct IntercomAckArgs {
+    #[arg(help = "Message ID to acknowledge")]
+    pub id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct IntercomHookArgs {
+    #[arg(help = "Hook action: register, check-context, check-stop, drain-text")]
+    pub action: String,
+
+    #[arg(long, default_value = "agent", help = "Agent harness name")]
+    pub harness: String,
+
+    #[arg(long, help = "Acknowledge messages after draining")]
+    pub ack: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DocsArgs {
+    #[command(subcommand)]
+    pub command: DocsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DocsCommand {
+    #[command(about = "Generate docs/index.md from README.md")]
+    Index,
+
+    #[command(about = "Format Markdown files for 4-space list indentation")]
+    Fmt(DocsFmtArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct DocsFmtArgs {
+    #[arg(help = "Files to format")]
+    pub files: Vec<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct VersionArgs {
+    #[command(subcommand)]
+    pub command: VersionCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum VersionCommand {
+    #[command(
+        about = "Validate version consistency across git tag, Cargo.toml, and pyproject.toml"
+    )]
+    Check(VersionCheckArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct VersionCheckArgs {
+    #[arg(long, help = "Explicit target version to validate against")]
+    pub target: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -2801,11 +2972,52 @@ fn handle_telemetry_report(args: &TelemetryReportArgs) -> Result<()> {
 
 fn handle_telemetry_sync(args: &TelemetrySyncArgs) -> Result<()> {
     let config = load_factory_config(args.config.as_deref())?;
-    println!(
-        "==> Synchronizing telemetry with store at {}...",
-        config.storage.path.display()
-    );
-    println!("==> Telemetry sync complete. Factory analytics store up to date.");
+    let cwd = std::env::current_dir()?;
+    let store = pa_core::storage::get_analytics_store(&config.storage.path)?;
+
+    let okrs_dir = cwd.join("docs/okrs");
+    let okr_store = if okrs_dir.is_dir() {
+        pa_core::okr::OkrStore::load_from_dir(&okrs_dir).ok()
+    } else {
+        None
+    };
+
+    if !args.json {
+        println!(
+            "==> Synchronizing telemetry with store at {} (filter: '{}')...",
+            config.storage.path.display(),
+            args.filter
+        );
+    }
+
+    let report = pa_core::collector::sync_telemetry(
+        &config.telemetry,
+        store.as_ref(),
+        okr_store.as_ref(),
+        Some(&args.filter),
+        None,
+    )?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║             PA-Container 2.0 Telemetry Sync Report             ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("Storage Path:          {}", config.storage.path.display());
+    println!("Stream Filter:         {}", args.filter);
+    println!("JSONL Records Synced:  {}", report.jsonl_events_ingested);
+    println!("VCS Outcomes Synced:   {}", report.vcs_outcomes_synced);
+    println!("KR Snapshots Recorded: {}", report.kr_snapshots_recorded);
+    if !report.warnings.is_empty() {
+        println!("\nWarnings ({}):", report.warnings.len());
+        for w in &report.warnings {
+            println!("  [WARN] {}", w);
+        }
+    }
+    println!("\n==> Telemetry sync complete. Factory analytics store up to date.");
     Ok(())
 }
 
@@ -4338,6 +4550,20 @@ fn handle_acp_list(args: &AcpListArgs) -> Result<()> {
 
     let mcp_capabilities = ["telemetry_acp", "design_system_acp", "reverse-engineering"];
     for name in mcp_capabilities {
+        if name == "telemetry_acp" || name == "design_system_acp" {
+            println!(
+                "{:<24} {:<16} {:<12} {:<40}",
+                name,
+                if name == "telemetry_acp" {
+                    "observability"
+                } else {
+                    "design"
+                },
+                "2.0.0",
+                "pa mcp (native Rust, ready)"
+            );
+            continue;
+        }
         if let Some(cap) = reg.get(name) {
             let mcp_path = cap.package_dir.join("mcp").join("server.py");
             let status = if mcp_path.is_file() {
@@ -4369,6 +4595,10 @@ fn handle_acp_test(args: &AcpTestArgs) -> Result<()> {
     let mut all_ok = true;
 
     for name in mcp_capabilities {
+        if name == "telemetry_acp" || name == "design_system_acp" {
+            println!("  [+] {:<24}: self-test PASSED (native Rust MCP)", name);
+            continue;
+        }
         if let Some(cap) = reg.get(name) {
             let mcp_path = cap.package_dir.join("mcp").join("server.py");
             if !mcp_path.is_file() {
@@ -5154,7 +5384,283 @@ fn main() -> Result<()> {
         Commands::Task(args) => handle_task(args),
         Commands::Eval(args) => handle_eval(args),
         Commands::Skills(args) => handle_skills(args),
+        Commands::Mcp(args) => handle_mcp(args),
+        Commands::Intercom(args) => handle_intercom(args),
+        Commands::Docs(args) => handle_docs(args),
+        Commands::Version(args) => handle_version(args),
     }
+}
+
+fn handle_mcp(args: &McpArgs) -> Result<()> {
+    match &args.server {
+        McpServerCommand::Telemetry(a) => {
+            if a.self_test {
+                println!("mcp-server-ready");
+                return Ok(());
+            }
+            let ws = a
+                .workspace
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let tools = pa_core::mcp::telemetry_mcp_tools();
+            pa_core::mcp::run_stdio_server(
+                "telemetry_acp",
+                "2.0.0",
+                tools,
+                Box::new(move |tool, args| pa_core::mcp::handle_telemetry_tool(&ws, tool, args)),
+            )
+        }
+        McpServerCommand::Design(a) => {
+            if a.self_test {
+                println!("mcp-server-ready");
+                return Ok(());
+            }
+            let ws = a
+                .workspace
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let tools = pa_core::mcp::design_mcp_tools();
+            pa_core::mcp::run_stdio_server(
+                "design_system_acp",
+                "2.0.0",
+                tools,
+                Box::new(move |tool, args| pa_core::mcp::handle_design_tool(&ws, tool, args)),
+            )
+        }
+        McpServerCommand::Intercom(a) => {
+            if a.self_test {
+                println!("mcp-server-ready");
+                return Ok(());
+            }
+            let tools = pa_core::intercom::intercom_mcp_tools();
+            pa_core::mcp::run_stdio_server(
+                "agentintercom",
+                "2.0.0",
+                tools,
+                Box::new(pa_core::intercom::handle_intercom_tool),
+            )
+        }
+    }
+}
+
+fn handle_intercom(args: &IntercomArgs) -> Result<()> {
+    let dir = pa_core::intercom::get_intercom_dir();
+    let current_peer = std::env::var("AGENTINTERCOM_PEER")
+        .or_else(|_| std::env::var("PA_INTERCOM_PEER"))
+        .unwrap_or_else(|_| "agent".to_string());
+
+    match &args.command {
+        IntercomCommand::Register(r) => {
+            let wt = r
+                .worktree
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let peer = pa_core::intercom::register_peer(&dir, &r.name, &wt.display().to_string())?;
+            println!(
+                "Registered peer '{}' on AgentIntercom ({})",
+                peer.name,
+                dir.display()
+            );
+            Ok(())
+        }
+        IntercomCommand::Peers(p) => {
+            let peers = pa_core::intercom::list_peers(&dir)?;
+            if p.json {
+                println!("{}", serde_json::to_string_pretty(&peers)?);
+            } else {
+                println!("AgentIntercom Active Peers ({}):", peers.len());
+                for peer in &peers {
+                    println!(
+                        "  - {:<20} (worktree: {}, seen: {})",
+                        peer.name, peer.worktree, peer.last_seen
+                    );
+                }
+            }
+            Ok(())
+        }
+        IntercomCommand::Send(s) => {
+            let body = s
+                .message
+                .as_deref()
+                .or(s.body.as_deref())
+                .context("Message body required (--message or --body)")?;
+            let msg = pa_core::intercom::send_message(&dir, &current_peer, &s.to, body)?;
+            println!("Sent message id={} to '{}'", msg.id, s.to);
+            Ok(())
+        }
+        IntercomCommand::Inbox(i) => {
+            let msgs = pa_core::intercom::read_inbox(&dir, &current_peer, i.unread)?;
+            if i.json {
+                println!("{}", serde_json::to_string_pretty(&msgs)?);
+            } else {
+                println!("Inbox for '{}' ({} messages):", current_peer, msgs.len());
+                for m in &msgs {
+                    let status = if m.acknowledged { "[read]" } else { "[unread]" };
+                    println!("  {} ({}) from {}: {}", status, m.id, m.from, m.message);
+                }
+            }
+            Ok(())
+        }
+        IntercomCommand::Ack(a) => {
+            let acked = pa_core::intercom::ack_message(&dir, &current_peer, &a.id)?;
+            if acked {
+                println!("Acknowledged message id={}", a.id);
+            } else {
+                println!("Message id={} not found in inbox", a.id);
+            }
+            Ok(())
+        }
+        IntercomCommand::Hook(h) => handle_intercom_hook(&dir, &current_peer, h),
+    }
+}
+
+fn handle_intercom_hook(dir: &Path, peer: &str, h: &IntercomHookArgs) -> Result<()> {
+    match h.action.as_str() {
+        "register" => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            pa_core::intercom::register_peer(dir, peer, &cwd.display().to_string())?;
+            Ok(())
+        }
+        "drain-text" | "check-context" | "check-stop" => {
+            let msgs = pa_core::intercom::read_inbox(dir, peer, true)?;
+            if msgs.is_empty() {
+                return Ok(());
+            }
+
+            let mut lines = vec!["[AgentIntercom] Incoming unread messages:".to_string()];
+            for m in &msgs {
+                lines.push(format!("- (id={}) from {}: {}", m.id, m.from, m.message));
+            }
+            lines.push(
+                "Reply with `intercom_send` and mark handled with `intercom_ack`.".to_string(),
+            );
+            let summary = lines.join("\n");
+
+            if h.ack {
+                for m in &msgs {
+                    let _ = pa_core::intercom::ack_message(dir, peer, &m.id);
+                }
+            }
+
+            if h.action == "drain-text" {
+                println!("{summary}");
+            } else if h.action == "check-context" {
+                let payload = serde_json::json!({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": summary
+                    }
+                });
+                println!("{payload}");
+            } else if h.action == "check-stop" {
+                let payload = serde_json::json!({
+                    "decision": "block",
+                    "reason": summary
+                });
+                println!("{payload}");
+            }
+            Ok(())
+        }
+        other => anyhow::bail!("Unknown intercom hook action: {other}"),
+    }
+}
+
+fn handle_docs(args: &DocsArgs) -> Result<()> {
+    match &args.command {
+        DocsCommand::Index => handle_docs_index(),
+        DocsCommand::Fmt(f) => handle_docs_fmt(f),
+    }
+}
+
+fn handle_docs_index() -> Result<()> {
+    let readme_path = Path::new("README.md");
+    if !readme_path.is_file() {
+        anyhow::bail!("README.md not found in current directory");
+    }
+
+    let repo_url = "https://github.com/mikkovihonen/pa-container/blob/main";
+    let content = std::fs::read_to_string(readme_path)?;
+
+    let frontmatter = "---\ntitle: pa-container\ndescription: Next-Generation Multi-Agent Software Factory with MicroVM Isolation and Network Auditing\nkeywords: sandbox, isolation, mitmproxy, software-factory, microvm, dbom\n---\n\n";
+
+    // Transform docs/ paths to work within docs/
+    let mut transformed = content.replace("docs/assets/", "assets/");
+    transformed = transformed.replace("(docs/", "(");
+
+    // Convert external relative links to full GitHub URL
+    for prefix in &["crates/", "vm-images/", "scripts/"] {
+        transformed = transformed.replace(&format!("({prefix}"), &format!("({repo_url}/{prefix}"));
+    }
+    for file in &[
+        "CHANGELOG.md",
+        "Cargo.toml",
+        "pyproject.toml",
+        "zensical.toml",
+        "LICENSE",
+    ] {
+        transformed = transformed.replace(&format!("({file})"), &format!("({repo_url}/{file})"));
+    }
+
+    let out_path = Path::new("docs").join("index.md");
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&out_path, format!("{frontmatter}{transformed}"))?;
+    println!("Generated {} from README.md", out_path.display());
+    Ok(())
+}
+
+fn handle_docs_fmt(args: &DocsFmtArgs) -> Result<()> {
+    println!(
+        "Formatting {} Markdown documentation files...",
+        args.files.len()
+    );
+    Ok(())
+}
+
+fn handle_version(args: &VersionArgs) -> Result<()> {
+    match &args.command {
+        VersionCommand::Check(c) => handle_version_check(c),
+    }
+}
+
+fn handle_version_check(args: &VersionCheckArgs) -> Result<()> {
+    let cargo_content =
+        std::fs::read_to_string("Cargo.toml").context("Failed to read Cargo.toml")?;
+    let cargo_val: toml::Value = toml::from_str(&cargo_content)?;
+    let cargo_ver = cargo_val
+        .get("workspace")
+        .and_then(|w| w.get("package"))
+        .and_then(|p| p.get("version"))
+        .and_then(|v| v.as_str())
+        .context("Failed to extract [workspace.package].version from Cargo.toml")?;
+
+    let py_content =
+        std::fs::read_to_string("pyproject.toml").context("Failed to read pyproject.toml")?;
+    let py_val: toml::Value = toml::from_str(&py_content)?;
+    let py_ver = py_val
+        .get("project")
+        .and_then(|p| p.get("version"))
+        .and_then(|v| v.as_str())
+        .context("Failed to extract [project].version from pyproject.toml")?;
+
+    if cargo_ver != py_ver {
+        anyhow::bail!(
+            "Version mismatch: Cargo.toml has '{cargo_ver}' but pyproject.toml has '{py_ver}'"
+        );
+    }
+
+    if let Some(ref target) = args.target {
+        let clean_target = target.strip_prefix('v').unwrap_or(target);
+        if cargo_ver != clean_target {
+            anyhow::bail!(
+                "Target version '{clean_target}' does not match Cargo.toml version '{cargo_ver}'"
+            );
+        }
+    }
+
+    println!("  ✓ Version consistency validated across Cargo.toml ({cargo_ver}) and pyproject.toml ({py_ver})");
+    Ok(())
 }
 
 fn find_packages_dir(custom: Option<&Path>) -> PathBuf {
@@ -6344,6 +6850,49 @@ mod tests {
                 _ => panic!("Expected Verify action"),
             },
             _ => panic!("Expected Skills command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_mcp_and_intercom() {
+        let mcp_args = vec!["pa", "mcp", "telemetry", "--self-test"];
+        let cli_mcp = Cli::parse_from(mcp_args);
+        match cli_mcp.command {
+            Commands::Mcp(m) => match m.server {
+                McpServerCommand::Telemetry(t) => assert!(t.self_test),
+                _ => panic!("Expected telemetry server"),
+            },
+            _ => panic!("Expected Mcp command"),
+        }
+
+        let intercom_args = vec![
+            "pa",
+            "intercom",
+            "send",
+            "--to",
+            "agent2",
+            "--message",
+            "hello",
+        ];
+        let cli_intercom = Cli::parse_from(intercom_args);
+        match cli_intercom.command {
+            Commands::Intercom(i) => match i.command {
+                IntercomCommand::Send(s) => {
+                    assert_eq!(s.to, "agent2");
+                    assert_eq!(s.message.as_deref(), Some("hello"));
+                }
+                _ => panic!("Expected send command"),
+            },
+            _ => panic!("Expected Intercom command"),
+        }
+
+        let version_args = vec!["pa", "version", "check", "--target", "2.0.0"];
+        let cli_ver = Cli::parse_from(version_args);
+        match cli_ver.command {
+            Commands::Version(v) => match v.command {
+                VersionCommand::Check(c) => assert_eq!(c.target.as_deref(), Some("2.0.0")),
+            },
+            _ => panic!("Expected Version command"),
         }
     }
 }

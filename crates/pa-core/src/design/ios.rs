@@ -39,35 +39,59 @@ pub fn evaluate_ios_platform(
 
     let is_darwin = cfg!(target_os = "macos");
 
-    if (!has_simctl || !is_darwin) && config.on_missing_platform.eq_ignore_ascii_case("block") {
-        return Ok(IosEvaluationResult {
-            gate_result: PlatformGateResult {
-                platform: "ios".to_string(),
-                status: "failed".to_string(),
-                message: "iOS verification enabled but 'simctl' / Xcode CLI is not available."
-                    .to_string(),
-                details: vec![
-                    "Prerequisite failed (on_missing_platform = 'block'): Xcode command line tools required."
-                        .to_string(),
-                ],
-            },
-            a11y_violations: Vec::new(),
-            visual_diff_failures: Vec::new(),
-        });
-    }
+    // Check for pre-existing report files
+    let a11y_file = root.join("target/ios-a11y-results.json");
+    let a11y_file_pa = root.join(".pa/reports/ios-a11y.json");
+    let a11y_path = if a11y_file.is_file() {
+        Some(a11y_file)
+    } else if a11y_file_pa.is_file() {
+        Some(a11y_file_pa)
+    } else {
+        None
+    };
 
-    if !has_simctl || !is_darwin {
-        return Ok(IosEvaluationResult {
-            gate_result: PlatformGateResult {
-                platform: "ios".to_string(),
-                status: "skipped".to_string(),
-                message: "iOS verification skipped: 'simctl' / Xcode CLI is not available."
-                    .to_string(),
-                details: Vec::new(),
-            },
-            a11y_violations: Vec::new(),
-            visual_diff_failures: Vec::new(),
-        });
+    let visual_file = root.join("target/ios-visual-diff-results.json");
+    let visual_file_pa = root.join(".pa/reports/ios-visual-diff.json");
+    let visual_path = if visual_file.is_file() {
+        Some(visual_file)
+    } else if visual_file_pa.is_file() {
+        Some(visual_file_pa)
+    } else {
+        None
+    };
+
+    let has_reports = a11y_path.is_some() || visual_path.is_some();
+    let has_commands = config.a11y_command.is_some() || config.visual_diff_command.is_some();
+
+    if (!has_simctl || !is_darwin) && !has_reports && !has_commands {
+        if config.on_missing_platform.eq_ignore_ascii_case("block") {
+            return Ok(IosEvaluationResult {
+                gate_result: PlatformGateResult {
+                    platform: "ios".to_string(),
+                    status: "failed".to_string(),
+                    message: "iOS verification enabled but 'simctl' / Xcode CLI is not available."
+                        .to_string(),
+                    details: vec![
+                        "Prerequisite failed (on_missing_platform = 'block'): Xcode command line tools required."
+                            .to_string(),
+                    ],
+                },
+                a11y_violations: Vec::new(),
+                visual_diff_failures: Vec::new(),
+            });
+        } else {
+            return Ok(IosEvaluationResult {
+                gate_result: PlatformGateResult {
+                    platform: "ios".to_string(),
+                    status: "skipped".to_string(),
+                    message: "iOS verification skipped: 'simctl' / Xcode CLI is not available."
+                        .to_string(),
+                    details: Vec::new(),
+                },
+                a11y_violations: Vec::new(),
+                visual_diff_failures: Vec::new(),
+            });
+        }
     }
 
     let mut a11y_violations = Vec::new();
@@ -82,7 +106,12 @@ pub fn evaluate_ios_platform(
 
         // Inject proxy environment variables for proxy isolation
         cmd.env("SIMCTL_CHILD_HTTP_PROXY", "http://127.0.0.1:8080")
-            .env("SIMCTL_CHILD_HTTPS_PROXY", "http://127.0.0.1:8080");
+            .env("SIMCTL_CHILD_HTTPS_PROXY", "http://127.0.0.1:8080")
+            .env("HTTP_PROXY", "http://127.0.0.1:8080")
+            .env("HTTPS_PROXY", "http://127.0.0.1:8080")
+            .env("http_proxy", "http://127.0.0.1:8080")
+            .env("https_proxy", "http://127.0.0.1:8080")
+            .env("PA_BASELINE_DIR", &config.baseline_dir);
 
         if let Ok(o) = cmd.output() {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -92,17 +121,6 @@ pub fn evaluate_ios_platform(
             a11y_violations.extend(parsed);
         }
     }
-
-    // Check for pre-existing report files
-    let a11y_file = root.join("target/ios-a11y-results.json");
-    let a11y_file_pa = root.join(".pa/reports/ios-a11y.json");
-    let a11y_path = if a11y_file.is_file() {
-        Some(a11y_file)
-    } else if a11y_file_pa.is_file() {
-        Some(a11y_file_pa)
-    } else {
-        None
-    };
 
     if let Some(p) = a11y_path {
         if let Ok(content) = fs::read_to_string(&p) {
@@ -128,7 +146,13 @@ pub fn evaluate_ios_platform(
     if let Some(ref cmd_str) = config.visual_diff_command {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(cmd_str).current_dir(root);
-        cmd.env("SIMCTL_CHILD_HTTP_PROXY", "http://127.0.0.1:8080");
+        cmd.env("SIMCTL_CHILD_HTTP_PROXY", "http://127.0.0.1:8080")
+            .env("SIMCTL_CHILD_HTTPS_PROXY", "http://127.0.0.1:8080")
+            .env("HTTP_PROXY", "http://127.0.0.1:8080")
+            .env("HTTPS_PROXY", "http://127.0.0.1:8080")
+            .env("http_proxy", "http://127.0.0.1:8080")
+            .env("https_proxy", "http://127.0.0.1:8080")
+            .env("PA_BASELINE_DIR", &config.baseline_dir);
 
         if let Ok(o) = cmd.output() {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -136,16 +160,6 @@ pub fn evaluate_ios_platform(
             visual_diff_failures.extend(parsed);
         }
     }
-
-    let visual_file = root.join("target/ios-visual-diff-results.json");
-    let visual_file_pa = root.join(".pa/reports/ios-visual-diff.json");
-    let visual_path = if visual_file.is_file() {
-        Some(visual_file)
-    } else if visual_file_pa.is_file() {
-        Some(visual_file_pa)
-    } else {
-        None
-    };
 
     if let Some(p) = visual_path {
         if let Ok(content) = fs::read_to_string(&p) {
